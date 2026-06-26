@@ -107,53 +107,6 @@ store, search, remind, chat
       return { response: getDefaultResponse(intent) };
     }
   });
-
-  /**
-   * POST /api/stt/transcribe
-   * Proxy STT transcription — accepts audio file, returns text
-   * Uses Whisper-compatible API
-   */
-  fastify.post("/stt/transcribe", async (request, reply) => {
-    // In the actual implementation, this would forward to Whisper API
-    // For Phase 1, we'll use the LLM proxy's transcription endpoint if available
-    try {
-      const data = await request.file();
-      if (!data) {
-        return reply.status(400).send({ error: "No audio file provided" });
-      }
-
-      // Read file buffer
-      const buffer = await data.toBuffer();
-
-      // Forward to Whisper-compatible endpoint
-      const formData = new FormData();
-      const blob = new Blob([new Uint8Array(buffer)], { type: "audio/m4a" });
-      formData.append("file", blob, "audio.m4a");
-      formData.append("model", "whisper-1");
-      formData.append("language", "zh");
-
-      const response = await fetch(`${config.llm.baseUrl}/audio/transcriptions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${config.llm.apiKey}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Transcription failed: ${response.status}`);
-      }
-
-      const result = await response.json();
-      return { text: result.text || "" };
-    } catch (error: any) {
-      fastify.log.error(error, "STT transcription failed");
-      return reply.status(500).send({
-        error: "Transcription failed",
-        details: error.message,
-      });
-    }
-  });
 }
 
 /**

@@ -7,6 +7,8 @@ import { visionRoutes } from "./routes/vision.js";
 import { memoryRoutes } from "./routes/memory.js";
 import { streamRoutes } from "./routes/stream.js";
 import { llmRoutes } from "./routes/llm.js";
+import { ttsRoutes } from "./routes/tts.js";
+import { sttRoutes } from "./routes/stt.js";
 
 const server = Fastify({ logger: true });
 
@@ -20,6 +22,8 @@ async function main() {
   await server.register(memoryRoutes, { prefix: "/api/memory" });
   await server.register(streamRoutes, { prefix: "/ws" });
   await server.register(llmRoutes, { prefix: "/api/llm" });
+  await server.register(ttsRoutes, { prefix: "/api/tts" });
+  await server.register(sttRoutes, { prefix: "/api/stt" });
 
   // Health check
   server.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));

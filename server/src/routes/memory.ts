@@ -1,24 +1,21 @@
 import { FastifyInstance } from "fastify";
 import { Memory } from "mem0ai/oss";
+import path from "path";
 import { config } from "../config.js";
 
-// Lazy Mem0 initialization — defer until first use
+// Mem0 initialization — uses local SQLite vector store (no external DB needed)
 let memory: Memory | null = null;
-let initError: string | null = null;
 
 function getMemory(): Memory {
-  if (initError) {
-    throw new Error(`Mem0 not available: ${initError}`);
-  }
   if (!memory) {
+    const dbPath = path.resolve(process.cwd(), "data", "memories.db");
     memory = new Memory({
       vectorStore: {
-        provider: "supabase",
+        provider: "memory",
         config: {
-          supabaseUrl: config.supabase.url,
-          supabaseKey: config.supabase.serviceRoleKey,
-          tableName: "memories",
-          embeddingColumnName: "embedding",
+          collectionName: "looi_memories",
+          dimension: 1536,
+          dbPath,
         },
       },
       llm: {
@@ -35,6 +32,12 @@ function getMemory(): Memory {
           apiKey: config.llm.apiKey,
           model: config.llm.embeddingModel,
           baseURL: config.llm.baseUrl,
+        },
+      },
+      historyStore: {
+        provider: "sqlite",
+        config: {
+          historyDbPath: path.resolve(process.cwd(), "data", "history.db"),
         },
       },
     });

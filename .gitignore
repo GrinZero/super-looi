@@ -41,6 +41,9 @@ yarn-error.*
 /ios
 /android
 
+# Server data (SQLite DBs)
+server/data/*.db
+
 # Server build
 server/dist/
 

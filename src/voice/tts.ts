@@ -35,7 +35,7 @@ export class TTSService {
 
     try {
       const response = await fetch(
-        `${MINIMAX_TTS_URL}?GroupId=${this.groupId}`,
+        MINIMAX_TTS_URL,
         {
           method: "POST",
           headers: {
@@ -71,11 +71,24 @@ export class TTSService {
         throw new Error(`TTS error: ${data.base_resp?.status_msg || "unknown"}`);
       }
 
-      // data.data.audio is base64 encoded audio
-      const audioBase64 = data.data?.audio;
-      if (!audioBase64) {
+      // data.data.audio is hex-encoded MP3 audio
+      const audioHex = data.data?.audio;
+      if (!audioHex) {
         throw new Error("No audio data in TTS response");
       }
+
+      // Convert hex to base64 for audio URI
+      const hexToBase64 = (hex: string): string => {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+          bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+        }
+        // In React Native, we can use btoa or a polyfill
+        const binary = String.fromCharCode(...bytes);
+        return btoa(binary);
+      };
+
+      const audioBase64 = hexToBase64(audioHex);
 
       // Create audio from base64
       const audioUri = `data:audio/mp3;base64,${audioBase64}`;
