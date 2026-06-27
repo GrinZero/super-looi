@@ -13,12 +13,16 @@ const DEFAULT_SPEAKER_MODEL_DIR = "sherpa-onnx/speaker-id/looi";
 const DEFAULT_SPEAKER_MODEL_FILE = "model.onnx";
 const DEFAULT_KEYWORDS_FILE = "keywords.txt";
 const DEFAULT_SAMPLE_RATE = 16000;
+const DEFAULT_KWS_ENCODER_FILE = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx";
+const DEFAULT_KWS_DECODER_FILE = "decoder-epoch-12-avg-2-chunk-16-left-64.onnx";
+const DEFAULT_KWS_JOINER_FILE = "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx";
+const DEFAULT_KWS_TOKENS_FILE = "tokens.txt";
 const ASR_REQUIRED_FILES = [DEFAULT_STT_MODEL_FILE, DEFAULT_STT_TOKENS_FILE];
 const KWS_REQUIRED_FILES = [
-  "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
-  "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
-  "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
-  "tokens.txt",
+  DEFAULT_KWS_ENCODER_FILE,
+  DEFAULT_KWS_DECODER_FILE,
+  DEFAULT_KWS_JOINER_FILE,
+  DEFAULT_KWS_TOKENS_FILE,
   DEFAULT_KEYWORDS_FILE,
 ];
 const SPEAKER_REQUIRED_FILES = [DEFAULT_SPEAKER_MODEL_FILE];
@@ -79,6 +83,12 @@ export function getSherpaKwsConfig(): KWSModelConfig {
     modelType: env("EXPO_PUBLIC_SHERPA_KWS_MODEL_TYPE", "zipformer2"),
     numThreads: parseIntEnv("EXPO_PUBLIC_SHERPA_NUM_THREADS", 2),
     provider: "cpu",
+    modelFiles: {
+      encoder: env("EXPO_PUBLIC_SHERPA_KWS_ENCODER_FILE", DEFAULT_KWS_ENCODER_FILE),
+      decoder: env("EXPO_PUBLIC_SHERPA_KWS_DECODER_FILE", DEFAULT_KWS_DECODER_FILE),
+      joiner: env("EXPO_PUBLIC_SHERPA_KWS_JOINER_FILE", DEFAULT_KWS_JOINER_FILE),
+      tokens: env("EXPO_PUBLIC_SHERPA_KWS_TOKENS_FILE", DEFAULT_KWS_TOKENS_FILE),
+    },
   };
 }
 

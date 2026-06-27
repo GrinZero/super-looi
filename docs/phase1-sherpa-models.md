@@ -12,11 +12,21 @@ Run:
 bash scripts/download-sherpa-models.sh
 ```
 
+Tooling used for the current local download:
+
+```bash
+python3 -m venv .venv-sherpa-tools
+.venv-sherpa-tools/bin/python -m pip install -U pip huggingface_hub sherpa-onnx sentencepiece pypinyin
+PATH="$PWD/.venv-sherpa-tools/bin:$PATH" bash scripts/download-sherpa-models.sh
+```
+
 Expected files:
 
 - SenseVoice: `model.int8.onnx`, `tokens.txt`
-- KWS: `encoder-epoch-12-avg-2-chunk-16-left-64.onnx`, `decoder-epoch-12-avg-2-chunk-16-left-64.onnx`, `joiner-epoch-12-avg-2-chunk-16-left-64.onnx`, `tokens.txt`, `keywords.txt`
+- KWS: `encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx`, `decoder-epoch-12-avg-2-chunk-16-left-64.onnx`, `joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx`, `tokens.txt`, `keywords.txt`
 - Speaker ID: `model.onnx`
+
+The script downloads SenseVoice from Hugging Face and the mobile KWS/Speaker assets from the official `k2-fsa/sherpa-onnx` GitHub releases.
 
 `@siteed/sherpa-onnx.rn` expects `keywordsFile` to be relative to `modelDir`, so `EXPO_PUBLIC_SHERPA_KEYWORDS_FILE` must stay `keywords.txt`.
 
@@ -30,9 +40,9 @@ Before device validation, copy `app-models/sherpa-onnx/` into the app document d
 
 - `<documentDirectory>/sherpa-onnx/asr/sensevoice/model.int8.onnx`
 - `<documentDirectory>/sherpa-onnx/asr/sensevoice/tokens.txt`
-- `<documentDirectory>/sherpa-onnx/kws/looi/encoder-epoch-12-avg-2-chunk-16-left-64.onnx`
+- `<documentDirectory>/sherpa-onnx/kws/looi/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx`
 - `<documentDirectory>/sherpa-onnx/kws/looi/decoder-epoch-12-avg-2-chunk-16-left-64.onnx`
-- `<documentDirectory>/sherpa-onnx/kws/looi/joiner-epoch-12-avg-2-chunk-16-left-64.onnx`
+- `<documentDirectory>/sherpa-onnx/kws/looi/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx`
 - `<documentDirectory>/sherpa-onnx/kws/looi/tokens.txt`
 - `<documentDirectory>/sherpa-onnx/kws/looi/keywords.txt`
 - `<documentDirectory>/sherpa-onnx/speaker-id/looi/model.onnx`
