@@ -49,11 +49,13 @@ type MemoryMessage = Array<{ role: string; content: string }>;
 
 export async function addMemory(
   messages: MemoryMessage,
-  metadata?: Record<string, any>
+  metadata?: Record<string, any>,
+  options?: { infer?: boolean }
 ): Promise<unknown> {
   return getMemory().add(messages, {
     userId: USER_ID,
     metadata: metadata || {},
+    infer: options?.infer,
   });
 }
 

@@ -7,8 +7,8 @@
 | # | 标准 | 实际状态 | 证据 / 剩余项 |
 |---|------|----------|---------------|
 | 1 | 语音记事 → 确认 | ✅ | Docker PG + pgvector 已实跑；memory add/search/getAll 通过 |
-| 2 | "记住这个放这了" → 截帧+证据 | ⏳ | evidence + observe 路由、App 相机帧联动已接；还需本地 vision server 实跑 |
-| 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | search 消息与 MemoryCard/ChatBubble 已支持 evidenceUri 图片；还需真实检索数据验证 |
+| 2 | "记住这个放这了" → 截帧+证据 | ⏳ | 服务端真实 E2E 已通过：MiniCPM-V 描述 + evidence URL + memory 写入；还需 App 设备端手动验证 |
+| 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | 真实检索已返回视觉记忆和 evidenceUri；记忆列表/对话页真实图片加载还需设备端验证 |
 | 4 | 日历提醒推送 | ⏳ | bootstrapApp 已接 CalendarPerceiver → ReminderScheduler；还需设备权限和通知实测 |
 | 5 | 不确定时说"我不记得" | ✅ | LLM search 无 facts prompt 明确禁止编造；根/服务端 TypeScript 通过 |
 | 6 | 全程免手操作(唤醒词) | ⏳ | JS 已接 native KWS/Speaker API 且不再自动通过；还需原生实现和验证音频采样 |
@@ -35,15 +35,16 @@
 - [x] 创建 `server/scripts/download-vision-model.sh`
 - [x] `server/src/routes/vision.ts` 改为调用 local llama.cpp server
 - [x] 创建 `server/src/vision/scene-analyzer.ts`
-- [ ] 编译/安装 llama.cpp
-- [ ] 下载 MiniCPM-V 2.6 GGUF + mmproj
-- [ ] 实跑 `/api/vision/describe`
+- [x] 编译/安装 llama.cpp
+- [x] 下载 MiniCPM-V 2.6 GGUF + mmproj
+- [x] 实跑 `/api/vision/describe`
 
 ## Step 4: 服务器 — Voice + Camera 联合路由
 - [x] 创建 `server/src/routes/observe.ts`
 - [x] 注册 `/api/observe/voice-visual`
 - [x] 流程包含 vision 描述、证据图保存、memory.add、确认回复
-- [ ] transcript + image 端到端实跑
+- [x] transcript + image 端到端实跑
+- [x] `memory.add(..., { infer: false })` 固定保存视觉观察，避免 Mem0 推理后丢弃非事实文本
 
 ## Step 5: APP 端 — Voice + Camera 联动
 - [x] `src/server-api/client.ts` 新增 `observeService.voiceVisual()`
@@ -80,9 +81,11 @@
 - [ ] `server/tests/memory.test.ts`
 - [ ] `server/tests/llm.test.ts`
 - [ ] `server/tests/vision.test.ts`
-- [ ] `server/tests/observe.test.ts`
+- [x] `server/tests/evidence.test.ts`
+- [x] `server/tests/observe.test.ts`
 - [x] `pnpm exec tsc --noEmit`
 - [x] `cd server && pnpm build`
+- [x] `cd server && pnpm test`
 - [ ] APP 手动冒烟测试：纯语音、视觉记事、检索+证据、日历提醒、KWS+声纹、iOS+Android
 
 ## Step 10: 清理 + 验收

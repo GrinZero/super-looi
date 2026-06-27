@@ -12,9 +12,9 @@ import { sttRoutes } from "./routes/stt.js";
 import { evidenceRoutes } from "./routes/evidence.js";
 import { observeRoutes } from "./routes/observe.js";
 
-const server = Fastify({ logger: true });
+export async function buildServer(options: { logger?: boolean } = {}) {
+  const server = Fastify({ logger: options.logger ?? true });
 
-async function main() {
   await server.register(cors, { origin: true });
   await server.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
   await server.register(websocket);
@@ -32,6 +32,11 @@ async function main() {
   // Health check
   server.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
 
+  return server;
+}
+
+async function main() {
+  const server = await buildServer();
   const port = parseInt(process.env.PORT || "8080", 10);
   const host = process.env.HOST || "0.0.0.0";
 
@@ -39,7 +44,9 @@ async function main() {
   console.log(`🚀 LOOI Server running at http://${host}:${port}`);
 }
 
-main().catch((err) => {
-  server.log.error(err);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

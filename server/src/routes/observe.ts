@@ -9,7 +9,15 @@ const openai = new OpenAI({
   apiKey: config.llm.apiKey,
 });
 
-async function describeImage(imageBase64: string, transcript: string): Promise<string> {
+export interface ObserveDependencies {
+  describeImage: (imageBase64: string, transcript: string) => Promise<string>;
+  saveEvidenceImage: typeof saveEvidenceImage;
+  addMemory: typeof addMemory;
+  searchMemories: typeof searchMemories;
+  generateConfirmation: (transcript: string, description: string) => Promise<string>;
+}
+
+export async function describeImage(imageBase64: string, transcript: string): Promise<string> {
   const imageUrl = imageBase64.startsWith("data:")
     ? imageBase64
     : `data:image/jpeg;base64,${imageBase64}`;
@@ -43,7 +51,7 @@ async function describeImage(imageBase64: string, transcript: string): Promise<s
   return data.choices?.[0]?.message?.content || "无法识别图片内容";
 }
 
-async function generateConfirmation(transcript: string, description: string): Promise<string> {
+export async function generateConfirmation(transcript: string, description: string): Promise<string> {
   try {
     const response = await openai.chat.completions.create({
       model: config.llm.model,
@@ -67,7 +75,16 @@ async function generateConfirmation(transcript: string, description: string): Pr
   }
 }
 
-export async function observeRoutes(fastify: FastifyInstance) {
+export function createObserveRoutes(
+  dependencies: ObserveDependencies = {
+    describeImage,
+    saveEvidenceImage,
+    addMemory,
+    searchMemories,
+    generateConfirmation,
+  }
+) {
+  return async function observeRoutes(fastify: FastifyInstance) {
   fastify.post<{
     Body: {
       transcript: string;
@@ -88,8 +105,8 @@ export async function observeRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const description = await describeImage(imageBase64, transcript);
-      const evidence = await saveEvidenceImage(imageBase64, request);
+      const description = await dependencies.describeImage(imageBase64, transcript);
+      const evidence = await dependencies.saveEvidenceImage(imageBase64, request);
 
       const memoryText = `用户说：${transcript}\n视觉观察：${description}`;
       const memoryMetadata = {
@@ -101,9 +118,11 @@ export async function observeRoutes(fastify: FastifyInstance) {
         description,
       };
 
-      await addMemory([{ role: "user", content: memoryText }], memoryMetadata);
+      await dependencies.addMemory([{ role: "user", content: memoryText }], memoryMetadata, {
+        infer: false,
+      });
 
-      const response = await generateConfirmation(transcript, description);
+      const response = await dependencies.generateConfirmation(transcript, description);
       return {
         response,
         evidenceUri: evidence.url,
@@ -126,7 +145,10 @@ export async function observeRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: "query is required" });
     }
 
-    const results = await searchMemories(query, undefined, topK);
+    const results = await dependencies.searchMemories(query, undefined, topK);
     return { results };
   });
+  };
 }
+
+export const observeRoutes = createObserveRoutes();
