@@ -108,6 +108,7 @@
 - [x] `server/tests/vision.test.ts`
 - [x] `server/tests/evidence.test.ts`
 - [x] `server/tests/observe.test.ts`
+- [x] `server/tests/anti-regression.test.ts`：确认服务器不再暴露 `/api/stt/transcribe` 回退转写入口
 - [x] `pnpm exec tsc --noEmit`
 - [x] `npx -y react-doctor@latest . --verbose --scope changed`：100/100，无问题
 - [x] `pnpm exec expo config --type public`
@@ -121,7 +122,7 @@
 ## Step 10: 清理 + 验收
 - [x] 删除 `@supabase/supabase-js` 依赖
 - [x] 删除 `supabase/` 目录（如存在）
-- [ ] 删除 `server/src/routes/stt.ts`（等设备端 STT 完成后）
+- [x] 删除 `server/src/routes/stt.ts`，服务器不再注册 Whisper-compatible STT 回退路由
 - [x] 更新 `.env.example`
 - [x] 更新 README（Docker + 宿主机部署说明）
 - [ ] 7 条验收标准逐条确认
