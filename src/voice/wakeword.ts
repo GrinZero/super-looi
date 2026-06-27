@@ -1,52 +1,70 @@
-/**
- * Wakeword detection
- * Phase 1 degraded: Button-triggered instead of always-on KWS
- * Full sherpa-onnx KWS integration planned for Phase 1.5
- *
- * This module provides the interface but uses a manual trigger for now.
- */
+import {
+  onKeywordDetected,
+  startKeywordListening,
+  stopKeywordListening,
+} from "expo-sherpa-kws";
 
-export type WakewordState = "idle" | "detected";
+const DEFAULT_KWS_MODEL_DIR = "sherpa-onnx/kws";
+const DEFAULT_KEYWORDS_FILE = "sherpa-onnx/kws/keywords.txt";
+
+function getKwsModelDir(): string {
+  return process.env.EXPO_PUBLIC_SHERPA_KWS_MODEL_DIR || DEFAULT_KWS_MODEL_DIR;
+}
+
+function getKeywordsFile(): string {
+  return process.env.EXPO_PUBLIC_SHERPA_KEYWORDS_FILE || DEFAULT_KEYWORDS_FILE;
+}
+
+export type WakewordState = "idle" | "listening" | "detected" | "unavailable";
 
 type WakewordCallback = () => void;
 
 export class WakewordService {
   private listeners: WakewordCallback[] = [];
+  private nativeUnsubscribe: (() => void) | null = null;
   private _state: WakewordState = "idle";
 
-  /**
-   * In Phase 1, we simulate wakeword with button press
-   * In Phase 1.5, this will use sherpa-onnx KWS with "Hey Moge"
-   */
   async start(): Promise<void> {
-    this._state = "idle";
-    console.log("[Wakeword] Listening for wake trigger (button mode in Phase 1)");
+    if (this.nativeUnsubscribe) return;
+
+    try {
+      await startKeywordListening(getKwsModelDir(), getKeywordsFile());
+      this.nativeUnsubscribe = onKeywordDetected(() => this.notifyDetected());
+      this._state = "listening";
+    } catch (error) {
+      this._state = "unavailable";
+      console.warn("[Wakeword] Native KWS unavailable:", error);
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
+    if (this.nativeUnsubscribe) {
+      this.nativeUnsubscribe();
+      this.nativeUnsubscribe = null;
+    }
+
+    await stopKeywordListening();
     this._state = "idle";
   }
 
-  /**
-   * Manually trigger wakeword (simulates "Hey Moge" detection)
-   * Called by the VoiceButton UI component
-   */
   trigger(): void {
+    this.notifyDetected();
+  }
+
+  onWakeword(callback: WakewordCallback): () => void {
+    this.listeners.push(callback);
+    return () => {
+      this.listeners = this.listeners.filter((listener) => listener !== callback);
+    };
+  }
+
+  private notifyDetected(): void {
     this._state = "detected";
     for (const listener of this.listeners) {
       listener();
     }
-    this._state = "idle";
-  }
-
-  /**
-   * Subscribe to wakeword detection events
-   */
-  onWakeword(callback: WakewordCallback): () => void {
-    this.listeners.push(callback);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== callback);
-    };
+    this._state = this.nativeUnsubscribe ? "listening" : "idle";
   }
 
   get state(): WakewordState {

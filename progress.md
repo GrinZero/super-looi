@@ -11,7 +11,7 @@
 | 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | search 消息与 MemoryCard/ChatBubble 已支持 evidenceUri 图片；还需真实检索数据验证 |
 | 4 | 日历提醒推送 | ⏳ | bootstrapApp 已接 CalendarPerceiver → ReminderScheduler；还需设备权限和通知实测 |
 | 5 | 不确定时说"我不记得" | ✅ | LLM search 无 facts prompt 明确禁止编造；根/服务端 TypeScript 通过 |
-| 6 | 全程免手操作(唤醒词) | ⏳ | Native module 已接入 workspace；JS 层仍需接真实 KWS/Speaker/STT |
+| 6 | 全程免手操作(唤醒词) | ⏳ | JS 已接 native KWS/Speaker API 且不再自动通过；还需原生实现和验证音频采样 |
 | 7 | iOS + Android 双平台 | ⏳ | Expo module 已接入 workspace；还需 native build + 设备实测 |
 
 ---
@@ -65,8 +65,9 @@
 - [ ] iOS sherpa-onnx KWS + Speaker ID 真实现
 - [ ] Android sherpa-onnx KWS + Speaker ID 真实现
 - [ ] 下载 KWS/Speaker/SenseVoice 模型
-- [ ] `src/voice/wakeword.ts` 接真实 KWS，移除按钮模拟降级
-- [ ] `src/voice/speaker-id.ts` 接真实声纹，移除永远通过降级
+- [x] `src/voice/wakeword.ts` 接 native KWS API，按钮仅保留手动触发入口
+- [x] `src/voice/speaker-id.ts` 接 native 声纹 API，移除永远通过降级
+- [ ] VoicePerceiver 唤醒后采集声纹验证音频样本
 - [ ] `src/voice/stt.ts` 接设备端 SenseVoice，移除服务器 STT 降级
 
 ## Step 8: CalendarPerceiver → ReminderScheduler 接线

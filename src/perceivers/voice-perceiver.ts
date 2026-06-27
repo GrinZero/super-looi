@@ -56,6 +56,10 @@ export class VoicePerceiver extends BasePerceiver {
     userStore.setVoiceState("verifying");
     const isOwner = await speakerIdService.verify();
     if (!isOwner) {
+      conversationStore.addMessage({
+        role: "assistant",
+        content: "还没有完成声纹验证，暂时不能继续语音记事。",
+      });
       userStore.setVoiceState("sleeping");
       return;
     }
