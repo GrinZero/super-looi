@@ -42,6 +42,7 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "test": "node scripts/anti-regression-check.mjs",
     "web": "expo start --web"
   },
   "private": true
