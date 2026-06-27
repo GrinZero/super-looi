@@ -68,14 +68,14 @@
 - [x] 添加 KWS/Speaker/SenseVoice 模型下载脚本和未提交资产目录
 - [x] 设备端模型路径自检：ASR/KWS/Speaker 初始化前检查 `documentDirectory/sherpa-onnx/...` 必需文件，设置页显示缺失清单
 - [x] `src/voice/stt.ts` / `src/voice/tts.ts` 从 `expo-av` 迁移到 `expo-audio`，Android 启动不再触发 `LazyKType` 崩溃
-- [ ] 执行模型下载并拷贝到设备 `documentDirectory/sherpa-onnx/`，确认设置页模型检查全绿
+- [x] 执行模型下载并拷贝到设备 `documentDirectory/sherpa-onnx/`，确认设置页模型检查全绿
   - [x] 检查 Hugging Face CLI / `sherpa-onnx-cli` 可用性：本地 `.venv-sherpa-tools` 提供 `hf` 和 `sherpa-onnx-cli`
   - [x] 下载 SenseVoice、KWS、Speaker ID 模型到 ignored `app-models/sherpa-onnx/`：模型目录约 272MB
   - [x] 生成 KWS `keywords.txt`：`嘿魔戈 @HEY_MOGE`
   - [x] 校验本地模型文件非空：ASR `model.int8.onnx`/`tokens.txt`、KWS encoder/decoder/joiner/tokens/keywords、Speaker `model.onnx`
   - [x] 拷贝到 Android emulator app 私有目录：`run-as com.anonymous.superlooiapp du -sh files/sherpa-onnx` 为 271M
   - [x] Android KWS native 初始化验证：日志显示 `Model dir: /data/user/0/com.anonymous.superlooiapp/files/sherpa-onnx/kws/looi/`，encoder/decoder/joiner/tokens/keywords 均 `exists: true`
-  - [ ] 设置页模型检查全绿 UI 验证
+  - [x] 设置页模型检查全绿 UI 验证：Android emulator 截图确认 SenseVoice / KWS / Speaker 均显示“已就绪”
 - [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
 - [x] 引入 `@siteed/sherpa-onnx.rn` 并创建 `src/voice/sherpa-adapter.ts` 统一 ASR/KWS/Speaker 调用
 - [x] `src/voice/wakeword.ts` 接 `@siteed/sherpa-onnx.rn` KWS adapter，支持由音频采集层喂 PCM 样本
