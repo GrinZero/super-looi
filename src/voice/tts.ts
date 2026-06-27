@@ -3,6 +3,7 @@ import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 const MINIMAX_TTS_URL = "https://api.minimax.chat/v1/t2a_v2";
 const TTS_PLAYBACK_MIN_TIMEOUT_MS = 8_000;
 const TTS_PLAYBACK_MAX_TIMEOUT_MS = 30_000;
+const BINARY_STRING_CHUNK_SIZE = 0x8000;
 
 interface TTSOptions {
   text: string;
@@ -85,8 +86,13 @@ export class TTSService {
         for (let i = 0; i < hex.length; i += 2) {
           bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
         }
-        // In React Native, we can use btoa or a polyfill
-        const binary = String.fromCharCode(...bytes);
+        const chunks: string[] = [];
+        for (let offset = 0; offset < bytes.length; offset += BINARY_STRING_CHUNK_SIZE) {
+          chunks.push(
+            String.fromCharCode(...bytes.subarray(offset, offset + BINARY_STRING_CHUNK_SIZE))
+          );
+        }
+        const binary = chunks.join("");
         return btoa(binary);
       };
 

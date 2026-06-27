@@ -9,7 +9,7 @@
 | 1 | 语音记事 → 确认 | ✅ | Docker PG + pgvector 已实跑；memory add/search/getAll 通过 |
 | 2 | "记住这个放这了" → 截帧+证据 | ⏳ | 服务端真实 E2E 已通过：MiniCPM-V 描述 + evidence URL + memory 写入；`demo.jpg` 可用图片已证明 observe 写入、证据图保存和明确口述位置纠偏；Android Settings 视觉诊断已证明 App 调 observe、返回 evidenceUri 并落聊天证据图，但 emulator 相机帧为纯色不可用，仍需真实设备 App 语音路径 + 可用相机帧验证 |
 | 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | `衣服放哪了` 检索已返回 `placementFact=衣服在桌子下` 和 evidenceUri，服务端回复确定性使用 top fact；对话页和记忆列表 evidence 图片均已在 Android 通过 Glide 加载验证；仍需实际语音检索路径验证 |
-| 4 | 日历提醒推送 | ⏳ | bootstrapApp 已接 CalendarPerceiver → ReminderScheduler；Android 已修复 Expo Calendar legacy API 启动错误；设置页日历诊断已实证 ReminderScheduler → 本地通知 → TTS 播放/超时释放；还需真实系统日历事件触发实测 |
+| 4 | 日历提醒推送 | ✅ | Android emulator 已创建真实系统日历事件，经 CalendarPerceiver 扫描 `emitted=1`，触发 ReminderScheduler、本地通知和 TTS；通知栏显示 `LOOI 提醒` |
 | 5 | 不确定时说"我不记得" | ✅ | LLM search 无 facts prompt 明确禁止编造；根/服务端 TypeScript 通过 |
 | 6 | 全程免手操作(唤醒词) | ⏳ | Android emulator 已验证 KWS native 初始化、模型绝对路径和 audio feeder 持续喂样本；还需真实唤醒词、Speaker/STT 行为验证 |
 | 7 | iOS + Android 双平台 | ⏳ | Android `:app:assembleDebug` 已通过；iOS native build 仍被本机 Xcode 缺失组件阻塞；双平台设备实测未完成 |
@@ -118,7 +118,11 @@
 - [x] 设置页新增日历提醒诊断，直接触发 calendar observation 并复用正式 ReminderScheduler、notification、TTS 链路
 - [x] Android emulator 日历提醒诊断：系统通知栏显示 `LOOI 提醒`，UI 返回 `notification=a345d875-... | spoke=yes | response=...`
 - [x] TTS 播放完成等待增加超时释放，避免提醒链路因播放器状态不回调而永久卡在 speaking/running
-- [ ] 真实系统日历事件 + 本地通知 + TTS 实测
+- [x] `CalendarPerceiver.checkNow()` 支持设备端主动扫描并返回 emit 数，便于真实系统日历事件诊断
+- [x] 设置页真实日历事件诊断创建本地 calendar event，再由 CalendarPerceiver 读取系统日历并 emit observation，不再只直接注入 observation
+- [x] Android emulator 真实系统日历事件实测：`event=2 | emitted=1 | observed=日历事件：「Phase 1 真实日历提醒诊断」将在 1 分钟后开始，地点：本机测试`
+- [x] Android emulator 真实日历事件触发后通知栏显示 `LOOI 提醒`，日志显示 `[ReminderScheduler] Calendar reminder sent ... spoke=true`
+- [x] 修复 TTS hex 转 base64 大音频栈溢出：分块 `String.fromCharCode`，真实日历事件提醒不再出现 `Maximum call stack size exceeded`
 
 ## Step 9: 测试
 - [x] `server/tests/memory.test.ts`
@@ -145,6 +149,7 @@
 - [x] Android emulator 设置页已注册声纹验证：重启 App 后恢复 SecureStore embedding，`[Settings] Speaker verify succeeded ... enrolled=yes | speaker=pass`，并确认 KWS feeder 暂停/恢复
 - [x] Android emulator 设置页视觉诊断：`[Settings] Visual smoke succeeded ... remembered=no ... evidence=... description=...纯色...`，并确认 ChatBubble evidence 图片加载
 - [x] Android emulator 设置页日历诊断：`[Settings] Calendar smoke succeeded: notification=... | spoke=yes | response=...`，并通过系统通知栏截图确认 `LOOI 提醒`
+- [x] Android emulator 真实系统日历事件诊断：设置页创建系统日历事件，CalendarPerceiver 扫描 emit，正式 ReminderScheduler 发本地通知并 TTS，通知栏截图确认 `LOOI 提醒`
 - [x] `demo.jpg` 服务端 E2E：observe 返回 `记住了，衣服在桌子下。`，search top memory 带 `placementFact=衣服在桌子下`，`/api/llm/generate-response` 返回 `我记得：衣服在桌子下`
 - [x] Android emulator 记忆列表 evidence 图验证：`Glide Finished loading BitmapDrawable from REMOTE for http://192.168.3.71:8080/api/evidence/5c690078-...jpg`
 - [x] `npx -y react-doctor@latest . --verbose --scope changed`：退出码 0；对 `selectedCategory` 给出 derived-state 警告，经代码检查属于用户选择 filter state，不是可从其它 state 推导的值，未改动

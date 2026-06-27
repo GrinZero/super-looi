@@ -9,16 +9,21 @@ import {
   Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as Calendar from "expo-calendar/legacy";
 import { useUserStore } from "@/src/store/user";
 import { checkServerHealth, observeService } from "@/src/server-api/client";
 import { createObservation } from "@/src/core/observation";
 import { cameraPerceiver } from "@/src/perceivers/camera-perceiver";
+import { calendarPerceiver } from "@/src/perceivers/calendar-perceiver";
 import { useConversationStore } from "@/src/store/conversation";
 import { speakerIdService } from "@/src/voice/speaker-id";
 import { sttService } from "@/src/voice/stt";
 import { sherpaVoiceAdapter } from "@/src/voice/sherpa-adapter";
 import { reminderScheduler } from "@/src/reminder/reminder-scheduler";
 import type { SherpaModelCheck } from "@/src/voice/sherpa-models";
+
+const CALENDAR_SMOKE_TITLE = "Phase 1 真实日历提醒诊断";
+const CALENDAR_SMOKE_CALENDAR_TITLE = "LOOI Phase 1 Diagnostics";
 
 type SherpaModelStatus = {
   asr: SherpaModelCheck;
@@ -520,6 +525,43 @@ export default function SettingsScreen() {
     }
   }, [calendarSmokeRunning]);
 
+  const runRealCalendarSmoke = useCallback(async () => {
+    if (calendarSmokeRunning) return;
+
+    dispatchUi({ type: "calendar-smoke/start-running" });
+
+    let unsubscribe: (() => void) | undefined;
+    try {
+      const eventId = await createCalendarSmokeEvent();
+      const observed = new Promise<string>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          unsubscribe?.();
+          reject(new Error("Calendar smoke observation timed out"));
+        }, 20_000);
+        unsubscribe = calendarPerceiver.onObservation((observation) => {
+          if (!observation.content.includes(CALENDAR_SMOKE_TITLE)) return;
+          clearTimeout(timeout);
+          unsubscribe?.();
+          resolve(observation.content);
+        });
+      });
+
+      const emitted = await calendarPerceiver.checkNow();
+      const content = await observed;
+      const summary = [
+        `event=${eventId}`,
+        `emitted=${emitted}`,
+        `observed=${content}`,
+      ].join(" | ");
+      console.log(`[Settings] Real calendar smoke succeeded: ${summary}`);
+      dispatchUi({ type: "calendar-smoke/succeeded", result: summary });
+    } catch (error) {
+      unsubscribe?.();
+      console.error("[Settings] Real calendar smoke failed:", error);
+      dispatchUi({ type: "calendar-smoke/failed", error: "真实日历事件诊断失败" });
+    }
+  }, [calendarSmokeRunning]);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -567,6 +609,7 @@ export default function SettingsScreen() {
           result={calendarSmokeResult}
           error={calendarSmokeError}
           runCalendarSmoke={runCalendarSmoke}
+          runRealCalendarSmoke={runRealCalendarSmoke}
         />
 
         <ServerSection
@@ -847,12 +890,14 @@ function CalendarReminderSection({
   result,
   error,
   runCalendarSmoke,
+  runRealCalendarSmoke,
 }: {
   isDark: boolean;
   running: boolean;
   result: string | null;
   error: string | null;
   runCalendarSmoke: () => void;
+  runRealCalendarSmoke: () => void;
 }) {
   return (
     <View style={styles.section}>
@@ -867,11 +912,61 @@ function CalendarReminderSection({
             {running ? "诊断中..." : "测试通知 + 语音提醒"}
           </Text>
         </Pressable>
+        <Pressable
+          style={[styles.checkButton, running && styles.disabledButton]}
+          onPress={runRealCalendarSmoke}
+          disabled={running}
+        >
+          <Text style={styles.checkButtonText}>
+            {running ? "诊断中..." : "创建真实日历事件测试"}
+          </Text>
+        </Pressable>
         {result ? <Text style={styles.smokeResultText}>{result}</Text> : null}
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
     </View>
   );
+}
+
+async function createCalendarSmokeEvent(): Promise<string> {
+  const { status } = await Calendar.requestCalendarPermissionsAsync();
+  if (status !== "granted") {
+    throw new Error("Calendar permission not granted");
+  }
+
+  const calendarId = await getOrCreateCalendarSmokeCalendar();
+  const startDate = new Date(Date.now() + 60_000);
+  const endDate = new Date(startDate.getTime() + 5 * 60_000);
+  const eventId = await Calendar.createEventAsync(calendarId, {
+    title: CALENDAR_SMOKE_TITLE,
+    startDate,
+    endDate,
+    location: "本机测试",
+    notes: `Created by LOOI diagnostics at ${new Date().toISOString()}`,
+  });
+  console.log(`[Settings] Created calendar smoke event: ${eventId}`);
+  return eventId;
+}
+
+async function getOrCreateCalendarSmokeCalendar(): Promise<string> {
+  const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+  const existing = calendars.find(
+    (calendar) => calendar.title === CALENDAR_SMOKE_CALENDAR_TITLE && calendar.allowsModifications
+  );
+  if (existing) {
+    return existing.id;
+  }
+
+  const source = { type: "LOCAL", name: CALENDAR_SMOKE_CALENDAR_TITLE, isLocalAccount: true };
+  return Calendar.createCalendarAsync({
+    title: CALENDAR_SMOKE_CALENDAR_TITLE,
+    name: CALENDAR_SMOKE_CALENDAR_TITLE,
+    color: "#6D28D9",
+    entityType: Calendar.EntityTypes.EVENT,
+    source,
+    ownerAccount: CALENDAR_SMOKE_CALENDAR_TITLE,
+    accessLevel: Calendar.CalendarAccessLevel.OWNER,
+  });
 }
 
 function FeaturesSection({

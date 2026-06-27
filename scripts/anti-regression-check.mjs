@@ -80,6 +80,9 @@ assertPresent("app/(tabs)/settings.tsx", [
   /cameraPerceiver\.getLatestFrame\(\)/,
   /observeService\.voiceVisual/,
   /reminderScheduler\.processCalendarObservation/,
+  /calendarPerceiver\.checkNow\(\)/,
+  /Real calendar smoke succeeded/,
+  /Calendar\.createEventAsync/,
   /Calendar smoke succeeded/,
   /speakerIdService\.refreshEnrollmentStatus\(\)/,
   /Speaker verify succeeded/,
@@ -87,6 +90,12 @@ assertPresent("app/(tabs)/settings.tsx", [
   /addConversationMessage\(\{\s*role: "assistant",\s*content: result\.response,\s*evidenceUri: result\.evidenceUri,/s,
   /remembered=\$\{result\.remembered \? "yes" : "no"\}/,
   /Visual smoke succeeded/,
+]);
+
+assertPresent("src/perceivers/calendar-perceiver.ts", [
+  /async checkNow\(\): Promise<number>/,
+  /let emitted = 0/,
+  /return emitted/,
 ]);
 
 assertPresent("src/reminder/reminder-scheduler.ts", [
@@ -97,6 +106,8 @@ assertPresent("src/reminder/reminder-scheduler.ts", [
 ]);
 
 assertPresent("src/voice/tts.ts", [
+  /BINARY_STRING_CHUNK_SIZE/,
+  /bytes\.subarray/,
   /TTS_PLAYBACK_MAX_TIMEOUT_MS/,
   /Playback timeout/,
   /resolveOnce/,

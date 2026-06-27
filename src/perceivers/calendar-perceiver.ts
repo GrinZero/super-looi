@@ -48,18 +48,23 @@ export class CalendarPerceiver extends BasePerceiver {
   /**
    * Check for upcoming events and emit observations
    */
-  private async checkUpcomingEvents(): Promise<void> {
+  async checkNow(): Promise<number> {
+    return this.checkUpcomingEvents();
+  }
+
+  private async checkUpcomingEvents(): Promise<number> {
     try {
       const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
       const calendarIds = calendars.map((c) => c.id);
       if (calendarIds.length === 0) {
-        return;
+        return 0;
       }
 
       const now = new Date();
       const lookAhead = new Date(now.getTime() + this.reminderMinutesBefore * 60 * 1000);
 
       const events = await Calendar.getEventsAsync(calendarIds, now, lookAhead);
+      let emitted = 0;
 
       for (const event of events) {
         const eventKey = `${event.id}_${event.startDate}`;
@@ -77,12 +82,15 @@ export class CalendarPerceiver extends BasePerceiver {
 
         const observation = createObservation(content, "calendar", "calendar");
         this.emit(observation);
+        emitted += 1;
       }
 
       // Cleanup old notified events (older than 1 hour)
       this.cleanupOldNotifications();
+      return emitted;
     } catch (error) {
       console.error("[CalendarPerceiver] Error checking events:", error);
+      return 0;
     }
   }
 
