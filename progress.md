@@ -86,8 +86,8 @@
 - [ ] APP 手动冒烟测试：纯语音、视觉记事、检索+证据、日历提醒、KWS+声纹、iOS+Android
 
 ## Step 10: 清理 + 验收
-- [ ] 删除 `@supabase/supabase-js` 依赖
-- [ ] 删除 `supabase/` 目录（如存在）
+- [x] 删除 `@supabase/supabase-js` 依赖
+- [x] 删除 `supabase/` 目录（如存在）
 - [ ] 删除 `server/src/routes/stt.ts`（等设备端 STT 完成后）
 - [ ] 更新 `.env.example`
 - [ ] 更新 README（Docker + 宿主机部署说明）

@@ -3,7 +3,6 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
-    "@supabase/supabase-js": "^2.108.2",
     "dotenv": "^17.4.2",
     "expo": "~56.0.12",
     "expo-av": "^16.0.8",
@@ -16,9 +15,9 @@
     "expo-linking": "~56.0.14",
     "expo-modules-core": "^56.0.17",
     "expo-notifications": "^56.0.18",
-    "expo-sherpa-kws": "workspace:*",
     "expo-router": "~56.2.11",
     "expo-secure-store": "^56.0.4",
+    "expo-sherpa-kws": "workspace:*",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
     "expo-symbols": "~56.0.6",

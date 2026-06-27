@@ -12,7 +12,6 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.4.0",
     "@fastify/websocket": "^11.2.0",
-    "@supabase/supabase-js": "^2.108.2",
     "dotenv": "^16.5.0",
     "fastify": "^5.8.5",
     "mem0ai": "^3.0.10",

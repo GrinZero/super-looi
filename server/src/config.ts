@@ -5,11 +5,6 @@ export const config = {
     model: process.env.LLM_MODEL || "gpt-4o",
     embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
   },
-  supabase: {
-    url: process.env.SUPABASE_URL || "",
-    anonKey: process.env.SUPABASE_ANON_KEY || "",
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-  },
   minimax: {
     apiKey: process.env.MINIMAX_API_KEY || "",
     groupId: process.env.MINIMAX_GROUP_ID || "",
