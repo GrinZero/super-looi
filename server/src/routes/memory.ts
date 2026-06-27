@@ -1,21 +1,19 @@
 import { FastifyInstance } from "fastify";
 import { Memory } from "mem0ai/oss";
-import path from "path";
 import { config } from "../config.js";
 
-// Mem0 initialization — uses local SQLite vector store (no external DB needed)
+// Mem0 initialization — uses pgvector for persistent vector storage
 let memory: Memory | null = null;
 
 function getMemory(): Memory {
   if (!memory) {
-    const dbPath = path.resolve(process.cwd(), "data", "memories.db");
     memory = new Memory({
       vectorStore: {
-        provider: "memory",
+        provider: "pgvector",
         config: {
+          connectionString: config.database.url,
           collectionName: "looi_memories",
-          dimension: 1536,
-          dbPath,
+          embeddingDimensions: 1536,
         },
       },
       llm: {
@@ -34,18 +32,55 @@ function getMemory(): Memory {
           baseURL: config.llm.baseUrl,
         },
       },
-      historyStore: {
-        provider: "sqlite",
-        config: {
-          historyDbPath: path.resolve(process.cwd(), "data", "history.db"),
-        },
-      },
     });
   }
   return memory;
 }
 
 const USER_ID = "owner-1"; // Phase 1: single owner
+
+type MemoryMessage = Array<{ role: string; content: string }>;
+
+export async function addMemory(
+  messages: MemoryMessage,
+  metadata?: Record<string, any>
+): Promise<unknown> {
+  return getMemory().add(messages, {
+    userId: USER_ID,
+    metadata: metadata || {},
+  });
+}
+
+export async function searchMemories(
+  query: string,
+  filters?: { category?: string },
+  topK = 5
+): Promise<unknown[]> {
+  const searchFilters: Record<string, any> = { user_id: USER_ID };
+  if (filters?.category) {
+    searchFilters.category = filters.category;
+  }
+
+  const result = await getMemory().search(query, {
+    filters: searchFilters,
+    topK,
+  });
+
+  return result.results || [];
+}
+
+export async function getAllMemories(filters?: { category?: string }): Promise<unknown[]> {
+  const memoryFilters: Record<string, any> = { user_id: USER_ID };
+  if (filters?.category) {
+    memoryFilters.category = filters.category;
+  }
+
+  const result = await getMemory().getAll({
+    filters: memoryFilters,
+  });
+
+  return result.results || [];
+}
 
 /**
  * Memory routes — /api/memory/*
@@ -68,10 +103,7 @@ export async function memoryRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await getMemory().add(messages, {
-        userId: USER_ID,
-        metadata: metadata || {},
-      });
+      const result = await addMemory(messages, metadata);
 
       return { success: true, result };
     } catch (error: any) {
@@ -97,17 +129,8 @@ export async function memoryRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const searchFilters: Record<string, any> = { user_id: USER_ID };
-      if (filters?.category) {
-        searchFilters.category = filters.category;
-      }
-
-      const result = await getMemory().search(query, {
-        filters: searchFilters,
-        topK: topK || 5,
-      });
-
-      return { results: result.results || [] };
+      const results = await searchMemories(query, filters, topK || 5);
+      return { results };
     } catch (error: any) {
       fastify.log.error(error, "Memory search failed");
       return reply.status(500).send({
@@ -127,16 +150,8 @@ export async function memoryRoutes(fastify: FastifyInstance) {
     const { category } = request.query;
 
     try {
-      const filters: Record<string, any> = { user_id: USER_ID };
-      if (category) {
-        filters.category = category;
-      }
-
-      const result = await getMemory().getAll({
-        filters,
-      });
-
-      return { results: result.results || [] };
+      const results = await getAllMemories({ category });
+      return { results };
     } catch (error: any) {
       fastify.log.error(error, "Memory getAll failed");
       return reply.status(500).send({

@@ -7,7 +7,8 @@ import { sttService } from "../voice/stt";
 import { ttsService } from "../voice/tts";
 import { useUserStore } from "../store/user";
 import { useConversationStore } from "../store/conversation";
-import { llmService, memoryService } from "../server-api/client";
+import { llmService, memoryService, observeService } from "../server-api/client";
+import { cameraPerceiver } from "./camera-perceiver";
 
 /**
  * VoicePerceiver — orchestrates the voice pipeline:
@@ -105,8 +106,33 @@ export class VoicePerceiver extends BasePerceiver {
       // Step 5: Process with LLM
       const intent = await llmService.classifyIntent(transcript);
       let response: string;
+      let evidenceUri: string | undefined;
 
-      if (intent === "store") {
+      if (intent === "store" && hasVisualReference(transcript) && cameraPerceiver.hasFrame) {
+        const latestFrame = cameraPerceiver.getLatestFrame();
+        if (!latestFrame) {
+          throw new Error("Camera frame disappeared before voice+visual processing");
+        }
+
+        const jointObservation = createObservation(transcript, "voice+camera", "placement");
+        const result = await observeService.voiceVisual(
+          transcript,
+          latestFrame,
+          jointObservation.metadata
+        );
+
+        response = result.response;
+        evidenceUri = result.evidenceUri;
+        this.emit({
+          ...jointObservation,
+          content: result.description,
+          evidenceUri: result.evidenceUri,
+          metadata: {
+            ...jointObservation.metadata,
+            evidenceUri: result.evidenceUri,
+          },
+        });
+      } else if (intent === "store") {
         await memoryService.remember(
           [{ role: "user", content: transcript }],
           observation.metadata
@@ -118,6 +144,10 @@ export class VoicePerceiver extends BasePerceiver {
       } else if (intent === "search") {
         const facts = await memoryService.search(transcript);
         response = await llmService.generateResponse(intent, { facts, transcript });
+        const factsWithEvidence = facts.filter((fact) => fact.metadata?.evidenceUri);
+        evidenceUri = factsWithEvidence.length === 1
+          ? factsWithEvidence[0].metadata?.evidenceUri
+          : undefined;
       } else {
         response = await llmService.generateResponse(intent, {
           facts: [],
@@ -126,7 +156,7 @@ export class VoicePerceiver extends BasePerceiver {
       }
 
       // Step 6: Add assistant response
-      conversationStore.addMessage({ role: "assistant", content: response });
+      conversationStore.addMessage({ role: "assistant", content: response, evidenceUri });
 
       // Step 7: TTS playback
       userStore.setVoiceState("speaking");

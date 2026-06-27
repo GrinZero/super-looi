@@ -100,6 +100,10 @@ export class CameraPerceiver extends BasePerceiver {
   get bufferSize(): number {
     return this.frameBuffer.length;
   }
+
+  get hasFrame(): boolean {
+    return this.frameBuffer.length > 0;
+  }
 }
 
 export const cameraPerceiver = new CameraPerceiver();

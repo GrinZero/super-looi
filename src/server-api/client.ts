@@ -2,6 +2,7 @@ import {
   ContextService,
   LLMService,
   VisionService,
+  ObserveService,
   Message,
   MemoryResult,
   UserIntent,
@@ -96,6 +97,15 @@ export const visionService: VisionService = {
       body: JSON.stringify({ image: imageBase64, prompt }),
     });
     return result.description;
+  },
+};
+
+export const observeService: ObserveService = {
+  async voiceVisual(transcript, imageBase64, metadata) {
+    return fetchJSON("/api/observe/voice-visual", {
+      method: "POST",
+      body: JSON.stringify({ transcript, imageBase64, metadata }),
+    });
   },
 };
 

@@ -31,7 +31,12 @@ export async function scheduleNotification(
   body: string,
   triggerSeconds?: number
 ): Promise<string> {
-  const trigger = triggerSeconds ? { seconds: triggerSeconds } : null;
+  const trigger = triggerSeconds
+    ? {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: triggerSeconds,
+      } as const
+    : null;
 
   const id = await Notifications.scheduleNotificationAsync({
     content: {

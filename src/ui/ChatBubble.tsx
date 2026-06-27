@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { View, Text, StyleSheet } from "react-native";
 import { ChatMessage } from "../store/conversation";
 
@@ -27,6 +28,9 @@ export function ChatBubble({ message, isDark }: ChatBubbleProps) {
         >
           {message.content}
         </Text>
+        {message.evidenceUri && (
+          <Image source={{ uri: message.evidenceUri }} style={styles.evidenceImage} />
+        )}
       </View>
       <Text style={[styles.timestamp, { color: isDark ? "#6B7280" : "#9CA3AF" }]}>
         {new Date(message.timestamp).toLocaleTimeString("zh-CN", {
@@ -47,12 +51,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
   },
   text: { fontSize: 15, lineHeight: 22 },
+  evidenceImage: {
+    width: 220,
+    height: 140,
+    borderRadius: 8,
+    marginTop: 8,
+    backgroundColor: "#E5E7EB",
+  },
   timestamp: { fontSize: 11, marginTop: 4, paddingHorizontal: 4 },
 });

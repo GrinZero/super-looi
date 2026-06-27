@@ -5,14 +5,15 @@ import {
   FlatList,
   Text,
   useColorScheme,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useConversationStore, ChatMessage } from "@/src/store/conversation";
 import { useUserStore } from "@/src/store/user";
 import { VoiceButton } from "@/src/ui/VoiceButton";
 import { ChatBubble } from "@/src/ui/ChatBubble";
+import { CameraFrameFeeder } from "@/src/ui/CameraFrameFeeder";
 
 export default function ChatScreen() {
   const colorScheme = useColorScheme();
@@ -26,7 +27,8 @@ export default function ChatScreen() {
   // Auto-scroll to bottom
   useEffect(() => {
     if (messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      const timer = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      return () => clearTimeout(timer);
     }
   }, [messages.length]);
 
@@ -36,6 +38,7 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
+      <CameraFrameFeeder />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : "height"}

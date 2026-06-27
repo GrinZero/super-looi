@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: looi-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: looi
+      POSTGRES_PASSWORD: superlooi123!
+      POSTGRES_DB: looi
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./server/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U looi -d looi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

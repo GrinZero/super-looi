@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { View, Text, StyleSheet } from "react-native";
 import { MemoryResult } from "../core/context-service";
 
@@ -29,9 +30,7 @@ export function MemoryCard({ memory, isDark }: MemoryCardProps) {
         {memory.memory}
       </Text>
       {memory.metadata?.evidenceUri && (
-        <View style={styles.evidenceTag}>
-          <Text style={styles.evidenceText}>📷 有证据图片</Text>
-        </View>
+        <Image source={{ uri: memory.metadata.evidenceUri }} style={styles.evidenceImage} />
       )}
     </View>
   );
@@ -73,14 +72,10 @@ function getCategoryColor(category?: string): string {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 12,
+    borderRadius: 8,
     padding: 14,
     marginVertical: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
   },
   header: {
     flexDirection: "row",
@@ -92,6 +87,11 @@ const styles = StyleSheet.create({
   categoryText: { fontSize: 12 },
   time: { fontSize: 12 },
   content: { fontSize: 14, lineHeight: 20 },
-  evidenceTag: { marginTop: 8 },
-  evidenceText: { fontSize: 12, color: "#6D28D9" },
+  evidenceImage: {
+    width: "100%",
+    height: 140,
+    borderRadius: 8,
+    marginTop: 10,
+    backgroundColor: "#E5E7EB",
+  },
 });

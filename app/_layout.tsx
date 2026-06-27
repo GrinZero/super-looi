@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
+import { bootstrapApp } from '@/src/core/app-bootstrap';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -34,6 +35,10 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [loaded]);
+
+  useEffect(() => {
+    bootstrapApp().catch(console.error);
+  }, []);
 
   if (!loaded) {
     return null;

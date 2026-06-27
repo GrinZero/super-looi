@@ -28,6 +28,7 @@ export interface ObservationMetadata {
   timestamp: string; // ISO 8601
   confidence?: number; // 0-1
   location?: string;
+  evidenceUri?: string;
 }
 
 /**
@@ -66,6 +67,7 @@ export function createObservation(
       timestamp: new Date().toISOString(),
       confidence: options?.confidence,
       location: options?.location,
+      evidenceUri: options?.evidenceUri,
     },
   };
 }

@@ -54,3 +54,18 @@ export interface VisionService {
   /** Describe an image/video */
   describe(imageBase64: string, prompt?: string): Promise<string>;
 }
+
+export interface VoiceVisualResult {
+  response: string;
+  evidenceUri: string;
+  description: string;
+}
+
+export interface ObserveService {
+  /** Store a joint voice + camera observation */
+  voiceVisual(
+    transcript: string,
+    imageBase64: string,
+    metadata: Observation["metadata"]
+  ): Promise<VoiceVisualResult>;
+}
