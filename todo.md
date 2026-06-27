@@ -1,6 +1,5 @@
 # Phase 1 待解决问题
 
-- [ ] Docker PG 实跑验证：`docker compose up -d` 后跑 memory add/search/getAll。
 - [ ] MiniCPM-V 环境验证：确认 llama.cpp 已编译、模型已下载，`server/scripts/start-vision.sh` 可启动。
 - [ ] `/api/observe/voice-visual` 端到端验证：base64 图片 + transcript 返回 `response/evidenceUri/description`，且 evidence URL 可打开。
 - [ ] Camera UI 设备实测：确认隐藏相机组件能持续调用 `cameraPerceiver.addFrame()`，且不会明显影响性能/权限体验。

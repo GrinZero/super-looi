@@ -7,13 +7,19 @@ let memory: Memory | null = null;
 
 function getMemory(): Memory {
   if (!memory) {
+    const databaseUrl = new URL(config.database.url);
     memory = new Memory({
       vectorStore: {
         provider: "pgvector",
         config: {
-          connectionString: config.database.url,
           collectionName: "looi_memories",
-          embeddingDimensions: 1536,
+          dbname: databaseUrl.pathname.replace(/^\//, ""),
+          host: databaseUrl.hostname,
+          port: Number(databaseUrl.port || 5432),
+          user: decodeURIComponent(databaseUrl.username),
+          password: decodeURIComponent(databaseUrl.password),
+          embeddingModelDims: 1536,
+          hnsw: true,
         },
       },
       llm: {

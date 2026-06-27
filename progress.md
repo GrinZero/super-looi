@@ -6,7 +6,7 @@
 
 | # | 标准 | 实际状态 | 证据 / 剩余项 |
 |---|------|----------|---------------|
-| 1 | 语音记事 → 确认 | ⏳ | PG 配置与服务端编译已通过；还需 Docker PG 实跑 add/search |
+| 1 | 语音记事 → 确认 | ✅ | Docker PG + pgvector 已实跑；memory add/search/getAll 通过 |
 | 2 | "记住这个放这了" → 截帧+证据 | ⏳ | evidence + observe 路由、App 相机帧联动已接；还需本地 vision server 实跑 |
 | 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | search 消息与 MemoryCard/ChatBubble 已支持 evidenceUri 图片；还需真实检索数据验证 |
 | 4 | 日历提醒推送 | ⏳ | bootstrapApp 已接 CalendarPerceiver → ReminderScheduler；还需设备权限和通知实测 |
@@ -21,8 +21,8 @@
 - [x] 创建 `server/migrations/001_init.sql`
 - [x] `server/src/config.ts` 加入 `database.url`
 - [x] `server/src/routes/memory.ts` 改为 pgvector provider
-- [ ] `.env` 确认 `DATABASE_URL`
-- [ ] `docker compose up -d` 后验证 add/search/getAll
+- [x] `.env` 确认 `DATABASE_URL`
+- [x] `docker compose up -d` 后验证 add/search/getAll
 
 ## Step 2: 服务器 — 证据图片存储
 - [x] `server/data/evidence/` 通过 `server/data/` gitignore 排除
