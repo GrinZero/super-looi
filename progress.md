@@ -45,6 +45,7 @@
 - [x] 流程包含 vision 描述、证据图保存、memory.add、确认回复
 - [x] transcript + image 端到端实跑
 - [x] `memory.add(..., { infer: false })` 固定保存视觉观察，避免 Mem0 推理后丢弃非事实文本
+  - [x] 端口修复后复测 `/api/observe/voice-visual`：真实截图返回 response、MiniCPM-V description 和 evidence URL
 
 ## Step 5: APP 端 — Voice + Camera 联动
 - [x] `src/server-api/client.ts` 新增 `observeService.voiceVisual()`
