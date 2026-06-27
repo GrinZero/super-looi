@@ -195,6 +195,16 @@ export class SherpaVoiceAdapter {
 
   async registerSpeaker(name: string, embedding: number[]): Promise<void> {
     await this.initializeSpeaker();
+    const speakers = await SherpaOnnx.SpeakerId.getSpeakers();
+    if (!speakers.success) {
+      throw new Error(speakers.error || "Sherpa speaker list failed");
+    }
+    if (speakers.speakers.includes(name)) {
+      const removed = await SherpaOnnx.SpeakerId.removeSpeaker(name);
+      if (!removed.success) {
+        throw new Error(removed.error || "Sherpa speaker removal failed");
+      }
+    }
     const result = await SherpaOnnx.SpeakerId.registerSpeaker(name, embedding);
     if (!result.success) {
       throw new Error(result.error || "Sherpa speaker registration failed");

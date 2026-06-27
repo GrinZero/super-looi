@@ -5,6 +5,8 @@ import {
   setAudioModeAsync,
   type AudioRecorder,
 } from "expo-audio";
+import { useUserStore } from "../store/user";
+import { kwsAudioFeeder } from "./kws-audio-feeder";
 import { sherpaVoiceAdapter } from "./sherpa-adapter";
 
 /**
@@ -14,6 +16,7 @@ import { sherpaVoiceAdapter } from "./sherpa-adapter";
 export class STTService {
   private recording: AudioRecorder | null = null;
   private isRecording = false;
+  private pausedWakewordFeeder = false;
 
   /**
    * Start recording audio
@@ -24,6 +27,8 @@ export class STTService {
       if (!permission.granted) {
         throw new Error("Microphone permission denied");
       }
+
+      await this.pauseWakewordFeeder();
 
       await setAudioModeAsync({
         allowsRecording: true,
@@ -37,6 +42,7 @@ export class STTService {
       this.recording = recording;
       this.isRecording = true;
     } catch (error) {
+      await this.resumeWakewordFeederIfNeeded();
       console.error("[STT] Failed to start recording:", error);
       throw error;
     }
@@ -91,6 +97,7 @@ export class STTService {
       this.recording = null;
       this.isRecording = false;
     }
+    await this.resumeWakewordFeederIfPaused();
   }
 
   get recording_active(): boolean {
@@ -102,6 +109,34 @@ export class STTService {
    */
   async transcribeFile(audioUri: string): Promise<string> {
     return sherpaVoiceAdapter.transcribeFile(audioUri);
+  }
+
+  async resumeWakewordFeederIfPaused(): Promise<void> {
+    await this.resumeWakewordFeederIfNeeded();
+  }
+
+  private async pauseWakewordFeeder(): Promise<void> {
+    if (!kwsAudioFeeder.isRunning) {
+      return;
+    }
+
+    await kwsAudioFeeder.stop();
+    this.pausedWakewordFeeder = true;
+    console.log("[STT] Paused KWS feeder for recording");
+  }
+
+  private async resumeWakewordFeederIfNeeded(): Promise<void> {
+    if (!this.pausedWakewordFeeder) {
+      return;
+    }
+
+    this.pausedWakewordFeeder = false;
+    if (!useUserStore.getState().preferences.wakeWordEnabled) {
+      return;
+    }
+
+    await kwsAudioFeeder.start();
+    console.log("[STT] Resumed KWS feeder after recording");
   }
 }
 

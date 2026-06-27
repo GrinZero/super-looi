@@ -85,13 +85,17 @@
 - [x] `src/voice/speaker-id.ts` 接 `@siteed/sherpa-onnx.rn` SpeakerId，支持样本/文件 embedding 注册与验证
 - [x] VoicePerceiver 使用当前命令录音文件做 owner 声纹验证，通过后才转写和处理命令
 - [x] 设置页提供本次会话 owner 声纹录入入口，录音文件写入 SpeakerId manager
+- [x] 设置页提供 Android 设备端语音诊断入口，复用真实 `processFile`/`verifySpeaker`/`recognizeFromFile` 路径输出声纹 + STT 结果
 - [x] 声纹注册 embedding 分块写入 SecureStore，启动/刷新 enrollment 时自动恢复到 SpeakerId manager
+- [x] Android emulator 声纹文件 smoke：录音 m4a 经 SpeakerId `processFile` 提取 512 维 embedding，两次同文件 verify 返回 `speaker=pass`
 - [ ] 声纹注册跨 App 重启设备验证
 - [x] 常驻 KWS 音频采集 feeder：使用 `@siteed/audio-studio` 采集 16k mono float PCM 并调用 `wakewordService.acceptSamples()`
 - [x] `@siteed/audio-studio` Expo config plugin 已用最小权限接入，提供麦克风权限并关闭后台录音/通知/蓝牙/电话权限
 - [x] KWS feeder 已处理运行中偏好切换、float PCM payload fallback、队列上限，避免静默断流和无限堆积
-- [ ] 常驻 KWS 音频采集 feeder 设备验证：Android emulator 已确认持续 `acceptWaveform`；还需确认与 STT 录音互斥切换、唤醒后恢复监听
+- [x] STT 录音/声纹验证/ASR 期间统一暂停 KWS feeder，并在完整处理结束后恢复；root anti-regression 锁定互斥恢复路径
+- [ ] 常驻 KWS 音频采集 feeder 设备验证：Android emulator 已确认持续 `acceptWaveform` 和 STT 互斥恢复；还需真实唤醒词命中后恢复监听
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
+- [x] Android emulator 设备端 STT smoke：SenseVoice ASR 初始化完成，`recognizeFromFile()` 对录音 m4a 返回文本 `没。`
 - [x] `expo-file-system` 直接依赖已声明，用于设备端模型文件自检
 - [x] `pnpm exec expo prebuild --clean --no-install` 生成 iOS/Android 原生工程通过
 - [x] `cd ios && pod install` 通过，已 autolink/install `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`
@@ -123,6 +127,7 @@
 - [x] `pnpm exec expo prebuild --clean --no-install`：新增 `expo-file-system` 直接依赖、`expo-audio` 迁移后重新生成原生工程通过
 - [x] `cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug`
 - [x] Android emulator 启动日志验证：JS bundle 正常加载，Sherpa JNI 加载，KWS 初始化完成且持续接收音频样本
+- [x] Android emulator 设置页语音诊断：`[Settings] Voice smoke succeeded ... speaker=pass | stt=没。`，且日志显示 `[STT] Paused KWS feeder for recording` 后到识别完成前无 `acceptWaveform`，随后 `[STT] Resumed KWS feeder after recording`
 - [ ] APP 手动冒烟测试：纯语音、视觉记事、检索+证据、日历提醒、KWS+声纹、iOS+Android
 
 ## Step 10: 清理 + 验收

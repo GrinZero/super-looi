@@ -207,6 +207,7 @@ export class VoicePerceiver extends BasePerceiver {
       userStore.setVoiceState("sleeping");
       conversationStore.setProcessing(false);
       conversationStore.setSpeaking(false);
+      await sttService.resumeWakewordFeederIfPaused();
       await this.restartWakewordFeederIfNeeded();
     }
   }

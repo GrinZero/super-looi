@@ -43,13 +43,25 @@ assertAbsent("src/voice/stt.ts", [
 
 assertPresent("src/voice/stt.ts", [
   /sherpaVoiceAdapter\.transcribeFile/,
+  /kwsAudioFeeder\.stop\(\)/,
+  /kwsAudioFeeder\.start\(\)/,
+  /resumeWakewordFeederIfPaused/,
+  /Paused KWS feeder for recording/,
+  /Resumed KWS feeder after recording/,
 ]);
 
 assertPresent("src/perceivers/voice-perceiver.ts", [
   /speakerIdService\.verifyFile\(audioUri\)/,
   /sttService\.transcribeFile\(audioUri\)/,
+  /sttService\.resumeWakewordFeederIfPaused\(\)/,
   /observeService\.voiceVisual/,
   /evidenceUri = result\.evidenceUri/,
+]);
+
+assertPresent("src/voice/sherpa-adapter.ts", [
+  /SpeakerId\.getSpeakers\(\)/,
+  /SpeakerId\.removeSpeaker\(name\)/,
+  /SpeakerId\.registerSpeaker\(name, embedding\)/,
 ]);
 
 assertAbsent("app/(tabs)/settings.tsx", [
