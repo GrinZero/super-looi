@@ -69,10 +69,27 @@ assertAbsent("app/(tabs)/settings.tsx", [
   /唤醒词（Phase 1\.5）/,
 ]);
 
+assertPresent("app/(tabs)/settings.tsx", [
+  /cameraPerceiver\.getLatestFrame\(\)/,
+  /observeService\.voiceVisual/,
+  /addConversationMessage\(\{\s*role: "assistant",\s*content: result\.response,\s*evidenceUri: result\.evidenceUri,/s,
+  /remembered=\$\{result\.remembered \? "yes" : "no"\}/,
+  /Visual smoke succeeded/,
+]);
+
+assertPresent("server/src/routes/observe.ts", [
+  /hasUsableVisualDescription/,
+  /UNUSABLE_VISION_PATTERNS/,
+  /if \(usableVisualDescription\) \{\s*await dependencies\.addMemory/s,
+  /remembered: usableVisualDescription/,
+]);
+
 assertPresent("server/tests/observe.test.ts", [
   /infer\?: boolean/,
   /assert\.equal\(stored\[0\]\.options\?\.infer, false\)/,
   /assert\.equal\(stored\[0\]\.metadata\?\.evidenceUri/,
+  /does not store unusable visual descriptions/,
+  /assert\.equal\(stored\.length, 0\)/,
 ]);
 
 assertPresent("server/tests/anti-regression.test.ts", [

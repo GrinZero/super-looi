@@ -17,6 +17,26 @@ export interface ObserveDependencies {
   generateConfirmation: (transcript: string, description: string) => Promise<string>;
 }
 
+const UNUSABLE_VISION_PATTERNS = [
+  /无法识别/,
+  /无法确认/,
+  /无法根据/,
+  /没有可辨认/,
+  /没有可识别/,
+  /纯色/,
+  /空白/,
+  /看不清/,
+];
+
+export function hasUsableVisualDescription(description: string): boolean {
+  const normalized = description.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  return !UNUSABLE_VISION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 export async function describeImage(imageBase64: string, transcript: string): Promise<string> {
   const imageUrl = imageBase64.startsWith("data:")
     ? imageBase64
@@ -107,6 +127,7 @@ export function createObserveRoutes(
     try {
       const description = await dependencies.describeImage(imageBase64, transcript);
       const evidence = await dependencies.saveEvidenceImage(imageBase64, request);
+      const usableVisualDescription = hasUsableVisualDescription(description);
 
       const memoryText = `用户说：${transcript}\n视觉观察：${description}`;
       const memoryMetadata = {
@@ -118,15 +139,20 @@ export function createObserveRoutes(
         description,
       };
 
-      await dependencies.addMemory([{ role: "user", content: memoryText }], memoryMetadata, {
-        infer: false,
-      });
+      if (usableVisualDescription) {
+        await dependencies.addMemory([{ role: "user", content: memoryText }], memoryMetadata, {
+          infer: false,
+        });
+      }
 
-      const response = await dependencies.generateConfirmation(transcript, description);
+      const response = usableVisualDescription
+        ? await dependencies.generateConfirmation(transcript, description)
+        : "这张图里没有可辨认的物品位置，我先保存证据图，但不写入记忆。";
       return {
         response,
         evidenceUri: evidence.url,
         description,
+        remembered: usableVisualDescription,
       };
     } catch (error: any) {
       fastify.log.error(error, "Voice visual observation failed");

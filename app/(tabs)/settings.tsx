@@ -10,7 +10,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useUserStore } from "@/src/store/user";
-import { checkServerHealth } from "@/src/server-api/client";
+import { checkServerHealth, observeService } from "@/src/server-api/client";
+import { createObservation } from "@/src/core/observation";
+import { cameraPerceiver } from "@/src/perceivers/camera-perceiver";
+import { useConversationStore } from "@/src/store/conversation";
 import { speakerIdService } from "@/src/voice/speaker-id";
 import { sttService } from "@/src/voice/stt";
 import { sherpaVoiceAdapter } from "@/src/voice/sherpa-adapter";
@@ -36,6 +39,11 @@ type SettingsUiState = {
     result: string | null;
     error: string | null;
   };
+  visualSmoke: {
+    running: boolean;
+    result: string | null;
+    error: string | null;
+  };
   models: {
     status: SherpaModelStatus | null;
     checking: boolean;
@@ -52,6 +60,9 @@ type SettingsUiAction =
   | { type: "voice-smoke/start-running" }
   | { type: "voice-smoke/succeeded"; result: string }
   | { type: "voice-smoke/failed"; error: string }
+  | { type: "visual-smoke/start-running" }
+  | { type: "visual-smoke/succeeded"; result: string }
+  | { type: "visual-smoke/failed"; error: string }
   | { type: "models/checking" }
   | { type: "models/checked"; status: SherpaModelStatus }
   | { type: "models/failed"; error: string };
@@ -64,6 +75,11 @@ const initialSettingsUiState: SettingsUiState = {
   },
   voiceSmoke: {
     recording: false,
+    running: false,
+    result: null,
+    error: null,
+  },
+  visualSmoke: {
     running: false,
     result: null,
     error: null,
@@ -120,6 +136,21 @@ function settingsUiReducer(
         ...state,
         voiceSmoke: { recording: false, running: false, result: null, error: action.error },
       };
+    case "visual-smoke/start-running":
+      return {
+        ...state,
+        visualSmoke: { running: true, result: null, error: null },
+      };
+    case "visual-smoke/succeeded":
+      return {
+        ...state,
+        visualSmoke: { running: false, result: action.result, error: null },
+      };
+    case "visual-smoke/failed":
+      return {
+        ...state,
+        visualSmoke: { running: false, result: null, error: action.error },
+      };
     case "models/checking":
       return {
         ...state,
@@ -162,7 +193,13 @@ export default function SettingsScreen() {
     result: smokeResult,
     error: smokeError,
   } = uiState.voiceSmoke;
+  const {
+    running: visualSmokeRunning,
+    result: visualSmokeResult,
+    error: visualSmokeError,
+  } = uiState.visualSmoke;
   const { status: modelStatus, checking: checkingModels, error: modelError } = uiState.models;
+  const addConversationMessage = useConversationStore((state) => state.addMessage);
 
   const checkConnection = useCallback(async () => {
     const connected = await checkServerHealth();
@@ -275,6 +312,45 @@ export default function SettingsScreen() {
     }
   }, [setVoiceEnrolled, setVoiceState, smokeRecording]);
 
+  const runVisualSmoke = useCallback(async () => {
+    if (visualSmokeRunning) return;
+
+    dispatchUi({ type: "visual-smoke/start-running" });
+
+    try {
+      const latestFrame = cameraPerceiver.getLatestFrame();
+      if (!latestFrame) {
+        throw new Error("No camera frame buffered");
+      }
+
+      const transcript = "记住这个放这了";
+      addConversationMessage({ role: "user", content: transcript });
+      const observation = createObservation(transcript, "voice+camera", "placement");
+      const result = await observeService.voiceVisual(
+        transcript,
+        latestFrame,
+        observation.metadata
+      );
+
+      addConversationMessage({
+        role: "assistant",
+        content: result.response,
+        evidenceUri: result.evidenceUri,
+      });
+      const summary = [
+        `remembered=${result.remembered ? "yes" : "no"}`,
+        `response=${result.response}`,
+        `evidence=${result.evidenceUri}`,
+        `description=${result.description}`,
+      ].join(" | ");
+      console.log(`[Settings] Visual smoke succeeded: ${summary}`);
+      dispatchUi({ type: "visual-smoke/succeeded", result: summary });
+    } catch (error) {
+      console.error("[Settings] Visual smoke failed:", error);
+      dispatchUi({ type: "visual-smoke/failed", error: "视觉记忆诊断失败" });
+    }
+  }, [addConversationMessage, visualSmokeRunning]);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -301,6 +377,14 @@ export default function SettingsScreen() {
           checkingModels={checkingModels}
           modelError={modelError}
           checkSherpaModels={checkSherpaModels}
+        />
+
+        <VisualMemorySection
+          isDark={isDark}
+          running={visualSmokeRunning}
+          result={visualSmokeResult}
+          error={visualSmokeError}
+          runVisualSmoke={runVisualSmoke}
         />
 
         <ServerSection
@@ -510,6 +594,39 @@ function ServerSection({
         <Pressable style={styles.checkButton} onPress={checkConnection}>
           <Text style={styles.checkButtonText}>重新检测</Text>
         </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function VisualMemorySection({
+  isDark,
+  running,
+  result,
+  error,
+  runVisualSmoke,
+}: {
+  isDark: boolean;
+  running: boolean;
+  result: string | null;
+  error: string | null;
+  runVisualSmoke: () => void;
+}) {
+  return (
+    <View style={styles.section}>
+      <SectionTitle isDark={isDark}>视觉记忆</SectionTitle>
+      <View style={[styles.card, { backgroundColor: cardColor(isDark) }]}>
+        <Pressable
+          style={[styles.checkButton, running && styles.disabledButton]}
+          onPress={runVisualSmoke}
+          disabled={running}
+        >
+          <Text style={styles.checkButtonText}>
+            {running ? "诊断中..." : "测试视觉记忆 + 证据图"}
+          </Text>
+        </Pressable>
+        {result ? <Text style={styles.smokeResultText}>{result}</Text> : null}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
     </View>
   );

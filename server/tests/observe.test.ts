@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import Fastify from "fastify";
-import { createObserveRoutes } from "../src/routes/observe.js";
+import {
+  createObserveRoutes,
+  hasUsableVisualDescription,
+} from "../src/routes/observe.js";
 
 const IMAGE_BASE64 = "abc123";
 
@@ -50,6 +53,7 @@ test("voice visual observe route stores combined memory and returns evidence", a
       response: "好的，记住钥匙在蓝色抽屉里。",
       evidenceUri: "http://127.0.0.1:8080/api/evidence/test.png",
       description: "一串钥匙在蓝色抽屉里",
+      remembered: true,
     });
 
     assert.equal(stored.length, 1);
@@ -63,4 +67,52 @@ test("voice visual observe route stores combined memory and returns evidence", a
   } finally {
     await server.close();
   }
+});
+
+test("voice visual observe route does not store unusable visual descriptions", async () => {
+  const stored: unknown[] = [];
+  const server = Fastify({ logger: false });
+  await server.register(
+    createObserveRoutes({
+      describeImage: async () => "由于提供的图片是纯色的，没有可辨认的物品、位置或环境。",
+      saveEvidenceImage: async () => ({
+        url: "http://127.0.0.1:8080/api/evidence/blank.png",
+        filename: "blank.png",
+      }),
+      addMemory: async (...args) => {
+        stored.push(args);
+        return { ok: true };
+      },
+      searchMemories: async () => [],
+      generateConfirmation: async () => "不应该调用确认生成",
+    }),
+    { prefix: "/api/observe" }
+  );
+
+  try {
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/observe/voice-visual",
+      payload: {
+        transcript: "记住这个放这了",
+        imageBase64: IMAGE_BASE64,
+        metadata: { category: "placement" },
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().remembered, false);
+    assert.equal(response.json().evidenceUri, "http://127.0.0.1:8080/api/evidence/blank.png");
+    assert.match(response.json().response, /不写入记忆/);
+    assert.equal(stored.length, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test("hasUsableVisualDescription rejects non-observations", () => {
+  assert.equal(hasUsableVisualDescription("一串钥匙在蓝色抽屉里"), true);
+  assert.equal(hasUsableVisualDescription("无法识别图片内容"), false);
+  assert.equal(hasUsableVisualDescription("没有可辨认的物品、位置或环境"), false);
+  assert.equal(hasUsableVisualDescription("   "), false);
 });

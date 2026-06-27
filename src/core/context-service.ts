@@ -59,6 +59,7 @@ export interface VoiceVisualResult {
   response: string;
   evidenceUri: string;
   description: string;
+  remembered: boolean;
 }
 
 export interface ObserveService {
