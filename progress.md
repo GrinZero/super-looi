@@ -73,7 +73,8 @@
 - [x] `src/voice/speaker-id.ts` 接 `@siteed/sherpa-onnx.rn` SpeakerId，支持样本/文件 embedding 注册与验证
 - [x] VoicePerceiver 使用当前命令录音文件做 owner 声纹验证，通过后才转写和处理命令
 - [x] 设置页提供本次会话 owner 声纹录入入口，录音文件写入 SpeakerId manager
-- [ ] 声纹注册跨 App 重启持久化验证/实现
+- [x] 声纹注册 embedding 分块写入 SecureStore，启动/刷新 enrollment 时自动恢复到 SpeakerId manager
+- [ ] 声纹注册跨 App 重启设备验证
 - [ ] 常驻 KWS 音频采集 feeder：采集麦克风 PCM 并调用 `wakewordService.acceptSamples()`
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
 - [x] `pnpm exec expo prebuild --clean --no-install` 生成 iOS/Android 原生工程通过
