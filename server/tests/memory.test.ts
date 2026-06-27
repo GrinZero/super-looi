@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import Fastify from "fastify";
-import { createMemoryRoutes } from "../src/routes/memory.js";
+import { buildOwnerMemoryFilters, createMemoryRoutes } from "../src/routes/memory.js";
+
+test("memory filters always scope to owner and preserve metadata category", () => {
+  assert.deepEqual(buildOwnerMemoryFilters(), { user_id: "owner-1" });
+  assert.deepEqual(buildOwnerMemoryFilters({ category: "placement" }), {
+    user_id: "owner-1",
+    category: "placement",
+  });
+});
 
 test("memory routes pass metadata, filters, and topK to dependencies", async () => {
   const calls: Array<Record<string, unknown>> = [];

@@ -52,6 +52,15 @@ interface MemoryRouteDependencies {
   getAllMemories: typeof getAllMemories;
 }
 
+export function buildOwnerMemoryFilters(filters?: { category?: string }): Record<string, any> {
+  const memoryFilters: Record<string, any> = { user_id: USER_ID };
+  if (filters?.category) {
+    memoryFilters.category = filters.category;
+  }
+
+  return memoryFilters;
+}
+
 export async function addMemory(
   messages: MemoryMessage,
   metadata?: Record<string, any>,
@@ -69,13 +78,8 @@ export async function searchMemories(
   filters?: { category?: string },
   topK = 5
 ): Promise<unknown[]> {
-  const searchFilters: Record<string, any> = { user_id: USER_ID };
-  if (filters?.category) {
-    searchFilters.category = filters.category;
-  }
-
   const result = await getMemory().search(query, {
-    filters: searchFilters,
+    filters: buildOwnerMemoryFilters(filters),
     topK,
   });
 
@@ -83,13 +87,8 @@ export async function searchMemories(
 }
 
 export async function getAllMemories(filters?: { category?: string }): Promise<unknown[]> {
-  const memoryFilters: Record<string, any> = { user_id: USER_ID };
-  if (filters?.category) {
-    memoryFilters.category = filters.category;
-  }
-
   const result = await getMemory().getAll({
-    filters: memoryFilters,
+    filters: buildOwnerMemoryFilters(filters),
   });
 
   return result.results || [];

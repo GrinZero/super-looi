@@ -68,4 +68,26 @@ assertPresent("server/tests/anti-regression.test.ts", [
   /assert\.equal\(response\.statusCode, 404\)/,
 ]);
 
+assertPresent("server/src/routes/memory.ts", [
+  /buildOwnerMemoryFilters/,
+  /user_id: USER_ID/,
+  /memoryFilters\.category = filters\.category/,
+]);
+
+assertPresent("server/tests/memory.test.ts", [
+  /buildOwnerMemoryFilters/,
+  /user_id: "owner-1"/,
+  /category: "placement"/,
+]);
+
+assertPresent("src/ui/ChatBubble.tsx", [
+  /message\.evidenceUri/,
+  /<Image source=\{\{ uri: message\.evidenceUri \}\}/,
+]);
+
+assertPresent("src/ui/MemoryCard.tsx", [
+  /memory\.metadata\?\.evidenceUri/,
+  /<Image source=\{\{ uri: memory\.metadata\.evidenceUri \}\}/,
+]);
+
 console.log("Anti-regression checks passed");

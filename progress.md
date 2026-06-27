@@ -105,12 +105,13 @@
 
 ## Step 9: 测试
 - [x] `server/tests/memory.test.ts`
+  - [x] 单测锁定 Mem0 查询过滤条件始终包含 `user_id: owner-1`，并保留 metadata `category` 过滤，防止跨用户/跨类别检索回退
 - [x] `server/tests/llm.test.ts`
 - [x] `server/tests/vision.test.ts`
 - [x] `server/tests/evidence.test.ts`
 - [x] `server/tests/observe.test.ts`
 - [x] `server/tests/anti-regression.test.ts`：确认服务器不再暴露 `/api/stt/transcribe` 回退转写入口
-- [x] `pnpm test`：root anti-regression 门禁，锁定设备端 STT、声纹先验、视觉证据和 `infer:false`，防止已消灭降级项被接回
+- [x] `pnpm test`：root anti-regression 门禁，锁定设备端 STT、声纹先验、视觉证据、证据图片 UI、memory owner/category 过滤和 `infer:false`，防止已消灭降级项被接回
 - [x] `pnpm exec tsc --noEmit`
 - [x] `npx -y react-doctor@latest . --verbose --scope changed`：100/100，无问题
 - [x] `pnpm exec expo config --type public`
