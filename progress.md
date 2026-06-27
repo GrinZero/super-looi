@@ -94,7 +94,8 @@
 - [x] 设置页提供 Android 设备端语音诊断入口，复用真实 `processFile`/`verifySpeaker`/`recognizeFromFile` 路径输出声纹 + STT 结果
 - [x] 声纹注册 embedding 分块写入 SecureStore，启动/刷新 enrollment 时自动恢复到 SpeakerId manager
 - [x] Android emulator 声纹文件 smoke：录音 m4a 经 SpeakerId `processFile` 提取 512 维 embedding，两次同文件 verify 返回 `speaker=pass`
-- [ ] 声纹注册跨 App 重启设备验证
+- [x] 声纹注册跨 App 重启设备验证：force-stop/restart 后日志显示 `[SpeakerId] Restored owner embedding from SecureStore: dims=512` 和 `enrolled=true`
+- [x] 设置页新增“验证已注册声纹”诊断，不重新 enroll，仅 `refreshEnrollmentStatus()` 后用新录音 `verifyFile()`；Android emulator 验证结果 `enrolled=yes | speaker=pass`
 - [x] 常驻 KWS 音频采集 feeder：使用 `@siteed/audio-studio` 采集 16k mono float PCM 并调用 `wakewordService.acceptSamples()`
 - [x] `@siteed/audio-studio` Expo config plugin 已用最小权限接入，提供麦克风权限并关闭后台录音/通知/蓝牙/电话权限
 - [x] KWS feeder 已处理运行中偏好切换、float PCM payload fallback、队列上限，避免静默断流和无限堆积
@@ -137,10 +138,12 @@
 - [x] `cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug`
 - [x] Android emulator 启动日志验证：JS bundle 正常加载，Sherpa JNI 加载，KWS 初始化完成且持续接收音频样本
 - [x] Android emulator 设置页语音诊断：`[Settings] Voice smoke succeeded ... speaker=pass | stt=没。`，且日志显示 `[STT] Paused KWS feeder for recording` 后到识别完成前无 `acceptWaveform`，随后 `[STT] Resumed KWS feeder after recording`
+- [x] Android emulator 设置页已注册声纹验证：重启 App 后恢复 SecureStore embedding，`[Settings] Speaker verify succeeded ... enrolled=yes | speaker=pass`，并确认 KWS feeder 暂停/恢复
 - [x] Android emulator 设置页视觉诊断：`[Settings] Visual smoke succeeded ... remembered=no ... evidence=... description=...纯色...`，并确认 ChatBubble evidence 图片加载
 - [x] `demo.jpg` 服务端 E2E：observe 返回 `记住了，衣服在桌子下。`，search top memory 带 `placementFact=衣服在桌子下`，`/api/llm/generate-response` 返回 `我记得：衣服在桌子下`
 - [x] Android emulator 记忆列表 evidence 图验证：`Glide Finished loading BitmapDrawable from REMOTE for http://192.168.3.71:8080/api/evidence/5c690078-...jpg`
 - [x] `npx -y react-doctor@latest . --verbose --scope changed`：退出码 0；对 `selectedCategory` 给出 derived-state 警告，经代码检查属于用户选择 filter state，不是可从其它 state 推导的值，未改动
+- [x] `npx -y react-doctor@latest . --verbose --scope changed`：退出码 0；对 `SettingsScreen` 给出大组件维护性警告，本次未做无关拆分
 - [ ] APP 手动冒烟测试：纯语音、视觉记事、检索+证据、日历提醒、KWS+声纹、iOS+Android
 
 ## Step 10: 清理 + 验收

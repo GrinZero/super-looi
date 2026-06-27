@@ -39,6 +39,12 @@ type SettingsUiState = {
     result: string | null;
     error: string | null;
   };
+  speakerVerify: {
+    recording: boolean;
+    running: boolean;
+    result: string | null;
+    error: string | null;
+  };
   visualSmoke: {
     running: boolean;
     result: string | null;
@@ -60,6 +66,10 @@ type SettingsUiAction =
   | { type: "voice-smoke/start-running" }
   | { type: "voice-smoke/succeeded"; result: string }
   | { type: "voice-smoke/failed"; error: string }
+  | { type: "speaker-verify/start-recording" }
+  | { type: "speaker-verify/start-running" }
+  | { type: "speaker-verify/succeeded"; result: string }
+  | { type: "speaker-verify/failed"; error: string }
   | { type: "visual-smoke/start-running" }
   | { type: "visual-smoke/succeeded"; result: string }
   | { type: "visual-smoke/failed"; error: string }
@@ -74,6 +84,12 @@ const initialSettingsUiState: SettingsUiState = {
     error: null,
   },
   voiceSmoke: {
+    recording: false,
+    running: false,
+    result: null,
+    error: null,
+  },
+  speakerVerify: {
     recording: false,
     running: false,
     result: null,
@@ -136,6 +152,26 @@ function settingsUiReducer(
         ...state,
         voiceSmoke: { recording: false, running: false, result: null, error: action.error },
       };
+    case "speaker-verify/start-recording":
+      return {
+        ...state,
+        speakerVerify: { recording: true, running: false, result: null, error: null },
+      };
+    case "speaker-verify/start-running":
+      return {
+        ...state,
+        speakerVerify: { recording: false, running: true, result: null, error: null },
+      };
+    case "speaker-verify/succeeded":
+      return {
+        ...state,
+        speakerVerify: { recording: false, running: false, result: action.result, error: null },
+      };
+    case "speaker-verify/failed":
+      return {
+        ...state,
+        speakerVerify: { recording: false, running: false, result: null, error: action.error },
+      };
     case "visual-smoke/start-running":
       return {
         ...state,
@@ -193,6 +229,12 @@ export default function SettingsScreen() {
     result: smokeResult,
     error: smokeError,
   } = uiState.voiceSmoke;
+  const {
+    recording: speakerVerifyRecording,
+    running: speakerVerifyRunning,
+    result: speakerVerifyResult,
+    error: speakerVerifyError,
+  } = uiState.speakerVerify;
   const {
     running: visualSmokeRunning,
     result: visualSmokeResult,
@@ -270,7 +312,14 @@ export default function SettingsScreen() {
   }, [enrolling, setVoiceEnrolled, setVoiceState]);
 
   const startVoiceSmoke = useCallback(async () => {
-    if (smokeRecording || smokeRunning || enrolling || savingEnrollment) return;
+    if (
+      smokeRecording ||
+      smokeRunning ||
+      speakerVerifyRecording ||
+      speakerVerifyRunning ||
+      enrolling ||
+      savingEnrollment
+    ) return;
 
     dispatchUi({ type: "voice-smoke/start-recording" });
     setVoiceState("listening");
@@ -282,7 +331,15 @@ export default function SettingsScreen() {
       dispatchUi({ type: "voice-smoke/failed", error: "诊断录音启动失败" });
       setVoiceState("sleeping");
     }
-  }, [enrolling, savingEnrollment, setVoiceState, smokeRecording, smokeRunning]);
+  }, [
+    enrolling,
+    savingEnrollment,
+    setVoiceState,
+    smokeRecording,
+    smokeRunning,
+    speakerVerifyRecording,
+    speakerVerifyRunning,
+  ]);
 
   const finishVoiceSmoke = useCallback(async () => {
     if (!smokeRecording) return;
@@ -311,6 +368,53 @@ export default function SettingsScreen() {
       setVoiceState("sleeping");
     }
   }, [setVoiceEnrolled, setVoiceState, smokeRecording]);
+
+  const runSpeakerVerify = useCallback(async () => {
+    if (
+      smokeRecording ||
+      smokeRunning ||
+      speakerVerifyRecording ||
+      speakerVerifyRunning ||
+      enrolling ||
+      savingEnrollment
+    ) return;
+
+    dispatchUi({ type: "speaker-verify/start-recording" });
+    setVoiceState("listening");
+
+    try {
+      await sttService.startRecording();
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+      dispatchUi({ type: "speaker-verify/start-running" });
+      setVoiceState("verifying");
+      const audioUri = await sttService.stopRecording();
+      const enrolled = await speakerIdService.refreshEnrollmentStatus();
+      const verified = enrolled ? await speakerIdService.verifyFile(audioUri) : false;
+      setVoiceEnrolled(enrolled);
+      const result = [
+        `audio=${audioUri}`,
+        `enrolled=${enrolled ? "yes" : "no"}`,
+        `speaker=${verified ? "pass" : "fail"}`,
+      ].join(" | ");
+      console.log(`[Settings] Speaker verify succeeded: ${result}`);
+      dispatchUi({ type: "speaker-verify/succeeded", result });
+    } catch (error) {
+      console.error("[Settings] Speaker verify failed:", error);
+      dispatchUi({ type: "speaker-verify/failed", error: "声纹验证失败" });
+    } finally {
+      await sttService.resumeWakewordFeederIfPaused();
+      setVoiceState("sleeping");
+    }
+  }, [
+    enrolling,
+    savingEnrollment,
+    setVoiceEnrolled,
+    setVoiceState,
+    smokeRecording,
+    smokeRunning,
+    speakerVerifyRecording,
+    speakerVerifyRunning,
+  ]);
 
   const runVisualSmoke = useCallback(async () => {
     if (visualSmokeRunning) return;
@@ -365,10 +469,15 @@ export default function SettingsScreen() {
           smokeRunning={smokeRunning}
           smokeResult={smokeResult}
           smokeError={smokeError}
+          speakerVerifyRecording={speakerVerifyRecording}
+          speakerVerifyRunning={speakerVerifyRunning}
+          speakerVerifyResult={speakerVerifyResult}
+          speakerVerifyError={speakerVerifyError}
           startEnrollment={startEnrollment}
           finishEnrollment={finishEnrollment}
           startVoiceSmoke={startVoiceSmoke}
           finishVoiceSmoke={finishVoiceSmoke}
+          runSpeakerVerify={runSpeakerVerify}
         />
 
         <VoiceModelsSection
@@ -449,10 +558,15 @@ function ProfileSection({
   smokeRunning,
   smokeResult,
   smokeError,
+  speakerVerifyRecording,
+  speakerVerifyRunning,
+  speakerVerifyResult,
+  speakerVerifyError,
   startEnrollment,
   finishEnrollment,
   startVoiceSmoke,
   finishVoiceSmoke,
+  runSpeakerVerify,
 }: {
   isDark: boolean;
   name: string;
@@ -464,12 +578,17 @@ function ProfileSection({
   smokeRunning: boolean;
   smokeResult: string | null;
   smokeError: string | null;
+  speakerVerifyRecording: boolean;
+  speakerVerifyRunning: boolean;
+  speakerVerifyResult: string | null;
+  speakerVerifyError: string | null;
   startEnrollment: () => void;
   finishEnrollment: () => void;
   startVoiceSmoke: () => void;
   finishVoiceSmoke: () => void;
+  runSpeakerVerify: () => void;
 }) {
-  const disabled = smokeRunning || enrolling || savingEnrollment;
+  const disabled = smokeRunning || speakerVerifyRunning || enrolling || savingEnrollment;
 
   return (
     <View style={styles.section}>
@@ -516,6 +635,23 @@ function ProfileSection({
         </Pressable>
         {smokeResult ? <Text style={styles.smokeResultText}>{smokeResult}</Text> : null}
         {smokeError ? <Text style={styles.errorText}>{smokeError}</Text> : null}
+        <Pressable
+          style={[styles.checkButton, disabled && styles.disabledButton]}
+          onPress={runSpeakerVerify}
+          disabled={disabled}
+        >
+          <Text style={styles.checkButtonText}>
+            {speakerVerifyRunning
+              ? "验证中..."
+              : speakerVerifyRecording
+              ? "录音中..."
+              : "验证已注册声纹"}
+          </Text>
+        </Pressable>
+        {speakerVerifyResult ? (
+          <Text style={styles.smokeResultText}>{speakerVerifyResult}</Text>
+        ) : null}
+        {speakerVerifyError ? <Text style={styles.errorText}>{speakerVerifyError}</Text> : null}
       </View>
     </View>
   );

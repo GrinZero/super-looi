@@ -22,6 +22,7 @@ export class SpeakerIdService {
     if (!this.enrolled) {
       this.enrolled = await this.restoreOwnerEmbedding();
     }
+    console.log(`[SpeakerId] Enrollment status refreshed: enrolled=${this.enrolled}`);
     return this.enrolled;
   }
 
@@ -90,10 +91,14 @@ export class SpeakerIdService {
   private async restoreOwnerEmbedding(): Promise<boolean> {
     const stored = await this.readOwnerEmbedding();
     if (!stored) {
+      console.log("[SpeakerId] No stored owner embedding to restore");
       return false;
     }
 
     await sherpaVoiceAdapter.registerSpeaker(OWNER_SPEAKER_NAME, stored.embedding);
+    console.log(
+      `[SpeakerId] Restored owner embedding from SecureStore: dims=${stored.embedding.length}`
+    );
     return true;
   }
 

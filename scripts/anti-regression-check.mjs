@@ -58,6 +58,13 @@ assertPresent("src/perceivers/voice-perceiver.ts", [
   /evidenceUri = result\.evidenceUri/,
 ]);
 
+assertPresent("src/voice/speaker-id.ts", [
+  /restoreOwnerEmbedding\(\)/,
+  /Restored owner embedding from SecureStore/,
+  /SecureStore\.setItemAsync/,
+  /SecureStore\.getItemAsync/,
+]);
+
 assertPresent("src/voice/sherpa-adapter.ts", [
   /SpeakerId\.getSpeakers\(\)/,
   /SpeakerId\.removeSpeaker\(name\)/,
@@ -72,6 +79,9 @@ assertAbsent("app/(tabs)/settings.tsx", [
 assertPresent("app/(tabs)/settings.tsx", [
   /cameraPerceiver\.getLatestFrame\(\)/,
   /observeService\.voiceVisual/,
+  /speakerIdService\.refreshEnrollmentStatus\(\)/,
+  /Speaker verify succeeded/,
+  /验证已注册声纹/,
   /addConversationMessage\(\{\s*role: "assistant",\s*content: result\.response,\s*evidenceUri: result\.evidenceUri,/s,
   /remembered=\$\{result\.remembered \? "yes" : "no"\}/,
   /Visual smoke succeeded/,
