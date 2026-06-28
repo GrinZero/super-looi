@@ -46,4 +46,4 @@ Updated: 2026-06-28 14:05:00 CST
   - [x] Runtime-smoke server `/health`, `/api/session/touch`, `/api/session/list`, `/api/session/:id/messages`, and `/api/llm/generate-response-stream`.
   - [x] HTTP smoke measured SSE first token at ~1714ms and confirmed touch reuses the same session within 5 minutes.
   - [x] iOS simulator build-only smoke with Expo (`output/ios-build-smoke/superlooiapp.app`).
-  - [ ] Audit against all acceptance criteria.
+  - [x] Audit against all acceptance criteria.
