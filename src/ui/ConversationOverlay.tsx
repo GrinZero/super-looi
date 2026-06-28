@@ -25,9 +25,7 @@ export function ConversationOverlay() {
     overlayVisible ||
     isListening ||
     isProcessing ||
-    isSpeaking ||
-    Boolean(currentTranscript) ||
-    Boolean(streamingText);
+    isSpeaking;
 
   useEffect(() => {
     opacity.value = withTiming(shouldShow ? 1 : 0, { duration: shouldShow ? 180 : 260 });
@@ -117,10 +115,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     justifyContent: "center",
-    shadowColor: looiTheme.cyan,
-    shadowOpacity: 0.18,
-    shadowRadius: 26,
-    shadowOffset: { width: 0, height: 0 },
+    boxShadow: "0 0 26px rgba(40, 213, 255, 0.18)",
   },
   statusRow: {
     flexDirection: "row",
