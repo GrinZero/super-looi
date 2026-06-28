@@ -53,6 +53,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "test": "node scripts/anti-regression-check.mjs",
+    "voice:accept-device": "node scripts/run-voice-device-acceptance.mjs",
     "web": "expo start --web"
   },
   "expo": {

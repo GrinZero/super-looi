@@ -1,6 +1,6 @@
 # Home Voice Conversation Acceptance
 
-Updated: 2026-06-28 13:06 CST
+Updated: 2026-06-28 13:11 CST
 
 ## Proven By Current Evidence
 
@@ -54,6 +54,8 @@ Updated: 2026-06-28 13:06 CST
 - Final high-volume simulator live acceptance used the combined enrollment + live runner with macOS output/input temporarily set to 90, then restored to 50/50 afterward. The local server was stopped afterward and port 8080 was clear.
 - Repeated live runner cleanup smoke command: `EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT=1 EXPO_PUBLIC_LOOI_OWNER_ENROLLMENT_START_DELAY_MS=9000 EXPO_PUBLIC_LOOI_OWNER_ENROLLMENT_DURATION_MS=6000 EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1 EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT=1 EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_START_DELAY_MS=7000 EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_REPEAT=3 pnpm exec expo run:ios --device "iPhone 17 Pro"`.
 - Repeated live runner cleanup smoke temporarily set macOS output/input to 90, restored both to 50 afterward, stopped the local server, and confirmed port 8080 was clear.
+- Physical-device acceptance script: `pnpm voice:accept-device -- "<physical device name>"`. It starts `pnpm --dir server dev`, runs Expo with live acceptance tracing and configurable repeat count, writes a timestamped log under `output/voice-device-acceptance/`, and stops the server afterward.
+- Physical-device script validation without a connected device: `pnpm voice:accept-device` exited with code 2, reported no detected physical iOS devices, and wrote a log path as expected. `node --check scripts/run-voice-device-acceptance.mjs` and `pnpm test` passed.
 
 ## Runtime Smoke Results
 
@@ -105,7 +107,7 @@ These cannot be fully proven from static tests or HTTP smoke:
 
 Use the live trace and runner to accept or reject these manually. A passing real-device run should include a single `[Acceptance] live voice ...` sequence with `wakeword`, `recording-started`, `vad-speech`, `vad-end`, `recording-stopped`, `speaker-verified isOwner=true`, `stt transcriptLength>0`, `first-token`, `first-tts`, `assistant`, and `cleanup isListening=false isProcessing=false`. The cleanup summary includes `vadEndAfterSpeechMs`, `firstTokenAfterSttMs`, and `firstTtsAfterTokenMs` for latency review. For repeated resource acceptance, set `EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_REPEAT=3` and confirm all three trace ids finish with cleanup.
 
-Follow `docs/home-voice-conversation-device-acceptance.md` when a physical iOS device is connected. Current local device discovery only shows the Mac and simulators, so the physical-device checks are not yet runnable in this environment.
+Follow `docs/home-voice-conversation-device-acceptance.md` or run `pnpm voice:accept-device -- "<physical device name>"` when a physical iOS device is connected. Current local device discovery only shows the Mac and simulators, so the physical-device checks are not yet runnable in this environment.
 
 ## Remaining Static Review Notes
 

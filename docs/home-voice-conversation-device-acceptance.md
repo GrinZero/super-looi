@@ -11,6 +11,16 @@ Use this when a physical iOS device is connected. The simulator path is already 
 
 ## Single Conversation Acceptance
 
+For the scripted flow, connect the device and run:
+
+```sh
+pnpm voice:accept-device -- "<physical device name>"
+```
+
+The script starts the local server, runs Expo with live acceptance tracing, writes a timestamped log under `output/voice-device-acceptance/`, and stops the server afterward. Set `LOOI_ACCEPTANCE_REPEAT=1` for a single run, or keep the default `3` for repeated acceptance.
+
+For a manual run:
+
 1. Start the server:
 
    ```sh
