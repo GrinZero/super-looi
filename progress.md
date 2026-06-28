@@ -13,6 +13,9 @@ Updated: 2026-06-28 14:24:00 CST
   - [x] Trigger `finishListening()` from VAD speech end and safety timeout.
   - [x] Verify VAD API shape against installed `@siteed/sherpa-onnx.rn` package and use its public `VAD` service.
   - [x] Add Settings VAD model status and diagnostic smoke entry.
+  - [x] Extract bundled WAV VAD smoke into shared `src/voice/vad-diagnostic.ts`.
+  - [x] Add opt-in boot VAD smoke via `EXPO_PUBLIC_LOOI_RUN_VAD_SMOKE_ON_BOOT=1`.
+  - [x] Fix VAD model download URL to the published Sherpa `asr-models/silero_vad.onnx` asset.
 - [x] Phase 2: pi-ai SSE LLM server migration
   - [x] Inspect current server LLM routes and pi-ai reference implementation.
   - [x] Add `@earendil-works/pi-ai` and remove direct `openai` dependency.
@@ -45,8 +48,11 @@ Updated: 2026-06-28 14:24:00 CST
   - [x] Run server build/tests with pnpm.
   - [x] Run React Doctor on changed React files.
   - [x] Re-run React Doctor after VAD diagnostic changes; remaining warnings are existing SettingsScreen size/sequential-await debt, not blocking this feature.
+  - [x] Run TypeScript and React Doctor after shared VAD diagnostic boot-smoke patch.
   - [x] Runtime-smoke server `/health`, `/api/session/touch`, `/api/session/list`, `/api/session/:id/messages`, and `/api/llm/generate-response-stream`.
   - [x] HTTP smoke measured SSE first token at ~1714ms and confirmed touch reuses the same session within 5 minutes.
   - [x] iOS simulator build-only smoke with Expo (`output/ios-build-smoke/superlooiapp.app`).
   - [x] Re-run iOS build-only smoke after VAD diagnostic changes; build succeeded with 0 errors and 0 warnings.
   - [x] Audit against all acceptance criteria.
+  - [x] Run opt-in boot VAD smoke on iOS simulator with downloaded models; log showed `speech=yes | segments=1 | first=0.07-0.84s`.
+  - [ ] Run live main-screen conversation and TTS device acceptance on iOS simulator/device.

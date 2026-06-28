@@ -17,6 +17,8 @@ Updated: 2026-06-28 14:10 CST
 - Conversation tab is a session history viewer.
 - iOS native build succeeds, including `@siteed/sherpa-onnx.rn` and `@siteed/audio-studio` native targets.
 - Settings now shows VAD model readiness and provides a device-side VAD diagnostic using the bundled wakeword WAV plus tail silence.
+- The VAD diagnostic is shared by Settings and an opt-in boot smoke hook. Set `EXPO_PUBLIC_LOOI_RUN_VAD_SMOKE_ON_BOOT=1` to run the bundled WAV VAD smoke after runtime perceiver startup and log `[Diagnostics] VAD smoke succeeded: ...` or `[Diagnostics] VAD smoke failed: ...`.
+- VAD model download now points at the published Sherpa asset `asr-models/silero_vad.onnx`; the prior `vad-models/silero_vad.onnx` URL returned 404.
 
 ## Verification Commands Run
 
@@ -27,6 +29,9 @@ Updated: 2026-06-28 14:10 CST
 - `npx -y react-doctor@latest . --verbose --diff`
 - `pnpm exec expo run:ios --device generic --no-bundler --output ./output/ios-build-smoke`
 - Re-run iOS build-only smoke after VAD diagnostic additions: `0 error(s), and 0 warning(s)`.
+- Shared VAD diagnostic boot-smoke patch: `pnpm exec tsc --noEmit` passed.
+- Shared VAD diagnostic boot-smoke patch: `npx -y react-doctor@latest . --verbose --diff` exited 0 with existing Settings warnings: sequential awaits at `app/(tabs)/settings.tsx:531` and `app/(tabs)/settings.tsx:623`, plus large `SettingsScreen` at `app/(tabs)/settings.tsx:387`.
+- VAD model URL fix and boot smoke: `EXPO_PUBLIC_LOOI_RUN_VAD_SMOKE_ON_BOOT=1 pnpm exec expo run:ios --device "iPhone 17 Pro"` built and launched the dev app; native log showed `[Diagnostics] VAD smoke succeeded: speech=yes | segments=1 | first=0.07-0.84s`.
 
 ## Runtime Smoke Results
 
@@ -36,6 +41,7 @@ Updated: 2026-06-28 14:10 CST
 - `POST /api/llm/generate-response-stream` returned token SSE events and a done event.
 - Measured HTTP-only first SSE token: about `1714ms`.
 - `touch` within 5 minutes reused the same session.
+- iOS simulator boot VAD smoke detected speech from the bundled diagnostic WAV and produced one segment: `0.07-0.84s`.
 
 ## Needs Device-Level Acceptance
 

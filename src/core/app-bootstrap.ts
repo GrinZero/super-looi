@@ -42,6 +42,8 @@ export async function bootstrapApp(): Promise<void> {
   await startRuntimePerceivers();
 
   console.log("[Bootstrap] App initialized. Active perceivers:", perceiverManager.getRegisteredNames());
+
+  runOptInVadSmokeOnBoot();
 }
 
 export async function pauseAppRuntime(): Promise<void> {
@@ -73,4 +75,23 @@ async function startRuntimePerceivers(): Promise<void> {
   } catch (error) {
     console.warn("[Bootstrap] Failed to start voice perceiver:", error);
   }
+}
+
+function runOptInVadSmokeOnBoot(): void {
+  if (process.env.EXPO_PUBLIC_LOOI_RUN_VAD_SMOKE_ON_BOOT !== "1") return;
+
+  void import("../voice/vad-diagnostic")
+    .then(({ runVadDiagnosticSmoke }) => runVadDiagnosticSmoke())
+    .then(({ summary }) => {
+      const firstSegment = summary.firstSegment
+        ? `${summary.firstSegment.startTime?.toFixed(2)}-${summary.firstSegment.endTime?.toFixed(2)}s`
+        : "(none)";
+      console.log(
+        `[Diagnostics] VAD smoke succeeded: speech=${summary.speechDetected ? "yes" : "no"} | ` +
+          `segments=${summary.segmentCount} | first=${firstSegment}`
+      );
+    })
+    .catch((error) => {
+      console.error("[Diagnostics] VAD smoke failed:", error);
+    });
 }

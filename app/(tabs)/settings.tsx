@@ -19,6 +19,7 @@ import {
   feedSamplesSequentially,
   loadPcm16WavAssetSamples,
 } from "@/src/voice/diagnostic-audio";
+import { runVadDiagnosticSmoke } from "@/src/voice/vad-diagnostic";
 import { reminderScheduler } from "@/src/reminder/reminder-scheduler";
 import { checkAllSherpaModelReadiness, type SherpaModelCheck } from "@/src/voice/sherpa-models";
 import {
@@ -45,11 +46,6 @@ type Preferences = ReturnType<typeof useUserStore.getState>["preferences"];
 type KwsDiagnosticResult = {
   detected?: boolean;
   keyword?: string;
-};
-
-type VadDiagnosticResult = {
-  isSpeechDetected: boolean;
-  segments?: Array<{ startTime?: number; endTime?: number }>;
 };
 
 async function getVoiceServices() {
@@ -752,30 +748,20 @@ export default function SettingsScreen() {
     dispatchUi({ type: "vad-smoke/start-running" });
 
     try {
-      const [{ vadService }, { samples, sampleRate }] = await Promise.all([
-        import("@/src/voice/vad-service"),
-        loadPcm16WavAssetSamples(KWS_DIAGNOSTIC_AUDIO),
-      ]);
-      await vadService.start();
-      const result = await runVadDiagnosticSamples(samples, sampleRate, (chunk) =>
-        vadService.acceptSamples(chunk, sampleRate)
-      );
-      const segment = result.segments[0];
+      const { summary: smokeSummary } = await runVadDiagnosticSmoke();
+      const segment = smokeSummary.firstSegment;
       const summary = [
-        `speech=${result.hadSpeech ? "yes" : "no"}`,
-        `segments=${result.segments.length}`,
+        `speech=${smokeSummary.speechDetected ? "yes" : "no"}`,
+        `segments=${smokeSummary.segmentCount}`,
         segment ? `first=${segment.startTime?.toFixed(2)}-${segment.endTime?.toFixed(2)}s` : null,
-        `samples=${samples.length}`,
-        `sampleRate=${sampleRate}`,
+        `samples=${smokeSummary.samples}`,
+        `sampleRate=${smokeSummary.sampleRate}`,
       ].filter(Boolean).join(" | ");
       console.log(`[Settings] VAD smoke succeeded: ${summary}`);
       dispatchUi({ type: "vad-smoke/succeeded", result: summary });
     } catch (error) {
       console.error("[Settings] VAD smoke failed:", error);
       dispatchUi({ type: "vad-smoke/failed", error: "VAD 诊断失败" });
-    } finally {
-      const { vadService } = await import("@/src/voice/vad-service");
-      await vadService.stop().catch(() => undefined);
     }
   }, [vadSmokeRunning]);
 
@@ -1352,36 +1338,6 @@ async function runKwsDiagnosticSamples(
     acceptSamples,
     (result) => Boolean(result.detected)
   );
-}
-
-async function runVadDiagnosticSamples(
-  samples: number[],
-  sampleRate: number,
-  acceptSamples: (chunk: number[]) => Promise<VadDiagnosticResult>
-) {
-  const paddedSamples = samples.concat(new Array(KWS_DIAGNOSTIC_TAIL_SILENCE_SAMPLES).fill(0));
-  const segments: Array<{ startTime?: number; endTime?: number }> = [];
-  let hadSpeech = false;
-
-  await feedSamplesSequentially(
-    paddedSamples,
-    KWS_DIAGNOSTIC_CHUNK_SIZE,
-    async (chunk) => {
-      const result = await acceptSamples(chunk);
-      hadSpeech ||= result.isSpeechDetected;
-      if (result.segments?.length) {
-        segments.push(...result.segments);
-      }
-      return { isSpeechDetected: result.isSpeechDetected, segmentCount: segments.length };
-    },
-    (result) => result.segmentCount > 0
-  );
-
-  if (!hadSpeech && segments.length === 0) {
-    throw new Error("VAD did not detect speech in diagnostic audio");
-  }
-
-  return { hadSpeech, segments };
 }
 
 async function getAudioFileSummary(audioUri: string): Promise<string> {

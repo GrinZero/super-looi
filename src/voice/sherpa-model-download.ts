@@ -38,7 +38,7 @@ const KWS_ARCHIVE_URL =
 const SPEAKER_MODEL_URL =
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx";
 const VAD_MODEL_URL =
-  "https://github.com/k2-fsa/sherpa-onnx/releases/download/vad-models/silero_vad.onnx";
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx";
 const SENSEVOICE_BASE_URL =
   "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main";
 const KWS_KEYWORDS = "h ēi m ó g ē @HEY_MOGE\n";
