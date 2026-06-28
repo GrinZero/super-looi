@@ -1,6 +1,6 @@
 # Home Voice Conversation Progress
 
-Updated: 2026-06-28 12:27:19 CST
+Updated: 2026-06-28 12:30:50 CST
 
 - [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
 - [x] Split execution ownership:
@@ -69,4 +69,5 @@ Updated: 2026-06-28 12:27:19 CST
   - [x] Add opt-in live voice acceptance trace via `EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1` for real microphone wakeword/VAD/STT/SSE/TTS evidence.
   - [x] Add opt-in boot live voice acceptance runner via `EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT=1` to trigger the real voice pipeline without tapping UI controls.
   - [x] Attempt one iOS simulator live voice run with the boot runner and macOS `say` audio; recording/session path worked, but VAD did not detect speech and speaker verification rejected the low-volume external audio.
+  - [x] Add opt-in boot owner enrollment helper via `EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT=1` to remove speaker-mismatch as a variable during live acceptance runs.
   - [ ] Run live microphone wakeword conversation and long-run repeated resource acceptance on iOS simulator/device.

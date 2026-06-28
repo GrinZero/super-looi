@@ -45,6 +45,7 @@ export async function bootstrapApp(): Promise<void> {
 
   runOptInVadSmokeOnBoot();
   runOptInConversationSmokeOnBoot();
+  runOptInOwnerEnrollmentOnBoot();
   runOptInLiveVoiceAcceptanceOnBoot();
 }
 
@@ -140,11 +141,49 @@ function runOptInLiveVoiceAcceptanceOnBoot(): void {
   });
 }
 
+function runOptInOwnerEnrollmentOnBoot(): void {
+  if (process.env.EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT !== "1") return;
+
+  void runOwnerEnrollmentSequence().catch((error) => {
+    console.error("[Diagnostics] Owner enrollment failed:", error);
+  });
+}
+
+async function runOwnerEnrollmentSequence(): Promise<void> {
+  const delayMs = getOwnerEnrollmentStartDelayMs();
+  const durationMs = getOwnerEnrollmentDurationMs();
+  if (delayMs > 0) {
+    await sleep(delayMs);
+  }
+
+  const { sttService } = await import("../voice/stt");
+  const { speakerIdService } = await import("../voice/speaker-id");
+
+  console.log(
+    `[Diagnostics] Owner enrollment: speak after this log; recording ${durationMs}ms for owner voice.`
+  );
+  useUserStore.getState().setVoiceState("listening");
+  await sttService.startRecording();
+
+  try {
+    await sleep(durationMs);
+    useUserStore.getState().setVoiceState("verifying");
+    const audioUri = await sttService.stopRecording();
+    await speakerIdService.enrollFromFile(audioUri);
+    useUserStore.getState().setVoiceEnrolled(true);
+    console.log(`[Diagnostics] Owner enrollment succeeded: audioUri=${audioUri}`);
+  } finally {
+    await sttService.resumeWakewordFeederIfPaused();
+    useUserStore.getState().setVoiceState("sleeping");
+  }
+}
+
 async function runLiveVoiceAcceptanceSequence(): Promise<void> {
   const repeat = getLiveVoiceAcceptanceRepeatCount();
   const delayMs = getLiveVoiceAcceptanceStartDelayMs();
 
   for (let index = 0; index < repeat; index += 1) {
+    await waitForVoiceIdle();
     if (delayMs > 0) {
       await sleep(delayMs);
     }
@@ -170,6 +209,20 @@ function getLiveVoiceAcceptanceStartDelayMs(): number {
   const parsed = raw ? Number.parseInt(raw, 10) : 5000;
   if (!Number.isFinite(parsed)) return 5000;
   return Math.max(0, Math.min(parsed, 30_000));
+}
+
+function getOwnerEnrollmentStartDelayMs(): number {
+  const raw = process.env.EXPO_PUBLIC_LOOI_OWNER_ENROLLMENT_START_DELAY_MS;
+  const parsed = raw ? Number.parseInt(raw, 10) : 5000;
+  if (!Number.isFinite(parsed)) return 5000;
+  return Math.max(0, Math.min(parsed, 30_000));
+}
+
+function getOwnerEnrollmentDurationMs(): number {
+  const raw = process.env.EXPO_PUBLIC_LOOI_OWNER_ENROLLMENT_DURATION_MS;
+  const parsed = raw ? Number.parseInt(raw, 10) : 3000;
+  if (!Number.isFinite(parsed)) return 3000;
+  return Math.max(1000, Math.min(parsed, 10_000));
 }
 
 function sleep(ms: number): Promise<void> {

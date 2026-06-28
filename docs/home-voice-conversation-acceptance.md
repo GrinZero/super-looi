@@ -1,6 +1,6 @@
 # Home Voice Conversation Acceptance
 
-Updated: 2026-06-28 12:27 CST
+Updated: 2026-06-28 12:30 CST
 
 ## Proven By Current Evidence
 
@@ -26,6 +26,7 @@ Updated: 2026-06-28 12:27 CST
 - The conversation diagnostic supports repeated boot smoke runs with `EXPO_PUBLIC_LOOI_CONVERSATION_SMOKE_REPEAT=<n>` so resource cleanup can be exercised in one simulator launch.
 - Live microphone acceptance tracing is available behind `EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1`. It emits one trace id per real wakeword/button-triggered conversation and logs wakeword, session, recording start/stop, VAD speech/end, speaker verification, STT, intent, first SSE token, first TTS start, stream done, assistant append, and cleanup timings.
 - A live microphone acceptance runner is available behind `EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT=1`. It triggers the real voice pipeline at boot, waits for VAD to finish and the voice state to return idle, and can repeat up to 5 times with `EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_REPEAT=<n>`.
+- A boot owner-enrollment helper is available behind `EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT=1`. It records real microphone audio for a configurable duration and saves it through the same `speakerIdService.enrollFromFile()` path used by Settings, so live acceptance can remove speaker-mismatch as a variable.
 
 ## Verification Commands Run
 
@@ -48,6 +49,7 @@ Updated: 2026-06-28 12:27 CST
 - Live acceptance trace command template: `EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1 pnpm exec expo run:ios --device "<device>"`, with the local server running at `EXPO_PUBLIC_LOOI_SERVER_URL`.
 - After live trace instrumentation: `pnpm exec tsc --noEmit`, `pnpm test`, `pnpm --dir server build && pnpm --dir server test`, and `npx -y react-doctor@latest . --verbose --diff` all passed. React Doctor reported 100/100 with no issues in uncommitted changes.
 - Live acceptance runner command template: `EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1 EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT=1 EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_REPEAT=3 pnpm exec expo run:ios --device "<device>"`.
+- Combined enrollment + live runner command template: `EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT=1 EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1 EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT=1 pnpm exec expo run:ios --device "<device>"`. Speak during the owner-enrollment prompt first, then speak again during the live-acceptance prompt.
 
 ## Runtime Smoke Results
 
