@@ -67,12 +67,14 @@ test("search response without facts uses no-memory response", () => {
 
 test("generate-response-stream emits token and done SSE events with session history", async () => {
   const seenMessages: unknown[] = [];
+  const seenOptions: unknown[] = [];
   const server = Fastify({ logger: false });
   await server.register(
     createLlmRoutes({
       chatComplete: async () => "unused",
-      chatStream: (messages) => {
+      chatStream: (messages, options) => {
         seenMessages.push(messages);
+        seenOptions.push(options);
         return (async function* () {
           yield {
             type: "text_delta",
@@ -108,7 +110,7 @@ test("generate-response-stream emits token and done SSE events with session hist
         },
         async getRecentMessages(sessionId, maxMessages) {
           assert.equal(sessionId, "sess_test");
-          assert.equal(maxMessages, 20);
+          assert.equal(maxMessages, 6);
           return [
             {
               id: "msg_1",
@@ -158,13 +160,14 @@ test("generate-response-stream emits token and done SSE events with session hist
         {
           role: "system",
           content:
-            "你是 LOOI，一个记忆助手。你帮助主人记录和回忆事情。说话简短、自然、温暖。用中文回答。\n上一段对话摘要：上一段摘要\n这是一般对话。请简短、自然地回复。",
+            "你是 LOOI，一个记忆助手。你帮助主人记录和回忆事情。说话简短、自然、温暖。用中文回答。\n上一段对话摘要：上一段摘要\n这是一般对话。请简短、自然地回复，不超过 12 个字。",
         },
         { role: "user", content: "之前的问题" },
         { role: "assistant", content: "之前的回答" },
         { role: "user", content: "现在的问题" },
       ],
     ]);
+    assert.deepEqual(seenOptions, [{ temperature: 0.7, maxTokens: 40, sessionId: "sess_test" }]);
   } finally {
     await server.close();
   }

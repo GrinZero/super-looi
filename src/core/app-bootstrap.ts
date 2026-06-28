@@ -44,6 +44,7 @@ export async function bootstrapApp(): Promise<void> {
   console.log("[Bootstrap] App initialized. Active perceivers:", perceiverManager.getRegisteredNames());
 
   runOptInVadSmokeOnBoot();
+  runOptInConversationSmokeOnBoot();
 }
 
 export async function pauseAppRuntime(): Promise<void> {
@@ -93,5 +94,29 @@ function runOptInVadSmokeOnBoot(): void {
     })
     .catch((error) => {
       console.error("[Diagnostics] VAD smoke failed:", error);
+    });
+}
+
+function runOptInConversationSmokeOnBoot(): void {
+  if (process.env.EXPO_PUBLIC_LOOI_RUN_CONVERSATION_SMOKE_ON_BOOT !== "1") return;
+
+  void import("../voice/conversation-diagnostic")
+    .then(({ runConversationDiagnosticSmoke }) => runConversationDiagnosticSmoke())
+    .then((summary) => {
+      console.log(
+        "[Diagnostics] Conversation smoke succeeded: " +
+          `transcript=${JSON.stringify(summary.transcript)} | ` +
+          `tokens=${summary.tokenCount} | ` +
+          `asrDoneMs=${summary.asrDoneMs} | ` +
+          `firstTokenMs=${summary.firstTokenMs ?? "n/a"} | ` +
+          `firstTokenAfterAsrMs=${summary.firstTokenAfterAsrMs ?? "n/a"} | ` +
+          `firstTtsStartMs=${summary.firstTtsStartMs ?? "n/a"} | ` +
+          `firstTtsAfterTokenMs=${summary.firstTtsAfterTokenMs ?? "n/a"} | ` +
+          `streamDoneMs=${summary.streamDoneMs ?? "n/a"} | ` +
+          `totalMs=${summary.totalMs}`
+      );
+    })
+    .catch((error) => {
+      console.error("[Diagnostics] Conversation smoke failed:", error);
     });
 }

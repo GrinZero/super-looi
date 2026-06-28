@@ -22,6 +22,8 @@ Updated: 2026-06-28 14:24:00 CST
   - [x] Replace OpenAI SDK usage with `@earendil-works/pi-ai`.
   - [x] Add `/api/llm/generate-response-stream`.
   - [x] Keep non-streaming LLM routes compatible.
+  - [x] Remove LLM preflight from intent classification; ambiguous utterances now return `chat` by rule for lower latency.
+  - [x] Shorten chat streaming prompt and context window for faster first-token behavior.
 - [x] Phase 3: Main-screen subtitle overlay
   - [x] Add conversation overlay UI.
   - [x] Integrate overlay into home screen.
@@ -55,4 +57,7 @@ Updated: 2026-06-28 14:24:00 CST
   - [x] Re-run iOS build-only smoke after VAD diagnostic changes; build succeeded with 0 errors and 0 warnings.
   - [x] Audit against all acceptance criteria.
   - [x] Run opt-in boot VAD smoke on iOS simulator with downloaded models; log showed `speech=yes | segments=1 | first=0.07-0.84s`.
-  - [ ] Run live main-screen conversation and TTS device acceptance on iOS simulator/device.
+  - [x] Add and run opt-in conversation boot smoke on iOS simulator; it proves bundled WAV ASR -> session -> SSE -> streaming subtitle state -> sentence TTS start.
+  - [x] Confirm first TTS start after first SSE token on iOS simulator smoke: 18-21ms in repeated runs.
+  - [ ] Stabilize first SSE token <= 2s after ASR on device; repeated iOS smoke after optimization still measured 2037-2454ms.
+  - [ ] Run live microphone wakeword conversation and long-run repeated resource acceptance on iOS simulator/device.

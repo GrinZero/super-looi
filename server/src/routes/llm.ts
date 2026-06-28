@@ -4,6 +4,7 @@ import { chatComplete, chatStream, type ChatMessage } from "../infra/llm.js";
 import { DefaultSessionService, type SessionService } from "../session/service.js";
 
 export type UserIntent = "store" | "search" | "remind" | "chat";
+const STREAM_CONTEXT_MESSAGE_LIMIT = 6;
 
 /**
  * LLM routes — /api/llm/*
@@ -38,45 +39,10 @@ export function createLlmRoutes(
       return reply.status(400).send({ error: "transcript is required" });
     }
 
-    // Use rule-based classification as primary (reliable for Chinese)
-    // LLM classification as backup for ambiguous cases
-    const ruleIntent = ruleBasedClassify(transcript);
-
-    if (ruleIntent !== "chat") {
-      // Rule-based gave a clear signal
-      return { intent: ruleIntent };
-    }
-
-    // Try LLM for ambiguous cases
-    try {
-      const text = await dependencies.chatComplete(
-        [
-          {
-            role: "system",
-            content: `你是一个意图分类器。根据用户说的话，判断意图类别。
-只返回以下四个类别中的一个单词（不要任何其他内容）：
-store, search, remind, chat
-
-- store: 用户想记录/存储信息
-- search: 用户想查找/检索之前记录的信息
-- remind: 用户想设置提醒或与日程相关
-- chat: 一般性对话、闲聊或问答`,
-          },
-          { role: "user", content: transcript },
-        ],
-        { temperature: 0, maxTokens: 5 }
-      );
-
-      const intentRaw = (text || "chat").trim().toLowerCase();
-      // Extract just the keyword from potentially longer response
-      const matched = intentRaw.match(/\b(store|search|remind|chat)\b/);
-      const intent: UserIntent = matched ? (matched[1] as UserIntent) : "chat";
-
-      return { intent };
-    } catch (error: any) {
-      fastify.log.error(error, "Intent classification failed");
-      return { intent: "chat" };
-    }
+    // Keep this endpoint deterministic and low-latency. Ambiguous utterances
+    // are treated as chat so response streaming can start without a preflight
+    // LLM call on the critical path.
+    return { intent: ruleBasedClassify(transcript) };
   });
 
   /**
@@ -160,7 +126,7 @@ store, search, remind, chat
     try {
       const stream = dependencies.chatStream(messages, {
         temperature: 0.7,
-        maxTokens: 200,
+        maxTokens: getResponseMaxTokens(intent),
         sessionId,
       });
 
@@ -245,8 +211,12 @@ export function buildSystemPrompt(
 
     case "chat":
     default:
-      return `${base}${summaryHint}\n这是一般对话。请简短、自然地回复。`;
+      return `${base}${summaryHint}\n这是一般对话。请简短、自然地回复，不超过 12 个字。`;
   }
+}
+
+function getResponseMaxTokens(intent: UserIntent): number {
+  return intent === "chat" ? 40 : 200;
 }
 
 export function buildGroundedSearchResponse(
@@ -317,7 +287,10 @@ async function buildLlmMessages(input: {
   const messages: ChatMessage[] = [{ role: "system", content: input.systemPrompt }];
 
   if (input.sessionId) {
-    const history = await input.sessionService.getRecentMessages(input.sessionId, 20);
+    const history = await input.sessionService.getRecentMessages(
+      input.sessionId,
+      STREAM_CONTEXT_MESSAGE_LIMIT
+    );
     messages.push(
       ...history.map((message) => ({
         role: message.role,
