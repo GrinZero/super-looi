@@ -1,6 +1,6 @@
 # Home Voice Conversation Acceptance
 
-Updated: 2026-06-28 12:11 CST
+Updated: 2026-06-28 12:16 CST
 
 ## Proven By Current Evidence
 
@@ -24,6 +24,7 @@ Updated: 2026-06-28 12:11 CST
 - Streaming responses emit a short immediate prelude token before waiting for the LLM stream. This preserves the model-backed answer while making the subtitle/TTS response start deterministic enough for the voice latency budget.
 - Mem0 is configured with `disableHistory: true` for the server memory client. Persistent memories still use pgvector, while Mem0's default sqlite history store is skipped to avoid `better-sqlite3` native ABI failures on the current Node runtime.
 - The conversation diagnostic supports repeated boot smoke runs with `EXPO_PUBLIC_LOOI_CONVERSATION_SMOKE_REPEAT=<n>` so resource cleanup can be exercised in one simulator launch.
+- Live microphone acceptance tracing is available behind `EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1`. It emits one trace id per real wakeword/button-triggered conversation and logs wakeword, session, recording start/stop, VAD speech/end, speaker verification, STT, intent, first SSE token, first TTS start, stream done, assistant append, and cleanup timings.
 
 ## Verification Commands Run
 
@@ -43,6 +44,8 @@ Updated: 2026-06-28 12:11 CST
 - Mem0 history mitigation: `pnpm --dir server build` passed, focused `tests/memory.test.ts tests/session.test.ts` passed 7/7, and full `pnpm --dir server build && pnpm --dir server test` passed 23/23.
 - After the repeat-smoke patch: `pnpm exec tsc --noEmit`, `pnpm test`, `pnpm --dir server build && pnpm --dir server test`, and `npx -y react-doctor@latest . --verbose --diff` all passed. React Doctor reported 100/100 with no issues in uncommitted changes.
 - Repeated conversation smoke command: `EXPO_PUBLIC_LOOI_RUN_CONVERSATION_SMOKE_ON_BOOT=1 EXPO_PUBLIC_LOOI_CONVERSATION_SMOKE_REPEAT=3 pnpm exec expo run:ios --device "iPhone 17 Pro"`.
+- Live acceptance trace command template: `EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1 pnpm exec expo run:ios --device "<device>"`, with the local server running at `EXPO_PUBLIC_LOOI_SERVER_URL`.
+- After live trace instrumentation: `pnpm exec tsc --noEmit`, `pnpm test`, `pnpm --dir server build && pnpm --dir server test`, and `npx -y react-doctor@latest . --verbose --diff` all passed. React Doctor reported 100/100 with no issues in uncommitted changes.
 
 ## Runtime Smoke Results
 
@@ -71,6 +74,8 @@ These cannot be fully proven from static tests or HTTP smoke:
 - VAD accuracy for natural speech: no mid-sentence cutoff and no >2s wait after a clear stop.
 - Perceived subtitle/TTS sync during actual audio playback.
 - Long-run resource release behavior for VAD/audio-studio/recording/SSE after repeated real microphone conversations on device.
+
+Use the live trace to accept or reject these manually. A passing real-device run should include a single `[Acceptance] live voice ...` sequence with `wakeword`, `recording-started`, `vad-speech`, `vad-end`, `recording-stopped`, `speaker-verified isOwner=true`, `stt transcriptLength>0`, `first-token`, `first-tts`, `assistant`, and `cleanup isListening=false isProcessing=false`. The cleanup summary includes `vadEndAfterSpeechMs`, `firstTokenAfterSttMs`, and `firstTtsAfterTokenMs` for latency review.
 
 ## Remaining Static Review Notes
 

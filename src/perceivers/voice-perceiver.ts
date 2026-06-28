@@ -8,6 +8,7 @@ import { speakerIdService } from "../voice/speaker-id";
 import { sttService } from "../voice/stt";
 import { ttsService } from "../voice/tts";
 import { vadService } from "../voice/vad-service";
+import { voiceAcceptanceTrace } from "../voice/acceptance-trace";
 import { useUserStore } from "../store/user";
 import { useConversationStore } from "../store/conversation";
 import { llmService, memoryService, observeService, sessionService } from "../server-api/client";
@@ -148,6 +149,11 @@ export class VoicePerceiver extends BasePerceiver {
       this.startRecordingPromise ||
       this.isFinishingListening
     ) {
+      voiceAcceptanceTrace.mark("ignored", {
+        isListening: conversationStore.isListening,
+        isProcessing: conversationStore.isProcessing,
+        voiceState: userStore.voiceState,
+      });
       console.log("[VoicePerceiver] Ignored trigger", {
         isListening: conversationStore.isListening,
         isProcessing: conversationStore.isProcessing,
@@ -158,6 +164,7 @@ export class VoicePerceiver extends BasePerceiver {
       return;
     }
 
+    voiceAcceptanceTrace.start();
     console.log("[VoicePerceiver] Listening started");
     // Step 1: Start listening. Owner verification runs against this same audio file
     // before transcription, so accepted commands still require speaker verification.
@@ -170,6 +177,10 @@ export class VoicePerceiver extends BasePerceiver {
     try {
       const session = await sessionService.touch();
       conversationStore.setActiveSession(session.sessionId);
+      voiceAcceptanceTrace.mark("session", {
+        sessionId: session.sessionId,
+        isNew: session.isNew,
+      });
       console.log("[VoicePerceiver] Session touched", {
         sessionId: session.sessionId,
         isNew: session.isNew,
@@ -220,6 +231,10 @@ export class VoicePerceiver extends BasePerceiver {
       recordingActive: sttService.recording_active,
       hasStartRecordingPromise: Boolean(this.startRecordingPromise),
     });
+    voiceAcceptanceTrace.mark("finish-requested", {
+      hadListeningRequest,
+      recordingActive: sttService.recording_active,
+    });
 
     conversationStore.setListening(false);
     if (hadListeningRequest) {
@@ -256,10 +271,12 @@ export class VoicePerceiver extends BasePerceiver {
       // Step 2: Stop recording and verify owner before accepting the command.
       const audioUri = await sttService.stopRecording();
       console.log("[VoicePerceiver] Recording stopped", { audioUri });
+      voiceAcceptanceTrace.mark("recording-stopped");
 
       userStore.setVoiceState("verifying");
       const isOwner = await speakerIdService.verifyFile(audioUri);
       console.log("[VoicePerceiver] Speaker verification finished", { isOwner });
+      voiceAcceptanceTrace.mark("speaker-verified", { isOwner });
       if (!isOwner) {
         conversationStore.addMessage({
           role: "assistant",
@@ -272,6 +289,7 @@ export class VoicePerceiver extends BasePerceiver {
       userStore.setVoiceState("processing");
       const transcript = await sttService.transcribeFile(audioUri);
       console.log("[VoicePerceiver] STT finished", { transcript });
+      voiceAcceptanceTrace.mark("stt", { transcriptLength: transcript.length });
       if (!transcript.trim()) {
         conversationStore.addMessage({
           role: "assistant",
@@ -294,6 +312,7 @@ export class VoicePerceiver extends BasePerceiver {
       console.log("[VoicePerceiver] Classifying intent", { transcript });
       const intent = await llmService.classifyIntent(transcript);
       console.log("[VoicePerceiver] Intent classified", { intent });
+      voiceAcceptanceTrace.mark("intent", { intent });
       let response: string;
       let evidenceUri: string | undefined;
       let audioHandled = false;
@@ -356,6 +375,11 @@ export class VoicePerceiver extends BasePerceiver {
 
       // Step 6: Add assistant response
       console.log("[VoicePerceiver] Assistant response generated", { response });
+      voiceAcceptanceTrace.mark("assistant", {
+        responseLength: response.length,
+        audioHandled,
+        hasEvidence: Boolean(evidenceUri),
+      });
       await conversationStore.appendMessage({ role: "assistant", content: response, evidenceUri });
       if (evidenceUri) {
         conversationStore.showImageOverlay(evidenceUri);
@@ -366,6 +390,7 @@ export class VoicePerceiver extends BasePerceiver {
       conversationStore.setSpeaking(true);
 
       if (userStore.preferences.ttsEnabled && !audioHandled) {
+        voiceAcceptanceTrace.mark("first-tts", { mode: "fallback" });
         await ttsService.speak({ text: response });
       }
     } catch (error) {
@@ -374,6 +399,9 @@ export class VoicePerceiver extends BasePerceiver {
       }
 
       console.warn("[VoicePerceiver] Processing stopped:", error);
+      voiceAcceptanceTrace.mark("error", {
+        message: error instanceof Error ? error.message : String(error),
+      });
       await conversationStore.appendMessage({
         role: "assistant",
         content: "抱歉，处理时出了点问题，请再试一次。",
@@ -388,6 +416,11 @@ export class VoicePerceiver extends BasePerceiver {
       this.isFinishingListening = false;
       await sttService.resumeWakewordFeederIfPaused();
       await this.restartWakewordFeederIfNeeded();
+      voiceAcceptanceTrace.finish({
+        voiceState: useUserStore.getState().voiceState,
+        isListening: useConversationStore.getState().isListening,
+        isProcessing: useConversationStore.getState().isProcessing,
+      });
     }
   }
 
@@ -410,6 +443,7 @@ export class VoicePerceiver extends BasePerceiver {
       const ttsPromise = shouldSpeak
         ? ttsService.speakSentences(sentenceQueue, {
             onSentenceStart: () => {
+              voiceAcceptanceTrace.mark("first-tts", { mode: "stream" });
               useUserStore.getState().setVoiceState("speaking");
               useConversationStore.getState().setSpeaking(true);
             },
@@ -424,12 +458,17 @@ export class VoicePerceiver extends BasePerceiver {
           transcript: context.transcript,
         })) {
           if (event.type === "token") {
+            voiceAcceptanceTrace.mark("first-token");
             streamedText += event.text;
             sentenceBuffer += event.text;
             useConversationStore.getState().appendStreamingText(event.text);
             sentenceBuffer = this.flushCompleteSentences(sentenceBuffer, sentenceQueue);
           } else if (event.type === "done") {
             const fullText = event.fullText || streamedText;
+            voiceAcceptanceTrace.mark("stream-done", {
+              responseLength: fullText.length,
+              hasEvidence: Boolean(event.evidenceUri),
+            });
             streamedEvidenceUri = event.evidenceUri;
             sentenceQueue.push(sentenceBuffer);
             sentenceBuffer = "";
@@ -500,6 +539,7 @@ export class VoicePerceiver extends BasePerceiver {
     try {
       await kwsAudioFeeder.stop();
       await sttService.startRecording();
+      voiceAcceptanceTrace.mark("recording-started");
       if (this.cancelRecordingAfterStart) {
         await sttService.cancel();
         return;
@@ -507,9 +547,17 @@ export class VoicePerceiver extends BasePerceiver {
       await this.startListeningVad();
     } catch (error) {
       console.error("[VoicePerceiver] Failed to start recording:", error);
+      voiceAcceptanceTrace.mark("error", {
+        message: error instanceof Error ? error.message : String(error),
+      });
       userStore.setVoiceState("sleeping");
       conversationStore.setListening(false);
       await this.restartWakewordFeederIfNeeded();
+      voiceAcceptanceTrace.finish({
+        voiceState: useUserStore.getState().voiceState,
+        isListening: useConversationStore.getState().isListening,
+        isProcessing: useConversationStore.getState().isProcessing,
+      });
     } finally {
       this.cancelRecordingAfterStart = false;
     }
@@ -539,6 +587,7 @@ export class VoicePerceiver extends BasePerceiver {
 
     this.listeningTimeout = setTimeout(() => {
       console.log("[VoicePerceiver] Listening safety timeout reached");
+      voiceAcceptanceTrace.mark("safety-timeout");
       this.finishListening();
     }, MAX_LISTENING_DURATION_MS);
   }
@@ -581,9 +630,15 @@ export class VoicePerceiver extends BasePerceiver {
         this.vadQueuedSamples = null;
         const result = await vadService.acceptSamples(samples, sampleRate);
         if (result.isSpeechDetected || (result.segments?.length ?? 0) > 0) {
+          if (!this.vadHadSpeech) {
+            voiceAcceptanceTrace.mark("vad-speech", {
+              segments: result.segments?.length ?? 0,
+            });
+          }
           this.vadHadSpeech = true;
         } else if (this.vadHadSpeech && sttService.recording_active) {
           console.log("[VoicePerceiver] VAD detected speech end");
+          voiceAcceptanceTrace.mark("vad-end");
           this.finishListening();
           break;
         }

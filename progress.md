@@ -1,6 +1,6 @@
 # Home Voice Conversation Progress
 
-Updated: 2026-06-28 12:11:38 CST
+Updated: 2026-06-28 12:16:32 CST
 
 - [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
 - [x] Split execution ownership:
@@ -66,4 +66,5 @@ Updated: 2026-06-28 12:11:38 CST
   - [x] Runtime-smoke closed-session summary memory write; session closed with summary and no `better-sqlite3`/background-task error in server logs.
   - [x] Add repeatable conversation boot smoke via `EXPO_PUBLIC_LOOI_CONVERSATION_SMOKE_REPEAT`.
   - [x] Run 3x iOS simulator conversation boot smoke; all iterations completed ASR -> session -> SSE -> subtitle state -> TTS start and persisted assistant messages.
+  - [x] Add opt-in live voice acceptance trace via `EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1` for real microphone wakeword/VAD/STT/SSE/TTS evidence.
   - [ ] Run live microphone wakeword conversation and long-run repeated resource acceptance on iOS simulator/device.
