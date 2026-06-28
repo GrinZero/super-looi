@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import Fastify from "fastify";
-import { buildOwnerMemoryFilters, createMemoryRoutes } from "../src/routes/memory.js";
+import { buildMemoryConfig, buildOwnerMemoryFilters, createMemoryRoutes } from "../src/routes/memory.js";
+
+test("memory config disables Mem0 sqlite history while keeping pgvector storage", () => {
+  const memoryConfig = buildMemoryConfig();
+
+  assert.equal(memoryConfig?.disableHistory, true);
+  assert.ok(memoryConfig?.vectorStore);
+  assert.equal(memoryConfig.vectorStore.provider, "pgvector");
+});
 
 test("memory filters always scope to owner and preserve metadata category", () => {
   assert.deepEqual(buildOwnerMemoryFilters(), { user_id: "owner-1" });

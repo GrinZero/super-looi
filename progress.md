@@ -1,6 +1,6 @@
 # Home Voice Conversation Progress
 
-Updated: 2026-06-28 14:24:00 CST
+Updated: 2026-06-28 12:11:38 CST
 
 - [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
 - [x] Split execution ownership:
@@ -62,4 +62,8 @@ Updated: 2026-06-28 14:24:00 CST
   - [x] Confirm first TTS start after first SSE token on iOS simulator smoke: 18-21ms in repeated runs.
   - [x] Stabilize first SSE token <= 2s after ASR on iOS simulator smoke; prelude-token run measured `firstTokenAfterAsrMs=204`.
   - [x] Reconfirm first TTS start <= 3s after first SSE token on iOS simulator smoke; prelude-token run measured `firstTtsAfterTokenMs=2272`.
+  - [x] Disable Mem0 sqlite history store while preserving pgvector memory storage to avoid `better-sqlite3` ABI failures.
+  - [x] Runtime-smoke closed-session summary memory write; session closed with summary and no `better-sqlite3`/background-task error in server logs.
+  - [x] Add repeatable conversation boot smoke via `EXPO_PUBLIC_LOOI_CONVERSATION_SMOKE_REPEAT`.
+  - [x] Run 3x iOS simulator conversation boot smoke; all iterations completed ASR -> session -> SSE -> subtitle state -> TTS start and persisted assistant messages.
   - [ ] Run live microphone wakeword conversation and long-run repeated resource acceptance on iOS simulator/device.

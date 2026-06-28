@@ -1,6 +1,6 @@
 # Home Voice Conversation Acceptance
 
-Updated: 2026-06-28 14:10 CST
+Updated: 2026-06-28 12:11 CST
 
 ## Proven By Current Evidence
 
@@ -22,6 +22,8 @@ Updated: 2026-06-28 14:10 CST
 - A conversation diagnostic is available behind `EXPO_PUBLIC_LOOI_RUN_CONVERSATION_SMOKE_ON_BOOT=1`. It runs bundled WAV ASR on device, touches a server session, persists user/assistant messages, consumes LLM SSE, updates streaming subtitle state, and starts sentence TTS while logging ASR/token/TTS timings.
 - Intent classification is deterministic and low-latency; ambiguous utterances return `chat` by rule instead of making a preflight LLM call. Chat streaming also uses a shorter prompt and smaller session context window.
 - Streaming responses emit a short immediate prelude token before waiting for the LLM stream. This preserves the model-backed answer while making the subtitle/TTS response start deterministic enough for the voice latency budget.
+- Mem0 is configured with `disableHistory: true` for the server memory client. Persistent memories still use pgvector, while Mem0's default sqlite history store is skipped to avoid `better-sqlite3` native ABI failures on the current Node runtime.
+- The conversation diagnostic supports repeated boot smoke runs with `EXPO_PUBLIC_LOOI_CONVERSATION_SMOKE_REPEAT=<n>` so resource cleanup can be exercised in one simulator launch.
 
 ## Verification Commands Run
 
@@ -38,6 +40,9 @@ Updated: 2026-06-28 14:10 CST
 - Conversation smoke and latency tuning: `pnpm exec tsc --noEmit`, `pnpm test`, and `pnpm --dir server build && pnpm --dir server test` passed.
 - Conversation smoke command: `EXPO_PUBLIC_LOOI_RUN_CONVERSATION_SMOKE_ON_BOOT=1 pnpm exec expo run:ios --device "iPhone 17 Pro"`.
 - Prelude-token latency smoke: `EXPO_PUBLIC_LOOI_RUN_CONVERSATION_SMOKE_ON_BOOT=1 pnpm exec expo run:ios --device "iPhone 17 Pro"` built with `0 error(s), and 0 warning(s)` and logged `firstTokenAfterAsrMs=204`, `firstTtsAfterTokenMs=2272`.
+- Mem0 history mitigation: `pnpm --dir server build` passed, focused `tests/memory.test.ts tests/session.test.ts` passed 7/7, and full `pnpm --dir server build && pnpm --dir server test` passed 23/23.
+- After the repeat-smoke patch: `pnpm exec tsc --noEmit`, `pnpm test`, `pnpm --dir server build && pnpm --dir server test`, and `npx -y react-doctor@latest . --verbose --diff` all passed. React Doctor reported 100/100 with no issues in uncommitted changes.
+- Repeated conversation smoke command: `EXPO_PUBLIC_LOOI_RUN_CONVERSATION_SMOKE_ON_BOOT=1 EXPO_PUBLIC_LOOI_CONVERSATION_SMOKE_REPEAT=3 pnpm exec expo run:ios --device "iPhone 17 Pro"`.
 
 ## Runtime Smoke Results
 
@@ -51,6 +56,12 @@ Updated: 2026-06-28 14:10 CST
 - iOS simulator conversation smoke succeeded through device ASR, server session/SSE, subtitle state, and TTS start. Best run after removing LLM intent preflight: `transcript="黑魔哥。" | tokens=23 | asrDoneMs=893 | firstTokenAfterAsrMs=2300 | firstTtsAfterTokenMs=18`; later short-prompt/context tuning runs measured `firstTokenAfterAsrMs=2037` and `2454`, with `firstTtsAfterTokenMs=21`.
 - Prelude-token iOS conversation smoke met both latency targets: `transcript="黑魔哥。" | tokens=10 | asrDoneMs=875 | firstTokenAfterAsrMs=204 | firstTtsAfterTokenMs=2272 | streamDoneMs=3367 | totalMs=12501`.
 - The first TTS start requirement is proven for the smoke path: TTS starts within 3s after the first SSE token.
+- Closed-session summary memory smoke passed on the running local server. A session with user/assistant messages was aged, `/api/session/touch` created a new session with the old summary as `previousSummary`, the aged session became `closed` with a non-null summary, and server logs did not show `Session background task failed` or `better-sqlite3` ABI errors.
+- Three repeated iOS simulator conversation boot smokes succeeded in one launch:
+  - `1/3`: `transcript="黑魔哥。" | tokens=9 | firstTokenAfterAsrMs=84 | firstTtsAfterTokenMs=1895 | totalMs=12916`
+  - `2/3`: `transcript="黑魔哥。" | tokens=10 | firstTokenAfterAsrMs=43 | firstTtsAfterTokenMs=1583 | totalMs=19769`
+  - `3/3`: `transcript="黑魔哥。" | tokens=13 | firstTokenAfterAsrMs=19 | firstTtsAfterTokenMs=2033 | totalMs=12002`
+- During the repeated simulator smoke, server logs showed each iteration completing session touch, user message append, intent classification, `/api/llm/generate-response-stream`, and assistant message append. No server-side background summary or Mem0 native-module error appeared.
 
 ## Needs Device-Level Acceptance
 
@@ -59,9 +70,9 @@ These cannot be fully proven from static tests or HTTP smoke:
 - Real microphone wakeword -> VAD -> ASR flow on iOS simulator/device.
 - VAD accuracy for natural speech: no mid-sentence cutoff and no >2s wait after a clear stop.
 - Perceived subtitle/TTS sync during actual audio playback.
-- Long-run resource release behavior for VAD/audio-studio/recording/SSE after repeated real conversations.
+- Long-run resource release behavior for VAD/audio-studio/recording/SSE after repeated real microphone conversations on device.
 
 ## Remaining Static Review Notes
 
 - React Doctor still reports pre-existing `SettingsScreen` size and sequential-await warnings in existing recording flows. The VAD diagnostic addition compiles and the iOS build passes; broad settings refactor is out of scope for this feature acceptance.
-- During iOS conversation smoke, server requests completed successfully, but the server logged a background Mem0 `better-sqlite3` NODE_MODULE_VERSION mismatch. Rebuild native Node modules or run the server with the matching Node version before final long-run summary-memory acceptance.
+- iOS simulator repeated conversation smoke still logs simulator CoreAudio noise and `[TTS] Playback timeout after 8000ms`. The diagnostic proves TTS starts and that cleanup allows subsequent iterations to complete, but real-device playback completion still needs manual confirmation.

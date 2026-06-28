@@ -101,22 +101,32 @@ function runOptInConversationSmokeOnBoot(): void {
   if (process.env.EXPO_PUBLIC_LOOI_RUN_CONVERSATION_SMOKE_ON_BOOT !== "1") return;
 
   void import("../voice/conversation-diagnostic")
-    .then(({ runConversationDiagnosticSmoke }) => runConversationDiagnosticSmoke())
-    .then((summary) => {
-      console.log(
-        "[Diagnostics] Conversation smoke succeeded: " +
-          `transcript=${JSON.stringify(summary.transcript)} | ` +
-          `tokens=${summary.tokenCount} | ` +
-          `asrDoneMs=${summary.asrDoneMs} | ` +
-          `firstTokenMs=${summary.firstTokenMs ?? "n/a"} | ` +
-          `firstTokenAfterAsrMs=${summary.firstTokenAfterAsrMs ?? "n/a"} | ` +
-          `firstTtsStartMs=${summary.firstTtsStartMs ?? "n/a"} | ` +
-          `firstTtsAfterTokenMs=${summary.firstTtsAfterTokenMs ?? "n/a"} | ` +
-          `streamDoneMs=${summary.streamDoneMs ?? "n/a"} | ` +
-          `totalMs=${summary.totalMs}`
-      );
+    .then(async ({ runConversationDiagnosticSmoke }) => {
+      const repeat = getConversationSmokeRepeatCount();
+      for (let index = 0; index < repeat; index += 1) {
+        const summary = await runConversationDiagnosticSmoke();
+        console.log(
+          `[Diagnostics] Conversation smoke ${index + 1}/${repeat} succeeded: ` +
+            `transcript=${JSON.stringify(summary.transcript)} | ` +
+            `tokens=${summary.tokenCount} | ` +
+            `asrDoneMs=${summary.asrDoneMs} | ` +
+            `firstTokenMs=${summary.firstTokenMs ?? "n/a"} | ` +
+            `firstTokenAfterAsrMs=${summary.firstTokenAfterAsrMs ?? "n/a"} | ` +
+            `firstTtsStartMs=${summary.firstTtsStartMs ?? "n/a"} | ` +
+            `firstTtsAfterTokenMs=${summary.firstTtsAfterTokenMs ?? "n/a"} | ` +
+            `streamDoneMs=${summary.streamDoneMs ?? "n/a"} | ` +
+            `totalMs=${summary.totalMs}`
+        );
+      }
     })
     .catch((error) => {
       console.error("[Diagnostics] Conversation smoke failed:", error);
     });
+}
+
+function getConversationSmokeRepeatCount(): number {
+  const raw = process.env.EXPO_PUBLIC_LOOI_CONVERSATION_SMOKE_REPEAT;
+  const parsed = raw ? Number.parseInt(raw, 10) : 1;
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.min(parsed, 10));
 }

@@ -5,10 +5,15 @@ import { config } from "../config.js";
 // Mem0 initialization — uses pgvector for persistent vector storage
 let memory: Memory | null = null;
 
-function getMemory(): Memory {
-  if (!memory) {
-    const databaseUrl = new URL(config.database.url);
-    memory = new Memory({
+type MemoryConfig = ConstructorParameters<typeof Memory>[0];
+
+export function buildMemoryConfig(): MemoryConfig {
+  const databaseUrl = new URL(config.database.url);
+
+  return {
+    // Mem0's default history store uses better-sqlite3; keep pgvector memories
+    // working even when that optional native binding was built for another ABI.
+    disableHistory: true,
       vectorStore: {
         provider: "pgvector",
         config: {
@@ -38,7 +43,12 @@ function getMemory(): Memory {
           baseURL: config.llm.baseUrl,
         },
       },
-    });
+  };
+}
+
+function getMemory(): Memory {
+  if (!memory) {
+    memory = new Memory(buildMemoryConfig());
   }
   return memory;
 }
