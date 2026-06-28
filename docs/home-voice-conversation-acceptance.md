@@ -1,6 +1,6 @@
 # Home Voice Conversation Acceptance
 
-Updated: 2026-06-28 12:58 CST
+Updated: 2026-06-28 13:06 CST
 
 ## Proven By Current Evidence
 
@@ -52,6 +52,8 @@ Updated: 2026-06-28 12:58 CST
 - Combined enrollment + live runner command template: `EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT=1 EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1 EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT=1 pnpm exec expo run:ios --device "<device>"`. Speak during the owner-enrollment prompt first, then speak again during the live-acceptance prompt.
 - VAD completed-segment handling fix: `pnpm exec tsc --noEmit` and `pnpm test` passed.
 - Final high-volume simulator live acceptance used the combined enrollment + live runner with macOS output/input temporarily set to 90, then restored to 50/50 afterward. The local server was stopped afterward and port 8080 was clear.
+- Repeated live runner cleanup smoke command: `EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT=1 EXPO_PUBLIC_LOOI_OWNER_ENROLLMENT_START_DELAY_MS=9000 EXPO_PUBLIC_LOOI_OWNER_ENROLLMENT_DURATION_MS=6000 EXPO_PUBLIC_LOOI_TRACE_LIVE_VOICE_ACCEPTANCE=1 EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT=1 EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_START_DELAY_MS=7000 EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_REPEAT=3 pnpm exec expo run:ios --device "iPhone 17 Pro"`.
+- Repeated live runner cleanup smoke temporarily set macOS output/input to 90, restored both to 50 afterward, stopped the local server, and confirmed port 8080 was clear.
 
 ## Runtime Smoke Results
 
@@ -86,6 +88,11 @@ Updated: 2026-06-28 12:58 CST
   - `assistant audioHandled=true elapsedMs=20916`
   - `cleanup isListening=false isProcessing=false totalMs=21200 vadEndAfterSpeechMs=6304 firstTokenAfterSttMs=42 firstTtsAfterTokenMs=1630`
 - The final enrollment WAV measured `mean_volume=-11.7 dB`, `max_volume=-0.0 dB`; the final live WAV measured `mean_volume=-13.8 dB`, `max_volume=0.0 dB`. Server logs for the final trace confirmed session touch, user message append, deterministic intent classify, `/api/llm/generate-response-stream`, and assistant message append.
+- A 3x iOS simulator live runner cleanup smoke exercised repeated resource cleanup in one launch. All three traces returned to idle cleanup:
+  - `live-1`: `vad-speech`, `vad-end`, `recording-stopped`, `speaker-verified isOwner=false`, `cleanup voiceState="sleeping" isListening=false isProcessing=false totalMs=13821`
+  - `live-2`: `recording-stopped`, `speaker-verified isOwner=true`, `stt transcriptLength=2`, `first-token`, `first-tts`, `stream-done`, `assistant audioHandled=true`, `cleanup voiceState="sleeping" isListening=false isProcessing=false totalMs=29581`
+  - `live-3`: `recording-stopped`, `speaker-verified isOwner=true`, `stt transcriptLength=1`, `first-token`, `first-tts`, `stream-done`, `assistant audioHandled=true`, `cleanup voiceState="sleeping" isListening=false isProcessing=false totalMs=36688`
+- Server logs for the 3x run showed repeated session touch and, for the two accepted turns, user message append, deterministic intent classify, `/api/llm/generate-response-stream`, and assistant message append. The run strengthens resource cleanup evidence, but does not replace physical-device playback acceptance because simulator audio still produced CoreAudio noise and `[TTS] Playback timeout after 8000ms`.
 
 ## Needs Device-Level Acceptance
 
@@ -94,7 +101,7 @@ These cannot be fully proven from static tests or HTTP smoke:
 - Real microphone wakeword/button trigger -> VAD -> ASR flow on a physical iOS device.
 - VAD accuracy for natural speech on a physical device: no mid-sentence cutoff and no >2s wait after a clear stop.
 - Perceived subtitle/TTS sync during actual audio playback.
-- Long-run resource release behavior for VAD/audio-studio/recording/SSE after repeated real microphone conversations on device.
+- Long-run resource release behavior for VAD/audio-studio/recording/SSE after repeated real microphone conversations on physical device.
 
 Use the live trace and runner to accept or reject these manually. A passing real-device run should include a single `[Acceptance] live voice ...` sequence with `wakeword`, `recording-started`, `vad-speech`, `vad-end`, `recording-stopped`, `speaker-verified isOwner=true`, `stt transcriptLength>0`, `first-token`, `first-tts`, `assistant`, and `cleanup isListening=false isProcessing=false`. The cleanup summary includes `vadEndAfterSpeechMs`, `firstTokenAfterSttMs`, and `firstTtsAfterTokenMs` for latency review. For repeated resource acceptance, set `EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_REPEAT=3` and confirm all three trace ids finish with cleanup.
 

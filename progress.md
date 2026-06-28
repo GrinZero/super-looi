@@ -1,6 +1,6 @@
 # Home Voice Conversation Progress
 
-Updated: 2026-06-28 12:58:43 CST
+Updated: 2026-06-28 13:06:13 CST
 
 - [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
 - [x] Split execution ownership:
@@ -75,4 +75,5 @@ Updated: 2026-06-28 12:58:43 CST
   - [x] Re-run live runner with higher macOS output/input volume and confirmed adequate simulator audio can trigger `vad-speech`; this run still missed owner enrollment audio, so speaker verification failed and VAD did not emit `vad-end` before the safety timeout.
   - [x] Treat Sherpa VAD completed `segments` as speech-end events so the real live pipeline does not wait for the safety timeout after VAD has emitted a finished segment.
   - [x] Re-run combined enrollment + live runner with adequate audio during both enrollment and live recording; single trace completed `vad-speech` -> `vad-end` -> speaker pass -> meaningful STT -> SSE -> TTS -> assistant -> cleanup.
+  - [x] Run 3x live acceptance runner on iOS simulator to exercise repeated recording/SSE/TTS cleanup; all three traces returned to `voiceState="sleeping" isListening=false isProcessing=false`, with two traces reaching SSE/TTS/assistant and simulator audio limitations still visible.
   - [ ] Run long-run repeated resource acceptance on a real iOS device.
