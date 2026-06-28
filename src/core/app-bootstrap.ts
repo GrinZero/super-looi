@@ -45,6 +45,7 @@ export async function bootstrapApp(): Promise<void> {
 
   runOptInVadSmokeOnBoot();
   runOptInConversationSmokeOnBoot();
+  runOptInLiveVoiceAcceptanceOnBoot();
 }
 
 export async function pauseAppRuntime(): Promise<void> {
@@ -129,4 +130,62 @@ function getConversationSmokeRepeatCount(): number {
   const parsed = raw ? Number.parseInt(raw, 10) : 1;
   if (!Number.isFinite(parsed)) return 1;
   return Math.max(1, Math.min(parsed, 10));
+}
+
+function runOptInLiveVoiceAcceptanceOnBoot(): void {
+  if (process.env.EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT !== "1") return;
+
+  void runLiveVoiceAcceptanceSequence().catch((error) => {
+    console.error("[Diagnostics] Live voice acceptance failed:", error);
+  });
+}
+
+async function runLiveVoiceAcceptanceSequence(): Promise<void> {
+  const repeat = getLiveVoiceAcceptanceRepeatCount();
+  const delayMs = getLiveVoiceAcceptanceStartDelayMs();
+
+  for (let index = 0; index < repeat; index += 1) {
+    if (delayMs > 0) {
+      await sleep(delayMs);
+    }
+
+    console.log(
+      `[Diagnostics] Live voice acceptance ${index + 1}/${repeat}: ` +
+        "speak after this log; VAD should finish the recording automatically."
+    );
+    await voiceRuntime.trigger();
+    await waitForVoiceIdle();
+  }
+}
+
+function getLiveVoiceAcceptanceRepeatCount(): number {
+  const raw = process.env.EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_REPEAT;
+  const parsed = raw ? Number.parseInt(raw, 10) : 1;
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.min(parsed, 5));
+}
+
+function getLiveVoiceAcceptanceStartDelayMs(): number {
+  const raw = process.env.EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_START_DELAY_MS;
+  const parsed = raw ? Number.parseInt(raw, 10) : 5000;
+  if (!Number.isFinite(parsed)) return 5000;
+  return Math.max(0, Math.min(parsed, 30_000));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForVoiceIdle(timeoutMs = 45_000): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const userState = useUserStore.getState();
+    if (userState.voiceState === "sleeping") {
+      return;
+    }
+    await sleep(500);
+  }
+  throw new Error("Live voice acceptance timed out waiting for the voice pipeline to return idle");
 }
