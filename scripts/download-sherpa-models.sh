@@ -5,26 +5,18 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL_ROOT="${MODEL_ROOT:-$ROOT_DIR/app-models/sherpa-onnx}"
-SENSEVOICE_DIR="$MODEL_ROOT/asr/sensevoice"
+STREAMING_ASR_DIR="$MODEL_ROOT/asr/streaming-paraformer"
+PUNCT_DIR="$MODEL_ROOT/punctuation"
 KWS_DIR="$MODEL_ROOT/kws/looi"
 SPEAKER_DIR="$MODEL_ROOT/speaker-id/looi"
 TMP_DIR="$MODEL_ROOT/.tmp"
 
 cleanup() {
-  rm -rf "$TMP_DIR" "$SENSEVOICE_DIR/.cache"
+  rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
 
-mkdir -p "$SENSEVOICE_DIR" "$KWS_DIR" "$SPEAKER_DIR" "$TMP_DIR"
-
-if command -v hf >/dev/null 2>&1; then
-  HF_DOWNLOAD=(hf download)
-elif command -v huggingface-cli >/dev/null 2>&1; then
-  HF_DOWNLOAD=(huggingface-cli download)
-else
-  echo "Hugging Face CLI is required. Install with: pip install -U huggingface_hub"
-  exit 1
-fi
+mkdir -p "$STREAMING_ASR_DIR" "$PUNCT_DIR" "$KWS_DIR" "$SPEAKER_DIR" "$TMP_DIR"
 
 require_file() {
   local path="$1"
@@ -43,11 +35,25 @@ download_url() {
   curl -L --fail --retry 3 --retry-delay 2 "$url" -o "$output"
 }
 
-echo "Downloading SenseVoice STT model..."
-"${HF_DOWNLOAD[@]}" \
-  csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 \
-  model.int8.onnx tokens.txt \
-  --local-dir "$SENSEVOICE_DIR"
+echo "Downloading Streaming Paraformer ASR model..."
+STREAMING_ASR_ARCHIVE="$TMP_DIR/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2"
+download_url \
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2" \
+  "$STREAMING_ASR_ARCHIVE"
+tar -xjf "$STREAMING_ASR_ARCHIVE" -C "$TMP_DIR"
+STREAMING_ASR_EXTRACTED="$TMP_DIR/sherpa-onnx-streaming-paraformer-bilingual-zh-en"
+cp "$STREAMING_ASR_EXTRACTED/encoder.int8.onnx" "$STREAMING_ASR_DIR/encoder.int8.onnx"
+cp "$STREAMING_ASR_EXTRACTED/decoder.int8.onnx" "$STREAMING_ASR_DIR/decoder.int8.onnx"
+cp "$STREAMING_ASR_EXTRACTED/tokens.txt" "$STREAMING_ASR_DIR/tokens.txt"
+
+echo "Downloading CT-Punc model..."
+PUNCT_ARCHIVE="$TMP_DIR/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2"
+download_url \
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2" \
+  "$PUNCT_ARCHIVE"
+tar -xjf "$PUNCT_ARCHIVE" -C "$TMP_DIR"
+PUNCT_EXTRACTED="$TMP_DIR/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8"
+cp "$PUNCT_EXTRACTED/model.int8.onnx" "$PUNCT_DIR/model.int8.onnx"
 
 echo "Downloading KWS zipformer model..."
 KWS_ARCHIVE="$TMP_DIR/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2"
@@ -87,8 +93,10 @@ download_url \
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx" \
   "$SPEAKER_DIR/model.onnx"
 
-require_file "$SENSEVOICE_DIR/model.int8.onnx"
-require_file "$SENSEVOICE_DIR/tokens.txt"
+require_file "$STREAMING_ASR_DIR/encoder.int8.onnx"
+require_file "$STREAMING_ASR_DIR/decoder.int8.onnx"
+require_file "$STREAMING_ASR_DIR/tokens.txt"
+require_file "$PUNCT_DIR/model.int8.onnx"
 require_file "$KWS_DIR/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
 require_file "$KWS_DIR/decoder-epoch-12-avg-2-chunk-16-left-64.onnx"
 require_file "$KWS_DIR/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"

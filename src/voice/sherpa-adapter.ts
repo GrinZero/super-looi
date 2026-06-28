@@ -1,9 +1,16 @@
 import SherpaOnnx, {
   type AsrModelConfig,
   type KWSModelConfig,
+  type PunctuationModelConfig,
   type SpeakerIdModelConfig,
 } from "@siteed/sherpa-onnx.rn";
 import {
+  DEFAULT_PUNCT_MODEL_DIR,
+  DEFAULT_PUNCT_MODEL_FILE,
+  DEFAULT_STREAMING_ASR_DECODER,
+  DEFAULT_STREAMING_ASR_ENCODER,
+  DEFAULT_STREAMING_ASR_MODEL_DIR,
+  DEFAULT_STREAMING_ASR_TOKENS_FILE,
   checkSherpaModelFiles,
   checkAllSherpaModelReadiness,
   formatSherpaModelError,
@@ -11,9 +18,6 @@ import {
   resolveSherpaModelDir,
 } from "./sherpa-models";
 
-const DEFAULT_STT_MODEL_DIR = "sherpa-onnx/asr/sensevoice";
-const DEFAULT_STT_MODEL_FILE = "model.int8.onnx";
-const DEFAULT_STT_TOKENS_FILE = "tokens.txt";
 const DEFAULT_KWS_MODEL_DIR = "sherpa-onnx/kws/looi";
 const DEFAULT_SPEAKER_MODEL_DIR = "sherpa-onnx/speaker-id/looi";
 const DEFAULT_SPEAKER_MODEL_FILE = "model.onnx";
@@ -23,7 +27,11 @@ const DEFAULT_KWS_ENCODER_FILE = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.o
 const DEFAULT_KWS_DECODER_FILE = "decoder-epoch-12-avg-2-chunk-16-left-64.onnx";
 const DEFAULT_KWS_JOINER_FILE = "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx";
 const DEFAULT_KWS_TOKENS_FILE = "tokens.txt";
-const ASR_REQUIRED_FILES = [DEFAULT_STT_MODEL_FILE, DEFAULT_STT_TOKENS_FILE];
+const ASR_REQUIRED_FILES = [
+  DEFAULT_STREAMING_ASR_ENCODER,
+  DEFAULT_STREAMING_ASR_DECODER,
+  DEFAULT_STREAMING_ASR_TOKENS_FILE,
+];
 const KWS_REQUIRED_FILES = [
   DEFAULT_KWS_ENCODER_FILE,
   DEFAULT_KWS_DECODER_FILE,
@@ -46,8 +54,9 @@ function parseIntEnv(name: string, fallback: number): number {
 
 function getAsrRequiredFiles(config: AsrModelConfig): string[] {
   return [
-    config.modelFiles?.model || DEFAULT_STT_MODEL_FILE,
-    config.modelFiles?.tokens || DEFAULT_STT_TOKENS_FILE,
+    config.modelFiles?.encoder || DEFAULT_STREAMING_ASR_ENCODER,
+    config.modelFiles?.decoder || DEFAULT_STREAMING_ASR_DECODER,
+    config.modelFiles?.tokens || DEFAULT_STREAMING_ASR_TOKENS_FILE,
   ];
 }
 
@@ -74,17 +83,30 @@ function withResolvedModelDir<T extends { modelDir: string }>(config: T): T {
 
 export function getSherpaAsrConfig(): AsrModelConfig {
   return {
-    modelDir: env("EXPO_PUBLIC_SHERPA_STT_MODEL_DIR", DEFAULT_STT_MODEL_DIR),
-    modelType: "sense_voice",
-    streaming: false,
+    modelDir: env("EXPO_PUBLIC_SHERPA_STREAMING_ASR_MODEL_DIR", DEFAULT_STREAMING_ASR_MODEL_DIR),
+    modelType: "paraformer",
+    streaming: true,
     language: env("EXPO_PUBLIC_SHERPA_STT_LANGUAGE", "zh"),
     useItn: true,
     numThreads: parseIntEnv("EXPO_PUBLIC_SHERPA_NUM_THREADS", 2),
     decodingMethod: "greedy_search",
     modelFiles: {
-      model: env("EXPO_PUBLIC_SHERPA_STT_MODEL_FILE", DEFAULT_STT_MODEL_FILE),
-      tokens: env("EXPO_PUBLIC_SHERPA_STT_TOKENS_FILE", DEFAULT_STT_TOKENS_FILE),
+      encoder: env("EXPO_PUBLIC_SHERPA_STREAMING_ASR_ENCODER", DEFAULT_STREAMING_ASR_ENCODER),
+      decoder: env("EXPO_PUBLIC_SHERPA_STREAMING_ASR_DECODER", DEFAULT_STREAMING_ASR_DECODER),
+      tokens: env(
+        "EXPO_PUBLIC_SHERPA_STREAMING_ASR_TOKENS_FILE",
+        DEFAULT_STREAMING_ASR_TOKENS_FILE
+      ),
     },
+    provider: "cpu",
+  };
+}
+
+export function getSherpaPunctuationConfig(): PunctuationModelConfig {
+  return {
+    modelDir: env("EXPO_PUBLIC_SHERPA_PUNCT_MODEL_DIR", DEFAULT_PUNCT_MODEL_DIR),
+    model: env("EXPO_PUBLIC_SHERPA_PUNCT_MODEL_FILE", DEFAULT_PUNCT_MODEL_FILE),
+    numThreads: parseIntEnv("EXPO_PUBLIC_SHERPA_NUM_THREADS", 2),
     provider: "cpu",
   };
 }
@@ -123,7 +145,11 @@ export class SherpaVoiceAdapter {
   async initializeAsr(config: AsrModelConfig = getSherpaAsrConfig()): Promise<void> {
     if (this.asrReady) return;
     const nativeConfig = withResolvedModelDir(config);
-    await this.assertModelFilesReady("asr", nativeConfig.modelDir, getAsrRequiredFiles(nativeConfig));
+    await this.assertModelFilesReady(
+      "streamingAsr",
+      nativeConfig.modelDir,
+      getAsrRequiredFiles(nativeConfig)
+    );
     const result = await SherpaOnnx.ASR.initialize(nativeConfig);
     if (!result.success) {
       throw new Error(result.error || "Sherpa ASR initialization failed");
@@ -183,15 +209,20 @@ export class SherpaVoiceAdapter {
 
   async computeSpeakerEmbedding(samples: number[], sampleRate = DEFAULT_SAMPLE_RATE): Promise<number[]> {
     await this.initializeSpeaker();
-    const processResult = await SherpaOnnx.SpeakerId.processSamples(sampleRate, samples);
-    if (!processResult.success) {
-      throw new Error(processResult.error || "Sherpa speaker sample processing failed");
+    await SherpaOnnx.SpeakerId.resetStream().catch(() => undefined);
+    try {
+      const processResult = await SherpaOnnx.SpeakerId.processSamples(sampleRate, samples);
+      if (!processResult.success) {
+        throw new Error(processResult.error || "Sherpa speaker sample processing failed");
+      }
+      const embedding = await SherpaOnnx.SpeakerId.computeEmbedding();
+      if (!embedding.success) {
+        throw new Error(embedding.error || "Sherpa speaker embedding failed");
+      }
+      return embedding.embedding;
+    } finally {
+      await SherpaOnnx.SpeakerId.resetStream().catch(() => undefined);
     }
-    const embedding = await SherpaOnnx.SpeakerId.computeEmbedding();
-    if (!embedding.success) {
-      throw new Error(embedding.error || "Sherpa speaker embedding failed");
-    }
-    return embedding.embedding;
   }
 
   async computeSpeakerFileEmbedding(fileUri: string): Promise<number[]> {
@@ -230,6 +261,14 @@ export class SherpaVoiceAdapter {
     return result.speakers.includes(name);
   }
 
+  async removeSpeaker(name: string): Promise<void> {
+    await this.initializeSpeaker();
+    const result = await SherpaOnnx.SpeakerId.removeSpeaker(name);
+    if (!result.success) {
+      throw new Error(result.error || "Sherpa speaker removal failed");
+    }
+  }
+
   async verifySpeaker(name: string, embedding: number[], threshold: number): Promise<boolean> {
     await this.initializeSpeaker();
     const result = await SherpaOnnx.SpeakerId.verifySpeaker(name, embedding, threshold);
@@ -244,7 +283,7 @@ export class SherpaVoiceAdapter {
   }
 
   private async assertModelFilesReady(
-    kind: "asr" | "kws" | "speaker",
+    kind: "asr" | "streamingAsr" | "kws" | "speaker" | "punctuation",
     modelDir: string,
     requiredFiles: string[]
   ): Promise<void> {

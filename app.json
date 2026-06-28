@@ -56,7 +56,6 @@
           }
         }
       ],
-      "./plugins/with-android-audio-studio-excluded",
       [
         "expo-splash-screen",
         {

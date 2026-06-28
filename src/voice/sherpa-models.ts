@@ -1,6 +1,12 @@
 import * as FileSystem from "expo-file-system/legacy";
 
-export type SherpaModelKind = "asr" | "kws" | "speaker" | "vad";
+export type SherpaModelKind =
+  | "asr"
+  | "streamingAsr"
+  | "punctuation"
+  | "kws"
+  | "speaker"
+  | "vad";
 
 export interface SherpaModelCheck {
   kind: SherpaModelKind;
@@ -11,9 +17,12 @@ export interface SherpaModelCheck {
 }
 
 const SHERPA_DOCUMENT_ROOT = `${FileSystem.documentDirectory ?? ""}sherpa-onnx/`;
-const DEFAULT_STT_MODEL_DIR = "sherpa-onnx/asr/sensevoice";
-const DEFAULT_STT_MODEL_FILE = "model.int8.onnx";
-const DEFAULT_STT_TOKENS_FILE = "tokens.txt";
+export const DEFAULT_STREAMING_ASR_MODEL_DIR = "sherpa-onnx/asr/streaming-paraformer";
+export const DEFAULT_STREAMING_ASR_ENCODER = "encoder.int8.onnx";
+export const DEFAULT_STREAMING_ASR_DECODER = "decoder.int8.onnx";
+export const DEFAULT_STREAMING_ASR_TOKENS_FILE = "tokens.txt";
+export const DEFAULT_PUNCT_MODEL_DIR = "sherpa-onnx/punctuation";
+export const DEFAULT_PUNCT_MODEL_FILE = "model.int8.onnx";
 const DEFAULT_KWS_MODEL_DIR = "sherpa-onnx/kws/looi";
 const DEFAULT_SPEAKER_MODEL_DIR = "sherpa-onnx/speaker-id/looi";
 const DEFAULT_SPEAKER_MODEL_FILE = "model.onnx";
@@ -75,6 +84,8 @@ export function formatSherpaModelError(check: SherpaModelCheck): string {
 export function formatSherpaModelUserMessage(check: SherpaModelCheck): string {
   const labelByKind: Record<SherpaModelKind, string> = {
     asr: "语音识别",
+    streamingAsr: "流式语音识别",
+    punctuation: "标点恢复",
     kws: "唤醒词",
     speaker: "声纹",
     vad: "语音端点检测",
@@ -84,19 +95,37 @@ export function formatSherpaModelUserMessage(check: SherpaModelCheck): string {
 
 export async function checkAllSherpaModelReadiness(): Promise<{
   asr: SherpaModelCheck;
+  streamingAsr: SherpaModelCheck;
+  punctuation: SherpaModelCheck;
   kws: SherpaModelCheck;
   speaker: SherpaModelCheck;
   vad: SherpaModelCheck;
 }> {
-  const asrModelDir = env("EXPO_PUBLIC_SHERPA_STT_MODEL_DIR", DEFAULT_STT_MODEL_DIR);
+  const { installBundledSherpaModels } = await import("./sherpa-bundled-models");
+  await installBundledSherpaModels().catch((error) => {
+    console.warn("[SherpaModels] Failed to install bundled model assets:", error);
+  });
+
+  const streamingAsrModelDir = env(
+    "EXPO_PUBLIC_SHERPA_STREAMING_ASR_MODEL_DIR",
+    DEFAULT_STREAMING_ASR_MODEL_DIR
+  );
+  const punctuationModelDir = env("EXPO_PUBLIC_SHERPA_PUNCT_MODEL_DIR", DEFAULT_PUNCT_MODEL_DIR);
   const kwsModelDir = env("EXPO_PUBLIC_SHERPA_KWS_MODEL_DIR", DEFAULT_KWS_MODEL_DIR);
   const speakerModelDir = env("EXPO_PUBLIC_SHERPA_SPEAKER_MODEL_DIR", DEFAULT_SPEAKER_MODEL_DIR);
   const vadModelDir = env("EXPO_PUBLIC_SHERPA_VAD_MODEL_DIR", DEFAULT_VAD_MODEL_DIR);
 
+  const streamingAsr = await checkSherpaModelFiles("streamingAsr", streamingAsrModelDir, [
+    env("EXPO_PUBLIC_SHERPA_STREAMING_ASR_ENCODER", DEFAULT_STREAMING_ASR_ENCODER),
+    env("EXPO_PUBLIC_SHERPA_STREAMING_ASR_DECODER", DEFAULT_STREAMING_ASR_DECODER),
+    env("EXPO_PUBLIC_SHERPA_STREAMING_ASR_TOKENS_FILE", DEFAULT_STREAMING_ASR_TOKENS_FILE),
+  ]);
+
   return {
-    asr: await checkSherpaModelFiles("asr", asrModelDir, [
-      env("EXPO_PUBLIC_SHERPA_STT_MODEL_FILE", DEFAULT_STT_MODEL_FILE),
-      env("EXPO_PUBLIC_SHERPA_STT_TOKENS_FILE", DEFAULT_STT_TOKENS_FILE),
+    asr: streamingAsr,
+    streamingAsr,
+    punctuation: await checkSherpaModelFiles("punctuation", punctuationModelDir, [
+      env("EXPO_PUBLIC_SHERPA_PUNCT_MODEL_FILE", DEFAULT_PUNCT_MODEL_FILE),
     ]),
     kws: await checkSherpaModelFiles("kws", kwsModelDir, [
       env("EXPO_PUBLIC_SHERPA_KWS_ENCODER_FILE", DEFAULT_KWS_ENCODER_FILE),

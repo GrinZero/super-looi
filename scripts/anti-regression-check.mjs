@@ -51,9 +51,11 @@ assertPresent("src/voice/stt.ts", [
 ]);
 
 assertPresent("src/perceivers/voice-perceiver.ts", [
-  /speakerIdService\.verifyFile\(audioUri\)/,
-  /sttService\.transcribeFile\(audioUri\)/,
-  /sttService\.resumeWakewordFeederIfPaused\(\)/,
+  /streamingSttService\.acceptSamples/,
+  /punctuationService\.addPunctuation\(rawTranscript\)/,
+  /const speakerSamples = this\.getSpeakerVerificationSamples\(\)/,
+  /speakerIdService\.verifySamples\(speakerSamples\)/,
+  /kwsAudioFeeder\.subscribeSamples/,
   /observeService\.voiceVisual/,
   /evidenceUri = result\.evidenceUri/,
 ]);

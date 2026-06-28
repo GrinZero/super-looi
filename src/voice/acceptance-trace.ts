@@ -5,6 +5,7 @@ type VoiceAcceptanceTraceEvent =
   | "ignored"
   | "session"
   | "recording-started"
+  | "streaming-listening-started"
   | "vad-speech"
   | "vad-end"
   | "safety-timeout"
@@ -25,6 +26,7 @@ export class VoiceAcceptanceTrace {
   private readonly logOnceEvents = new Set<VoiceAcceptanceTraceEvent>([
     "wakeword",
     "recording-started",
+    "streaming-listening-started",
     "vad-speech",
     "vad-end",
     "recording-stopped",

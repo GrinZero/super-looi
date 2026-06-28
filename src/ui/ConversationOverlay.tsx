@@ -57,7 +57,7 @@ export function ConversationOverlay() {
           <Text style={styles.statusText}>{status}</Text>
         </View>
         {currentTranscript ? (
-          <Text numberOfLines={2} style={styles.userText}>
+          <Text numberOfLines={3} style={styles.userText}>
             {currentTranscript}
           </Text>
         ) : null}

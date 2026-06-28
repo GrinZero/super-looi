@@ -56,14 +56,10 @@
     "voice:accept-device": "node scripts/run-voice-device-acceptance.mjs",
     "web": "expo start --web"
   },
-  "expo": {
-    "autolinking": {
-      "android": {
-        "exclude": [
-          "@siteed/audio-studio"
-        ]
-      }
+  "private": true,
+  "pnpm": {
+    "patchedDependencies": {
+      "@siteed/sherpa-onnx.rn": "patches/@siteed__sherpa-onnx.rn.patch"
     }
-  },
-  "private": true
+  }
 }

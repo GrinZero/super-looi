@@ -5,7 +5,8 @@ import { classifyCategory, hasVisualReference } from "../memory/metadata";
 import { wakewordService } from "../voice/wakeword";
 import { kwsAudioFeeder } from "../voice/kws-audio-feeder";
 import { speakerIdService } from "../voice/speaker-id";
-import { sttService } from "../voice/stt";
+import { streamingSttService } from "../voice/streaming-stt";
+import { punctuationService } from "../voice/punctuation";
 import { ttsService } from "../voice/tts";
 import { vadService } from "../voice/vad-service";
 import { voiceAcceptanceTrace } from "../voice/acceptance-trace";
@@ -15,8 +16,11 @@ import { llmService, memoryService, observeService, sessionService } from "../se
 import { getRuntimeProfile } from "../core/runtime-profile";
 import { cameraPerceiver } from "./camera-perceiver";
 
-const RECORDING_START_TIMEOUT_MS = 5000;
-const MAX_LISTENING_DURATION_MS = 15_000;
+const LISTENING_START_TIMEOUT_MS = 5000;
+const MAX_LISTENING_DURATION_MS = 30_000;
+const ENDPOINT_WAIT_MS = 2000;
+const SPEAKER_SAMPLE_RATE = 16000;
+const SPEAKER_SEGMENT_PADDING_SAMPLES = Math.round(SPEAKER_SAMPLE_RATE * 0.25);
 const SENTENCE_BREAK_RE = /[。！？!?\n、]/;
 const MAX_STREAMING_SENTENCE_LENGTH = 20;
 
@@ -24,6 +28,11 @@ type GenerateResponseResult = {
   response: string;
   evidenceUri?: string;
   audioHandled: boolean;
+};
+
+type SampleRange = {
+  start: number;
+  end: number;
 };
 
 class AsyncSentenceQueue implements AsyncIterable<string> {
@@ -80,15 +89,22 @@ export class VoicePerceiver extends BasePerceiver {
   name = "voice";
   private unsubWakeword: (() => void) | null = null;
   private unsubPreferences: (() => void) | null = null;
-  private startRecordingPromise: Promise<void> | null = null;
+  private startListeningPromise: Promise<void> | null = null;
   private isFinishingListening = false;
-  private cancelRecordingAfterStart = false;
+  private cancelListeningAfterStart = false;
   private allowsWakewordAutostart = true;
-  private unsubVadSamples: (() => void) | null = null;
+  private unsubStreamingSamples: (() => void) | null = null;
   private vadHadSpeech = false;
   private vadAccepting = false;
   private vadQueuedSamples: number[] | null = null;
+  private streamingAccepting = false;
+  private streamingQueuedSamples: number[] | null = null;
+  private speechSamplesBuffer: number[] = [];
+  private speechSampleRanges: SampleRange[] = [];
+  private finalizedStreamingSegments: string[] = [];
+  private currentStreamingText = "";
   private listeningTimeout: ReturnType<typeof setTimeout> | null = null;
+  private endpointFinalizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
   async start(): Promise<void> {
     if (this.isActive) return;
@@ -125,7 +141,7 @@ export class VoicePerceiver extends BasePerceiver {
       this.unsubPreferences();
       this.unsubPreferences = null;
     }
-    await this.stopListeningVad();
+    await this.stopListeningStreaming({ resetAsr: true });
   }
 
   /**
@@ -146,7 +162,7 @@ export class VoicePerceiver extends BasePerceiver {
       conversationStore.isListening ||
       conversationStore.isProcessing ||
       userStore.voiceState !== "sleeping" ||
-      this.startRecordingPromise ||
+      this.startListeningPromise ||
       this.isFinishingListening
     ) {
       voiceAcceptanceTrace.mark("ignored", {
@@ -158,7 +174,7 @@ export class VoicePerceiver extends BasePerceiver {
         isListening: conversationStore.isListening,
         isProcessing: conversationStore.isProcessing,
         voiceState: userStore.voiceState,
-        hasStartRecordingPromise: Boolean(this.startRecordingPromise),
+        hasStartListeningPromise: Boolean(this.startListeningPromise),
         isFinishingListening: this.isFinishingListening,
       });
       return;
@@ -166,8 +182,8 @@ export class VoicePerceiver extends BasePerceiver {
 
     voiceAcceptanceTrace.start();
     console.log("[VoicePerceiver] Listening started");
-    // Step 1: Start listening. Owner verification runs against this same audio file
-    // before transcription, so accepted commands still require speaker verification.
+    // Step 1: Start listening. Owner verification runs against the same sample buffer
+    // before accepting the transcript, so commands still require speaker verification.
     userStore.setVoiceState("listening");
     conversationStore.setListening(true);
     conversationStore.setCurrentTranscript("");
@@ -189,17 +205,15 @@ export class VoicePerceiver extends BasePerceiver {
       console.warn("[VoicePerceiver] Session touch failed; continuing locally:", error);
     }
 
-    const startRecordingPromise = this.startRecordingForListening();
-    this.startRecordingPromise = startRecordingPromise;
+    const startListeningPromise = this.startStreamingForListening();
+    this.startListeningPromise = startListeningPromise;
 
     try {
-      await startRecordingPromise;
+      await startListeningPromise;
     } finally {
-      if (this.startRecordingPromise === startRecordingPromise) {
-        this.startRecordingPromise = null;
-        if (!sttService.recording_active) {
-          await this.restartWakewordFeederIfNeeded();
-        }
+      if (this.startListeningPromise === startListeningPromise) {
+        this.startListeningPromise = null;
+        await this.restartWakewordFeederIfNeeded();
       }
     }
   }
@@ -221,19 +235,19 @@ export class VoicePerceiver extends BasePerceiver {
     const hadListeningRequest =
       conversationStore.isListening ||
       userStore.voiceState === "listening" ||
-      Boolean(this.startRecordingPromise) ||
-      sttService.recording_active;
+      Boolean(this.startListeningPromise) ||
+      Boolean(this.unsubStreamingSamples);
 
     console.log("[VoicePerceiver] Finish requested", {
       hadListeningRequest,
       isListening: conversationStore.isListening,
       voiceState: userStore.voiceState,
-      recordingActive: sttService.recording_active,
-      hasStartRecordingPromise: Boolean(this.startRecordingPromise),
+      streamingActive: Boolean(this.unsubStreamingSamples),
+      hasStartListeningPromise: Boolean(this.startListeningPromise),
     });
     voiceAcceptanceTrace.mark("finish-requested", {
       hadListeningRequest,
-      recordingActive: sttService.recording_active,
+      streamingActive: Boolean(this.unsubStreamingSamples),
     });
 
     conversationStore.setListening(false);
@@ -243,11 +257,11 @@ export class VoicePerceiver extends BasePerceiver {
     }
 
     try {
-      if (!sttService.recording_active && this.startRecordingPromise) {
-        const recordingStarted = await this.waitForRecordingStart(this.startRecordingPromise);
-        if (!recordingStarted) {
-          this.cancelRecordingAfterStart = true;
-          console.warn("[VoicePerceiver] Recording start timed out; cancelling when ready");
+      if (!this.unsubStreamingSamples && this.startListeningPromise) {
+        const listeningStarted = await this.waitForListeningStart(this.startListeningPromise);
+        if (!listeningStarted) {
+          this.cancelListeningAfterStart = true;
+          console.warn("[VoicePerceiver] Listening start timed out; cancelling when ready");
           return;
         }
       }
@@ -255,8 +269,8 @@ export class VoicePerceiver extends BasePerceiver {
       userStore = useUserStore.getState();
       conversationStore = useConversationStore.getState();
 
-      if (!sttService.recording_active) {
-        console.log("[VoicePerceiver] Finish stopped: no active recording");
+      if (!this.unsubStreamingSamples && this.speechSamplesBuffer.length === 0) {
+        console.log("[VoicePerceiver] Finish stopped: no active streaming listener");
         if (userStore.voiceState === "listening") {
           userStore.setVoiceState("sleeping");
         }
@@ -266,31 +280,11 @@ export class VoicePerceiver extends BasePerceiver {
       userStore.setVoiceState("processing");
       conversationStore.setProcessing(true);
 
-      await this.stopListeningVad();
-
-      // Step 2: Stop recording and verify owner before accepting the command.
-      const audioUri = await sttService.stopRecording();
-      console.log("[VoicePerceiver] Recording stopped", { audioUri });
-      voiceAcceptanceTrace.mark("recording-stopped");
-
-      userStore.setVoiceState("verifying");
-      const isOwner = await speakerIdService.verifyFile(audioUri);
-      console.log("[VoicePerceiver] Speaker verification finished", { isOwner });
-      voiceAcceptanceTrace.mark("speaker-verified", { isOwner });
-      if (!isOwner) {
-        conversationStore.addMessage({
-          role: "assistant",
-          content: "还没有通过声纹验证。请先在设置里录入主人声纹，或重新录一段更清晰的语音。",
-        });
-        return;
-      }
-
-      // Step 3: Transcribe the same verified audio.
-      userStore.setVoiceState("processing");
-      const transcript = await sttService.transcribeFile(audioUri);
-      console.log("[VoicePerceiver] STT finished", { transcript });
-      voiceAcceptanceTrace.mark("stt", { transcriptLength: transcript.length });
-      if (!transcript.trim()) {
+      await this.stopListeningStreaming({ resetAsr: false });
+      const rawTranscript = await this.collectFinalStreamingTranscript();
+      console.log("[VoicePerceiver] Streaming STT finished", { transcript: rawTranscript });
+      voiceAcceptanceTrace.mark("stt", { transcriptLength: rawTranscript.length });
+      if (!rawTranscript.trim()) {
         conversationStore.addMessage({
           role: "assistant",
           content: "我没有听清刚才的话，请靠近一点再说一次。",
@@ -300,6 +294,32 @@ export class VoicePerceiver extends BasePerceiver {
         return;
       }
 
+      let transcript = rawTranscript;
+      try {
+        transcript = await punctuationService.addPunctuation(rawTranscript);
+      } catch (error) {
+        console.warn("[VoicePerceiver] Punctuation failed; using raw transcript:", error);
+      }
+
+      userStore.setVoiceState("verifying");
+      const speakerSamples = this.getSpeakerVerificationSamples();
+      const isOwner = await speakerIdService.verifySamples(speakerSamples);
+      console.log("[VoicePerceiver] Speaker verification finished", {
+        isOwner,
+        totalSamples: this.speechSamplesBuffer.length,
+        speakerSamples: speakerSamples.length,
+        speechRanges: this.speechSampleRanges.length,
+      });
+      voiceAcceptanceTrace.mark("speaker-verified", { isOwner });
+      if (!isOwner) {
+        conversationStore.addMessage({
+          role: "assistant",
+          content: "还没有通过声纹验证。请先在设置里录入主人声纹，或重新录一段更清晰的语音。",
+        });
+        return;
+      }
+
+      userStore.setVoiceState("processing");
       conversationStore.setCurrentTranscript(transcript);
       await conversationStore.appendMessage({ role: "user", content: transcript });
 
@@ -394,10 +414,6 @@ export class VoicePerceiver extends BasePerceiver {
         await ttsService.speak({ text: response });
       }
     } catch (error) {
-      if (error instanceof Error && error.message === "No active recording") {
-        return;
-      }
-
       console.warn("[VoicePerceiver] Processing stopped:", error);
       voiceAcceptanceTrace.mark("error", {
         message: error instanceof Error ? error.message : String(error),
@@ -414,7 +430,6 @@ export class VoicePerceiver extends BasePerceiver {
         useConversationStore.getState().setOverlayVisible(false);
       }, 3000);
       this.isFinishingListening = false;
-      await sttService.resumeWakewordFeederIfPaused();
       await this.restartWakewordFeederIfNeeded();
       voiceAcceptanceTrace.finish({
         voiceState: useUserStore.getState().voiceState,
@@ -532,21 +547,21 @@ export class VoicePerceiver extends BasePerceiver {
     return text.length >= MAX_STREAMING_SENTENCE_LENGTH ? text.length - 1 : -1;
   }
 
-  private async startRecordingForListening(): Promise<void> {
+  private async startStreamingForListening(): Promise<void> {
     const userStore = useUserStore.getState();
     const conversationStore = useConversationStore.getState();
 
     try {
       await kwsAudioFeeder.stop();
-      await sttService.startRecording();
+      await this.startListeningStreaming();
       voiceAcceptanceTrace.mark("recording-started");
-      if (this.cancelRecordingAfterStart) {
-        await sttService.cancel();
+      voiceAcceptanceTrace.mark("streaming-listening-started");
+      if (this.cancelListeningAfterStart) {
+        await this.stopListeningStreaming({ resetAsr: true });
         return;
       }
-      await this.startListeningVad();
     } catch (error) {
-      console.error("[VoicePerceiver] Failed to start recording:", error);
+      console.error("[VoicePerceiver] Failed to start streaming listener:", error);
       voiceAcceptanceTrace.mark("error", {
         message: error instanceof Error ? error.message : String(error),
       });
@@ -559,14 +574,19 @@ export class VoicePerceiver extends BasePerceiver {
         isProcessing: useConversationStore.getState().isProcessing,
       });
     } finally {
-      this.cancelRecordingAfterStart = false;
+      this.cancelListeningAfterStart = false;
     }
   }
 
-  private async startListeningVad(): Promise<void> {
-    await this.stopListeningVad();
+  private async startListeningStreaming(): Promise<void> {
+    await this.stopListeningStreaming({ resetAsr: true });
     this.vadHadSpeech = false;
     this.vadQueuedSamples = null;
+    this.streamingQueuedSamples = null;
+    this.speechSamplesBuffer = [];
+    this.speechSampleRanges = [];
+    this.finalizedStreamingSegments = [];
+    this.currentStreamingText = "";
 
     try {
       await vadService.start();
@@ -574,8 +594,12 @@ export class VoicePerceiver extends BasePerceiver {
       console.warn("[VoicePerceiver] VAD unavailable; using safety timeout only:", error);
     }
 
-    this.unsubVadSamples = kwsAudioFeeder.subscribeSamples((samples, sampleRate) => {
+    await streamingSttService.createStream();
+
+    this.unsubStreamingSamples = kwsAudioFeeder.subscribeSamples((samples, sampleRate) => {
+      this.speechSamplesBuffer.push(...samples);
       this.enqueueVadSamples(samples, sampleRate);
+      this.enqueueStreamingSamples(samples, sampleRate);
     });
     kwsAudioFeeder.setWakewordFeedingEnabled(false);
 
@@ -592,18 +616,25 @@ export class VoicePerceiver extends BasePerceiver {
     }, MAX_LISTENING_DURATION_MS);
   }
 
-  private async stopListeningVad(): Promise<void> {
+  private async stopListeningStreaming(options: { resetAsr: boolean }): Promise<void> {
     if (this.listeningTimeout) {
       clearTimeout(this.listeningTimeout);
       this.listeningTimeout = null;
     }
 
-    if (this.unsubVadSamples) {
-      this.unsubVadSamples();
-      this.unsubVadSamples = null;
+    if (this.endpointFinalizeTimeout) {
+      clearTimeout(this.endpointFinalizeTimeout);
+      this.endpointFinalizeTimeout = null;
+    }
+
+    if (this.unsubStreamingSamples) {
+      this.unsubStreamingSamples();
+      this.unsubStreamingSamples = null;
     }
 
     this.vadQueuedSamples = null;
+    this.streamingQueuedSamples = null;
+    await this.waitForSampleDrains();
     this.vadHadSpeech = false;
     kwsAudioFeeder.setWakewordFeedingEnabled(true);
 
@@ -612,6 +643,13 @@ export class VoicePerceiver extends BasePerceiver {
     }
 
     await vadService.reset().catch(() => undefined);
+    if (options.resetAsr) {
+      await streamingSttService.resetStream().catch(() => undefined);
+      this.speechSamplesBuffer = [];
+      this.speechSampleRanges = [];
+      this.finalizedStreamingSegments = [];
+      this.currentStreamingText = "";
+    }
   }
 
   private enqueueVadSamples(samples: number[], sampleRate: number): void {
@@ -625,12 +663,13 @@ export class VoicePerceiver extends BasePerceiver {
     this.vadAccepting = true;
 
     try {
-      while (this.unsubVadSamples && this.vadQueuedSamples) {
+      while (this.unsubStreamingSamples && this.vadQueuedSamples) {
         const samples = this.vadQueuedSamples;
         this.vadQueuedSamples = null;
         const result = await vadService.acceptSamples(samples, sampleRate);
         const completedSegmentCount = result.segments?.length ?? 0;
-        if (completedSegmentCount > 0 && sttService.recording_active) {
+        if (completedSegmentCount > 0) {
+          this.recordVadSpeechSegments(result.segments ?? [], sampleRate);
           if (!this.vadHadSpeech) {
             voiceAcceptanceTrace.mark("vad-speech", {
               segments: completedSegmentCount,
@@ -639,7 +678,7 @@ export class VoicePerceiver extends BasePerceiver {
           this.vadHadSpeech = true;
           console.log("[VoicePerceiver] VAD detected speech end");
           voiceAcceptanceTrace.mark("vad-end");
-          this.finishListening();
+          this.scheduleEndpointFinalize(0);
           break;
         }
         if (result.isSpeechDetected) {
@@ -649,28 +688,172 @@ export class VoicePerceiver extends BasePerceiver {
             });
           }
           this.vadHadSpeech = true;
-        } else if (this.vadHadSpeech && sttService.recording_active) {
-          console.log("[VoicePerceiver] VAD detected speech end");
-          voiceAcceptanceTrace.mark("vad-end");
-          this.finishListening();
-          break;
         }
       }
     } catch (error) {
       console.warn("[VoicePerceiver] Failed to process VAD samples:", error);
     } finally {
       this.vadAccepting = false;
-      if (this.unsubVadSamples && this.vadQueuedSamples) {
+      if (this.unsubStreamingSamples && this.vadQueuedSamples) {
         this.drainVadSamples(sampleRate);
       }
     }
   }
 
-  private async waitForRecordingStart(startRecordingPromise: Promise<void>): Promise<boolean> {
+  private enqueueStreamingSamples(samples: number[], sampleRate: number): void {
+    this.streamingQueuedSamples = this.streamingQueuedSamples
+      ? this.streamingQueuedSamples.concat(samples)
+      : samples;
+    if (!this.streamingAccepting) {
+      this.drainStreamingSamples(sampleRate);
+    }
+  }
+
+  private async drainStreamingSamples(sampleRate: number): Promise<void> {
+    this.streamingAccepting = true;
+
+    try {
+      while (this.unsubStreamingSamples && this.streamingQueuedSamples) {
+        const samples = this.streamingQueuedSamples;
+        this.streamingQueuedSamples = null;
+        const result = await streamingSttService.acceptSamples(samples, sampleRate);
+        if (result.text) {
+          this.currentStreamingText = result.text;
+          this.updateCurrentTranscript();
+          if (this.endpointFinalizeTimeout) {
+            this.scheduleEndpointFinalize(ENDPOINT_WAIT_MS);
+          }
+        }
+        if (result.isEndpoint) {
+          this.appendFinalStreamingSegment(result.text || this.currentStreamingText);
+          this.currentStreamingText = "";
+          this.updateCurrentTranscript();
+          await streamingSttService.resetStream();
+          this.scheduleEndpointFinalize(ENDPOINT_WAIT_MS);
+        }
+      }
+    } catch (error) {
+      console.warn("[VoicePerceiver] Failed to process streaming ASR samples:", error);
+    } finally {
+      this.streamingAccepting = false;
+      if (this.unsubStreamingSamples && this.streamingQueuedSamples) {
+        this.drainStreamingSamples(sampleRate);
+      }
+    }
+  }
+
+  private appendFinalStreamingSegment(text: string): void {
+    const normalized = text.trim();
+    if (!normalized) return;
+    if (
+      this.finalizedStreamingSegments[
+        this.finalizedStreamingSegments.length - 1
+      ] === normalized
+    ) {
+      return;
+    }
+    this.finalizedStreamingSegments.push(normalized);
+  }
+
+  private recordVadSpeechSegments(
+    segments: Array<{ startTime?: number; endTime?: number }>,
+    sampleRate: number
+  ): void {
+    for (const segment of segments) {
+      if (segment.startTime === undefined || segment.endTime === undefined) {
+        continue;
+      }
+      const start = Math.max(0, Math.floor(segment.startTime * sampleRate));
+      const end = Math.min(
+        this.speechSamplesBuffer.length,
+        Math.ceil(segment.endTime * sampleRate)
+      );
+      if (end <= start) continue;
+      const previous = this.speechSampleRanges[this.speechSampleRanges.length - 1];
+      if (previous && start <= previous.end + SPEAKER_SEGMENT_PADDING_SAMPLES) {
+        previous.end = Math.max(previous.end, end);
+      } else {
+        this.speechSampleRanges.push({ start, end });
+      }
+    }
+  }
+
+  private getSpeakerVerificationSamples(): number[] {
+    if (this.speechSampleRanges.length === 0) {
+      return this.trimLowEnergyEdges(this.speechSamplesBuffer);
+    }
+
+    const samples: number[] = [];
+    for (const range of this.speechSampleRanges) {
+      const start = Math.max(0, range.start - SPEAKER_SEGMENT_PADDING_SAMPLES);
+      const end = Math.min(
+        this.speechSamplesBuffer.length,
+        range.end + SPEAKER_SEGMENT_PADDING_SAMPLES
+      );
+      samples.push(...this.speechSamplesBuffer.slice(start, end));
+    }
+
+    return samples.length > 0 ? samples : this.trimLowEnergyEdges(this.speechSamplesBuffer);
+  }
+
+  private trimLowEnergyEdges(samples: number[]): number[] {
+    if (samples.length === 0) return samples;
+    const threshold = 0.01;
+    let start = 0;
+    let end = samples.length;
+
+    while (start < end && Math.abs(samples[start]) < threshold) {
+      start += 1;
+    }
+    while (end > start && Math.abs(samples[end - 1]) < threshold) {
+      end -= 1;
+    }
+
+    start = Math.max(0, start - SPEAKER_SEGMENT_PADDING_SAMPLES);
+    end = Math.min(samples.length, end + SPEAKER_SEGMENT_PADDING_SAMPLES);
+    return samples.slice(start, end);
+  }
+
+  private updateCurrentTranscript(): void {
+    const transcript = [...this.finalizedStreamingSegments, this.currentStreamingText]
+      .filter(Boolean)
+      .join("");
+    useConversationStore.getState().setCurrentTranscript(transcript);
+  }
+
+  private scheduleEndpointFinalize(delayMs: number): void {
+    if (this.endpointFinalizeTimeout) {
+      clearTimeout(this.endpointFinalizeTimeout);
+    }
+    this.endpointFinalizeTimeout = setTimeout(() => {
+      this.endpointFinalizeTimeout = null;
+      this.finishListening();
+    }, delayMs);
+  }
+
+  private async collectFinalStreamingTranscript(): Promise<string> {
+    const finalText = await streamingSttService.finishInput().catch((error) => {
+      console.warn("[VoicePerceiver] Failed to finish streaming ASR input:", error);
+      return "";
+    });
+    this.appendFinalStreamingSegment(finalText || this.currentStreamingText);
+    this.currentStreamingText = "";
+    await streamingSttService.resetStream().catch(() => undefined);
+    return this.finalizedStreamingSegments.join("").trim();
+  }
+
+  private async waitForSampleDrains(): Promise<void> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (!this.vadAccepting && !this.streamingAccepting) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  private async waitForListeningStart(startListeningPromise: Promise<void>): Promise<boolean> {
     return Promise.race([
-      startRecordingPromise.then(() => true),
+      startListeningPromise.then(() => true),
       new Promise<boolean>((resolve) => {
-        setTimeout(() => resolve(false), RECORDING_START_TIMEOUT_MS);
+        setTimeout(() => resolve(false), LISTENING_START_TIMEOUT_MS);
       }),
     ]);
   }
@@ -703,7 +886,7 @@ export class VoicePerceiver extends BasePerceiver {
       userStore.voiceState === "sleeping" &&
       !conversationStore.isListening &&
       !conversationStore.isProcessing &&
-      !this.startRecordingPromise &&
+      !this.startListeningPromise &&
       !this.isFinishingListening
     );
   }

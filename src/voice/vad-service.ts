@@ -78,9 +78,9 @@ export class VadService {
     const result = await VAD.init({
       modelDir: resolveSherpaModelDir(modelDir),
       modelFile,
-      threshold: 0.5,
-      minSilenceDuration: 0.8,
-      minSpeechDuration: 0.3,
+      threshold: 0.45,
+      minSilenceDuration: 2.0,
+      minSpeechDuration: 0.5,
       windowSize: 512,
     });
 

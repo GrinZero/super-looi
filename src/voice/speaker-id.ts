@@ -26,7 +26,7 @@ async function getSherpaVoiceAdapter() {
 
 export class SpeakerIdService {
   private enrolled = false;
-  private readonly verificationThreshold = 0.6;
+  private readonly verificationThreshold = 0.35;
 
   async getStoredEnrollmentStatus(): Promise<boolean> {
     if (this.enrolled) return true;
@@ -67,6 +67,22 @@ export class SpeakerIdService {
     await sherpaVoiceAdapter.registerSpeaker(OWNER_SPEAKER_NAME, embedding);
     await this.storeOwnerEmbedding(embedding);
     this.enrolled = true;
+  }
+
+  async clearEnrollment(): Promise<void> {
+    const sherpaVoiceAdapter = await getSherpaVoiceAdapter();
+    try {
+      if (await sherpaVoiceAdapter.hasSpeaker(OWNER_SPEAKER_NAME)) {
+        await sherpaVoiceAdapter.removeSpeaker(OWNER_SPEAKER_NAME);
+      }
+    } catch (error) {
+      console.warn("[SpeakerId] Failed to clear native owner speaker:", error);
+    }
+
+    speakerStorage.remove(OWNER_EMBEDDING_MMKV_KEY);
+    await this.clearLegacySecureStoreOwnerEmbedding();
+    this.enrolled = false;
+    console.log("[SpeakerId] Owner enrollment cleared");
   }
 
   async verifySamples(audioSamples: number[]): Promise<boolean> {

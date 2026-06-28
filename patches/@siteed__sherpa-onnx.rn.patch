@@ -1,0 +1,43 @@
+diff --git a/ios/handlers/SherpaOnnxASRHandler.swift b/ios/handlers/SherpaOnnxASRHandler.swift
+index 129ba1ccf2dfab7d28e6856a14237d7012edc391..2bb442c57b52c4dac941441b0fe518bf6a68247e 100644
+--- a/ios/handlers/SherpaOnnxASRHandler.swift
++++ b/ios/handlers/SherpaOnnxASRHandler.swift
+@@ -123,6 +123,21 @@ import AVFoundation
+             transducerConfig = sherpaOnnxOnlineTransducerModelConfig(
+                 encoder: encoderPath, decoder: decoderPath, joiner: joinerPath
+             )
++        case "paraformer":
++            let encoderFile = modelFiles["encoder"] ?? "encoder.onnx"
++            let decoderFile = modelFiles["decoder"] ?? "decoder.onnx"
++            let encoderPath = (modelDir as NSString).appendingPathComponent(encoderFile)
++            let decoderPath = (modelDir as NSString).appendingPathComponent(decoderFile)
++            NSLog("%@ paraformer encoder: %@, decoder: %@", SherpaOnnxASRHandler.TAG, encoderPath, decoderPath)
++            // Validate files exist before passing to native (prevents SIGSEGV on missing files)
++            for (label, path) in [("encoder", encoderPath), ("decoder", decoderPath), ("tokens", tokensPath)] {
++                if !FileManager.default.fileExists(atPath: path) {
++                    return ["success": false, "error": "Model file not found: \(label) at \(path)"]
++                }
++            }
++            paraformerConfig = sherpaOnnxOnlineParaformerModelConfig(
++                encoder: encoderPath, decoder: decoderPath
++            )
+         default:
+             return ["success": false, "error": "Unsupported online model type: \(modelType)"]
+         }
+diff --git a/src/types/interfaces.ts b/src/types/interfaces.ts
+index 425647850518e21782c0b55603fa2c628a60d1d7..9d35ec960bb5ab28fe4143b8c8158172e828ed9e 100644
+--- a/src/types/interfaces.ts
++++ b/src/types/interfaces.ts
+@@ -524,10 +524,10 @@ export interface AsrModelConfig {
+    * Default: false (offline/batch mode).
+    *
+    * IMPORTANT: Some model types only support one mode:
+-   * - Offline only: 'whisper', 'paraformer', 'canary', 'nemo_ctc', 'nemo_transducer',
++   * - Offline only: 'whisper', 'canary', 'nemo_ctc', 'nemo_transducer',
+    *   'moonshine', 'sense_voice', 'fire_red_asr', 'dolphin', 'tdnn',
+    *   'telespeech_ctc', 'wenet_ctc', 'zipformer2_ctc', 'lstm'
+-   * - Both modes: 'transducer', 'zipformer', 'zipformer2'
++   * - Both modes: 'transducer', 'zipformer', 'zipformer2', 'paraformer'
+    *
+    * Models with "streaming" in their name from the sherpa-onnx model zoo are
+    * online-only and MUST use streaming: true. Using them with streaming: false

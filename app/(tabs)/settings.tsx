@@ -37,6 +37,8 @@ const KWS_DIAGNOSTIC_TAIL_SILENCE_SAMPLES = 16000;
 
 type SherpaModelStatus = {
   asr: SherpaModelCheck;
+  streamingAsr: SherpaModelCheck;
+  punctuation: SherpaModelCheck;
   kws: SherpaModelCheck;
   speaker: SherpaModelCheck;
   vad: SherpaModelCheck;
@@ -55,6 +57,11 @@ async function getVoiceServices() {
   ]);
 
   return { sttService, speakerIdService };
+}
+
+async function getLiveSampleRecorder() {
+  const { liveSampleRecorder } = await import("@/src/voice/live-sample-recorder");
+  return liveSampleRecorder;
 }
 
 async function getKwsServices() {
@@ -512,10 +519,13 @@ export default function SettingsScreen() {
     setVoiceState("listening");
 
     try {
-      const { sttService } = await getVoiceServices();
-      await sttService.startRecording();
+      const liveSampleRecorder = await getLiveSampleRecorder();
+      await liveSampleRecorder.start();
     } catch (error) {
       console.error("[Settings] Failed to start speaker enrollment:", error);
+      await getLiveSampleRecorder()
+        .then((recorder) => recorder.cancel())
+        .catch(() => undefined);
       dispatchUi({ type: "enrollment/failed", error: "录音启动失败" });
       setVoiceState("sleeping");
     }
@@ -528,9 +538,12 @@ export default function SettingsScreen() {
     setVoiceState("verifying");
 
     try {
-      const { sttService, speakerIdService } = await getVoiceServices();
-      const audioUri = await sttService.stopRecording();
-      await speakerIdService.enrollFromFile(audioUri);
+      const [{ speakerIdService }, liveSampleRecorder] = await Promise.all([
+        getVoiceServices(),
+        getLiveSampleRecorder(),
+      ]);
+      const samples = await liveSampleRecorder.stop();
+      await speakerIdService.enroll(samples);
       setVoiceEnrolled(true);
       dispatchUi({ type: "enrollment/saved" });
     } catch (error) {
@@ -538,11 +551,41 @@ export default function SettingsScreen() {
       dispatchUi({ type: "enrollment/failed", error: "声纹保存失败" });
       setVoiceEnrolled(false);
     } finally {
-      const { sttService } = await getVoiceServices();
-      await sttService.resumeWakewordFeederIfPaused();
+      await getLiveSampleRecorder()
+        .then((recorder) => recorder.cancel())
+        .catch(() => undefined);
       setVoiceState("sleeping");
     }
   }, [enrolling, setVoiceEnrolled, setVoiceState]);
+
+  const clearVoiceEnrollment = useCallback(async () => {
+    if (
+      enrolling ||
+      savingEnrollment ||
+      smokeRecording ||
+      smokeRunning ||
+      speakerVerifyRecording ||
+      speakerVerifyRunning
+    ) {
+      return;
+    }
+
+    try {
+      const { speakerIdService } = await getVoiceServices();
+      await speakerIdService.clearEnrollment();
+      setVoiceEnrolled(false);
+    } catch (error) {
+      console.error("[Settings] Failed to clear speaker enrollment:", error);
+    }
+  }, [
+    enrolling,
+    savingEnrollment,
+    setVoiceEnrolled,
+    smokeRecording,
+    smokeRunning,
+    speakerVerifyRecording,
+    speakerVerifyRunning,
+  ]);
 
   const startVoiceSmoke = useCallback(async () => {
     if (
@@ -620,24 +663,26 @@ export default function SettingsScreen() {
     setVoiceState("listening");
 
     try {
-      const { sttService, speakerIdService } = await getVoiceServices();
-      await sttService.startRecording();
+      const [{ speakerIdService }, liveSampleRecorder] = await Promise.all([
+        getVoiceServices(),
+        getLiveSampleRecorder(),
+      ]);
+      await liveSampleRecorder.start();
       await new Promise((resolve) => setTimeout(resolve, 2200));
       dispatchUi({ type: "speaker-verify/start-running" });
       setVoiceState("verifying");
-      const audioUri = await sttService.stopRecording();
+      const samples = await liveSampleRecorder.stop();
       const enrolled = await speakerIdService.refreshEnrollmentStatus();
-      const verified = enrolled ? await speakerIdService.verifyFile(audioUri) : false;
+      const verified = enrolled ? await speakerIdService.verifySamples(samples) : false;
       const nonOwnerVerified = enrolled
         ? await speakerIdService.verifyDiagnosticNonOwner()
         : false;
       if (nonOwnerVerified) {
         throw new Error("Diagnostic non-owner sample was accepted");
       }
-      const audioSummary = await getAudioFileSummary(audioUri);
       setVoiceEnrolled(enrolled);
       const result = [
-        `audio=${audioSummary}`,
+        `samples=${samples.length}`,
         `enrolled=${enrolled ? "yes" : "no"}`,
         `owner=${verified ? "pass" : "fail"}`,
         `nonOwner=${nonOwnerVerified ? "accept" : "reject"}`,
@@ -648,8 +693,9 @@ export default function SettingsScreen() {
       console.error("[Settings] Speaker verify failed:", error);
       dispatchUi({ type: "speaker-verify/failed", error: "声纹验证失败" });
     } finally {
-      const { sttService } = await getVoiceServices();
-      await sttService.resumeWakewordFeederIfPaused();
+      await getLiveSampleRecorder()
+        .then((recorder) => recorder.cancel())
+        .catch(() => undefined);
       setVoiceState("sleeping");
     }
   }, [
@@ -870,6 +916,7 @@ export default function SettingsScreen() {
           speakerVerifyError={speakerVerifyError}
           startEnrollment={startEnrollment}
           finishEnrollment={finishEnrollment}
+          clearVoiceEnrollment={clearVoiceEnrollment}
           startVoiceSmoke={startVoiceSmoke}
           finishVoiceSmoke={finishVoiceSmoke}
           runSpeakerVerify={runSpeakerVerify}
@@ -979,6 +1026,7 @@ function ProfileSection({
   speakerVerifyError,
   startEnrollment,
   finishEnrollment,
+  clearVoiceEnrollment,
   startVoiceSmoke,
   finishVoiceSmoke,
   runSpeakerVerify,
@@ -999,6 +1047,7 @@ function ProfileSection({
   speakerVerifyError: string | null;
   startEnrollment: () => void;
   finishEnrollment: () => void;
+  clearVoiceEnrollment: () => void;
   startVoiceSmoke: () => void;
   finishVoiceSmoke: () => void;
   runSpeakerVerify: () => void;
@@ -1031,6 +1080,19 @@ function ProfileSection({
         >
           <Text style={styles.enrollButtonText}>
             {savingEnrollment ? "保存中..." : enrolling ? "松开完成" : "按住录入本次会话声纹"}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[
+            styles.checkButton,
+            styles.dangerOutlineButton,
+            (disabled || !voiceEnrolled) && styles.disabledButton,
+          ]}
+          onPress={clearVoiceEnrollment}
+          disabled={disabled || !voiceEnrolled}
+        >
+          <Text style={[styles.checkButtonText, styles.dangerButtonText]}>
+            清除声纹
           </Text>
         </Pressable>
         {enrollmentError ? <Text style={styles.errorText}>{enrollmentError}</Text> : null}
@@ -1108,7 +1170,8 @@ function VoiceModelsSection({
   runVadSmoke: () => void;
 }) {
   const hasMissingModels = modelStatus
-    ? !modelStatus.asr.ready ||
+    ? !modelStatus.streamingAsr.ready ||
+      !modelStatus.punctuation.ready ||
       !modelStatus.kws.ready ||
       !modelStatus.speaker.ready ||
       !modelStatus.vad.ready
@@ -1125,7 +1188,12 @@ function VoiceModelsSection({
       <View style={styles.card}>
         {modelStatus ? (
           <>
-            <ModelStatusRow label="SenseVoice" status={modelStatus.asr} isDark={_isDark} />
+            <ModelStatusRow
+              label="Streaming Paraformer"
+              status={modelStatus.streamingAsr}
+              isDark={_isDark}
+            />
+            <ModelStatusRow label="CT-Punc 标点" status={modelStatus.punctuation} isDark={_isDark} />
             <ModelStatusRow label="唤醒词 KWS" status={modelStatus.kws} isDark={_isDark} />
             <ModelStatusRow label="声纹 Speaker" status={modelStatus.speaker} isDark={_isDark} />
             <ModelStatusRow label="端点检测 VAD" status={modelStatus.vad} isDark={_isDark} />
@@ -1135,7 +1203,7 @@ function VoiceModelsSection({
         )}
         {hasMissingModels ? (
           <Text style={styles.modelHintText}>
-            缺少模型时语音识别、声纹和唤醒词不可用。可直接从官方源下载到本机。
+            缺少模型时流式语音识别、标点恢复、声纹和唤醒词不可用。可直接从官方源下载到本机。
           </Text>
         ) : null}
         {downloadingModels && downloadProgress ? (
@@ -1560,6 +1628,13 @@ const styles = StyleSheet.create({
     color: looiTheme.text,
     fontSize: 14,
     fontWeight: "700",
+  },
+  dangerOutlineButton: {
+    backgroundColor: "rgba(255, 92, 122, 0.08)",
+    borderColor: "rgba(255, 92, 122, 0.42)",
+  },
+  dangerButtonText: {
+    color: looiTheme.danger,
   },
   enrollButton: {
     minHeight: 42,

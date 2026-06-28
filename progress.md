@@ -2,6 +2,42 @@
 
 更新时间：2026-06-28 13:11:25 CST
 
+## Streaming Paraformer + CT-Punc 实施
+
+更新时间：2026-06-29 00:00:00 CST
+
+- [x] 读取 `.claude/plans/streaming-paraformer.md` 和当前 voice/model 代码。
+- [x] 确认当前主链路仍是 expo-audio 文件录音 + SenseVoice 离线转写。
+- [x] 确认 `kwsAudioFeeder.subscribeSamples` 可复用 16kHz mono float samples。
+- [x] 确认 `@siteed/sherpa-onnx.rn` JS 层已有 online ASR 与 punctuation API。
+- [x] Step 0：补 `@siteed/sherpa-onnx.rn` iOS online paraformer patch。
+  - [x] 使用 `pnpm patch` 创建补丁工作区。
+  - [x] 在 iOS `SherpaOnnxASRHandler.swift` 增加 `case "paraformer"`。
+  - [x] 修正 TS 类型文档注释并提交 pnpm patch。
+- [x] Step 1：模型下载与就绪检查。
+  - [x] 新增 streaming paraformer 与 CT-Punc 模型常量。
+  - [x] 扩展模型 readiness 结果。
+  - [x] 替换下载逻辑为 streaming ASR + punctuation。
+  - [x] 更新设置页模型状态显示。
+- [x] Step 2：新增 Streaming ASR 服务。
+  - [x] 封装初始化、stream 创建、samples 接收、endpoint、reset、release。
+- [x] Step 3：新增 punctuation 服务。
+  - [x] 封装 CT-Punc 初始化、补标点、release。
+- [x] Step 3.5：清理旧 SenseVoice。
+  - [x] 删除 `app-models/sherpa-onnx/asr/sensevoice/` 旧目录内容。
+  - [x] 从下载逻辑和手工下载脚本移除 SenseVoice。
+- [x] Step 4：改造 `voice-perceiver`。
+  - [x] 用 `kwsAudioFeeder` 采样替代主链路录音文件。
+  - [x] 并行喂 VAD 与 streaming ASR。
+  - [x] 实时更新 `currentTranscript`。
+  - [x] 用 ASR endpoint + 等待窗口 finalize 回合。
+  - [x] 改用 `speakerIdService.verifySamples(samplesBuffer)`。
+- [x] Step 5：UI 与回归检查。
+  - [x] 调整 overlay 文本行数。
+  - [x] 更新 anti-regression 检查。
+  - [x] 运行 `pnpm test` / TypeScript 相关检查。
+  - [x] 运行 React Doctor；剩余 warning 为 settings 既有大组件和依赖顺序 await，不在本次改动中拆分。
+
 - [x] 查看 `.claude/plans/home-voice-conversation.md` 和当前工作树。
 - [x] 拆分执行责任：
   - [x] 服务端 Phase 2 + Phase 7 交给 worker `Erdos`。

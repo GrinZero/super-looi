@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
-import { chatComplete, chatStream, type ChatMessage } from "../infra/llm.js";
+import { chatComplete, chatStream, chatCompleteWithTools, chatStreamWithTools, type ChatMessage } from "../infra/llm.js";
 import { DefaultSessionService, type SessionService } from "../session/service.js";
 
 export type UserIntent = "store" | "search" | "remind" | "chat";
@@ -13,6 +13,8 @@ const STREAM_CONTEXT_MESSAGE_LIMIT = 6;
 export interface LlmRouteDependencies {
   chatComplete: typeof chatComplete;
   chatStream: typeof chatStream;
+  chatCompleteWithTools: typeof chatCompleteWithTools;
+  chatStreamWithTools: typeof chatStreamWithTools;
   sessionService: SessionService;
 }
 
@@ -20,6 +22,8 @@ export function createLlmRoutes(
   dependencies: LlmRouteDependencies = {
     chatComplete,
     chatStream,
+    chatCompleteWithTools,
+    chatStreamWithTools,
     sessionService: new DefaultSessionService(undefined, {
       onBackgroundError: (error) => console.error("Session background task failed", error),
     }),
@@ -68,14 +72,17 @@ export function createLlmRoutes(
       }
 
       const systemPrompt = buildSystemPrompt(intent, facts);
+      const msgs: ChatMessage[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: transcript },
+      ];
 
-      const text = await dependencies.chatComplete(
-        [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: transcript },
-        ],
-        { temperature: 0.7, maxTokens: 200 }
-      );
+      // Use tool-aware completion for chat intent
+      const complete = intent === "chat"
+        ? dependencies.chatCompleteWithTools
+        : dependencies.chatComplete;
+
+      const text = await complete(msgs, { temperature: 0.7, maxTokens: 200 });
 
       return { response: text || getDefaultResponse(intent) };
     } catch (error: any) {
@@ -130,11 +137,16 @@ export function createLlmRoutes(
         writeSse(reply.raw, "token", { text: prelude });
       }
 
-      const stream = dependencies.chatStream(messages, {
+      const streamOptions = {
         temperature: 0.7,
         maxTokens: getResponseMaxTokens(intent),
         sessionId,
-      });
+      };
+
+      // Use tool-aware stream for chat intent
+      const stream = intent === "chat"
+        ? dependencies.chatStreamWithTools(messages, streamOptions)
+        : dependencies.chatStream(messages, streamOptions);
 
       for await (const event of stream) {
         if (isTextDeltaEvent(event)) {

@@ -72,7 +72,7 @@ export function CameraFrameFeeder() {
       <CameraView
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
-        facing="back"
+        facing="front"
         onCameraReady={() => {
           readyRef.current = true;
         }}

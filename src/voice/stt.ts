@@ -44,7 +44,8 @@ async function getSherpaVoiceAdapter() {
 
 /**
  * STT Service — Speech-to-Text
- * Phase 1 target: device-side sherpa-onnx SenseVoice ASR.
+ * Legacy file-recording helper for settings diagnostics and owner enrollment.
+ * The main conversation path uses streaming-stt.ts.
  */
 export class STTService {
   private recording: AudioRecorder | null = null;

@@ -1,5 +1,3 @@
-import { Platform } from "react-native";
-
 type EventSubscription = {
   remove: () => void;
 };
@@ -45,10 +43,6 @@ type RecordingConfig = {
 };
 
 async function getAudioStudioModule(): Promise<AudioStudioNativeModule> {
-  if (Platform.OS === "android") {
-    throw new Error("AudioStudio native module is excluded on Android");
-  }
-
   const { AudioStudioModule } = await import("@siteed/audio-studio");
   return AudioStudioModule as AudioStudioNativeModule;
 }

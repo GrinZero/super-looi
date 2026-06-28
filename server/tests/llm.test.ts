@@ -69,32 +69,35 @@ test("generate-response-stream emits token and done SSE events with session hist
   const seenMessages: unknown[] = [];
   const seenOptions: unknown[] = [];
   const server = Fastify({ logger: false });
+  const mockStream = (messages: unknown, options: unknown) => {
+    seenMessages.push(messages);
+    seenOptions.push(options);
+    return (async function* () {
+      yield {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "你",
+        partial: {} as any,
+      };
+      yield {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "好",
+        partial: {} as any,
+      };
+      yield {
+        type: "done",
+        reason: "stop",
+        message: {} as any,
+      };
+    })() as any;
+  };
   await server.register(
     createLlmRoutes({
       chatComplete: async () => "unused",
-      chatStream: (messages, options) => {
-        seenMessages.push(messages);
-        seenOptions.push(options);
-        return (async function* () {
-          yield {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "你",
-            partial: {} as any,
-          };
-          yield {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "好",
-            partial: {} as any,
-          };
-          yield {
-            type: "done",
-            reason: "stop",
-            message: {} as any,
-          };
-        })() as any;
-      },
+      chatCompleteWithTools: async () => "unused",
+      chatStream: mockStream,
+      chatStreamWithTools: mockStream,
       sessionService: {
         async touch() {
           return { sessionId: "sess_test", isNew: false };
