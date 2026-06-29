@@ -19,6 +19,11 @@ function getServerUrl(): string {
   return process.env.EXPO_PUBLIC_LOOI_SERVER_URL || DEFAULT_SERVER_URL;
 }
 
+
+export function getConfiguredServerUrl(): string {
+  return getServerUrl();
+}
+
 async function fetchJSON<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getServerUrl()}${path}`;
   const res = await fetch(url, {

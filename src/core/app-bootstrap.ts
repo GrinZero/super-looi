@@ -5,6 +5,8 @@ import { voiceRuntime } from "../perceivers/voice-runtime";
 import { reminderScheduler } from "../reminder/reminder-scheduler";
 import { setupNotifications } from "../reminder/notification";
 import { useUserStore } from "../store/user";
+import { getConfiguredServerUrl } from "../server-api/client";
+import { registerAndPollDeviceTools } from "../device-tools/registry";
 import {
   getLoadedSttModule,
   getLoadedTtsModule,
@@ -42,6 +44,10 @@ export async function bootstrapApp(): Promise<void> {
 
   await startRuntimePerceivers();
 
+  registerAndPollDeviceTools(getConfiguredServerUrl()).catch((error) => {
+    console.warn("[Bootstrap] Failed to register device tools:", error);
+  });
+
   console.log("[Bootstrap] App initialized. Active perceivers:", perceiverManager.getRegisteredNames());
 
   runOptInVadSmokeOnBoot();
@@ -70,6 +76,10 @@ export async function resumeAppRuntime(): Promise<void> {
   if (!bootstrapped || !paused) return;
   paused = false;
   await startRuntimePerceivers();
+
+  registerAndPollDeviceTools(getConfiguredServerUrl()).catch((error) => {
+    console.warn("[Bootstrap] Failed to register device tools:", error);
+  });
   console.log("[Bootstrap] App runtime resumed");
 }
 

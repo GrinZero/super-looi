@@ -114,3 +114,21 @@
   - [x] 在 iOS 模拟器运行 3 次 live acceptance runner，验证重复录音/SSE/TTS cleanup；三条 trace 都回到 `voiceState="sleeping" isListening=false isProcessing=false`，其中两条到达 SSE/TTS/assistant，仍可见模拟器音频限制。
   - [x] 增加 `pnpm voice:accept-device` 真机验收脚本：启动 server，带 live acceptance tracing 跑 Expo，写入带时间戳日志，并在结束后停止 server。
   - [ ] 在真实 iOS 设备上运行长时间重复资源验收。
+
+## Device tool / LOOI body integration
+
+- [x] Review existing client/server API and tool architecture.
+- [x] Add server-side device tool registry and invocation plumbing.
+- [x] Add client-side device tool registration/execution scaffolding.
+- [x] Add Looi robot SDK integration placeholders for movement/light tools.
+- [x] Add tests/docs and run validation.
+- [x] Commit changes and open PR.
+
+## Local LOOI SDK package migration
+
+- [x] Copy the old `packages/looi-sdk` SDK into this monorepo.
+- [x] Add `packages/*` to the pnpm workspace and depend on `@sourcebug/looi-sdk` via `workspace:*`.
+- [x] Update robot tools to use the local SDK classes/types instead of a dynamic optional import.
+- [x] Document that native BLE transport binding is the remaining device-side step.
+- [x] Run app/server/package validation.
+- [x] Commit changes and open PR.

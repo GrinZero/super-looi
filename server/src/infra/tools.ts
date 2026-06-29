@@ -1,4 +1,5 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
+import { getDeviceToolDefinitions } from "../device-tools/registry.js";
 
 export interface ToolDefinition<TParameters extends TSchema = TSchema> {
   name: string;
@@ -49,7 +50,7 @@ const TOOL_REGISTRY: Map<string, ToolDefinition> = new Map([
 
 /** Tool definitions suitable for passing into Context.tools */
 export function getToolDefinitions(): Array<{ name: string; description: string; parameters: TSchema }> {
-  return [...TOOL_REGISTRY.values()].map(({ name, description, parameters }) => ({
+  return [...TOOL_REGISTRY.values(), ...getDeviceToolDefinitions()].map(({ name, description, parameters }) => ({
     name,
     description,
     parameters,
@@ -58,7 +59,7 @@ export function getToolDefinitions(): Array<{ name: string; description: string;
 
 /** Execute a tool by name. Throws if tool is unknown. */
 export async function executeTool(name: string, args: Record<string, any>): Promise<unknown> {
-  const tool = TOOL_REGISTRY.get(name);
+  const tool = TOOL_REGISTRY.get(name) ?? getDeviceToolDefinitions().find((item) => item.name === name);
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
   }

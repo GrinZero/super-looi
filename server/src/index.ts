@@ -11,6 +11,7 @@ import { ttsRoutes } from "./routes/tts.js";
 import { evidenceRoutes } from "./routes/evidence.js";
 import { observeRoutes } from "./routes/observe.js";
 import { sessionRoutes } from "./routes/session.js";
+import { deviceToolRoutes } from "./routes/device-tools.js";
 
 export async function buildServer(options: { logger?: boolean } = {}) {
   const server = Fastify({ logger: options.logger ?? true });
@@ -28,6 +29,7 @@ export async function buildServer(options: { logger?: boolean } = {}) {
   await server.register(evidenceRoutes, { prefix: "/api/evidence" });
   await server.register(observeRoutes, { prefix: "/api/observe" });
   await server.register(sessionRoutes, { prefix: "/api/session" });
+  await server.register(deviceToolRoutes, { prefix: "/api/device-tools" });
 
   // Health check
   server.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
