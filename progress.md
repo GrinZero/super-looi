@@ -241,6 +241,12 @@
 
 ## LOOI robot real-run integration
 
+更新时间：2026-07-29 CST
+
+- [x] 定位 Windows 开发机上 server 完全起不来的根因：`server/src/index.ts` 的 `import.meta.url === \`file://${process.argv[1]}\`` 入口守卫在 Windows 上永远不匹配（`import.meta.url` 是 `file:///C:/...` 正斜杠，`process.argv[1]` 是 `C:\...` 反斜杠），导致 `main()` 从未执行，`tsx watch` 看起来"卡住"但其实只是空转。
+- [x] 改为 `pathToFileURL(process.argv[1]).href` 做跨平台安全比较，验证 `pnpm exec tsx src/index.ts` 后 `/health` 本地和局域网 IP 都返回 200。
+- [x] 校验：`pnpm --dir server exec tsc --noEmit`、`pnpm --dir server test`（28/28 通过）。
+- [x] 发现并修正 `.env` 里 `EXPO_PUBLIC_LOOI_SERVER_URL` 残留旧局域网 IP（`192.168.3.71` -> 当前 `192.168.178.112`），否则手机 app 连不上 server（`.env` 未纳入版本控制，仅本地修正）。
 - [x] Audit current SDK/device-tool wiring and confirm native BLE transport is still missing.
 - [x] Add a React Native BLE transport and bind it through `configureLooiRobotTransport()`.
 - [x] Add Settings robot scan/retry/select flow before first connection.
