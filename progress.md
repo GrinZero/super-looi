@@ -247,6 +247,18 @@
 - [x] Run app/server/package validation.
 - [x] Commit changes and open PR.
 
+## LAN IP 配置去硬编码
+
+更新时间：2026-07-29 CST
+
+- [x] 定位问题根源：`src/server-api/client.ts` 和 `src/camera/uploader.ts` 里各自硬编码了同一个早已过期的局域网 IP `192.168.3.71` 作为 `DEFAULT_SERVER_URL` 兜底，且分别实现了一份重复的 `getServerUrl()`；每次开发机换网络就要手改，此前已经因此出过一次 `NoRouteToHostException` 的真机连不上 server 的事故（见"Android dev-client restart bug investigation"）。
+- [x] `src/server-api/client.ts` 新增 `deriveServerUrlFromMetroHost()`：从 `Constants.expoConfig?.hostUri`（dev client 连接 Metro 时用的局域网 IP，和 API server 同一台主机）推导 server 地址，取代硬编码兜底值；优先级改为 显式 `EXPO_PUBLIC_LOOI_SERVER_URL` > Metro host 推导 > `http://localhost:8080`。
+- [x] `src/camera/uploader.ts` 删除重复实现，改为直接复用 `server-api/client.ts` 导出的 `getConfiguredServerUrl()`，消除第二处硬编码 IP。
+- [x] 更新 `.env.example` 和本地 `.env`：把 `EXPO_PUBLIC_LOOI_SERVER_URL` 从必填硬编码值改成默认注释掉、仅在需要强制指定地址时取消注释，并补充注释说明自动推导逻辑。
+- [x] `scripts/anti-regression-check.mjs` 新增防回归断言：`client.ts` 必须保留 `deriveServerUrlFromMetroHost`/`Constants.expoConfig?.hostUri`、不得再出现 `DEFAULT_SERVER_URL = "http...`；`uploader.ts` 不得再出现硬编码 `192.168.` 地址，必须改为 import `getConfiguredServerUrl`。
+- [x] 校验：`pnpm exec tsc --noEmit`、`pnpm --dir server exec tsc --noEmit`、`pnpm --dir server test`（33/33）、`pnpm test`（anti-regression 通过）。
+- [ ] 真机验证：dev client 连接 Metro 后，确认自动推导出的 server URL 在真实换网场景下依然可用（同样受限于本机无 Android SDK/Mac，见 todo.md）。
+
 ## LOOI robot real-run integration
 
 更新时间：2026-07-29 CST

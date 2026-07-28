@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import {
   ChatMessage,
   ContextService,
@@ -12,11 +13,29 @@ import {
 } from "../core/context-service";
 import { MemoryCategory, ObservationMetadata } from "../core/observation";
 
-const DEFAULT_SERVER_URL = "http://192.168.3.71:8080";
+const DEFAULT_SERVER_PORT = process.env.EXPO_PUBLIC_LOOI_SERVER_PORT || "8080";
+const FALLBACK_SERVER_URL = `http://localhost:${DEFAULT_SERVER_PORT}`;
+
+/**
+ * The dev client connects to Metro over the host machine's current LAN IP
+ * (Constants.expoConfig.hostUri, e.g. "192.168.1.5:8081"). The API server
+ * runs on that same host, just on a different port, so we can derive its URL
+ * instead of hard-coding an IP that goes stale every time the network changes.
+ */
+function deriveServerUrlFromMetroHost(): string | null {
+  const hostUri = Constants.expoConfig?.hostUri;
+  const host = hostUri?.split(":")[0];
+  return host ? `http://${host}:${DEFAULT_SERVER_PORT}` : null;
+}
 
 function getServerUrl(): string {
-  // In React Native, env vars are injected at build time
-  return process.env.EXPO_PUBLIC_LOOI_SERVER_URL || DEFAULT_SERVER_URL;
+  // Explicit override always wins — required for production/EAS builds where
+  // there is no Metro connection to derive a host from.
+  return (
+    process.env.EXPO_PUBLIC_LOOI_SERVER_URL ||
+    deriveServerUrlFromMetroHost() ||
+    FALLBACK_SERVER_URL
+  );
 }
 
 

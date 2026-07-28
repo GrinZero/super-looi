@@ -236,4 +236,16 @@ assertPresent("server/src/routes/llm.ts", [
   /export function flushTtsSentences/,
 ]);
 
+// Dev server URL must not regress to a hard-coded LAN IP that goes stale
+// every time the network changes — derive it from Metro's host instead.
+assertPresent("src/server-api/client.ts", [
+  /deriveServerUrlFromMetroHost/,
+  /Constants\.expoConfig\?\.hostUri/,
+]);
+assertAbsent("src/server-api/client.ts", [/DEFAULT_SERVER_URL\s*=\s*"http/]);
+assertAbsent("src/camera/uploader.ts", [/192\.168\./]);
+assertPresent("src/camera/uploader.ts", [
+  /import \{ getConfiguredServerUrl \} from "\.\.\/server-api\/client"/,
+]);
+
 console.log("Anti-regression checks passed");

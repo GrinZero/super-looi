@@ -31,7 +31,7 @@
 ## Device tool / LOOI body follow-ups
 
 - [x] Migrate `@sourcebug/looi-sdk` into this monorepo as `packages/looi-sdk`.
-- [ ] Replace hard-coded LAN IP dev server config with a less fragile Android/device development flow, or document the required `.env` update when the host IP changes.
+- [x] Replace hard-coded LAN IP dev server config with a less fragile Android/device development flow — see progress.md "LAN IP 配置去硬编码" (2026-07-29).
 - [ ] In Settings, scan/retry/select a real LOOI robot and capture logs for scan -> connect -> SDK handshake.
 - [ ] After Settings selection, relaunch to the home screen and verify saved robot reconnect + handshake without manual selection.
 - [ ] Run `POST /api/device-tools/robot/move` with the app connected to a real LOOI robot and verify physical movement/stop behavior.

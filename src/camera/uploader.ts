@@ -1,11 +1,7 @@
-const DEFAULT_SERVER_URL = "http://192.168.3.71:8080";
-
-function getServerUrl(): string {
-  return process.env.EXPO_PUBLIC_LOOI_SERVER_URL || DEFAULT_SERVER_URL;
-}
+import { getConfiguredServerUrl } from "../server-api/client";
 
 async function fetchJSON<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${getServerUrl()}${path}`, {
+  const response = await fetch(`${getConfiguredServerUrl()}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -29,6 +25,6 @@ export async function uploadEvidenceFrame(imageBase64: string): Promise<{ url: s
 }
 
 export function createFrameWebSocket(): WebSocket {
-  const wsUrl = getServerUrl().replace(/^http/, "ws");
+  const wsUrl = getConfiguredServerUrl().replace(/^http/, "ws");
   return new WebSocket(`${wsUrl}/ws/frames`);
 }
