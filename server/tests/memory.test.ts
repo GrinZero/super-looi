@@ -22,6 +22,9 @@ test("memory llm falls back to a temperature-tolerant model on anthropic, embedd
     llm.memoryModel = "";
 
     const memoryConfig = buildMemoryConfig();
+    assert.ok(memoryConfig);
+    assert.ok(memoryConfig.llm);
+    assert.ok(memoryConfig.embedder);
 
     assert.equal(memoryConfig.llm.provider, "anthropic");
     assert.equal(memoryConfig.llm.config.model, "claude-haiku-4-5-20251001");
@@ -34,6 +37,8 @@ test("memory llm falls back to a temperature-tolerant model on anthropic, embedd
 
     llm.memoryModel = "claude-explicit-override";
     const overridden = buildMemoryConfig();
+    assert.ok(overridden);
+    assert.ok(overridden.llm);
     assert.equal(overridden.llm.config.model, "claude-explicit-override");
   } finally {
     llm.provider = originalProvider;

@@ -465,12 +465,11 @@ export class VoicePerceiver extends BasePerceiver {
 
     if (llmService.generateResponseStream) {
       let streamedText = "";
-      let sentenceBuffer = "";
       let spokenSubtitleText = "";
-      const sentenceQueue = new AsyncSentenceQueue();
+      const ttsQueue = new AsyncTtsQueue();
       const shouldSpeak = useUserStore.getState().preferences.ttsEnabled;
       const ttsPromise = shouldSpeak
-        ? ttsService.speakSentences(sentenceQueue, {
+        ? ttsService.speakAudioUrls(ttsQueue, {
             onSentenceStart: (sentence) => {
               voiceAcceptanceTrace.mark("first-tts", { mode: "stream" });
               useUserStore.getState().setVoiceState("speaking");
@@ -490,11 +489,13 @@ export class VoicePerceiver extends BasePerceiver {
           if (event.type === "token") {
             voiceAcceptanceTrace.mark("first-token");
             streamedText += event.text;
-            sentenceBuffer += event.text;
             if (!shouldSpeak) {
               useConversationStore.getState().appendStreamingText(event.text);
             }
-            sentenceBuffer = this.flushCompleteSentences(sentenceBuffer, sentenceQueue);
+          } else if (event.type === "tts") {
+            if (shouldSpeak) {
+              ttsQueue.push({ text: event.text, audioUrl: event.audioUrl });
+            }
           } else if (event.type === "done") {
             const fullText = event.fullText || streamedText;
             voiceAcceptanceTrace.mark("stream-done", {
@@ -502,9 +503,7 @@ export class VoicePerceiver extends BasePerceiver {
               hasEvidence: Boolean(event.evidenceUri),
             });
             streamedEvidenceUri = event.evidenceUri;
-            sentenceQueue.push(sentenceBuffer);
-            sentenceBuffer = "";
-            sentenceQueue.close();
+            ttsQueue.close();
             await ttsPromise;
             useConversationStore.getState().setStreamingText(fullText);
             if (event.evidenceUri) {
@@ -520,8 +519,7 @@ export class VoicePerceiver extends BasePerceiver {
           }
         }
 
-        sentenceQueue.push(sentenceBuffer);
-        sentenceQueue.close();
+        ttsQueue.close();
         await ttsPromise;
         if (streamedText) {
           return {
@@ -531,7 +529,7 @@ export class VoicePerceiver extends BasePerceiver {
           };
         }
       } catch (error) {
-        sentenceQueue.close();
+        ttsQueue.close();
         await ttsPromise.catch(() => undefined);
         console.warn("[VoicePerceiver] Streaming response failed; using fallback:", error);
         useConversationStore.getState().setStreamingText("");
@@ -549,27 +547,6 @@ export class VoicePerceiver extends BasePerceiver {
     const nextText = `${currentText}${sentence}`;
     useConversationStore.getState().setStreamingText(nextText);
     return nextText;
-  }
-
-  private flushCompleteSentences(buffer: string, queue: AsyncSentenceQueue): string {
-    let remaining = buffer;
-    let splitIndex = this.findSentenceSplitIndex(remaining);
-
-    while (splitIndex >= 0) {
-      queue.push(remaining.slice(0, splitIndex + 1));
-      remaining = remaining.slice(splitIndex + 1);
-      splitIndex = this.findSentenceSplitIndex(remaining);
-    }
-
-    return remaining;
-  }
-
-  private findSentenceSplitIndex(text: string): number {
-    const punctuationIndex = text.search(SENTENCE_BREAK_RE);
-    if (punctuationIndex >= 0) {
-      return punctuationIndex;
-    }
-    return text.length >= MAX_STREAMING_SENTENCE_LENGTH ? text.length - 1 : -1;
   }
 
   private stripWakewordPrefix(transcript: string): string {

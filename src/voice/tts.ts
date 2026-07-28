@@ -23,6 +23,11 @@ interface SpeakSentencesOptions extends Omit<TTSOptions, "text"> {
   onSentenceEnd?: (sentence: string) => void;
 }
 
+interface SpeakAudioUrlsOptions {
+  onSentenceStart?: (sentence: string) => void;
+  onSentenceEnd?: (sentence: string) => void;
+}
+
 /**
  * MiniMax TTS — stream synthesis and playback
  */
@@ -250,6 +255,27 @@ export class TTSService {
         text,
         voiceId: options.voiceId,
         speed: options.speed,
+        onPlaybackStart: () => options.onSentenceStart?.(text),
+      });
+      options.onSentenceEnd?.(text);
+    }
+  }
+
+  /**
+   * Play a stream of already-synthesized {text, audioUrl} items in order,
+   * without re-synthesizing on the client (server did the TTS work).
+   */
+  async speakAudioUrls(
+    items: AsyncIterable<{ text: string; audioUrl: string }>,
+    options: SpeakAudioUrlsOptions = {}
+  ): Promise<void> {
+    for await (const item of items) {
+      const text = item.text.trim();
+      if (!text || !item.audioUrl.trim()) continue;
+
+      await this.speakAudioUrl({
+        text,
+        audioUrl: item.audioUrl,
         onPlaybackStart: () => options.onSentenceStart?.(text),
       });
       options.onSentenceEnd?.(text);

@@ -216,4 +216,24 @@ assertPresent("src/ui/MemoryCard.tsx", [
   /<Image source=\{\{ uri: memory\.metadata\.evidenceUri \}\}/,
 ]);
 
+// Server-side LLM -> TTS orchestration: the client must consume server-emitted
+// "tts" SSE events (server does sentence splitting + synthesis) instead of
+// re-splitting text and re-synthesizing locally.
+assertPresent("src/perceivers/voice-perceiver.ts", [
+  /event\.type === "tts"/,
+  /new AsyncTtsQueue\(\)/,
+  /ttsService\.speakAudioUrls\(ttsQueue/,
+]);
+assertAbsent("src/perceivers/voice-perceiver.ts", [
+  /AsyncSentenceQueue/,
+  /ttsService\.speakSentences/,
+]);
+assertPresent("src/voice/tts.ts", [
+  /async speakAudioUrls\(/,
+]);
+assertPresent("server/src/routes/llm.ts", [
+  /writeSse\(reply\.raw, "tts", buildTtsEvent/,
+  /export function flushTtsSentences/,
+]);
+
 console.log("Anti-regression checks passed");

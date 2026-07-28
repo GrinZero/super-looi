@@ -34,10 +34,18 @@
 
 - [x] 调研业界方案，确认目标应从客户端按句 TTS 转向服务端 `LLM stream -> TTS stream` 编排。
 - [x] 审计当前 `.env`，确认现有 provider 只有 MiniMax HTTP TTS，未配置 ElevenLabs/Deepgram/Google 等增量文本 WebSocket TTS。
-- [ ] 将 LLM SSE 协议扩展为 `token` + `tts` + `done`，由 server 负责切句和发出音频入口。
-- [ ] 客户端移除本地句子切分/TTS 队列，改为消费 server 的 `tts` 事件播放。
-- [ ] 保留 MiniMax HTTP streaming 作为 provider v1；后续接入真正 WebSocket TTS 时只替换 server provider。
-- [ ] 运行 pnpm 优先验证。
+- [x] 将 LLM SSE 协议扩展为 `token` + `tts` + `done`，由 server 负责切句和发出音频入口（`server/src/routes/llm.ts` 的 `flushTtsSentences`/`buildTtsEvent`，服务端这部分此前已实现完成，本轮补上了单测覆盖）。
+
+更新时间：2026-07-29 CST
+
+- [x] 定位客户端半成品迁移遗留 bug：`src/perceivers/voice-perceiver.ts` 引用了从未定义/导入的 `AsyncSentenceQueue`、`SENTENCE_BREAK_RE`、`MAX_STREAMING_SENTENCE_LENGTH`，导致根级 `pnpm exec tsc --noEmit` 实际上一直失败（此前只跑过 `pnpm --dir server exec tsc --noEmit`，未覆盖到 app 侧，所以没人发现）。
+- [x] 客户端改为消费 server 的 `tts` SSE 事件：`event.type === "tts"` 时把 `{text, audioUrl}` 推入已经存在但从未被使用的 `AsyncTtsQueue`，删除死代码 `flushCompleteSentences`/`findSentenceSplitIndex` 和损坏的 `AsyncSentenceQueue` 用法。
+- [x] `src/voice/tts.ts` 新增 `speakAudioUrls()`，直接播放 server 已合成好的 `audioUrl`，不再客户端二次调用 MiniMax 合成；保留 `speakSentences()`/`speak()` 供 `src/voice/conversation-diagnostic.ts` 等独立诊断脚本使用。
+- [x] 保留 MiniMax HTTP streaming 作为 provider v1（`GET /api/tts/stream`）；后续接入真正 WebSocket TTS 时只需替换 server 内部 provider，SSE 协议和客户端消费逻辑不用变。
+- [x] 补充测试：`server/tests/llm.test.ts` 新增 `flushTtsSentences` 边界单测（低于最小长度不切、标点触发切分、软标点强制切分、无标点硬切分）和一条端到端 SSE 集成测试验证 `tts` 事件的 `audioPath` 编码与事件顺序；`scripts/anti-regression-check.mjs` 新增防回归断言（客户端不得再出现 `AsyncSentenceQueue`/`ttsService.speakSentences`，必须消费 `event.type === "tts"`）。
+- [x] 顺带修了一个我自己引入的问题：`server/tests/memory.test.ts` 的空安全断言在根级 tsconfig（`strict` 更严格地解析 `MemoryConfig = ConstructorParameters<typeof Memory>[0]` 为可选）下报错，补了 `assert.ok()` 收窄；确认不能给 `server/tsconfig.json` 加 `tests/**/*`（会和 `rootDir: src` + `declaration` 冲突，破坏 `pnpm --dir server build`），根级 tsc 才是覆盖 `server/tests/` 的正确检查点。
+- [x] 校验：`pnpm exec tsc --noEmit`（根，覆盖 app+server+tests，0 error）、`pnpm --dir server exec tsc --noEmit`、`pnpm --dir server test`（33/33 通过）、`pnpm test`（anti-regression 通过）。
+- [ ] 真机/模拟器交互验收：语音对话中确认字幕跟随 server `tts` 事件、音频播放不重复合成、网络延迟下播放顺序正确（需要真机，见 todo.md）。
 
 ## Device tools WebSocket 迁移
 

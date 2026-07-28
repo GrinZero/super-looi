@@ -5,6 +5,7 @@ import {
   buildGroundedSearchResponse,
   buildSystemPrompt,
   createLlmRoutes,
+  flushTtsSentences,
   getDefaultResponse,
   ruleBasedClassify,
 } from "../src/routes/llm.js";
@@ -63,6 +64,103 @@ test("search response is grounded in the top retrieved fact", () => {
 
 test("search response without facts uses no-memory response", () => {
   assert.equal(buildGroundedSearchResponse([]), "抱歉，我不记得这个信息。");
+});
+
+test("flushTtsSentences keeps buffering short sentences below the minimum length", () => {
+  const emitted: string[] = [];
+  const remaining = flushTtsSentences("你好。", (s) => emitted.push(s));
+
+  assert.deepEqual(emitted, []);
+  assert.equal(remaining, "你好。");
+});
+
+test("flushTtsSentences emits once punctuation is reached past the minimum length", () => {
+  const emitted: string[] = [];
+  const remaining = flushTtsSentences("你好呀今天天气不错。", (s) => emitted.push(s));
+
+  assert.deepEqual(emitted, ["你好呀今天天气不错。"]);
+  assert.equal(remaining, "");
+});
+
+test("flushTtsSentences force-splits on soft punctuation once max length is exceeded", () => {
+  const emitted: string[] = [];
+  const buffer = `${"A".repeat(30)}，${"B".repeat(20)}`;
+  const remaining = flushTtsSentences(buffer, (s) => emitted.push(s));
+
+  assert.deepEqual(emitted, [`${"A".repeat(30)}，`]);
+  assert.equal(remaining, "B".repeat(20));
+});
+
+test("flushTtsSentences hard-cuts at max length when no punctuation is available", () => {
+  const emitted: string[] = [];
+  const remaining = flushTtsSentences("A".repeat(60), (s) => emitted.push(s));
+
+  assert.deepEqual(emitted, ["A".repeat(48)]);
+  assert.equal(remaining, "A".repeat(12));
+});
+
+test("generate-response-stream emits tts events with playable audio paths per sentence", async () => {
+  const server = Fastify({ logger: false });
+  const mockStream = () => {
+    return (async function* () {
+      yield { type: "text_delta", contentIndex: 0, delta: "你好呀今天天气不错。", partial: {} as any };
+      yield { type: "text_delta", contentIndex: 0, delta: "还有事吗", partial: {} as any };
+      yield { type: "done", reason: "stop", message: {} as any };
+    })() as any;
+  };
+  await server.register(
+    createLlmRoutes({
+      chatComplete: async () => "unused",
+      chatCompleteWithTools: async () => "unused",
+      chatStream: mockStream,
+      chatStreamWithTools: mockStream,
+      sessionService: {
+        async touch() {
+          return { sessionId: "sess_test", isNew: false };
+        },
+        async addMessage() {
+          return { messageId: "msg_test" };
+        },
+        async listSessions() {
+          return { sessions: [] };
+        },
+        async getMessages() {
+          return { messages: [] };
+        },
+        async getRecentMessages() {
+          return [];
+        },
+      },
+    }),
+    { prefix: "/api/llm" }
+  );
+
+  try {
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/llm/generate-response-stream",
+      payload: { transcript: "在吗" },
+    });
+
+    assert.equal(response.statusCode, 200);
+
+    // Mid-stream sentence flushed as soon as its punctuation is seen.
+    assert.match(
+      response.body,
+      /event: tts\ndata: \{"text":"你好呀今天天气不错。","audioPath":"\/api\/tts\/stream\?text=%E4%BD%A0%E5%A5%BD/
+    );
+    // Trailing unpunctuated text is still flushed as a final tts event before "done".
+    assert.match(
+      response.body,
+      /event: tts\ndata: \{"text":"还有事吗","audioPath":"\/api\/tts\/stream\?text=%E8%BF%98%E6%9C%89%E4%BA%8B%E5%90%97"\}/
+    );
+
+    const ttsIndex = response.body.indexOf("event: tts");
+    const doneIndex = response.body.indexOf("event: done");
+    assert.ok(ttsIndex >= 0 && ttsIndex < doneIndex, "tts events must precede the done event");
+  } finally {
+    await server.close();
+  }
 });
 
 test("generate-response-stream emits token and done SSE events with session history", async () => {

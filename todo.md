@@ -1,5 +1,9 @@
 # 待办
 
+## Server-side LLM -> TTS 编排迁移 follow-ups
+
+- [ ] 真机/模拟器上验证语音对话：确认字幕跟随 server 端 `tts` 事件更新、每句音频只播放一次（不再客户端二次合成）、弱网下 `token`/`tts`/`done` 事件顺序和播放顺序仍然正确。同样受限于本机无 Android SDK/Mac，见下方"真机验收暂缓"条目。
+
 ## Mem0 Anthropic 兼容修复 follow-ups
 
 - [ ] 在 `.env` 中补齐 `LLM_API_KEY`（anthropic）和 `EMBEDDING_API_KEY`（openai），跑一次真实 `/api/memory/add` + `/api/memory/search`，确认 mem0 事实提取（haiku 兜底模型）和 openai embedding 都能成功调用，且不再出现 temperature 400。
@@ -21,6 +25,8 @@
 - 在真实 iOS 设备上运行一次主屏幕 live microphone 对话，确认真实自然音频下 wakeword/button trigger -> VAD -> ASR -> SSE -> TTS 行为。
 - 在真实设备上运行重复 live 对话，确认自然语音 VAD 时序和音频播放完成情况，不受模拟器 CoreAudio/TTS timeout 噪声影响。
 - 设备接入后，使用 `docs/home-voice-conversation-device-acceptance.md` 或 `pnpm voice:accept-device -- "<physical device name>"` 记录真机 trace id、延迟字段和播放观察结果。
+
+- [ ] 真机验收暂缓：本机（Windows）没有 Android SDK/adb，也没有 Mac/Xcode，无法在本机构建/部署 dev client 或做 BLE 真机连接。需要以下任一条件具备后再继续：在本机安装 Android SDK 并用 USB 接入 Android 手机；或在已有 app+机器人连接的设备上手动跑，我方负责 server 和 `POST /api/device-tools/robot/move` 触发+日志核对。
 
 ## Device tool / LOOI body follow-ups
 
