@@ -7,8 +7,19 @@ let memory: Memory | null = null;
 
 type MemoryConfig = ConstructorParameters<typeof Memory>[0];
 
+// mem0's AnthropicLLM always sends a raw `temperature`, which Claude Sonnet 5 /
+// Opus 5+ reject (400). Older/smaller models still accept it, so that's what
+// mem0's internal fact-extraction defaults to when no override is set.
+const DEFAULT_MEMORY_MODEL: Record<string, string> = {
+  anthropic: "claude-haiku-4-5-20251001",
+  openai: "gpt-4o-mini",
+  gemini: "gemini-2.0-flash",
+};
+
 export function buildMemoryConfig(): MemoryConfig {
   const databaseUrl = new URL(config.database.url);
+  const memoryModel =
+    config.llm.memoryModel || DEFAULT_MEMORY_MODEL[config.llm.provider] || config.llm.model;
 
   return {
     // Mem0's default history store uses better-sqlite3; keep pgvector memories
@@ -28,19 +39,21 @@ export function buildMemoryConfig(): MemoryConfig {
         },
       },
       llm: {
-        provider: "openai",
+        provider: config.llm.provider,
         config: {
           apiKey: config.llm.apiKey,
-          model: config.llm.model,
-          baseURL: config.llm.baseUrl,
+          model: memoryModel,
+          baseURL: config.llm.provider === "openai" ? config.llm.baseUrl : undefined,
         },
       },
+      // Anthropic has no embeddings endpoint — this always goes through a
+      // separate provider/key (see config.embedding), independent of LLM_PROVIDER.
       embedder: {
-        provider: "openai",
+        provider: config.embedding.provider,
         config: {
-          apiKey: config.llm.apiKey,
-          model: config.llm.embeddingModel,
-          baseURL: config.llm.baseUrl,
+          apiKey: config.embedding.apiKey,
+          model: config.embedding.model,
+          baseURL: config.embedding.baseUrl,
         },
       },
   };

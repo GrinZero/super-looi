@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import Fastify from "fastify";
+import { config } from "../src/config.js";
 import { buildMemoryConfig, buildOwnerMemoryFilters, createMemoryRoutes } from "../src/routes/memory.js";
 
 test("memory config disables Mem0 sqlite history while keeping pgvector storage", () => {
@@ -9,6 +10,35 @@ test("memory config disables Mem0 sqlite history while keeping pgvector storage"
   assert.equal(memoryConfig?.disableHistory, true);
   assert.ok(memoryConfig?.vectorStore);
   assert.equal(memoryConfig.vectorStore.provider, "pgvector");
+});
+
+test("memory llm falls back to a temperature-tolerant model on anthropic, embedder stays independent", () => {
+  const llm = config.llm as { provider: string; model: string; memoryModel: string };
+  const originalProvider = llm.provider;
+  const originalMemoryModel = llm.memoryModel;
+
+  try {
+    llm.provider = "anthropic";
+    llm.memoryModel = "";
+
+    const memoryConfig = buildMemoryConfig();
+
+    assert.equal(memoryConfig.llm.provider, "anthropic");
+    assert.equal(memoryConfig.llm.config.model, "claude-haiku-4-5-20251001");
+    assert.equal(memoryConfig.llm.config.baseURL, undefined);
+
+    assert.equal(memoryConfig.embedder.provider, config.embedding.provider);
+    assert.equal(memoryConfig.embedder.config.model, config.embedding.model);
+    assert.equal(memoryConfig.embedder.config.baseURL, config.embedding.baseUrl);
+    assert.equal(memoryConfig.embedder.config.apiKey, config.embedding.apiKey);
+
+    llm.memoryModel = "claude-explicit-override";
+    const overridden = buildMemoryConfig();
+    assert.equal(overridden.llm.config.model, "claude-explicit-override");
+  } finally {
+    llm.provider = originalProvider;
+    llm.memoryModel = originalMemoryModel;
+  }
 });
 
 test("memory filters always scope to owner and preserve metadata category", () => {

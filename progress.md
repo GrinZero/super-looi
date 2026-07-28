@@ -2,6 +2,20 @@
 
 更新时间：2026-06-28 13:11:25 CST
 
+## Mem0 Anthropic 兼容修复（temperature 400 + embedding 分离）
+
+更新时间：2026-07-29 CST
+
+- [x] 定位 mem0 `AnthropicLLM` 始终发送 `temperature`，Claude Sonnet 5 / Opus 5+ 会 400 拒绝。
+- [x] `server/src/config.ts` 新增 `llm.memoryModel`（`MEM0_LLM_MODEL` 覆盖）和独立 `embedding.*` 配置块。
+- [x] `server/src/routes/memory.ts` 新增 `DEFAULT_MEMORY_MODEL` 兜底表，anthropic 下 mem0 事实提取默认走 `claude-haiku-4-5-20251001`（仍接受 temperature）。
+- [x] embedder 配置改为始终使用独立 `config.embedding.*`（provider/baseURL/apiKey/model），不再复用 `config.llm.*`，因为 Anthropic 无 embeddings 接口。
+- [x] 修正默认模型 id 笔误：`claude-haiku-4-5` -> `claude-haiku-4-5-20251001`。
+- [x] `pnpm-workspace.yaml` 补充 `allowBuilds`（`better-sqlite3`/`esbuild`/`protobufjs`/`@google/genai`/`@siteed/sherpa-onnx.rn`）并将 `trustPolicy` 改为 `'off'`，解除 pnpm 对这些包的构建脚本拦截。
+- [x] 补充测试：`server/tests/memory.test.ts` 新增用例验证 anthropic 兜底模型、显式 `MEM0_LLM_MODEL` 覆盖、embedder 与 llm provider 相互独立。
+- [x] 校验：`pnpm --dir server exec tsc --noEmit`、`pnpm --dir server test`（28/28 通过）、`pnpm test`（anti-regression 通过）、`pnpm install --frozen-lockfile`。
+- [ ] 真实 `LLM_API_KEY`/`EMBEDDING_API_KEY` 尚未在 `.env` 中配置，无法做端到端 mem0 add/search 真实调用验收。
+
 ## TTS 长回复分段不中断修复
 
 更新时间：2026-07-01 CST

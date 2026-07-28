@@ -1,5 +1,9 @@
 # 待办
 
+## Mem0 Anthropic 兼容修复 follow-ups
+
+- [ ] 在 `.env` 中补齐 `LLM_API_KEY`（anthropic）和 `EMBEDDING_API_KEY`（openai），跑一次真实 `/api/memory/add` + `/api/memory/search`，确认 mem0 事实提取（haiku 兜底模型）和 openai embedding 都能成功调用，且不再出现 temperature 400。
+
 ## 首次引导与声纹多样本 Plan follow-ups
 
 - [x] onboarding 采用 RootLayout readiness 守卫跳转，同时首页保留模型/声纹修复入口。
