@@ -878,12 +878,16 @@ export default function SettingsScreen() {
         getVoiceServices(),
         getLiveSampleRecorder(),
       ]);
+      // Enrollment status only reads stored state (and lazily loads the
+      // speaker model) — independent of the live recording, so it can run
+      // concurrently with record/wait/stop instead of adding to that chain.
+      const enrollmentStatusPromise = speakerIdService.refreshEnrollmentStatus();
       await liveSampleRecorder.start();
       await new Promise((resolve) => setTimeout(resolve, 2200));
       dispatchUi({ type: "speaker-verify/start-running" });
       setVoiceState("verifying");
       const samples = await liveSampleRecorder.stop();
-      const enrolled = await speakerIdService.refreshEnrollmentStatus();
+      const enrolled = await enrollmentStatusPromise;
       const [verified, nonOwnerVerified] = enrolled
         ? await Promise.all([
             speakerIdService.verifySamples(samples, "diagnostic-owner"),

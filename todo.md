@@ -15,7 +15,7 @@
 - [x] 声纹 score trace 已落地到 MMKV `owner_speaker_verification_traces`，保留最近 100 条，不保存原始音频和完整 embedding。
 - [x] 声纹模板上限默认值已设为 8，追加录入满额时返回可解释替换原因。
 - [ ] React Doctor 仍提示 `SettingsScreen` 体积过大；当前设置页已分层但仍在单文件内，后续可拆到 `src/ui/settings/*`。
-- [ ] React Doctor 对 `runSpeakerVerify` 的 sequential await 仍有 warning；当前判断为录音流程时序要求，`start -> wait -> stop -> verify` 不能并行。
+- [x] React Doctor 对 `runSpeakerVerify` 的 sequential await warning：`start -> wait -> stop -> verify` 本身确实不能并行（录音硬件时序），但审计发现 `speakerIdService.refreshEnrollmentStatus()` 只读本地存储/懒加载模型，和录音完全无关，此前却被串在 `stop()` 之后才调用。已改为和 `liveSampleRecorder.start()` 并发发起，`stop()` 后只 `await` 已经在跑的 promise，减少了关键路径延迟（2026-07-29，见 `app/(tabs)/settings.tsx` 的 `runSpeakerVerify`）。
 - [ ] 真机补充 non-owner 回归样本，覆盖不同性别、距离、音量、语速和环境噪声。
 - [ ] 在有足够 owner / non-owner score 日志前，不开启声纹自动自适应更新。
 
