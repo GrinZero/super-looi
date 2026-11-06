@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { parseEnv } from "node:util";
+import { nativePluginEnvironment } from "./native-plugins.mjs";
+import { buildRuntime } from "./build-runtime.js";
+import { pickBuildVariables } from "./build-env.mjs";
 
 const app = resolve(import.meta.dirname, "..");
 const repo = resolve(app, "../..");
@@ -53,27 +56,69 @@ if (!binary) {
   if (!valid(binary)) throw new Error("NSH CLI version verification failed");
 }
 const [command = "check", ...args] = process.argv.slice(2);
-const result =
-  command === "probe-ios" || command === "probe-android"
-    ? spawnSync(
-        binary,
-        [
-          "test",
-          resolve(app, "CompatProbe.tsx"),
-          "--target",
-          command === "probe-ios" ? "ios" : "android",
-          ...args,
-        ],
-        {
-          cwd: app,
-          stdio: ["pipe", "inherit", "inherit"],
-          input:
-            'await app.waitFor("Native bridge verified", {timeout:20000})\n',
-        },
-      )
-    : spawnSync(binary, [command, app, ...args], {
+// Generated business code must be fresh even for a clean checkout's direct run.
+if (command !== "--help" && command !== "--version") await buildRuntime();
+const buildVariables = pickBuildVariables(config);
+const target = args[args.indexOf("--target") + 1];
+const nativeEnvironment = nativePluginEnvironment(buildVariables, {
+  android: command.endsWith("-android") || target === "android",
+  iosReleaseSimulator: command === "package" && target === "ios-simulator",
+  iosSimulator: command.endsWith("-ios") || target === "ios" || target === "ios-simulator",
+});
+const uiTarget = command.endsWith("-android") ? "android" : "ios";
+const uiSteps =
+  [
+    'await app.waitFor("本机就绪", {timeout:15000})',
+    `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-face.png`))})`,
+    'await app.press("connection-settings")',
+    'await app.waitFor("连接设置")',
+    `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings.png`))})`,
+    'await app.press("关闭")',
+    'await app.press("compose")',
+    'await app.type("message-input", "记住NSH验收标记在书架上")',
+    'await app.submit("message-input")',
+    'await app.waitFor("记住了：NSH验收标记在书架上")',
+    'await app.press("compose")',
+    'await app.type("message-input", "回忆 NSH验收标记")',
+    'await app.submit("message-input")',
+    'await app.waitFor("NSH验收标记在书架上")',
+    'await app.press("compose")',
+    'await app.type("message-input", "忘记 NSH验收标记")',
+    'await app.submit("message-input")',
+    'await app.waitFor("已忘记这条内容。")',
+  ].join("\n") + "\n";
+const uiTest = resolve(app, ".nsh/NativeUi.test.tsx");
+if (command.startsWith("ui-"))
+  writeFileSync(
+    uiTest,
+    `import {open,test} from "nsh/test";test("native face and offline memory",async()=>{const app=await open("../App.tsx");\n${uiSteps}\n},120000);\n`,
+  );
+const scripted = command.startsWith("probe-") || command.startsWith("ui-") || command.startsWith("live-");
+const result = scripted
+  ? spawnSync(
+      binary,
+      [
+        "test",
+        resolve(app, command.startsWith("live-") ? "LiveProbe.tsx" : command.startsWith("ui-") ? uiTest : "CompatProbe.tsx"),
+        "--target",
+        uiTarget,
+        ...args,
+      ],
+      {
         cwd: app,
-        stdio: "inherit",
-      });
+        env: nativeEnvironment,
+        stdio: ["pipe", "inherit", "inherit"],
+        input: command.startsWith("live-")
+          ? 'await app.waitFor("Native live verified", {timeout:90000})\n'
+          : command.startsWith("ui-")
+          ? uiSteps
+          : 'await app.waitFor("Native bridge verified", {timeout:20000})\n',
+      },
+    )
+  : spawnSync(binary, [command, app, ...args], {
+      cwd: app,
+      env: nativeEnvironment,
+      stdio: "inherit",
+    });
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

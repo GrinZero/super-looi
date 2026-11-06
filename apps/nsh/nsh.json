@@ -4,5 +4,30 @@
   "version": "1.0.0",
   "build": 1,
   "rust": ".",
-  "capabilities": { "fs": { "read": ["${dataDir}"], "write": ["${dataDir}"] } }
+  "capabilities": {
+    "fs": {
+      "read": [
+        "${dataDir}"
+      ],
+      "write": [
+        "${dataDir}"
+      ]
+    },
+    "network": {
+      "http": [
+        {
+          "host": "*",
+          "schemes": [
+            "https"
+          ],
+          "methods": [
+            "GET",
+            "POST"
+          ]
+        }
+      ]
+    }
+  },
+  "theme": "theme.json",
+  "appearance": "dark"
 }

@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+import { signAndroid } from "../native-plugins.mjs";
+signAndroid(process.argv.slice(2));

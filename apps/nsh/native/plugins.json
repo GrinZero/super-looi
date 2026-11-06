@@ -1,0 +1,4 @@
+{
+  "android": { "application": "com.superlooi.nsh.SuperLooiApplication", "allowBackup": false },
+  "iosSimulator": { "applicationIdentifier": "SUPERLOOI.com.longbridge.nsh.host", "releaseApplicationIdentifier": "SUPERLOOI.com.superlooi.app" }
+}

@@ -11,6 +11,12 @@ nsh-core = { git = "https://github.com/longbridge/nsh", rev = "e626a8dd8f8d8b277
 nsh-base = { git = "https://github.com/longbridge/nsh", rev = "e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3" }
 nsh-node-compat-rs = { path = "../../packages/nsh-node-compat/rust" }
 
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+security-framework = "=3.7.0"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "=0.21.1"
+
 [dev-dependencies]
 nsh-engine = { git = "https://github.com/longbridge/nsh", rev = "e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3", default-features = false }
 nsh-testing = { git = "https://github.com/longbridge/nsh", rev = "e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3", default-features = false, features = ["bundle"] }

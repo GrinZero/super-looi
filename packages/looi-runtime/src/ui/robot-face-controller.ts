@@ -147,7 +147,8 @@ export class RobotFaceController {
   }
 
   /**
-   * Fast emergency stop: Guaranteed execution in <100ms locally without network waiting.
+   * Request the adapter's local emergency stop and report measured latency.
+   * Physical response time depends on the native/hardware adapter.
    */
   public async triggerLocalEmergencyStop(): Promise<{
     latencyMs: number;

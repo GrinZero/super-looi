@@ -1,5 +1,18 @@
 # Super-LOOI 重构与演进进度
 
+### NSH 计划续推与版本复验（2026-11-07）
+
+- [x] Step 1：核对既有实现、工作树与未完成门禁；调度 GPT-6.1 Sol 独立核验
+- [ ] Step 2：固定 Pi 1.5.0 / NSH 0.4.0 的 QuickJS、engine、iOS、Android 验收矩阵
+  - [x] 四包、Rust 5 项、真实网关与移动适配 SDK 验证；透明 root SDK 36 个构建错误仍单独记录
+  - [ ] 双端宿主回归与 Release 支持范围核验
+- [x] Step 3：补齐本机真实模型网络与任务闭环，修复复验发现
+  - [x] iOS / Android MobileRuntime 使用原生 fetch 完成真实模型任务；内存凭据、临时测试入口清理
+  - [x] 修复模型配置安全存储失败后的旧执行器恢复；新增第十套 QuickJS 回归
+  - [x] 修正 iOS simulator Release Keychain 身份选择
+- [ ] Step 4：推进领域能力迁移，逐项满足删除门禁
+- [ ] Step 5：独立复审、记录证据并分阶段提交
+
 ### NSH Node 兼容层与 Pi 落地（2026-11-06）
 
 - [x] **Step 1：固定依赖与运行时事实**
@@ -44,6 +57,15 @@
     - [x] 全仓 build/typecheck/test 通过（315 项 JS 测试、九套 QuickJS、强杀恢复、NSH hardened engine 与初始交互）；CJS 条件导出兼容 Expo 测试加载器
     - [ ] 本机 SQLite 记忆/任务与实际 Agent 工具闭环；同源验收进 NSH 双端
   - [ ] 本机 Agent / 领域工具、凭据和任务持久化接线
+    - [x] 原生安全凭据：iOS Keychain / Android Keystore 双端 CRUD；app 自有 entitlement / Application 插件；并发锁与增量 manifest / DEX 回归
+    - [x] 原生插件与 App 基础最终复审通过；长回复/审批内容/干净启动已修；非配合工具退出保持 unknown、close 有界失败并补 Node/QuickJS/双端回归
+    - [ ] 完整 App Agent 多轮任务与恢复管理验收
+    - [x] iOS / Android MobileRuntime 原生 fetch 真网模型单任务完成与关闭（2026-11-07）
+    - [x] App 自有主题 / Button / Input / Dialog 与单 Canvas 圆眼首页、本机 SQLite/Agent 服务和生命周期接线
+    - [x] iOS 横屏真实 UI 离线记住/回忆/忘记闭环、配置弹窗/键盘及截图；初版弹窗溢出已修复
+    - [x] Android 原生 UI 系统自动化通过设置、中文输入及离线记忆闭环；使用独立测试 APK 绕过 NSH test driver Dialog 焦点缺口
+    - [x] 全仓 build/typecheck/test 通过（316 项 JS 测试与九套 QuickJS、强杀/预算/原生集成）；双端九套+凭据CRUD；iOS UI和Android系统UI均通过
+    - [ ] App 真网模型/语音/硬件继续接线与验收
   - [ ] NSH 移动宿主、语音和 UI 迁移验证；满足替代条件再移除 Hub
 - [ ] **Step 5：完整目标验收与交付（持续推进）**
   - [x] 原生宿主阶段全仓 build/typecheck/test 通过（含 NSH hardened engine 回归、初始化交互及原有 307 项业务测试）；iOS 八套原生测试通过；独立复审修复取消生命周期问题

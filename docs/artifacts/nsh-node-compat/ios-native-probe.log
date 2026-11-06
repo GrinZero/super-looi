@@ -1,6 +1,6 @@
-ios: linked native class; nine suites including portable business runtime
-✓ built the Rust crate nsh-app-nsh (380ms, 1 warning: -v shows it)
-✓ built the development host for the iOS simulator (435ms, 2 warnings: -v shows them)
+ios: linked native class; nine suites plus OS credential CRUD
+✓ built the Rust crate nsh-app-nsh (230ms, 1 warning: -v shows it)
+✓ built the development host for the iOS simulator (903ms, 2 warnings: -v shows them)
 PASS node-shims: fs, binary, readline, SQLite recovery/rollback, shell, crypto, zlib, clone
 PASS budgets: SQLite deadline, active shell cancellation, virtual paths, UTF-8 errors, native notify watch
 PASS pi-agent-core@1.5.0: real Agent loop, tool I/O, steer, followUp, events, abort
@@ -12,6 +12,7 @@ PASS native codemode resource bounds: async interrupt, frame/admission limits, r
 PASS pi-coding-agent session recovery
 PASS pi-coding-agent@1.5.0 headless source entries: SessionManager JSONL and seven real tools (image/TUI/download excluded; find/bash operations injected)
 PASS pi-coding-agent@1.5.0 SDK: actual createAgentSession + ModelRuntime + DefaultResourceLoader, seven default tools and JSONL recovery
-PASS portable LOOI runtime: 48 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite memory/task reopen and tombstone-safe backup restore
-✓ CompatProbe.tsx › steps (12.0s)
-✓ 1 test: 1 passed, 0 failed (14.2s)
+PASS portable LOOI runtime: 48 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite memory/task reopen, tombstone-safe restore and honest unconfirmed stop
+PASS secure credentials: native OS store write/reopen/update/delete (test slot only)
+✓ CompatProbe.tsx › steps (11.1s)
+✓ 1 test: 1 passed, 0 failed (13.3s)

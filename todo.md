@@ -255,7 +255,19 @@
 
 实施证据与范围见 [兼容层实施记录](docs/nsh-node-compat-implementation.md)。已交付独立 Rust/QuickJS 包、九组测试（含实际 SDK、native codemode 与业务 runtime）、真实模型 SSE 与强杀恢复验证。
 
+- [x] iOS Keychain / Android Keystore CRUD 在双端模拟器通过；app 自有模拟器 entitlement / Android Application 插件处理宿主缺口，未回落明文。插件并发/增量 manifest/DEX 幂等已修复并独立复审通过。
+- [x] 已定位 Android NSH 0.4.0 test driver Dialog 输入缺口；以独立 UiAutomation 测试 APK 通过真实窗口点击、中文输入及记住/回忆/忘记。不修改 NSH，测试 APK 不进入产品包。
+- [ ] Native memory 的 source event 审计、删除后的内容/派生会话保留策略与用户身份作用域继续落实；当前 UI “忘记”执行墓碑级逻辑撤回，不代表数据库页/WAL/历史会话的取证擦除。
 - [ ] 实际 SDK 手机验证：原生 fetch/SSE、安全凭据、预编译扩展/深链 OAuth 与图片处理；独立 runner 七工具通过，不能替代这些手机宿主能力。桌面根 barrel 的透明构建审计仍保持单独失败状态。
-- [ ] 双端离线 Release / 商店签名验收（Android 两 ARM Release APK 已编译，仍为 debug 签名）；真实 NSH class、私有 app sandbox、无 Tokio executor 作业生命周期、notify 与九组测试已在 hardened engine（256 MiB）/ iOS 与 Android API 34 ARM64 模拟器通过，见 native-host-audit.json。现有 NSH App 首屏仍为初始化模板，业务未迁移。
+- [ ] 双端离线 Release / 商店签名验收（Android 两 ARM Release APK 已编译，仍为 debug 签名）；真实 NSH class、私有 app sandbox、无 Tokio executor 作业生命周期、notify 与九组测试已在 hardened engine（256 MiB）/ iOS 与 Android API 34 ARM64 模拟器通过，见 native-host-audit.json。NSH 已有本机首页、离线记忆与安全凭据基础，完整业务仍在迁移。
 - [ ] 独立文件命名空间/私有 SQLite 迁入迁出、未知副作用恢复、手机安全凭据/任务/审批/记忆/家居/媒体/BLE/UI 接线；满足所有 Hub 职责替代后才能移除 Hub。
 - [ ] 兼容层后续覆盖：Rust 原生行扫描、真正异步 FS/有界输出流、更多明确的 Node API/命令参数；当前 JSON 桥接和上游 JS 行扫描不等于零拷贝。native notify 需双端实测。
+
+
+## NSH 续推复验（2026-11-07）
+
+- [x] 双端 MobileRuntime 原生 fetch 真网模型单任务通过；模型配置写入失败恢复已修复。
+- [ ] 普通多轮对话保留上下文；unknown 任务详情、明确核验和续跑入口；目前仅提示计数。
+- [ ] NSH 家居、语音 PCM/WebSocket、BLE、旧数据迁入；现有独立四包测试不代表这些业务已接线。
+- [ ] 透明 root SDK 构建仍有 36 个错误；移动适配 SDK 单独通过，不用空垫片掩盖不支持项。
+- [ ] 当前 Release 构建与离线重启验证进行中；商店签名、API 36/AAB 和真实设备另验。

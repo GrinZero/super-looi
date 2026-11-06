@@ -5,8 +5,10 @@ import { nshNodeCompatPlugin } from "../../../packages/nsh-node-compat/src/bundl
 import { nshCodemodePlugin } from "../../../packages/nsh-node-compat/src/codemode-bundler.js";
 import { nshPiCodingToolsPlugin } from "../../../packages/nsh-node-compat/src/pi-coding-bundler.js";
 import { nshPiSdkPlugin } from "../../../packages/nsh-node-compat/src/pi-sdk-bundler.js";
+import { buildRuntime } from "./build-runtime.js";
 
 const root = resolve(import.meta.dirname, "..");
+await buildRuntime();
 await mkdir(resolve(root, "generated"), { recursive: true });
 await build({
   stdin: {
@@ -23,6 +25,7 @@ await build({
       await import("../../packages/nsh-node-compat/test/verify-pi-coding-agent.ts");
       await import("../../packages/nsh-node-compat/test/verify-pi-sdk.ts");
       await import("../../packages/nsh-node-compat/test/verify-looi-runtime.ts");
+      await import("../../packages/nsh-node-compat/test/verify-mobile-runtime.ts");
     }
   `,
   },

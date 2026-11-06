@@ -38,7 +38,8 @@
       "arm64-v8a",
       "armeabi-v7a"
     ],
-    "signing": "debug key (not store release)"
+    "signing": "debug key (not store release)",
+    "releaseApkArtifactStage": "Earlier native-host template; current face app release still requires rebuild and offline launch verification"
   },
   "businessUiMediaMigrated": false,
   "migrationAllowed": false,
@@ -51,5 +52,19 @@
     "oldBackupDeletionAndSuppressionReplay": true,
     "iosAndAndroidSimulator": true,
     "physicalMediaBleVisionVerified": false
+  },
+  "secureCredentials": {
+    "iosKeychainCrud": true,
+    "androidKeystoreCrud": true,
+    "testSlotOnly": true,
+    "androidPluginManifestDexRegression": true
+  },
+  "ui": {
+    "iosSimulatorFaceSettingsOfflineMemory": true,
+    "androidSystemUiAutomationOfflineMemory": true,
+    "androidFixedNshDriverDialogInputSupported": false,
+    "realMobileModelNetworkVerified": false,
+    "liveVoiceAvailable": false,
+    "bodyConnected": false
   }
 }

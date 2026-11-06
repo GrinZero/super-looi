@@ -1,0 +1,9 @@
+✓ built the Rust crate nsh-app-nsh (236ms, 1 warning: -v shows it)
+✓ built App.tsx (692.0 KB js, 2.9 MB bytecode, 1.0s)
+✓ built the Android runtime with development support (2.5s)
+✓ built libnsh.so of nsh-app-nsh for armeabi-v7a (411ms, 1 warning: -v shows it)
+✓ built libnsh.so of nsh-app-nsh for arm64-v8a (395ms, 1 warning: -v shows it)
+✓ built libnsh.so of nsh-app-nsh for x86_64 (403ms, 1 warning: -v shows it)
+• Android Emulator (sdk_gphone64_arm64) connected, build 1
+INSTRUMENTATION_RESULT: result=PASS native Android face/settings and offline remember/recall/forget through system input
+INSTRUMENTATION_CODE: -1

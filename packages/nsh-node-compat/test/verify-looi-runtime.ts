@@ -189,6 +189,61 @@ equal(
   "succeeded",
 );
 storage.close();
+// A non-cooperative async tool must not turn a stop deadline into a false exit.
+const stubbornFaux = fauxProvider(),
+  stubbornModels = createModels();
+stubbornModels.setProvider(stubbornFaux.provider);
+stubbornFaux.setResponses([
+  fauxAssistantMessage(fauxToolCall("hold", {}), { stopReason: "toolUse" }),
+]);
+let release!: () => void, entered!: () => void;
+const held = new Promise<void>((resolve) => {
+    release = resolve;
+  }),
+  started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+const stubborn = new PiAgentExecutor({
+  stateDirectory: "/home/looi-stop-test",
+  workspaceRoot: "/workspace/looi-stop-test",
+  modelSpec: stubbornFaux.getModel(),
+  streamFn: stubbornModels.streamSimple.bind(stubbornModels),
+  stopGraceMs: 15,
+  customTools: [
+    {
+      name: "hold",
+      label: "hold",
+      description: "non-cooperative test tool",
+      parameters: { type: "object", properties: {} },
+      execute: async () => {
+        entered();
+        await held;
+        return { content: [{ type: "text", text: "late" }], details: {} };
+      },
+    },
+  ],
+});
+const stoppedTask = `stop_${generation}`;
+const stalled = stubborn.run("hold", { taskId: stoppedTask }).then(
+  () => false,
+  () => true,
+);
+await started;
+equal(await stubborn.cancel(stoppedTask), {
+  state: "unknown",
+  runtimeExited: false,
+  confirmed: false,
+});
+let closeRejected = false;
+try {
+  await stubborn.close();
+} catch {
+  closeRejected = true;
+}
+assert(closeRejected, "close fabricated an exit receipt");
+release();
+assert(await stalled);
+equal(stubborn.getTask(stoppedTask)?.state, "unknown");
 console.log(
-  "PASS portable LOOI runtime: 48 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite memory/task reopen and tombstone-safe backup restore",
+  "PASS portable LOOI runtime: 48 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite memory/task reopen, tombstone-safe restore and honest unconfirmed stop",
 );

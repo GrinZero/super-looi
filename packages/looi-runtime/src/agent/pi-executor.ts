@@ -52,6 +52,26 @@ const SAFE_SYSTEM_PREFIXES = [
 const MAX_OUTPUT_CHARS = 16000;
 const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;
 
+async function awaitWithin(
+  promise: Promise<unknown>,
+  milliseconds: number,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => false,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), milliseconds);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export interface PiExecutorConfig {
   taskPersistence?: TaskPersistence;
   memoryStore?: PersonalMemoryStore;
@@ -69,6 +89,8 @@ export interface PiExecutorConfig {
   streamFn?: StreamFn;
   modelSpec?: Model<Api>;
   customTools?: AgentTool<any>[];
+  additionalTools?: AgentTool<any>[];
+  approvalRequiredTools?: readonly string[];
   requireApprovalForAllWrites?: boolean;
   /** Native callers bind approvals to the current foreground UI session. */
   approvalUiSessionId?: string;
@@ -650,6 +672,7 @@ export class PiAgentExecutor implements AgentExecutor {
       writeFileTool,
       bashTool,
       askUserQuestionTool,
+      ...(this.config.additionalTools ?? []),
     ];
   }
 
@@ -731,12 +754,20 @@ export class PiAgentExecutor implements AgentExecutor {
           { toolCall, args },
           signal,
         ): Promise<BeforeToolCallResult | undefined> => {
+          if (this.closed || worker.stopped || signal?.aborted)
+            return {
+              block: true,
+              reason:
+                "Task was stopped; no further tool execution is permitted.",
+            };
           const parsedArgs = (args ?? {}) as Record<string, unknown>;
-          let needsApproval = false;
+          let needsApproval =
+            this.config.approvalRequiredTools?.includes(toolCall.name) ?? false;
           let details: Record<string, unknown> = {
             callId: toolCall.id,
             toolName: toolCall.name,
             sessionId: task.sessionId,
+            ...(needsApproval ? { arguments: parsedArgs } : {}),
           };
 
           if (toolCall.name === "bash") {
@@ -756,13 +787,19 @@ export class PiAgentExecutor implements AgentExecutor {
             toolCall.name === "write"
           ) {
             const targetPath = String(parsedArgs.path ?? "");
-            const { inside } = resolveWorkspacePath(
+            const { inside, resolved } = resolveWorkspacePath(
               task.workspaceRoot,
               targetPath,
             );
             if (!inside || this.config.requireApprovalForAllWrites) {
               needsApproval = true;
-              details = { ...details, operation: "write", path: targetPath };
+              details = {
+                ...details,
+                operation: "write",
+                path: targetPath,
+                content: String(parsedArgs.content ?? ""),
+                willOverwrite: fs.existsSync(resolved),
+              };
             }
           } else if (
             toolCall.name === "read_file" ||
@@ -1081,19 +1118,15 @@ export class PiAgentExecutor implements AgentExecutor {
 
     worker.stop = (async () => {
       const graceMs = this.config.stopGraceMs ?? 200;
-      if (worker.agent) {
-        await Promise.race([
-          worker.agent.waitForIdle(),
-          new Promise<void>((resolve) => setTimeout(resolve, graceMs)),
-        ]);
-      }
-      const runtimeExited = true;
-      const confirmed = worker.pendingShell.size === 0;
+      const runtimeExited = worker.agent
+        ? await awaitWithin(worker.agent.waitForIdle(), graceMs)
+        : true;
+      const confirmed = runtimeExited && worker.pendingShell.size === 0;
       task.runtimeExited = runtimeExited;
       task.state = confirmed ? "cancelled" : "unknown";
       if (!confirmed) {
         task.error =
-          "Runtime stop requested; external process outcome requires verification";
+          "Runtime stop requested; local execution exit or external effect requires verification";
       }
       this.update(task);
       return { state: task.state, runtimeExited, confirmed };
@@ -1110,8 +1143,15 @@ export class PiAgentExecutor implements AgentExecutor {
     await Promise.allSettled(
       [...this.workers.keys()].map((id) => this.cancel(id)),
     );
-    await Promise.allSettled(
-      [...this.workers.values()].map((worker) => worker.promise),
+    const settled = await awaitWithin(
+      Promise.allSettled(
+        [...this.workers.values()].map((worker) => worker.promise),
+      ),
+      this.config.stopGraceMs ?? 200,
     );
+    if (!settled)
+      throw new AgentExecutionError(
+        "Local execution exit is unconfirmed; task remains unknown",
+      );
   }
 }

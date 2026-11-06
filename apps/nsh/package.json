@@ -6,17 +6,27 @@
   "scripts": {
     "build:probe": "node --import tsx scripts/build-compat-probe.ts",
     "build": "pnpm build:probe && node --import tsx scripts/nsh.ts build",
-    "typecheck": "pnpm build:probe && node --import tsx scripts/nsh.ts check",
+    "typecheck": "pnpm build:probe && tsc -p tsconfig.runtime.json && node --import tsx scripts/nsh.ts check",
     "test": "pnpm build:probe && node --import tsx scripts/nsh.ts test",
     "test:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-ios",
     "test:android": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-android",
-    "ios": "node --import tsx scripts/nsh.ts run --target ios"
+    "ios": "node --import tsx scripts/nsh.ts run --target ios",
+    "test:ui:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts ui-ios",
+    "test:ui:android": "node scripts/verify-android-ui.mjs",
+    "test:live:ios": "node --import tsx scripts/verify-live.ts ios",
+    "test:live:android": "node --import tsx scripts/verify-live.ts android",
+    "test:plugins": "python3 -B native/android/test_plugin.py"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
-    "tsx": "^4.19.3"
+    "tsx": "^4.19.3",
+    "@types/node": "^22.13.0",
+    "typescript": "^5.8.2"
   },
   "dependencies": {
-    "@super-looi/runtime": "workspace:*"
+    "@super-looi/runtime": "workspace:*",
+    "@super-looi/contracts": "workspace:*",
+    "@earendil-works/pi-schema": "1.5.0",
+    "@earendil-works/pi-agent-core": "1.5.0"
   }
 }
