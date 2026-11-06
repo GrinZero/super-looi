@@ -2,6 +2,8 @@
 
 调研日期：2026-11-06（Asia/Taipei）。本轮为源码与官方资料调研，没有安装候选 App、执行手机端 Agent 或验证模型质量。以下区分已核验的源码事实、架构建议与待验证项；原有 DSH/Hub 文档描述历史方案，本报告以最终不依赖 Hub 为目标。
 
+> 2026-11-06 补充：本文 dsh-Go 部分固定的是旧主线源码。新核查的 `feat/ios-foundation@745cc731` 已有 NodeMobile 内嵌 iOS 引擎、默认虚拟 shell 及可选 arm64 iSH / Alpine guest；模拟器真实工具循环与 guest 审批链 CI 已通过，不能再将当前 iOS 分支概括为待适配。真实云模型、最新上游真机与正式分发仍须另验，详见 [iOS 分支与 issue #609 调研](dsh-go-ios-branch-research.md)。
+
 ## 1. 建议与目标边界
 
 **建议把 Agent loop、工具调度、审批、任务账本和会话放进现有 Expo App，先直连云端模型；本地推理作为后续独立选项。** 保留 Pi core 做第一轮兼容性验证；若依赖适配成本过高，比较 AI SDK Core。不要为去 Hub 先引入完整 Linux 环境，也无需先重写 Swift/Kotlin App。这是结合现有代码的推荐，并非已完成迁移。

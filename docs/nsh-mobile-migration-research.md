@@ -63,9 +63,11 @@ v0.4.0 有 11 个 Node-shaped 标准模块子集，包含 Buffer、crypto、path
 
 本仓库安装包 `@earendil-works/pi-agent-core@1.5.0` 的 Agent / loop 支持注入 `streamFn`、工具与调用前钩子，适合作为第一轮迁移候选。但它运行时仍导入 `pi-ai` 根入口；该包有多 provider 依赖、变量动态 import 和专用 Node/OAuth 路径。`pi-ai` 的参数校验、模型存储等还使用 `structuredClone`，需要在 NSH 实测或提供经过数据类型约束的实现，不能随手用 JSON 深拷贝替代全部语义。[Pi v1.5.0 循环源码](https://github.com/earendil-works/pi/blob/v1.5.0/packages/agent/src/agent-loop.ts)
 
+补充候选：新核查的 dsh-Go iOS 分支通过原生宿主内嵌 NodeMobile 运行 DSH，模拟器真实工具闭环已通过 CI。若 Pi 的 QuickJS 兼容成本高，可比较“NSH 界面 + 宿主内嵌 NodeMobile / Pi”，同时核算第二个 JS 引擎、桥接、签名与生命周期成本；这仍是本项目待验证方案。可选 iSH / Alpine guest 也不能视为原生 child_process 已开放。详见 [iOS 分支与 issue #609 调研](dsh-go-ios-branch-research.md)。
+
 第一轮只验证 **Agent + 自定义 streamFn + 两个纯 TS 工具**，随后接真实兼容网关。自定义 streamFn 可通过 NSH fetch 实现 SSE，再转换成 Pi 的事件流，从而避免一开始就引入完整 provider SDK；它不会自动消除 core 的传递依赖，仍须核对 bundle 可达图。
 
-决策顺序：少量、局部适配能通过就保留 Pi；如果必须广泛 fork SDK、伪造 Node 或调整运行时，则评估独立 Rust agent runtime。两条路线共用任务/工具接口与验收集，首期不同时维护两个循环实现。Rust 扩展可导出异步函数、类和组件，由 TSX 调用。[Rust 扩展官方接口](https://nsh.dev/docs/rust/)
+决策顺序：少量、局部适配能通过就保留 Pi；如果必须广泛 fork SDK、伪造 Node 或调整运行时，则比较内嵌 NodeMobile 与独立 Rust agent runtime 的适配成本。候选路线共用任务/工具接口与验收集，首期不同时维护两个循环实现。Rust 扩展可导出异步函数、类和组件，由 TSX 调用。[Rust 扩展官方接口](https://nsh.dev/docs/rust/)
 
 ### 3.3 手机专用工具与执行契约
 

@@ -240,6 +240,10 @@
 - [ ] **功能与后台范围**：为原桌面 shell/CLI 工具确定手机替代；逐项退出旧 Hub API、隐藏页面和状态；明确锁屏/后台/强退后的规则、任务与感知支持范围。
 
 
-## dsh-Go iOS 分支调研（2026-11-06）
+## dsh-Go iOS 分支验证（2026-11-06）
 
-- [ ] 核对 issue #609 的 embedded Node 路线、工具限制与双端复用价值，区分启动证据、真实模型闭环和正式分发。
+源码、issue 与 CI 结论见 [iOS 分支调研](docs/dsh-go-ios-branch-research.md)。以下是本项目后续可选验证，不表示采用 DSH 或已完成迁移。
+
+- [ ] 比较 NSH QuickJS / 内嵌 NodeMobile 对 Pi 1.5.0 的适配成本；若引入双 JS 引擎，实测事件桥接、内存、取消与停止后重启。
+- [ ] 若借鉴 NodeMobile host，验证 Release 真机签名、addon framework 布局、真实云模型闭环、堆与原生内存/fd管理、强退 unknown 恢复及后台继续；模拟器脚本模型 CI 不替代这些验收。
+- [ ] 若确有 Linux CLI 需求，再验证 arm64 iSH / Alpine guest 的实际程序、审批/路径、取消清理、DNS/网络、真机性能与分发/许可条件；不能默认宣称 Python、任意原生子进程或其他 App 控制可用。
