@@ -1,6 +1,7 @@
 import { EventEmitter } from "./events.js";
 import { statSync } from "./fs.js";
 import { unsupported } from "../bridge.js";
+import { killSandboxProcess } from "./child_process.js";
 let cwd = "/workspace";
 const output = () =>
   Object.assign(new EventEmitter(), {
@@ -13,6 +14,8 @@ const output = () =>
     },
   });
 const process = Object.assign(new EventEmitter(), {
+  features: {},
+  getBuiltinModule: (_name: string) => undefined,
   env: {} as Record<string, string | undefined>,
   argv: ["nsh", "/app/main.mjs"],
   execPath: "/app/nsh",
@@ -33,7 +36,7 @@ const process = Object.assign(new EventEmitter(), {
   nextTick: (fn: (...args: any[]) => void, ...args: any[]) =>
     queueMicrotask(() => fn(...args)),
   exit: (_code = 0): never => unsupported("process.exit"),
-  kill: (): never => unsupported("process.kill"),
+  kill: killSandboxProcess,
   hrtime: Object.assign(
     (previous?: [number, number]): [number, number] => {
       const now = Date.now();

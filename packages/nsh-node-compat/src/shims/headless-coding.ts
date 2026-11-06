@@ -15,6 +15,17 @@ export async function processImage() {
   );
 }
 export async function ensureTool(name: string) {
-  if (name === "rg") return "rg";
+  if (name === "rg" || name === "fd") return name;
   return unsupported(`desktop tool ${name}; inject sandbox operations`);
+}
+
+export function createAllToolRenderers() {
+  return Object.fromEntries(
+    ["read", "write", "edit", "ls", "find", "grep", "bash", "powershell"].map(
+      (name) => [name, {}],
+    ),
+  );
+}
+export function withBuiltInRenderers(_name: string, definition?: unknown) {
+  return definition ?? {};
 }

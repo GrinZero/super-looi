@@ -9,7 +9,10 @@
     "./shims/*": "./dist/shims/*.js",
     "./pi-coding-bundler": "./dist/pi-coding-bundler.js",
     "./adapters/pi-durable-env": "./dist/adapters/pi-durable-env.js",
-    "./adapters/chord-sqlite": "./dist/adapters/chord-sqlite.js"
+    "./adapters/chord-sqlite": "./dist/adapters/chord-sqlite.js",
+    "./adapters/codemode": "./dist/adapters/codemode.js",
+    "./codemode-bundler": "./dist/codemode-bundler.js",
+    "./pi-sdk-bundler": "./dist/pi-sdk-bundler.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -18,14 +21,14 @@
     "test:rust": "cargo test --manifest-path rust/Cargo.toml",
     "verify:live": "node --env-file=../../.env --import tsx scripts/verify.ts --live",
     "clean": "rm -rf dist",
-    "verify:full-sdk": "node --import tsx scripts/audit.ts",
+    "verify:full-sdk": "node --import tsx scripts/audit.ts --sdk && node --import tsx scripts/verify.ts pi-sdk",
+    "audit:transparent-sdk": "node --import tsx scripts/audit.ts",
     "verify:codemode": "node --import tsx scripts/verify.ts codemode",
     "test:budgets": "node --import tsx scripts/verify.ts budgets"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "1.5.0",
     "@earendil-works/pi-ai": "1.5.0",
-    "@earendil-works/pi-codemode": "1.5.0",
     "@earendil-works/pi-coding-agent": "1.5.0",
     "@types/node": "^22.13.0",
     "esbuild": "0.28.2",
@@ -35,7 +38,8 @@
   "dependencies": {
     "@earendil-works/pi-schema": "1.5.0",
     "@earendil-works/chord": "1.5.0",
-    "@earendil-works/pi-durable": "1.5.0"
+    "@earendil-works/pi-durable": "1.5.0",
+    "@earendil-works/pi-codemode": "1.5.0"
   },
   "peerDependencies": {
     "esbuild": "0.28.2",

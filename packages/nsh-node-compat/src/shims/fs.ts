@@ -31,6 +31,8 @@ export const constants = {
   W_OK: 2,
   X_OK: 1,
   COPYFILE_EXCL: 1,
+  O_RDONLY: 0,
+  O_NOFOLLOW: 0x20000,
 };
 export class Stats {
   size: number;
@@ -152,9 +154,16 @@ export const realpathSync = (p: Path) =>
 export const chmodSync = (_p: Path, _mode: number) => unsupported("chmod");
 export const globSync = (_pattern: string) =>
   unsupported("globSync; register precompiled resources instead");
-export function openSync(p: Path, flags = "r") {
+export function openSync(p: Path, flags: string | number = "r") {
+  let nofollow = false;
+  if (typeof flags === "number") {
+    nofollow = Boolean(flags & constants.O_NOFOLLOW);
+    if ((flags & ~constants.O_NOFOLLOW) !== 0)
+      unsupported(`numeric open flag ${flags}`);
+    flags = "r";
+  }
   if (!["r", "w", "wx", "a"].includes(flags)) unsupported(`open flag ${flags}`);
-  return call<number>("fs.open", { path: path(p), flags });
+  return call<number>("fs.open", { path: path(p), flags, nofollow });
 }
 export function readSync(
   fd: number,
@@ -310,3 +319,19 @@ export default {
   watchFile,
   unwatchFile,
 };
+
+export function mkdtempSync(prefix: string) {
+  for (let i = 0; i < 20; i++) {
+    const candidate = prefix + call<string>("uuid").slice(0, 6);
+    try {
+      mkdirSync(candidate);
+      return candidate;
+    } catch (error) {
+      if ((error as { code?: string }).code !== "EEXIST") throw error;
+    }
+  }
+  throw Object.assign(
+    new Error("Could not create a unique temporary directory"),
+    { code: "EEXIST" },
+  );
+}

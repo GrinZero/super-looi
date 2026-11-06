@@ -9,7 +9,15 @@ export function equal(
   expected: unknown,
   message = "values differ",
 ) {
-  if (JSON.stringify(actual) !== JSON.stringify(expected))
+  const stable = (value: unknown) =>
+    JSON.stringify(value, (_key, item) =>
+      item && typeof item === "object" && !Array.isArray(item)
+        ? Object.fromEntries(
+            Object.entries(item).sort(([a], [b]) => a.localeCompare(b)),
+          )
+        : item,
+    );
+  if (stable(actual) !== stable(expected))
     throw new Error(
       `${message}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`,
     );

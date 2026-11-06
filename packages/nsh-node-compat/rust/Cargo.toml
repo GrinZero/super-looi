@@ -17,11 +17,13 @@ rquickjs = { package = "quickjs-jit", version = "=0.14.1", default-features = fa
 quickjs-jit-stdlib = { version = "=0.14.1", default-features = false, features = ["buffer", "path", "crypto", "url", "zlib"] }
 rusqlite = { version = "0.38", features = ["bundled", "hooks", "limits"] }
 cap-std = "4.0.3"
+cap-fs-ext = "4.0.3"
 deno_task_shell = { version = "=0.33.3", default-features = false }
 serde_json = "1"
 regex = "1"
 ignore = "0.4"
 globset = "0.4"
+icu_segmenter = "=2.3.0"
 notify = "8"
 tokio = { version = "1", features = ["rt", "time", "macros", "io-util", "sync"] }
 crc32fast = "1"

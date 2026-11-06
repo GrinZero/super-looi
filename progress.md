@@ -15,13 +15,22 @@
   - [x] agent-core 真 QuickJS 多轮工具、steer/follow-up 与 abort
   - [x] pi-ai 模型/SSE/UTF-8/工具参数流；Rust HTTPS → QuickJS 上游 SDK 的真实 .env 网关调用通过
   - [x] durable Harness / 四工具 / SQLite journal 关闭重开、真正 SIGKILL 后恢复一次生成与 requestId 去重
-  - [ ] portable codemode：实际为 InlineCodemodeSandbox，要求 WebAssembly；当前 NSH QuickJS 不具备，保留显式失败门禁
+  - [x] portable codemode：Rust 原生隔离 VM 适配上游 RemoteCodemodeSandbox 协议（本机进程内，不增加外部服务）
+    - [x] 复用上游 PRELUDE_SOURCE，独立线程/VM 与工具消息桥接
+    - [x] 内存/时间/取消、输出/store/异常与沙盒越权验证
+    - [x] deterministic start/deliver/replay 与 Durable Codemode 集成
+    - [x] async continuation 超时、原生入场/帧/乱序结果字节上限、饱和时停止回执与容量复用回归
   - [x] coding-agent headless source entries 的 SessionManager JSONL 恢复与七工具（find/bash 注入 Operations）
-  - [ ] coding-agent 完整 createAgentSession：透明别名构建仍失败，不能用 headless 验证代替
+  - [x] coding-agent 实际 createAgentSession / ModelRuntime / DefaultResourceLoader：显式移动 SDK 适配模式，七个默认工具与 JSONL 恢复、正常退出通过
+    - [x] 默认 find/grep 接 Rust fd/rg；process.kill 只取消沙盒 actor；Unicode Segmenter 使用 ICU
+    - [x] 隔离桌面 TUI/图片处理、动态 TS 编译、本机 TCP OAuth；预编译扩展注册与原生深链适配入口
+    - [x] 修复固定 stdlib AbortSignal.any 的 Rust opaque callback 引用环，真实 QuickJS GC 退出回归通过
+    - [ ] NSH 原生网络对象、图片与默认安全凭据接入后的实际手机端 SDK 验证
 - [ ] **Step 4：业务接入与迁移门禁**
   - [ ] 本机 Agent / 领域工具、凭据和任务持久化接线
   - [ ] NSH 移动宿主、语音和 UI 迁移验证；满足替代条件再移除 Hub
-- [x] **Step 5：本次兼容子集验收与阶段交付（完整迁移仍待上方门禁）**
+- [ ] **Step 5：完整目标验收与交付（持续推进）**
+  - [x] 扩展至八组真 QuickJS 套件（含 codemode 与完整 SDK），SIGKILL / runner deadline 仍通过；全仓 build/typecheck/test（307 项既有 JS 测试）、Cargo test 与独立复审通过；本轮移动 App 与去 Hub 尚未完成
   - [x] 全仓 pnpm build/typecheck/test 通过（307 项原有 JS 测试 + 六组 QuickJS / SIGKILL / deadline）；Cargo test、公开包导出检查、独立子 agent 复审通过
   - [x] docs/nsh-node-compat-implementation.md / todo 记录实际证据和剩余门禁；分阶段提交，不勾选完整迁移
 

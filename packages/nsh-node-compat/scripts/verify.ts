@@ -1,3 +1,5 @@
+import { nshPiSdkPlugin } from "../src/pi-sdk-bundler.js";
+import { nshCodemodePlugin } from "../src/codemode-bundler.js";
 import { build } from "esbuild";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -30,7 +32,9 @@ const cases = process.argv.includes("--live")
         "pi-agent-core",
         "pi-ai",
         "pi-durable",
+        "codemode",
         "pi-coding-agent",
+        "pi-sdk",
       ];
 async function killAtCheckpoint(bundle: string, state: string) {
   await new Promise<void>((resolve, reject) => {
@@ -71,7 +75,7 @@ for (const name of cases) {
     const plugin = nshNodeCompatPlugin();
     const result = await build({
       stdin: {
-        contents: `import { installNodeCompatGlobals } from './src/polyfills.ts'; installNodeCompatGlobals(); ${name === "pi-ai" || name === "pi-ai-live" ? "const { installFixtureHttp } = await import('./test/http-fixture.ts'); installFixtureHttp();" : ""} await import('./test/verify-${name}.ts');`,
+        contents: `import { installNodeCompatGlobals } from './src/polyfills.ts'; installNodeCompatGlobals(); ${["pi-ai", "pi-ai-live", "pi-sdk", "pi-sdk-live"].includes(name) ? "const { installFixtureHttp } = await import('./test/http-fixture.ts'); installFixtureHttp();" : ""} await import('./test/verify-${name}.ts');`,
         resolveDir: root,
         sourcefile: "verify-entry.ts",
       },
@@ -84,8 +88,15 @@ for (const name of cases) {
       define: { "import.meta.url": JSON.stringify("file:///app/main.mjs") },
       plugins:
         name === "pi-coding-agent"
-          ? [nshPiCodingToolsPlugin(), plugin]
-          : [plugin],
+          ? [nshCodemodePlugin(), nshPiCodingToolsPlugin(), plugin]
+          : name === "pi-sdk" || name === "pi-sdk-live"
+            ? [
+                nshPiSdkPlugin(),
+                nshCodemodePlugin(),
+                nshPiCodingToolsPlugin(),
+                plugin,
+              ]
+            : [nshCodemodePlugin(), plugin],
       write: false,
       metafile: true,
     });

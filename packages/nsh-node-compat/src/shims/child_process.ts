@@ -18,6 +18,22 @@ export interface ShellResult {
   stderr: string;
 }
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+let nextPid = 100;
+const children = new Map<number, () => boolean>();
+/** Pids name sandbox actors, never operating-system processes. */
+export function killSandboxProcess(
+  pid: number,
+  signal: string | number = "SIGTERM",
+) {
+  if (!["SIGTERM", "SIGKILL", "SIGINT", 15, 9, 2, 0].includes(signal))
+    unsupported(`sandbox signal ${signal}`);
+  const kill = children.get(Math.abs(pid));
+  if (!kill)
+    throw Object.assign(new Error("ESRCH: sandbox actor does not exist"), {
+      code: "ESRCH",
+    });
+  return signal === 0 ? true : kill();
+}
 function command(file: string, args: string[], options: Options) {
   if (
     file === "bash" ||
@@ -66,12 +82,13 @@ export function spawn(
   const script = command(file, args, options);
   if (!globalThis.__nsh_shell_wait) unsupported("asynchronous shell host");
   const id = call<string>("shell.create");
+  const pid = nextPid++;
   let settled = false;
   const child = Object.assign(new EventEmitter(), {
     stdout: new Readable(),
     stderr: new Readable(),
     stdin: new Writable(),
-    pid: 0,
+    pid,
     exitCode: null as number | null,
     killed: false,
     kill(_signal?: string | number) {
@@ -81,6 +98,7 @@ export function spawn(
       return true;
     },
   });
+  children.set(pid, () => child.kill());
   const abort = () => child.kill();
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) child.kill();
@@ -115,6 +133,7 @@ export function spawn(
       child.emit("error", error);
       child.emit("close", -1, null);
     } finally {
+      children.delete(pid);
       options.signal?.removeEventListener("abort", abort);
     }
   });

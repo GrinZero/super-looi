@@ -1,5 +1,7 @@
+mod codemode_bridge;
 mod fs_bridge;
 pub mod sandbox;
+mod segment_bridge;
 mod shell_bridge;
 mod sqlite_bridge;
 use rquickjs::{Ctx, Function};
@@ -73,6 +75,28 @@ pub fn install(ctx: &Ctx<'_>, data_root: &Path) -> rquickjs::Result<()> {
             }),
         )?,
     )?;
+    let codemode = Arc::new(codemode_bridge::Manager::default());
+    let steps = codemode.clone();
+    ctx.globals().set(
+        "__nsh_codemode_step",
+        Function::new(
+            ctx.clone(),
+            rquickjs::prelude::Async(move |raw: String| {
+                let manager = steps.clone();
+                let admission = manager.admit(raw);
+                async move {
+                    let result = match admission {
+                        Ok(input) => manager.step(input).await,
+                        Err(error) => Err(error),
+                    };
+                    match result {
+                        Ok(value) => json!({"value":value}).to_string(),
+                        Err(error) => json!({"error":error}).to_string(),
+                    }
+                }
+            }),
+        )?,
+    )?;
     let bridge = Function::new(ctx.clone(), move |request: String| -> String {
         let result = (|| -> Result<Value, String> {
             let mut v: Value = serde_json::from_str(&request).map_err(|e| e.to_string())?;
@@ -83,6 +107,15 @@ pub fn install(ctx: &Ctx<'_>, data_root: &Path) -> rquickjs::Result<()> {
             if let Some(op) = op.strip_prefix("sqlite.") {
                 v["root"] = json!(db_root);
                 return databases.borrow_mut().call(&db_sandbox, op, &v);
+            }
+            if op == "segment" {
+                return segment_bridge::segment(&v);
+            }
+            if op == "codemode.create" {
+                return codemode.create();
+            }
+            if op == "codemode.cancel" {
+                return codemode.cancel(v["id"].as_str().ok_or("missing codemode id")?);
             }
             if op == "shell.create" {
                 let mut jobs = jobs.lock().map_err(|e| e.to_string())?;

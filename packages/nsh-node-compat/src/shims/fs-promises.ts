@@ -32,7 +32,7 @@ export const realpath = async (...args: Parameters<typeof fs.realpathSync>) =>
 export const chmod = async (...args: Parameters<typeof fs.chmodSync>) =>
   fs.chmodSync(...args);
 export const watch = fs.watch;
-export async function open(path: string, flags = "r") {
+export async function open(path: string, flags: string | number = "r") {
   const fd = fs.openSync(path, flags);
   return {
     fd,

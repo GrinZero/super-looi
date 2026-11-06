@@ -1,3 +1,5 @@
+import { NshSegmenter } from "./segmenter.js";
+import { installAbortSignalAny } from "./abort.js";
 import { Utf8Encoder, Utf8Decoder } from "./encoding.js";
 import process from "./shims/process.js";
 import { unsupported } from "./bridge.js";
@@ -53,8 +55,11 @@ export function cloneValue<T>(value: T, seen = new Map<object, unknown>()): T {
   return copy;
 }
 export function installNodeCompatGlobals() {
+  installAbortSignalAny();
   const g = globalThis as any;
   g.global ??= g;
+  g.Intl ??= {};
+  g.Intl.Segmenter ??= NshSegmenter;
   g.TextEncoder ??= Utf8Encoder;
   g.TextDecoder ??= Utf8Decoder;
   g.process ??= process;

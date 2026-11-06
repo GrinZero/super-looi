@@ -82,6 +82,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             result
         })
         .await;
+    // Settling a module can leave cancelled timers/native futures in the
+    // scheduler. Drain them before destroying the context/runtime.
+    tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), runtime.idle())
+        .await
+        .map_err(|_| "QuickJS scheduler did not become idle before deadline")?;
+    drop(context);
+    runtime.run_gc().await;
     result?;
     Ok(())
 }

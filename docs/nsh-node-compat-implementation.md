@@ -1,6 +1,6 @@
 # NSH Node 兼容层实施记录（2026-11-06）
 
-本次将 `docs/plans/nsh-node-compat-and-pi-plan.md` 推进到可运行的独立兼容包、真实 QuickJS 验证与迁移门禁。**原方案尚未全部落地**：Phase 1 的独立宿主与主要兼容子集已实现，Phase 2 的已选四包路径通过；完整 SDK、codemode 和 NSH 双端挂载尚未通过，Phase 3 业务/UI/媒体迁移与去 Hub 未开始。
+本次将 `docs/plans/nsh-node-compat-and-pi-plan.md` 推进到可运行的独立兼容包、真实 QuickJS 验证与迁移门禁。**原方案尚未全部落地**：Phase 1 的独立宿主与主要兼容子集已实现；Phase 2 四包的实际 SDK 七工具、原生 codemode 与 Durable 集成均通过。NSH 双端挂载、Phase 3 业务/UI/媒体迁移与去 Hub 仍待完成。
 
 ## 实际交付
 
@@ -24,32 +24,37 @@ Buffer/crypto/URL/压缩复用同版本原生 stdlib；额外实现 crc32、虚�
 | pi-ai 1.5.0 | createModels/createProvider；真实 OpenAI SDK SSE 解析，7 字节 UTF-8 分块、工具参数 JSON 流通过 |
 | 真实网关 | `.env` 的 LLM 三配置；Rust HTTPS → QuickJS → 上游 OpenAI SDK 流式文本通过；无 Node 请求代理，未记录凭据和回复正文 |
 | pi-durable 1.5.0 | 真实 Harness + 上游 write/edit/read/bash 四工具、SQLite journal 重开/继续通过；执行 env 为本包 adapter |
+| Durable Codemode | 同一 Harness 安装上游 createCodemodeExtension，实际脚本调读写工具/store/output，native sandbox 关闭回执通过；ICU Segmenter 支持 upstream search 的 word 切分 |
 | Durable 强杀 | 生成请求 pending 后按 stdout checkpoint 对第一个 QuickJS 宿主发 SIGKILL；第二个宿主用相同 SQLite 恢复一次生成，requestId 去重通过。未验证副作用工具执行中强杀的 unknown/零重放业务策略 |
 | pi-coding-agent 1.5.0 | SessionManager JSONL 落盘/重载与 read/write/edit/ls/find/grep/bash 通过；显式 headless 内部入口，排除 TUI/图片/下载；find/bash 注入 Operations。**不等于完整 createAgentSession 通过** |
+| 实际 programmatic SDK | createAgentSession + ModelRuntime + DefaultResourceLoader + SettingsManager；七个默认工具（不注入 find/bash Operations）、JSONL 重载与正常退出通过。faux provider 驱动真实工具，不是替换会话实现 |
+| 本机 codemode | upstream portable RemoteCodemodeSandbox 与精确 PRELUDE_SOURCE；Rust 独立线程/QuickJS VM，parallel tools、store/load/output、异常、heap/同步及 async 超时、取消/close、确定性 seed/UTC/replay/乱序结果、入场/帧/待处理字节预算与资源复用通过 |
 | runner | 未结算 Promise 与无限 JS 循环分别在 50ms 配额后退出，无外部 timeout 强杀 |
 | iOS 编译 | Rust 兼容库 `cargo check --target aarch64-apple-ios-sim --lib` 通过，使用 iPhoneSimulator 26.2 SDK；移动目标启用 bindgen，保持 VM 0.14.1。未做 App 链接/embedding 或运行 |
 | 包消费 | build 后通过公开 exports 导入 adapters / bundler / index，别名目标文件存在；这项单独在 Node 检查，不计为 QuickJS 测试 |
 
-## 未通过的实施门禁
+## SDK 平台适配与剩余实施门禁
 
 ### 完整 coding-agent SDK
 
-仅使用透明 Node 别名构建根入口的 `createAgentSession`，仍有 **100 项构建错误**。可复现命令是 `pnpm --filter @super-looi/nsh-node-compat verify:full-sdk`；机器可读明细见 [full-sdk-audit.json](artifacts/nsh-node-compat/full-sdk-audit.json)。该命令返回非零，没有把错误替换成空模块。
+仅使用透明 Node 别名构建桌面根 barrel 的审计仍单独保留：`pnpm --filter @super-looi/nsh-node-compat audit:transparent-sdk`，历史明细见 [full-sdk-audit.json](artifacts/nsh-node-compat/full-sdk-audit.json)。该路径不属于可运行的移动 SDK 模式。
 
-实际依赖图还包括 worker_threads、undici 的原生网络/HTTP/诊断接口、动态扩展与桌面运行期模块；仅把 pi-tui/jiti/photon 换个名字并不能让 SDK 成为纯移动端代码。headless 插件是一个单独、显式的兼容模式，没有重定向完整 SDK 根入口。下一步需要做上游 SDK 边界裁剪或真实移动端适配，并运行同一套 createAgentSession 验收；不能将工具测试当作 SDK 验收。
+新增 `nshPiSdkPlugin` 选择 upstream 实际 programmatic exports，隔离 CLI/TUI barrel。显式适配为：平台 HTTP 全局 dispatcher 设置拒绝（请求本身使用宿主 fetch）；jiti 仅加载已注册预编译扩展；OAuth 使用宿主深链回调而非本机 TCP；photon 图片处理明确拒绝；内置 renderers 退出非可视 agent 路径；fd/rg 使用沙盒 Rust 命令。`verify:full-sdk` 同时执行该模式构建与实际 createAgentSession 七工具测试，已通过。默认凭据、图片、NSH 原生网络与深链仍须在手机宿主验证。
 
 ### Portable codemode
 
-安装包的实际 portable 入口导出 `InlineCodemodeSandbox` / `RemoteCodemodeSandbox`，没有方案所写的 `InProcessCodemodeSandbox`。Inline 的无 node:* 导入不代表没有运行时要求：它要求调用者提供 `CodemodeWasmModule`，并运行在支持 WebAssembly 的宿主上。当前 NSH 同版本原生 QuickJS 不提供 WebAssembly。
+安装包的实际 portable 入口导出 `InlineCodemodeSandbox` / `RemoteCodemodeSandbox`，没有方案所写的 `InProcessCodemodeSandbox`。Inline 要求 WebAssembly，当前 NSH 原生 QuickJS 没有提供；因此实现本机 Rust/QuickJS actor 适配 Remote 协议。每个脚本使用全新 VM，不安装 FS/网络/loader/宿主 globals，只通过上游 prelude 的工具消息桥接。
 
-`pnpm --filter @super-looi/nsh-node-compat verify:codemode` 会在真实 QuickJS 中加载 portable 入口后明确返回失败。要继续，需实现本机 Rust/QuickJS sandbox 协议适配，或选择符合产品范围的 Remote 服务；没有执行任意脚本的安全假实现，也没有引入新服务作为隐藏依赖。
+`pnpm --filter @super-looi/nsh-node-compat verify:codemode` 已通过。资源预算、确定性 fingerprint 与局限见包 README；stop 等待 VM 真正销毁后回执。固定 stdlib 的原生 AbortSignal.any 会用不可追踪 Rust 闭包形成引用环，本包换成 JS 回调，并以真实 runner 退出验证 GC 可回收。
 
 ### NSH 手机应用与 Hub 移除
 
 当前是独立 CLI/Ctx 验证包，已通过 iOS 模拟器目标的 Rust lib 编译检查；没有 NSH iOS/Android embedding、签名发行、UI、PCM/AEC、SecureStore、BLE/相机或任务/审批/记忆数据迁入的证据。官方固定版本的混合模板实际采用 [native_module / module / class 注册](https://github.com/longbridge/nsh/blob/e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3/crates/nsh-cli/src/templates/mixed/lib.rs)，不能把方案里的 `#[nsh::module]` 示意代码视为已挂载。
 
-Phase 3 按原方案放在兼容验证之后；上述门禁未过，因此保留 Hub 与现有手机业务路径。本轮没有修改 Expo prebuild 产物，也没有把 CLI 成功当作真机验收。后续必须补双端宿主、凭据/媒体/领域工具、持久任务与 unknown 回执、UI 和全部 Hub 职责替代后，才能删除 Hub。
+保留 Hub 与现有手机业务路径，直到手机迁移硬门禁满足。本轮没有修改 Expo prebuild 产物，也没有把 CLI 成功当作真机验收。后续必须补双端宿主、凭据/媒体/领域工具、持久任务与 unknown 回执、UI 和全部 Hub 职责替代后，才能删除 Hub。
 
 ## 独立审查
 
 主 agent 完成全部代码。独立子 agent 发现并复现了宿主 cwd、文件句柄身份、SQL 原生预算、Promise 超时、取消回执、Shell 栈溢出/参数/`--`、watch 队列与公开 exports 等问题；主 agent 修复并补回归后复审通过。六组 QuickJS、真正 SIGKILL 恢复、runner deadline、typecheck 与包导出检查通过。全仓 pnpm build / typecheck / test 通过：原有 307 项 JS 测试与新增六组 QuickJS、强杀恢复、deadline 全部通过；Cargo test 通过。原有四个未提交语音文件保留在工作树。
+
+后续 SDK/codemode 阶段扩展至八组真 QuickJS，并再次通过全仓 build/typecheck/test（原有 307 项 JS 测试）、Cargo test。独立复审复现并推动修复 async continuation 超时误分类、原生入站/乱序结果字节预算与 AbortSignal.any 引用环；资源拒绝后的关闭回执和容量复用、SDK 七工具/恢复/正常退出已复验通过。NSH CLI 首次源码构建触发 stable Rust 更新时暂用已安装的 `RUSTUP_TOOLCHAIN=1.94.0` 执行这些检查。

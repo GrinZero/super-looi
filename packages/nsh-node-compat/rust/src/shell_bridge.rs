@@ -232,6 +232,94 @@ impl Shell<'_> {
         }
         Ok(())
     }
+    fn ignored(&self, path: &str, directory: bool) -> Result<bool, String> {
+        if path.split('/').any(|part| part == ".git") {
+            return Ok(true);
+        }
+        let mut dirs = vec![];
+        let mut parent = std::path::Path::new(path).parent();
+        while let Some(dir) = parent {
+            dirs.push(dir.to_string_lossy().to_string());
+            // A nested repository starts its own ignore scope.
+            if self
+                .fs("lstat", &format!("{}/.git", dir.display()), json!({}))
+                .is_ok()
+            {
+                break;
+            }
+            parent = dir.parent();
+        }
+        dirs.reverse();
+        let mut builder = ignore::gitignore::GitignoreBuilder::new("/");
+        for dir in dirs {
+            let file = format!("{}/.gitignore", dir.trim_end_matches('/'));
+            if let Ok(rules) = self.read(&file) {
+                for line in rules.lines() {
+                    builder
+                        .add_line(Some(std::path::PathBuf::from(&file)), line)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        Ok(builder
+            .build()
+            .map_err(|e| e.to_string())?
+            .matched_path_or_any_parents(path, directory)
+            .is_ignore())
+    }
+    fn fd(
+        &mut self,
+        files: &[String],
+        options: &HashMap<String, Option<String>>,
+    ) -> Result<Output, String> {
+        if files.len() != 2 || !options.contains_key("--glob") {
+            return Err("fd requires --glob, pattern and search root".into());
+        }
+        let root = self.path(&files[1])?;
+        let glob = globset::GlobBuilder::new(&files[0])
+            .literal_separator(true)
+            .build()
+            .map_err(|e| e.to_string())?
+            .compile_matcher();
+        let limit = options
+            .get("--max-results")
+            .and_then(|v| v.as_deref())
+            .map(|v| v.parse::<usize>().map_err(|_| "invalid fd result limit"))
+            .transpose()?
+            .unwrap_or(1000);
+        if limit == 0 || limit > 10000 {
+            return Err("invalid fd result limit (1..10000)".into());
+        }
+        let mut paths = vec![];
+        self.walk(&root, &mut paths)?;
+        paths.sort();
+        let mut output = String::new();
+        let mut found = 0;
+        for path in paths {
+            self.check()?;
+            let meta = self.fs("lstat", &path, json!({}))?;
+            if self.ignored(&path, meta["directory"] == true)? {
+                continue;
+            }
+            let candidate = if options.contains_key("--full-path") {
+                path.as_str()
+            } else {
+                path.rsplit('/').next().unwrap_or(&path)
+            };
+            if glob.is_match(candidate) {
+                output.push_str(&path);
+                output.push('\n');
+                found += 1;
+                if output.len() > MAX_OUTPUT {
+                    return Err("ENOBUFS: fd output limit".into());
+                }
+                if found >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(Output::ok(output))
+    }
     fn rg(&mut self, args: &[String]) -> Result<Output, String> {
         let split = args
             .iter()
@@ -280,26 +368,7 @@ impl Shell<'_> {
                     continue;
                 }
             }
-            let mut builder = ignore::gitignore::GitignoreBuilder::new("/");
-            let mut parent = std::path::Path::new(&path).parent();
-            let mut dirs = vec![];
-            while let Some(dir) = parent {
-                dirs.push(dir.to_string_lossy().to_string());
-                parent = dir.parent();
-            }
-            dirs.reverse();
-            for dir in dirs {
-                let file = format!("{}/.gitignore", dir.trim_end_matches('/'));
-                if let Ok(rules) = self.read(&file) {
-                    for line in rules.lines() {
-                        builder
-                            .add_line(Some(std::path::PathBuf::from(&file)), line)
-                            .map_err(|e| e.to_string())?;
-                    }
-                }
-            }
-            let ignore = builder.build().map_err(|e| e.to_string())?;
-            if ignore.matched_path_or_any_parents(&path, false).is_ignore() {
+            if self.ignored(&path, false)? {
                 continue;
             }
             let data = self.read(&path)?;
@@ -337,6 +406,14 @@ impl Shell<'_> {
             "rm" => &["-r", "-f", "-rf", "-fr"],
             "head" | "tail" => &["-n"],
             "find" => &["-name"],
+            "fd" => &[
+                "--glob",
+                "--color=never",
+                "--hidden",
+                "--no-require-git",
+                "--max-results",
+                "--full-path",
+            ],
             "wc" => &["-l", "-w", "-c"],
             "grep" => &["-i", "-n"],
             "rg" => &[
@@ -378,6 +455,7 @@ impl Shell<'_> {
                 if (arg == "-n" && ["head", "tail"].contains(&cmd))
                     || (arg == "--glob" && cmd == "rg")
                     || (arg == "-name" && cmd == "find")
+                    || (arg == "--max-results" && cmd == "fd")
                 {
                     pending = Some(arg.clone());
                 }
@@ -515,6 +593,7 @@ impl Shell<'_> {
                 ))
             }
             "rg" if options.contains_key("--json") => self.rg(a)?,
+            "fd" => self.fd(&files, &options)?,
             "grep" | "rg" => {
                 let pattern = files.first().ok_or("missing grep pattern")?;
                 let regex = regex::RegexBuilder::new(pattern)

@@ -4,6 +4,18 @@ import path from "node:path";
 import fs from "node:fs";
 import { Utf8Decoder } from "../src/encoding.js";
 import { assert, equal, throws } from "./assert.js";
+const sourceAbort = new AbortController();
+const combinedAbort = AbortSignal.any([sourceAbort.signal, sourceAbort.signal]);
+const abortReason = new Error("source stopped");
+sourceAbort.abort(abortReason);
+assert(combinedAbort.aborted && combinedAbort.reason === abortReason);
+equal(AbortSignal.any([]).aborted, false);
+// Exit must collect the native signal -> JS listener -> native signal cycle.
+{
+  const c = new AbortController();
+  const combined = AbortSignal.any([c.signal]);
+  combined.addEventListener("abort", () => c.signal);
+}
 equal(path.resolve("relative.txt"), "/workspace/relative.txt");
 equal(path.relative("/workspace/a", "/workspace/b"), "../b");
 equal(new Utf8Decoder().decode(new Uint8Array([0xc2, 0x41])), "�A");
