@@ -85,3 +85,17 @@ assert(spawnSync("sh", ["-c", "rm -i src.txt"]).status !== 0);
 assert(fs.existsSync("src.txt"));
 fs.writeFileSync("relative.txt", "cwd");
 equal(fs.readFileSync(path.resolve("relative.txt"), "utf8"), "cwd");
+
+throws(
+  () =>
+    spawnSync("sh", [
+      "-c",
+      "(echo ')';".repeat(1000) + "true" + ")".repeat(1000),
+    ]),
+  "nesting budget",
+);
+
+fs.mkdirSync("/workspace/tree", { recursive: true });
+fs.writeFileSync("/workspace/tree/keep", "keep");
+assert(spawnSync("sh", ["-c", "rm -- -rf tree"]).status !== 0);
+assert(fs.existsSync("/workspace/tree/keep"));

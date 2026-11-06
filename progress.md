@@ -9,20 +9,21 @@
   - [x] cap-std 沙盒、稳定文件句柄/偏移读取、SQLite WAL/事务与预算、哈希/压缩、notify 监听（行扫描仍复用 upstream JS）
   - [x] Deno parser + 能力内置 Shell、异步取消/退出回执、结构/时间/输出预算与不支持参数拒绝
   - [x] JS 垫片、严格 bundler 别名与独立 QuickJS runner，Node 不参与运行被测 bundle
+  - [x] Rust 兼容库 aarch64-apple-ios-sim cargo check 通过；移动目标启用 bindgen 解决固定 VM 缺失预生成 bindings
   - [ ] NSH 原生模块注册/双端 embedding 与发行构建；当前只完成同 VM Ctx 挂载入口
 - [ ] **Step 3：Pi 四包真实 QuickJS 验证**
   - [x] agent-core 真 QuickJS 多轮工具、steer/follow-up 与 abort
   - [x] pi-ai 模型/SSE/UTF-8/工具参数流；Rust HTTPS → QuickJS 上游 SDK 的真实 .env 网关调用通过
-  - [x] durable Harness / 四工具 / SQLite journal 关闭重开与继续执行
+  - [x] durable Harness / 四工具 / SQLite journal 关闭重开、真正 SIGKILL 后恢复一次生成与 requestId 去重
   - [ ] portable codemode：实际为 InlineCodemodeSandbox，要求 WebAssembly；当前 NSH QuickJS 不具备，保留显式失败门禁
   - [x] coding-agent headless source entries 的 SessionManager JSONL 恢复与七工具（find/bash 注入 Operations）
   - [ ] coding-agent 完整 createAgentSession：透明别名构建仍失败，不能用 headless 验证代替
 - [ ] **Step 4：业务接入与迁移门禁**
   - [ ] 本机 Agent / 领域工具、凭据和任务持久化接线
   - [ ] NSH 移动宿主、语音和 UI 迁移验证；满足替代条件再移除 Hub
-- [ ] **Step 5：验收与交付**
-  - [ ] 针对性测试、全仓检查、独立子 agent review 与修复
-  - [ ] docs / todo 记录实际证据和剩余边界，分阶段提交
+- [x] **Step 5：本次兼容子集验收与阶段交付（完整迁移仍待上方门禁）**
+  - [x] 全仓 pnpm build/typecheck/test 通过（307 项原有 JS 测试 + 六组 QuickJS / SIGKILL / deadline）；Cargo test、公开包导出检查、独立子 agent 复审通过
+  - [x] docs/nsh-node-compat-implementation.md / todo 记录实际证据和剩余门禁；分阶段提交，不勾选完整迁移
 
 
 ### dsh-Go iOS 分支与 issue #609 调研（2026-11-06）

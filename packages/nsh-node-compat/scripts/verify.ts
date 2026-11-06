@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -32,6 +32,37 @@ const cases = process.argv.includes("--live")
         "pi-durable",
         "pi-coding-agent",
       ];
+async function killAtCheckpoint(bundle: string, state: string) {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      join(root, "rust/target/debug/qjs_runner"),
+      [bundle, state, "30000"],
+      { env: { PATH: process.env.PATH }, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "",
+      checkpoint = false;
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("No durable checkpoint before crash deadline"));
+    }, 5000);
+    child.stdout.on("data", (data) => {
+      output += data.toString();
+      if (!checkpoint && output.includes("CRASH_READY")) {
+        checkpoint = true;
+        child.kill("SIGKILL");
+      }
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("exit", (_code, signal) => {
+      clearTimeout(timer);
+      if (checkpoint && signal === "SIGKILL") resolve();
+      else reject(new Error("Host did not stop at durable checkpoint"));
+    });
+  });
+}
 let failures = 0;
 for (const name of cases) {
   const temp = await mkdtemp(join(tmpdir(), "looi-quickjs-"));
@@ -95,6 +126,45 @@ for (const name of cases) {
     console.error(error);
   } finally {
     await rm(temp, { force: true, recursive: true });
+  }
+}
+if (!tests.length && !process.argv.includes("--live")) {
+  const temp = await mkdtemp(join(tmpdir(), "looi-durable-crash-"));
+  try {
+    for (const phase of [1, 2]) {
+      const result = await build({
+        stdin: {
+          contents: `import {installNodeCompatGlobals} from './src/polyfills.ts'; installNodeCompatGlobals(); globalThis.__crash_phase = ${phase}; await import('./test/verify-durable-crash.ts');`,
+          resolveDir: root,
+        },
+        tsconfig: join(root, "tsconfig.json"),
+        bundle: true,
+        format: "esm",
+        platform: "browser",
+        conditions: ["browser", "import"],
+        target: "es2022",
+        plugins: [nshNodeCompatPlugin()],
+        write: false,
+      });
+      const bundle = join(temp, `phase-${phase}.mjs`);
+      await writeFile(bundle, result.outputFiles[0].contents);
+      if (phase === 1) await killAtCheckpoint(bundle, join(temp, "state"));
+      else {
+        const run = spawnSync(
+          join(root, "rust/target/debug/qjs_runner"),
+          [bundle, join(temp, "state"), "10000"],
+          { encoding: "utf8", timeout: 15000, env: { PATH: process.env.PATH } },
+        );
+        if (run.stdout) process.stdout.write(run.stdout);
+        if (run.status !== 0)
+          throw new Error(`Durable recovery failed: ${run.stderr}`);
+      }
+    }
+  } catch (error) {
+    failures++;
+    console.error(error);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
   }
 }
 if (!tests.length && !process.argv.includes("--live")) {

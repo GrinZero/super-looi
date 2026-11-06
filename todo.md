@@ -232,7 +232,7 @@
 源码级结论已归档至 [Android / iOS 无 Hub 迁移调研](docs/nsh-mobile-migration-research.md)。用户已确认允许手机直连云 API；以下均为实施/真机待办，不能按调研完成勾选。
 
 - [ ] **双端宿主 PoC**：固定 NSH v0.4.0，验证 iOS / Android embedding、host call/event、原生组件、权限配置、Release 无调试服务器启动及签名发布路径；Android AAB 与 target API 36+ 兼容（v0.4.0 CLI 默认仍为 API 35）。
-- [ ] **Pi / QuickJS 兼容性**：Pi 1.5.0 + 自定义 streamFn + 两个纯 TS 工具；核对 imports、structuredClone、schema、SSE、abort 和预算，随后验证真实网关闭环。
+- [ ] **Pi / QuickJS 兼容性**：独立同版本 VM 的 Agent/工具、数据克隆、SSE、abort/预算与真实网关已通过，见兼容层实施记录；仍需 NSH 手机真实挂载、完整 SDK/codemode 与领域工具闭环验收。
 - [ ] **实时媒体**：原生 PCM / AEC / 播放 / 音频焦点；豆包 X-* WS 真实握手、节拍、打断、断线零重放；Bearer WS 的宿主适配按需验证。
 - [ ] **存储与恢复**：系统安全凭据、SQLite/受控文件、工具意图/回执事务、强退 unknown 核验与旧数据迁入；不得用 5 MiB KV 代替全部持久存储。
 - [ ] **机器人视觉**：按全屏/头像及全部状态比图，验证渐变、内外阴影、点阵、裁剪、真实音量条；双端真机 LIVE 并发帧时/电量/热观察。
@@ -251,6 +251,10 @@
 
 ## NSH Node 兼容层实施（2026-11-06）
 
-- [ ] 方案中的“100% 可行”和“任意 Bash 语法”需由实际依赖图、VM 和 shell 验证替代；deno_task_shell 非完整 Bash，禁止未知命令回退 OS 执行。
-- [ ] NSH 固定版本使用 quickjs-jit，独立宿主必须对齐同一 VM；手机端绑定和权限尚需原生构建验收。
-- [ ] Hub 移除以任务、审批、记忆、家居、BLE、媒体和 UI 替代验收为前提，不能仅因兼容包 CLI 测试通过就删除。
+实施证据与范围见 [兼容层实施记录](docs/nsh-node-compat-implementation.md)。已交付独立 Rust/QuickJS 包、六组兼容子集测试、真实模型 SSE 与强杀恢复验证；不再把这些软件步骤列为未实施。
+
+- [ ] 完整 `createAgentSession` 透明构建仍有 100 项错误，需裁剪/适配桌面扩展、undici、worker 等依赖后执行真实 SDK 验收；headless 七工具/JSONL 通过不替代此项。
+- [ ] portable `InlineCodemodeSandbox` 要求 WebAssembly，NSH QuickJS 缺失；实现本机 Rust sandbox 协议适配或明确 Remote 服务范围后，再验证工具编排与取消/资源限制。
+- [ ] NSH native module / 双端 embedding、app sandbox 与 tokio 作业生命周期、通知权限/资源释放、iOS/Android Release 编译和签名验收；目前有同 VM Ctx 注入、macOS runner 与 iOS 模拟器 Rust lib cargo check，尚无手机 App 链接/运行。
+- [ ] 独立文件命名空间/私有 SQLite 迁入迁出、未知副作用恢复、手机安全凭据/任务/审批/记忆/家居/媒体/BLE/UI 接线；满足所有 Hub 职责替代后才能移除 Hub。
+- [ ] 兼容层后续覆盖：Rust 原生行扫描、真正异步 FS/有界输出流、更多明确的 Node API/命令参数；当前 JSON 桥接和上游 JS 行扫描不等于零拷贝。native notify 需双端实测。

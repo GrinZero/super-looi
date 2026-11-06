@@ -159,8 +159,8 @@ impl Handles {
             let (tx, rx) = std::sync::mpsc::sync_channel(1024);
             let overflow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let lost = overflow.clone();
-            let mut watcher =
-                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            let mut watcher = notify::RecommendedWatcher::new(
+                move |event: notify::Result<notify::Event>| {
                     if event
                         .as_ref()
                         .is_ok_and(|e| matches!(e.kind, notify::EventKind::Access(_)))
@@ -170,8 +170,10 @@ impl Handles {
                     if tx.try_send(event).is_err() {
                         lost.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
-                })
-                .map_err(|e| e.to_string())?;
+                },
+                notify::Config::default().with_follow_symlinks(false),
+            )
+            .map_err(|e| e.to_string())?;
             watcher
                 .watch(
                     &self.root.join(path),

@@ -240,17 +240,17 @@ impl Shell<'_> {
         let pattern = args.get(split + 1).ok_or("missing rg pattern")?;
         let target = args.get(split + 2).map(String::as_str).unwrap_or(".");
         let root = self.path(target)?;
-        let fixed = args.iter().any(|s| s == "--fixed-strings");
+        let fixed = args[..split].iter().any(|s| s == "--fixed-strings");
         let pattern = if fixed {
             regex::escape(pattern)
         } else {
             pattern.clone()
         };
         let regex = regex::RegexBuilder::new(&pattern)
-            .case_insensitive(args.iter().any(|s| s == "--ignore-case"))
+            .case_insensitive(args[..split].iter().any(|s| s == "--ignore-case"))
             .build()
             .map_err(|e| e.to_string())?;
-        let glob = args
+        let glob = args[..split]
             .windows(2)
             .find(|w| w[0] == "--glob")
             .map(|w| globset::Glob::new(&w[1]).map(|g| g.compile_matcher()))
@@ -336,6 +336,7 @@ impl Shell<'_> {
             "mkdir" => &["-p"],
             "rm" => &["-r", "-f", "-rf", "-fr"],
             "head" | "tail" => &["-n"],
+            "find" => &["-name"],
             "wc" => &["-l", "-w", "-c"],
             "grep" => &["-i", "-n"],
             "rg" => &[
@@ -354,8 +355,13 @@ impl Shell<'_> {
         };
         let mut files = Vec::new();
         let mut ended = false;
-        let mut option_value = false;
+        let mut pending: Option<String> = None;
+        let mut options: HashMap<String, Option<String>> = HashMap::new();
         for arg in a {
+            if let Some(key) = pending.take() {
+                options.insert(key, Some(arg.clone()));
+                continue;
+            }
             if ended {
                 files.push(arg.clone());
                 continue;
@@ -364,23 +370,22 @@ impl Shell<'_> {
                 ended = true;
                 continue;
             }
-            if option_value {
-                option_value = false;
-                continue;
-            }
             if arg.starts_with('-') {
                 if !allowed.contains(&arg.as_str()) {
                     return Err(format!("ERR_NOT_SUPPORTED: {cmd} option {arg}"));
                 }
-                if ["-n", "--glob"].contains(&arg.as_str()) && ["head", "tail", "rg"].contains(&cmd)
+                options.insert(arg.clone(), None);
+                if (arg == "-n" && ["head", "tail"].contains(&cmd))
+                    || (arg == "--glob" && cmd == "rg")
+                    || (arg == "-name" && cmd == "find")
                 {
-                    option_value = true;
+                    pending = Some(arg.clone());
                 }
             } else {
                 files.push(arg.clone());
             }
         }
-        if option_value {
+        if pending.is_some() {
             return Err("missing option value".into());
         }
         if ["pwd", "env", "true", "false"].contains(&cmd) && !a.is_empty() {
@@ -389,22 +394,14 @@ impl Shell<'_> {
         if ["ls", "cd", "head", "tail", "wc"].contains(&cmd) && files.len() > 1 {
             return Err("only one file operand is supported".into());
         }
-        if cmd == "wc" && a.iter().filter(|a| a.starts_with('-')).count() > 1 {
+        if cmd == "wc" && options.len() > 1 {
             return Err("only one wc output mode is supported".into());
         }
         let result = match cmd {
             "echo" => Output::ok(format!(
                 "{}{}",
-                a.iter()
-                    .filter(|s| s.as_str() != "-n")
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                if a.first().map(String::as_str) == Some("-n") {
-                    ""
-                } else {
-                    "\n"
-                }
+                files.join(" "),
+                if options.contains_key("-n") { "" } else { "\n" }
             )),
             "pwd" => Output::ok(format!("{}\n", self.cwd)),
             "true" => Output::default(),
@@ -443,19 +440,24 @@ impl Shell<'_> {
                         .as_array()
                         .unwrap()
                         .iter()
+                        .filter(|e| {
+                            options.contains_key("-a")
+                                || options.contains_key("-A")
+                                || !e["name"].as_str().unwrap_or("").starts_with('.')
+                        })
                         .map(|e| format!("{}\n", e["name"].as_str().unwrap_or("")))
                         .collect(),
                 )
             }
             "mkdir" => {
                 for p in &files {
-                    self.fs("mkdir", p, json!({"recursive":a.iter().any(|s|s=="-p")}))?;
+                    self.fs("mkdir", p, json!({"recursive":options.contains_key("-p")}))?;
                 }
                 Output::default()
             }
             "rm" => {
                 for p in &files {
-                    self.fs("rm",p,json!({"recursive":a.iter().any(|s|s.contains('r')&&s.starts_with('-')),"force":a.iter().any(|s|s.contains('f')&&s.starts_with('-'))}))?;
+                    self.fs("rm",p,json!({"recursive":options.keys().any(|s|s.contains('r')),"force":options.keys().any(|s|s.contains('f'))}))?;
                 }
                 Output::default()
             }
@@ -471,15 +473,14 @@ impl Shell<'_> {
                 Output::default()
             }
             "head" | "tail" => {
-                let n = a
-                    .windows(2)
-                    .find(|w| w[0] == "-n")
-                    .and_then(|w| w[1].parse::<usize>().ok())
+                let n = options
+                    .get("-n")
+                    .and_then(|s| s.as_ref())
+                    .map(|s| s.parse::<usize>())
+                    .transpose()
+                    .map_err(|_| "invalid line count")?
                     .unwrap_or(10);
-                let data = if let Some(p) = a
-                    .last()
-                    .filter(|p| !p.starts_with('-') && p.parse::<usize>().is_err())
-                {
+                let data = if let Some(p) = files.first() {
                     self.read(p)?
                 } else {
                     input
@@ -504,20 +505,20 @@ impl Shell<'_> {
                 };
                 Output::ok(format!(
                     "{}\n",
-                    if a.iter().any(|s| s == "-c") {
+                    if options.contains_key("-c") {
                         data.len()
-                    } else if a.iter().any(|s| s == "-w") {
+                    } else if options.contains_key("-w") {
                         data.split_whitespace().count()
                     } else {
                         data.bytes().filter(|b| *b == b'\n').count()
                     }
                 ))
             }
-            "rg" if a.iter().any(|s| s == "--json") => self.rg(a)?,
+            "rg" if options.contains_key("--json") => self.rg(a)?,
             "grep" | "rg" => {
                 let pattern = files.first().ok_or("missing grep pattern")?;
                 let regex = regex::RegexBuilder::new(pattern)
-                    .case_insensitive(a.iter().any(|s| s == "-i"))
+                    .case_insensitive(options.contains_key("-i"))
                     .build()
                     .map_err(|e| e.to_string())?;
                 let data = if let Some(p) = files.get(1) {
@@ -525,7 +526,7 @@ impl Shell<'_> {
                 } else {
                     input
                 };
-                let numbered = a.iter().any(|s| s == "-n");
+                let numbered = options.contains_key("-n");
                 let mut found = String::new();
                 for (i, line) in data.lines().enumerate() {
                     self.check()?;
@@ -544,20 +545,13 @@ impl Shell<'_> {
                 }
             }
             "find" => {
-                let root = a
-                    .first()
-                    .filter(|s| !s.starts_with('-'))
-                    .map(String::as_str)
-                    .unwrap_or(".");
+                let root = files.first().map(String::as_str).unwrap_or(".");
                 let mut paths = vec![];
                 self.walk(root, &mut paths)?;
-                let pattern = a.windows(2).find(|w| w[0] == "-name").map(|w| {
-                    w[1].replace('.', "\\.")
-                        .replace('*', ".*")
-                        .replace('?', ".")
-                });
-                let re = pattern
-                    .map(|p| regex::Regex::new(&format!("^{p}$")))
+                let re = options
+                    .get("-name")
+                    .and_then(|s| s.as_ref())
+                    .map(|p| globset::Glob::new(p).map(|g| g.compile_matcher()))
                     .transpose()
                     .map_err(|e| e.to_string())?;
                 Output::ok(
@@ -597,17 +591,17 @@ pub fn execute_cancelable(
     }
     // Deno's parser and AST are recursive. Reject excessive structural syntax
     // before entering them, including quoted syntax (conservative by design).
-    let mut depth = 0usize;
+    let mut openings = 0usize;
     let mut operators = 0usize;
     for ch in command.chars() {
         match ch {
             '(' | '{' => {
-                depth += 1;
-                if depth > 32 {
+                openings += 1;
+                if openings > 32 {
                     return Err("ENOBUFS: shell nesting budget".into());
                 }
             }
-            ')' | '}' => depth = depth.saturating_sub(1),
+            ')' | '}' => (),
             '|' | '&' | '`' => {
                 operators += 1;
                 if operators > 128 {
