@@ -26,7 +26,8 @@
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
     "ws": "^8.18.0",
-    "@super-looi/home-assistant": "workspace:*"
+    "@super-looi/home-assistant": "workspace:*",
+    "@super-looi/runtime": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",

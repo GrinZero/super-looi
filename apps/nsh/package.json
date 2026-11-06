@@ -9,10 +9,14 @@
     "typecheck": "pnpm build:probe && node --import tsx scripts/nsh.ts check",
     "test": "pnpm build:probe && node --import tsx scripts/nsh.ts test",
     "test:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-ios",
+    "test:android": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-android",
     "ios": "node --import tsx scripts/nsh.ts run --target ios"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
     "tsx": "^4.19.3"
+  },
+  "dependencies": {
+    "@super-looi/runtime": "workspace:*"
   }
 }

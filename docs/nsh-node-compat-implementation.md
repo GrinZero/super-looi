@@ -1,6 +1,6 @@
 # NSH Node 兼容层实施记录（2026-11-06）
 
-本次将 `docs/plans/nsh-node-compat-and-pi-plan.md` 推进到独立兼容包、真实 NSH 原生 class 与迁移门禁。**原方案尚未全部落地**：Phase 2 四包、实际 SDK 七工具、原生 codemode 与 Durable 集成已在 runner、NSH hardened engine 和 iOS 模拟器通过。Android、发行构建、Phase 3 业务/UI/媒体迁移与去 Hub 仍待完成。
+本次将 `docs/plans/nsh-node-compat-and-pi-plan.md` 推进到独立兼容包、真实 NSH 原生 class 与迁移门禁。**原方案尚未全部落地**：Phase 2 四包、实际 SDK 七工具、原生 codemode 与 Durable 集成已在 runner、NSH hardened engine 和 iOS 模拟器通过。Android 原生模拟器和双 ARM Release APK 编译也已通过；签名发行、Phase 3 业务/UI/媒体迁移与去 Hub 仍待完成。
 
 ## 实际交付
 
@@ -33,6 +33,7 @@ Buffer/crypto/URL/压缩复用同版本原生 stdlib；额外实现 crc32、虚�
 | iOS 编译 | Rust 兼容库 `cargo check --target aarch64-apple-ios-sim --lib` 通过，使用 iPhoneSimulator 26.2 SDK；移动目标启用 bindgen，保持 VM 0.14.1。该项仅为编译检查，下方另列实际宿主运行 |
 | NSH hardened engine | 八组同源测试通过；配置私有磁盘目录、发布态 hardening、默认 256 MiB embedding 堆与 2 秒单调用预算。普通 TSX headless open 不提供真实目录，不作为此磁盘门禁 |
 | iOS 原生宿主运行 | iPhone 16e / iOS 26.3 模拟器，真正链接 NodeCompat class；八组测试全部通过，含 notify、SQLite 预算、原生 Shell 取消、Durable/codemode 与实际 SDK 七工具。模型/SSE 在这组中使用 fixture，真实手机网络仍待验证 |
+| Android 原生宿主运行 | Android 14 / API 34 ARM64 模拟器八组全部通过；Release APK 编译 arm64-v8a / armeabi-v7a，debug 签名。未执行 32 位 ABI，未做商店签名、AAB / API 36 验证 |
 | 包消费 | build 后通过公开 exports 导入 adapters / bundler / index，别名目标文件存在；这项单独在 Node 检查，不计为 QuickJS 测试 |
 
 ## SDK 平台适配与剩余实施门禁
@@ -51,9 +52,9 @@ Buffer/crypto/URL/压缩复用同版本原生 stdlib；额外实现 crc32、虚�
 
 ### NSH 手机应用与 Hub 移除
 
-已通过 NSH 原生 class、hardened engine 与 iOS 模拟器真实运行。原生 class 使用官方 [native_module / module / class 注册](https://github.com/longbridge/nsh/blob/e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3/crates/nsh-cli/src/templates/mixed/lib.rs)，没有直接修改 Expo prebuild。`apps/nsh/App.tsx` 尚为初始模板，不代表 LOOI UI 已迁移。Android、签名发行、真实模型网络、PCM/AEC、安全凭据、BLE/相机及任务/审批/记忆数据迁入仍待完成。证据见 [native-host-audit.json](artifacts/nsh-node-compat/native-host-audit.json) 与 [模拟器日志](artifacts/nsh-node-compat/ios-native-probe.log)。
+已通过 NSH 原生 class、hardened engine 与 iOS 模拟器真实运行。原生 class 使用官方 [native_module / module / class 注册](https://github.com/longbridge/nsh/blob/e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3/crates/nsh-cli/src/templates/mixed/lib.rs)，没有直接修改 Expo prebuild。`apps/nsh/App.tsx` 尚为初始模板，不代表 LOOI UI 已迁移。签名发行、真实模型网络、PCM/AEC、安全凭据、BLE/相机及任务/审批/记忆数据迁入仍待完成。证据见 [native-host-audit.json](artifacts/nsh-node-compat/native-host-audit.json) 与 [iOS 日志](artifacts/nsh-node-compat/ios-native-probe.log)、[Android 日志](artifacts/nsh-node-compat/android-native-probe.log)。
 
-保留 Hub 与现有手机业务路径，直到手机迁移硬门禁满足。后续必须补 Android、发行构建、凭据/媒体/领域工具、持久任务与 unknown 回执、UI 和全部 Hub 职责替代后，才能删除 Hub。
+保留 Hub 与现有手机业务路径，直到手机迁移硬门禁满足。后续必须补签名发行、凭据/媒体/领域工具、持久任务与 unknown 回执、UI 和全部 Hub 职责替代后，才能删除 Hub。
 
 ## 独立审查
 

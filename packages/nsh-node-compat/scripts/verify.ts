@@ -35,6 +35,7 @@ const cases = process.argv.includes("--live")
         "codemode",
         "pi-coding-agent",
         "pi-sdk",
+        "looi-runtime",
       ];
 async function killAtCheckpoint(bundle: string, state: string) {
   await new Promise<void>((resolve, reject) => {

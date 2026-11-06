@@ -54,10 +54,16 @@ if (!binary) {
 }
 const [command = "check", ...args] = process.argv.slice(2);
 const result =
-  command === "probe-ios"
+  command === "probe-ios" || command === "probe-android"
     ? spawnSync(
         binary,
-        ["test", resolve(app, "CompatProbe.tsx"), "--target", "ios", ...args],
+        [
+          "test",
+          resolve(app, "CompatProbe.tsx"),
+          "--target",
+          command === "probe-ios" ? "ios" : "android",
+          ...args,
+        ],
         {
           cwd: app,
           stdio: ["pipe", "inherit", "inherit"],

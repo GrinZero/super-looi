@@ -13,7 +13,8 @@
     "pi-durable",
     "codemode",
     "pi-coding-agent",
-    "pi-sdk"
+    "pi-sdk",
+    "looi-runtime"
   ],
   "headless": {
     "passed": true,
@@ -28,9 +29,27 @@
     "nativeClass": true
   },
   "android": {
-    "verified": false
+    "verified": true,
+    "device": "Codex_SuperLooi_NSH_API34",
+    "runtime": "Android 14 / API 34",
+    "executedAbi": "arm64-v8a",
+    "nativeClass": true,
+    "releaseApkCompiledAbis": [
+      "arm64-v8a",
+      "armeabi-v7a"
+    ],
+    "signing": "debug key (not store release)"
   },
   "businessUiMediaMigrated": false,
   "migrationAllowed": false,
-  "note": "Model/SSE uses test fixtures in this native-host probe; real gateway streaming was separately verified in the Rust runner. Android, app business/UI/media, credentials and release remain gates."
+  "note": "Model/SSE uses fixtures in this native-host probe; real gateway streaming was separately verified in the Rust runner. Business/UI/media, credentials, physical devices and signed store release remain gates.",
+  "businessCore": {
+    "portablePackage": "@super-looi/runtime",
+    "behavioralContracts": 48,
+    "sqliteMemoryTaskReopen": true,
+    "freshUiApprovalEnforced": true,
+    "oldBackupDeletionAndSuppressionReplay": true,
+    "iosAndAndroidSimulator": true,
+    "physicalMediaBleVisionVerified": false
+  }
 }

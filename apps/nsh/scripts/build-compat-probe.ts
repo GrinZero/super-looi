@@ -22,6 +22,7 @@ await build({
       await import("../../packages/nsh-node-compat/test/verify-codemode.ts");
       await import("../../packages/nsh-node-compat/test/verify-pi-coding-agent.ts");
       await import("../../packages/nsh-node-compat/test/verify-pi-sdk.ts");
+      await import("../../packages/nsh-node-compat/test/verify-looi-runtime.ts");
     }
   `,
   },

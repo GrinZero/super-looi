@@ -47,6 +47,9 @@ importers:
       '@super-looi/looi-driver':
         specifier: workspace:*
         version: link:../../packages/looi-driver
+      '@super-looi/runtime':
+        specifier: workspace:*
+        version: link:../../packages/looi-runtime
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
@@ -87,6 +90,9 @@ importers:
       '@super-looi/looi-driver':
         specifier: workspace:*
         version: link:../../packages/looi-driver
+      '@super-looi/runtime':
+        specifier: workspace:*
+        version: link:../../packages/looi-runtime
       expo:
         specifier: ~56.0.12
         version: 56.0.24(@babel/core@7.29.7)(@expo/dom-webview@56.0.6)(@expo/metro-runtime@56.0.21)(expo-router@56.2.22)(react-native-webview@13.16.1(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native-worklets@0.8.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@5.9.3)
@@ -150,6 +156,10 @@ importers:
         version: 5.9.3
 
   apps/nsh:
+    dependencies:
+      '@super-looi/runtime':
+        specifier: workspace:*
+        version: link:../../packages/looi-runtime
     devDependencies:
       esbuild:
         specifier: 0.28.2
@@ -188,6 +198,37 @@ importers:
       '@super-looi/contracts':
         specifier: workspace:*
         version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.0
+        version: 22.20.5
+      tsx:
+        specifier: ^4.19.3
+        version: 4.23.15
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
+  packages/looi-runtime:
+    dependencies:
+      '@earendil-works/pi-agent-core':
+        specifier: 1.5.0
+        version: 1.5.0(@aws-sdk/credential-provider-node@3.972.92)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.7))(@smithy/signature-v4@5.7.5)(undici@8.12.3)(ws@8.22.1)(zod@4.6.7)
+      '@earendil-works/pi-ai':
+        specifier: 1.5.0
+        version: 1.5.0(@aws-sdk/credential-provider-node@3.972.92)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.7))(@smithy/signature-v4@5.7.5)(undici@8.12.3)(ws@8.22.1)(zod@4.6.7)
+      '@earendil-works/pi-schema':
+        specifier: 1.5.0
+        version: 1.5.0
+      '@super-looi/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@super-looi/home-assistant':
+        specifier: workspace:*
+        version: link:../home-assistant
+      '@super-looi/looi-driver':
+        specifier: workspace:*
+        version: link:../looi-driver
     devDependencies:
       '@types/node':
         specifier: ^22.13.0

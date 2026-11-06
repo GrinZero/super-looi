@@ -251,9 +251,11 @@
 
 ## NSH Node 兼容层实施（2026-11-06）
 
-实施证据与范围见 [兼容层实施记录](docs/nsh-node-compat-implementation.md)。已交付独立 Rust/QuickJS 包、八组测试（含实际 SDK 与 native codemode）、真实模型 SSE 与强杀恢复验证。
+- [x] 已替换 C02/C05、D05、H01–H06 常量通过项并补审批/隐私/恢复/状态机断言，48 项同源代码已在 iOS / Android 原生宿主运行。它们仍是软件契约；真实传感器、热管理、音频与 LOOI 实物验收继续保留。详见 [业务运行时记录](docs/nsh-portable-runtime.md)。
+
+实施证据与范围见 [兼容层实施记录](docs/nsh-node-compat-implementation.md)。已交付独立 Rust/QuickJS 包、九组测试（含实际 SDK、native codemode 与业务 runtime）、真实模型 SSE 与强杀恢复验证。
 
 - [ ] 实际 SDK 手机验证：原生 fetch/SSE、安全凭据、预编译扩展/深链 OAuth 与图片处理；独立 runner 七工具通过，不能替代这些手机宿主能力。桌面根 barrel 的透明构建审计仍保持单独失败状态。
-- [ ] Android 宿主与双端 Release / 签名验收；真实 NSH class、私有 app sandbox、无 Tokio executor 作业生命周期、notify 与八组测试已在 hardened engine（256 MiB）/ iOS 模拟器通过，见 native-host-audit.json。现有 NSH App 首屏仍为初始化模板，业务未迁移。
+- [ ] 双端离线 Release / 商店签名验收（Android 两 ARM Release APK 已编译，仍为 debug 签名）；真实 NSH class、私有 app sandbox、无 Tokio executor 作业生命周期、notify 与九组测试已在 hardened engine（256 MiB）/ iOS 与 Android API 34 ARM64 模拟器通过，见 native-host-audit.json。现有 NSH App 首屏仍为初始化模板，业务未迁移。
 - [ ] 独立文件命名空间/私有 SQLite 迁入迁出、未知副作用恢复、手机安全凭据/任务/审批/记忆/家居/媒体/BLE/UI 接线；满足所有 Hub 职责替代后才能移除 Hub。
 - [ ] 兼容层后续覆盖：Rust 原生行扫描、真正异步 FS/有界输出流、更多明确的 Node API/命令参数；当前 JSON 桥接和上游 JS 行扫描不等于零拷贝。native notify 需双端实测。

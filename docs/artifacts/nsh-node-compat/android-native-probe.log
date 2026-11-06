@@ -1,0 +1,20 @@
+android: linked native class; nine suites including portable business runtime
+✓ built the Rust crate nsh-app-nsh (263ms, 1 warning: -v shows it)
+✓ built the Android runtime with development support (1.9s)
+✓ built libnsh.so of nsh-app-nsh for armeabi-v7a (423ms, 1 warning: -v shows it)
+✓ built libnsh.so of nsh-app-nsh for arm64-v8a (416ms, 1 warning: -v shows it)
+✓ built libnsh.so of nsh-app-nsh for x86_64 (383ms, 1 warning: -v shows it)
+PASS node-shims: fs, binary, readline, SQLite recovery/rollback, shell, crypto, zlib, clone
+PASS budgets: SQLite deadline, active shell cancellation, virtual paths, UTF-8 errors, native notify watch
+PASS pi-agent-core@1.5.0: real Agent loop, tool I/O, steer, followUp, events, abort
+PASS pi-ai@1.5.0: model registry, real OpenAI SDK SSE parser, 7-byte UTF-8 chunks and tool JSON
+PASS pi-durable@1.5.0: Harness, four upstream coding tools + native codemode orchestration, SQLite journal reopen and continuation
+PASS pi-codemode@1.5.0: upstream portable sandbox/prelude, native isolated VM, tools/parallel/errors/store/output, time budget and deterministic replay (no Wasm or external service)
+PASS native codemode: out-of-order deterministic replies, cancellation/close receipts and heap budget
+PASS native codemode resource bounds: async interrupt, frame/admission limits, reserved stop, early reply byte limit and capacity reuse
+PASS pi-coding-agent session recovery
+PASS pi-coding-agent@1.5.0 headless source entries: SessionManager JSONL and seven real tools (image/TUI/download excluded; find/bash operations injected)
+PASS pi-coding-agent@1.5.0 SDK: actual createAgentSession + ModelRuntime + DefaultResourceLoader, seven default tools and JSONL recovery
+PASS portable LOOI runtime: 48 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite memory/task reopen and tombstone-safe backup restore
+✓ CompatProbe.tsx › steps (11.1s)
+✓ 1 test: 1 passed, 0 failed (14.2s)
