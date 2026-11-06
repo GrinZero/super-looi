@@ -771,3 +771,21 @@
 - [x] Step 3: 形成可执行设计与交付
   - [x] 输出尺寸边界、组件划分、验证清单及生成提示词
   - [x] 子 agent 独立 review 通过；PNG／引用／空白检查通过，更新实物待办并提交
+
+
+### 核心 Agent Runtime 降维迁移至 `pi-agent`（2026-11-06）
+
+- [x] Step 1: 组织进度计划并切换 `@super-looi/hub` 依赖至 `pi-agent`
+  - [x] 在 `apps/hub/package.json` 引入 `@earendil-works/pi-agent-core@1.5.0`、`@earendil-works/pi-ai@1.5.0`、`@earendil-works/pi-schema@1.5.0`，移除 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-sdk-client`
+  - [x] 执行 `pnpm install` 更新依赖树（移除 329 个 `@deepseek-ai/dsh*` 传递依赖包）
+- [x] Step 2: 实现进程内极简 `PiAgentExecutor` (`apps/hub/src/agent/pi-executor.ts`)
+  - [x] 基于 `@earendil-works/pi-ai` (`createModels` + `createProvider` + `openAICompletionsApi`) 对接 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`
+  - [x] 实现受 `workspaceRoot` 沙箱约束的进程内工具：`read_file`、`write_file`、`bash`（透传 `AbortSignal` 与真实 `AgentCommandEvidence` 回执）、`ask_user_question`
+  - [x] 接入 `Agent` 的 `beforeToolCall` 审批钩子、`subscribe` 实时步骤事件流、会话消息持久化恢复 (`resume`) 与真实进程取消
+- [x] Step 3: 切换 Hub 默认执行器并迁移单元/集成测试
+  - [x] `apps/hub/src/app.ts` 默认使用 `PiAgentExecutor`，`dsh-executor.ts` 保留兼容适配不删文件
+  - [x] 更新 `apps/hub/test/dsh-executor.test.ts` 与 `apps/hub/scripts/verify-dsh.ts`，验证真实进程内工具执行、审批、提问、取消与恢复
+- [x] Step 4: 全量构建测试、真网验证与独立子 Agent Review
+  - [x] `pnpm typecheck`、`pnpm test`（Hub 94 项、Mobile 154 项等全仓通过）、`pnpm build` 全部通过
+  - [x] `pnpm --filter @super-looi/hub verify:dsh` 真网模型 6 项探针（进程内 bash 退出回执、文件 SHA-256 读回、持久化会话恢复、原生提问、高危审批拦截、进程组取消）100% 通过
+  - [x] 独立子 Agent 代码审查通过（补强进程组 `detached` 强杀、stdout/stderr 内存上限、symlink 真实路径逃逸守卫、`sessionId` 合法性校验及最近修改文件产物过滤），提交 commit

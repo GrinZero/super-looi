@@ -19,7 +19,7 @@ import { BoundedActiveLookCoordinator } from "./vision/active-look.js";
 import { BodySupervisor, SimulatedBleTransport } from "@super-looi/looi-driver";
 import { getConsoleHtml } from "./console-html.js";
 import { PersonalMemoryStore, type PersonalMemoryCategory } from "./agent/personal-memory.js";
-import { DshAgentExecutor } from "./agent/dsh-executor.js";
+import { PiAgentExecutor } from "./agent/pi-executor.js";
 import { type AgentExecutor, type AgentInteractionAnswer, AgentExecutionError } from "./agent/executor.js";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -265,7 +265,7 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
       ledger: options.persistState === true ? memoryLedger : undefined,
       seedDefaultsIfEmpty: options.seedDemo === true,
     });
-  const agentExecutor = options.agentExecutor ?? new DshAgentExecutor();
+  const agentExecutor = options.agentExecutor ?? new PiAgentExecutor();
   app.addHook("onClose", async () => { await agentExecutor.close(); });
 
   const voiceRegistry =

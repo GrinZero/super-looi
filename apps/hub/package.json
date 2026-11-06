@@ -15,8 +15,9 @@
     "verify:local-center": "tsx scripts/verify-local-center.ts"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.2-rc.1",
-    "@deepseek-ai/dsh-sdk-client": "0.2.2-rc.1",
+    "@earendil-works/pi-agent-core": "1.5.0",
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-schema": "1.5.0",
     "@fastify/cors": "^10.0.2",
     "@fastify/websocket": "^11.0.2",
     "@modelcontextprotocol/sdk": "1.29.0",

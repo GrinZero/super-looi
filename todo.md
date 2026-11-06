@@ -41,9 +41,9 @@
 
 ## 4. 远程生产力副驾与执行环境
 
-- [x] **官方 DSH 执行引擎替换与版本锁定（2026-11-05）**
-  - 见 [实现与验收](docs/dsh-engine-integration.md)：同版 SDK/runtime `0.2.2-rc.1`，自研循环已删除，真实命令/文件/MCP记忆/会话恢复/审批与提问/取消8项实测通过。
-  - 独立任务worker与持久session、生产力账本、手机/Web应答和停止入口已接通；模型completed不替代命令退出证据。
+- [x] **进程内极简 `pi-agent` 执行引擎替换（2026-11-06）**
+  - 已由 `@earendil-works/pi-agent-core@1.5.0` + `@earendil-works/pi-ai@1.5.0`（`PiAgentExecutor`）替换原 `@deepseek-ai/dsh-sdk-client` 子进程方案，移除 329 个 `@deepseek-ai/dsh*` 传递依赖包，消除 `~1s` 子进程冷启动与 JSON-RPC/Cordis patch 开销。
+  - 进程内 `bash` / `read_file` / `write_file` / `ask_user_question` 工具、工作区真实路径沙箱、`beforeToolCall` 审批拦截、进程组信号强杀取消与会话恢复 6 项真网实测通过。
 - [ ] **正式部署的执行隔离与状态范围**
   - [ ] 专用执行身份/容器与Hub任务级身份授权；同用户worker不能声称与Hub混合`.env`安全隔离。
   - [ ] 外部SSH/后台job独立停止回执；未知时保留unknown。
