@@ -789,3 +789,16 @@
   - [x] `pnpm typecheck`、`pnpm test`（Hub 94 项、Mobile 154 项等全仓通过）、`pnpm build` 全部通过
   - [x] `pnpm --filter @super-looi/hub verify:dsh` 真网模型 6 项探针（进程内 bash 退出回执、文件 SHA-256 读回、持久化会话恢复、原生提问、高危审批拦截、进程组取消）100% 通过
   - [x] 独立子 Agent 代码审查通过（补强进程组 `detached` 强杀、stdout/stderr 内存上限、symlink 真实路径逃逸守卫、`sessionId` 合法性校验及最近修改文件产物过滤），提交 commit
+
+
+### 手机端 Agent loop 与去 Hub 调研（2026-11-06）
+
+- [x] Step 1: 核对现有执行器与手机端边界
+  - [x] 确认 pi-agent 迁移仅替换 Hub 执行引擎，记录现有未提交改动并保留
+  - [x] 梳理 loop、模型传输、工具、任务持久化与 Hub API 依赖
+- [ ] Step 2: 调研社区端侧实现与平台限制
+  - [ ] 核验真实手机端 loop 项目、源码与许可证，区分远程控制端
+  - [ ] 核验 React Native / pi 可移植性、iOS 后台与工具边界
+- [ ] Step 3: 输出适用方案与迁移顺序
+  - [ ] 将证据、推荐、未验证项沉淀 docs / todo
+  - [ ] 子 agent 独立 review，主 agent 修正并验证文档后提交
