@@ -10,6 +10,7 @@ import { NshSqliteDatabase } from "@super-looi/nsh-node-compat/adapters/chord-sq
 import { nshPiSdkPlugin } from "@super-looi/nsh-node-compat/pi-sdk-bundler";
 import { nshCodemodePlugin } from "@super-looi/nsh-node-compat/codemode-bundler";
 import { build } from "esbuild";
+import { installNshNativeCompat } from "@super-looi/nsh-node-compat/native-host";
 for (const value of [
   installNodeCompatGlobals,
   nshNodeCompatPlugin,
@@ -18,6 +19,7 @@ for (const value of [
   NshSqliteDatabase,
   nshPiSdkPlugin,
   nshCodemodePlugin,
+  installNshNativeCompat,
 ])
   if (typeof value !== "function") throw new Error("Missing public export");
 await Promise.all(

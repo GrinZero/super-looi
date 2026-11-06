@@ -1,0 +1,8 @@
+{
+  "name": "Super LOOI",
+  "id": "com.superlooi.app",
+  "version": "1.0.0",
+  "build": 1,
+  "rust": ".",
+  "capabilities": { "fs": { "read": ["${dataDir}"], "write": ["${dataDir}"] } }
+}

@@ -47,19 +47,63 @@ impl Drop for Job {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 }
+type Jobs = Arc<Mutex<HashMap<String, Job>>>;
+fn stop_job(jobs: &Jobs, id: &str) {
+    if let Ok(jobs) = jobs.lock() {
+        if let Some(job) = jobs.get(id) {
+            job.cancelled.store(true, Ordering::Relaxed);
+            if !job.closing.swap(true, Ordering::AcqRel) {
+                let (reply, _) = oneshot::channel();
+                let _ = job.sender.try_send(Command {
+                    request: json!({"action":"stop"}),
+                    reply,
+                    _lease: None,
+                });
+            }
+        }
+    }
+}
+struct ActorSlot {
+    jobs: Jobs,
+    id: String,
+}
+impl ActorSlot {
+    fn release(&self) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            jobs.remove(&self.id);
+        }
+    }
+}
+impl Drop for ActorSlot {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+/// Owns an already-enqueued operation, not raw input waiting to be scheduled.
+/// Dropping an unfinished data operation cancels and stops its actor.
 pub struct Admission {
-    raw: String,
-    control: Option<Value>,
+    receive: Option<oneshot::Receiver<Value>>,
+    jobs: Jobs,
+    id: String,
+    stop: bool,
+    finished: bool,
     _permit: Option<tokio::sync::OwnedSemaphorePermit>,
 }
+impl Drop for Admission {
+    fn drop(&mut self) {
+        if !self.finished && !self.stop {
+            stop_job(&self.jobs, &self.id);
+        }
+    }
+}
 pub struct Manager {
-    jobs: Mutex<HashMap<String, Job>>,
+    jobs: Jobs,
     ingress: Arc<tokio::sync::Semaphore>,
 }
 impl Default for Manager {
     fn default() -> Self {
         Self {
-            jobs: Mutex::new(HashMap::new()),
+            jobs: Arc::default(),
             ingress: Arc::new(tokio::sync::Semaphore::new(4)),
         }
     }
@@ -73,11 +117,15 @@ impl Manager {
         let (sender, mut receiver) = mpsc::channel::<Command>(64);
         let cancelled = Arc::new(AtomicBool::new(false));
         let token = cancelled.clone();
+        let id = uuid::Uuid::new_v4().to_string();
+        let actor_jobs = self.jobs.clone();
+        let actor_id = id.clone();
         std::thread::Builder::new().name("nsh-codemode".into()).stack_size(4*1024*1024).spawn(move||{
+            let slot=ActorSlot{jobs:actor_jobs,id:actor_id};
             let mut vm:Option<NativeVm>=None;
             while let Some(command)=receiver.blocking_recv() {
                 let operation=command.request["action"].as_str().unwrap_or("");
-                if operation=="stop" {drop(vm.take());let _=command.reply.send(json!([]));break;}
+                if operation=="stop" {drop(vm.take());slot.release();let _=command.reply.send(json!([]));break;}
                 let result=match operation {
                     "start" if vm.is_none()=>NativeVm::new(&command.request,token.clone()).and_then(|mut created|{let output=created.start(&command.request);vm=Some(created);output}),
                     "deliver"=>vm.as_mut().ok_or("codemode not started".into()).and_then(|vm|vm.deliver(&command.request["message"])),
@@ -87,7 +135,6 @@ impl Manager {
                 let _=command.reply.send(output);
             }
         }).map_err(|e|e.to_string())?;
-        let id = uuid::Uuid::new_v4().to_string();
         jobs.insert(
             id.clone(),
             Job {
@@ -105,13 +152,15 @@ impl Manager {
         }
         Ok(Value::Null)
     }
+    /// Parsing, byte admission and enqueue all finish before a future exists.
+    /// Tiny stop frames have reserved control admission and are enqueued now,
+    /// so an executor dropping their wait future cannot strand a closing VM.
     pub fn admit(&self, raw: String) -> Result<Admission, String> {
-        if raw.len() > MAX_FRAME_BYTES {
+        let bytes = raw.len();
+        if bytes > MAX_FRAME_BYTES {
             return Err("ENOBUFS: codemode input frame limit".into());
         }
-        // Stop has a tiny control frame and reserved admission: cleanup must work
-        // even when all data-plane permits or queues have been consumed.
-        let control = if raw.len() <= 256 {
+        let control = if bytes <= 256 {
             serde_json::from_str::<Value>(&raw)
                 .ok()
                 .filter(|v| v["action"] == "stop")
@@ -128,21 +177,9 @@ impl Manager {
         } else {
             None
         };
-        Ok(Admission {
-            raw,
-            control,
-            _permit,
-        })
-    }
-    pub async fn step(&self, admission: Admission) -> Result<Value, String> {
-        let Admission {
-            raw,
-            control,
-            _permit,
-        } = admission;
-        let bytes = raw.len();
+        let reserved_stop = control.is_some();
         let request = match control {
-            Some(v) => v,
+            Some(value) => value,
             None => serde_json::from_str(&raw).map_err(|e| e.to_string())?,
         };
         drop(raw);
@@ -151,54 +188,71 @@ impl Manager {
             .ok_or("missing codemode id")?
             .to_owned();
         let stop = request["action"] == "stop";
-        let (sender, lease) = {
+        if stop && !reserved_stop {
+            return Err("invalid codemode stop control frame".into());
+        }
+        let (reply, receive) = oneshot::channel();
+        {
             let jobs = self.jobs.lock().map_err(|e| e.to_string())?;
             let job = jobs.get(&id).ok_or("unknown codemode VM")?;
-            if stop {
-                if job.closing.swap(true, Ordering::AcqRel) {
-                    return Err("codemode is already stopping".into());
-                }
+            if job.closing.load(Ordering::Acquire) {
+                return Err("codemode is stopping".into());
+            }
+            let lease = if stop {
+                job.closing.store(true, Ordering::Release);
                 job.cancelled.store(true, Ordering::Relaxed);
-                (job.sender.clone(), None)
+                None
             } else {
-                if job.closing.load(Ordering::Acquire) {
-                    return Err("codemode is stopping".into());
-                }
                 job.pending
                     .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                         used.checked_add(bytes).filter(|n| *n <= MAX_PENDING_BYTES)
                     })
                     .map_err(|_| "ENOBUFS: codemode pending input limit")?;
-                (
-                    job.sender.clone(),
-                    Some(Lease {
-                        counter: job.pending.clone(),
-                        bytes,
-                    }),
-                )
-            }
-        };
-        let (reply, receive) = oneshot::channel();
-        let command = Command {
-            request,
-            reply,
-            _lease: lease,
-        };
-        if stop {
-            sender
-                .send(command)
-                .await
-                .map_err(|_| "codemode actor stopped")?;
-        } else {
-            sender
-                .try_send(command)
+                Some(Lease {
+                    counter: job.pending.clone(),
+                    bytes,
+                })
+            };
+            // Four data permits and a single stop fit into each 64-slot queue.
+            job.sender
+                .try_send(Command {
+                    request,
+                    reply,
+                    _lease: lease,
+                })
                 .map_err(|_| "ENOBUFS: codemode input queue")?;
         }
-        let result = receive.await;
-        if stop || result.is_err() {
-            self.jobs.lock().map_err(|e| e.to_string())?.remove(&id);
+        Ok(Admission {
+            receive: Some(receive),
+            jobs: self.jobs.clone(),
+            id,
+            stop,
+            finished: false,
+            _permit,
+        })
+    }
+    pub async fn step(&self, mut input: Admission) -> Result<Value, String> {
+        let result = input.receive.take().unwrap().await;
+        input.finished = true;
+        if result.is_err() {
+            stop_job(&self.jobs, &input.id);
         }
         result.map_err(|_| "codemode actor failed".into())
+    }
+    pub fn shutdown(&self) {
+        let ids = self
+            .jobs
+            .lock()
+            .map(|jobs| jobs.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for id in ids {
+            stop_job(&self.jobs, &id);
+        }
+    }
+}
+impl Drop for Manager {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 struct Guard {

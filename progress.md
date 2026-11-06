@@ -10,7 +10,15 @@
   - [x] Deno parser + 能力内置 Shell、异步取消/退出回执、结构/时间/输出预算与不支持参数拒绝
   - [x] JS 垫片、严格 bundler 别名与独立 QuickJS runner，Node 不参与运行被测 bundle
   - [x] Rust 兼容库 aarch64-apple-ios-sim cargo check 通过；移动目标启用 bindgen 解决固定 VM 缺失预生成 bindings
-  - [ ] NSH 原生模块注册/双端 embedding 与发行构建；当前只完成同 VM Ctx 挂载入口
+  - [ ] NSH 双端宿主与发行构建；原生 class / iOS 模拟器运行已通过，Android 与发行待完成
+    - [x] 构建固定 NSH 0.4.0 / e626a8d CLI，混合模板 check / 首个 headless 交互测试通过
+    - [x] 提取 runtime-neutral Bridge，注册真实 NodeCompat 原生 class；宿主注入 System.data_dir 与 FS grant 校验，JS 不传宿主路径
+    - [x] Shell/std thread + oneshot 可在无 Tokio 的 NSH executor 等待；任务票据单消费、完成未消费与丢弃等待仍约束实际 worker 容量
+    - [x] codemode stop 同步入队，丢弃 wait 不阻断 VM 退出/容量释放；五项 Rust 回归通过
+    - [x] 同一套 node shims / codemode / SDK 在真实 NSH hardened engine + native class、256 MiB embedding 配额执行通过
+    - [x] iOS 模拟器真实 NSH 宿主运行原生 class：文件/SQLite/Shell、codemode、实际 SDK 七工具与会话恢复全部通过
+    - [x] 全部八组兼容套件在 NSH hardened engine（256 MiB）与 iOS 模拟器通过；测试预编译入口压缩后解决开发传输断连
+    - [ ] Android 编译/运行与发行构建
 - [ ] **Step 3：Pi 四包真实 QuickJS 验证**
   - [x] agent-core 真 QuickJS 多轮工具、steer/follow-up 与 abort
   - [x] pi-ai 模型/SSE/UTF-8/工具参数流；Rust HTTPS → QuickJS 上游 SDK 的真实 .env 网关调用通过
@@ -30,6 +38,7 @@
   - [ ] 本机 Agent / 领域工具、凭据和任务持久化接线
   - [ ] NSH 移动宿主、语音和 UI 迁移验证；满足替代条件再移除 Hub
 - [ ] **Step 5：完整目标验收与交付（持续推进）**
+  - [x] 原生宿主阶段全仓 build/typecheck/test 通过（含 NSH hardened engine 回归、初始化交互及原有 307 项业务测试）；iOS 八套原生测试通过；独立复审修复取消生命周期问题
   - [x] 扩展至八组真 QuickJS 套件（含 codemode 与完整 SDK），SIGKILL / runner deadline 仍通过；全仓 build/typecheck/test（307 项既有 JS 测试）、Cargo test 与独立复审通过；本轮移动 App 与去 Hub 尚未完成
   - [x] 全仓 pnpm build/typecheck/test 通过（307 项原有 JS 测试 + 六组 QuickJS / SIGKILL / deadline）；Cargo test、公开包导出检查、独立子 agent 复审通过
   - [x] docs/nsh-node-compat-implementation.md / todo 记录实际证据和剩余门禁；分阶段提交，不勾选完整迁移

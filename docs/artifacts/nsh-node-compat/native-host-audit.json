@@ -1,0 +1,36 @@
+{
+  "nshVersion": "0.4.0",
+  "nshCommit": "e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3",
+  "quickjsVersion": "0.14.1",
+  "piVersion": "1.5.0",
+  "namespace": "super-looi/native",
+  "fixture": "apps/nsh/scripts/build-compat-probe.ts",
+  "suites": [
+    "node-shims",
+    "budgets",
+    "pi-agent-core",
+    "pi-ai",
+    "pi-durable",
+    "codemode",
+    "pi-coding-agent",
+    "pi-sdk"
+  ],
+  "headless": {
+    "passed": true,
+    "hardening": true,
+    "heapMiB": 256,
+    "privateDataDirectory": true
+  },
+  "iosSimulator": {
+    "passed": true,
+    "device": "iPhone 16e",
+    "runtime": "iOS 26.3",
+    "nativeClass": true
+  },
+  "android": {
+    "verified": false
+  },
+  "businessUiMediaMigrated": false,
+  "migrationAllowed": false,
+  "note": "Model/SSE uses test fixtures in this native-host probe; real gateway streaming was separately verified in the Rust runner. Android, app business/UI/media, credentials and release remain gates."
+}

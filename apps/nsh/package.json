@@ -1,0 +1,18 @@
+{
+  "name": "@super-looi/nsh",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:probe": "node --import tsx scripts/build-compat-probe.ts",
+    "build": "pnpm build:probe && node --import tsx scripts/nsh.ts build",
+    "typecheck": "pnpm build:probe && node --import tsx scripts/nsh.ts check",
+    "test": "pnpm build:probe && node --import tsx scripts/nsh.ts test",
+    "test:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-ios",
+    "ios": "node --import tsx scripts/nsh.ts run --target ios"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "tsx": "^4.19.3"
+  }
+}
