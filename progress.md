@@ -1,5 +1,22 @@
 # Super-LOOI 重构与演进进度
 
+### Native Shell 迁移可行性调研（Android / iOS，2026-11-06）
+
+- [ ] **Step 1：现状与迁移边界**
+  - [x] 核对仓库指令、依赖及未提交修改；仅提交本次调研文件
+  - [ ] 盘点当前 agent loop、端侧家居/语音、机器人首页及硬件依赖
+  - [ ] 区分无自建服务端、无外部服务与桌面执行能力的边界
+- [ ] **Step 2：官方能力与源码核验**
+  - [ ] 核验 NSH 移动打包、QuickJS/Rust 桥接和运行时兼容性
+  - [ ] 核验 agent 网络流、存储、实时音频、BLE/相机与后台限制
+  - [ ] 将机器人首页视觉与动画逐项映射到 NSH
+- [ ] **Step 3：迁移方案与验证门槛**
+  - [ ] 完成 docs/nsh-mobile-migration-research.md，给出分模块结论与分阶段 PoC
+  - [ ] 将尚待实测的问题写入 todo.md
+- [ ] **Step 4：独立审查与交付**
+  - [ ] 子 agent 独立 review；主 agent 修订证据与结论
+  - [ ] 检查文档链接、diff 和提交范围，提交调研结果
+
 ### 核心架构做减法：极简 Agent Loop + 实时语音层 + 纯粹大脸交互（2026-11-06）
 
 - [x] **Step 1：极简 Agent Loop 重构 (`apps/hub/src/agent/dsh-executor.ts`, `executor.ts`)**

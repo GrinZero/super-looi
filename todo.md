@@ -225,3 +225,10 @@
 - [ ] 盘点 Hub 全部 API、规则/生产力/记忆/设备职责与已有数据，完成迁移、替代或明确停用后，才能移除 Hub 部署依赖。
 - [ ] iOS 用户发起长任务的 BGContinuedProcessingTask 单独 PoC；Android 前台服务另验。原生修改经 Expo module / config plugin，不改 prebuild 产物。
 - [ ] 本地模型为后续可选项：固定兼容 provider 版本，真机测中文工具可靠性、内存/热/延迟；不作为首轮去 Hub 前提。
+
+
+## Native Shell 迁移调研（2026-11-06）
+
+- [ ] 核验 Android / iOS 的 pi-agent 端侧接入、网络流与无 Node 宿主兼容边界。
+- [ ] 核验机器人首页视觉/动画保真与实时音频、BLE、相机、自定义原生组件接入。
+- [ ] 给出无 Hub 架构下的桌面工具替代、后台恢复与凭据边界，并形成 docs/ 阶段结论。
