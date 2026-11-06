@@ -1,5 +1,18 @@
 # Super-LOOI 重构与演进进度
 
+### dsh-Go iOS 分支与 issue #609 调研（2026-11-06）
+
+- [ ] **Step 1：固定证据范围**
+  - [x] 读取 issue #609 及维护者评论，区分上游分支与个人 fork 真机反馈
+  - [ ] 固定两分支 commit，追踪 iOS 引擎与 framework 修复链路
+- [ ] **Step 2：运行机制与能力核验**
+  - [ ] 核对内嵌 Node、DSH runtime 构建/加载、本机协议与手机工具桥接
+  - [ ] 核对 fs / shell / 子进程、取消/重启、后台与模型调用边界
+  - [ ] 核对 CI、真机、签名分发证据，修正先前 Android 路线泛化
+- [ ] **Step 3：项目适用性与交付**
+  - [ ] 完成 docs/dsh-go-ios-branch-research.md，更新相关调研的版本边界
+  - [ ] 独立子 agent review，补充 todo，检查链接与提交范围并提交
+
 ### Native Shell 迁移可行性调研（Android / iOS，2026-11-06）
 
 - [x] **Step 1：现状与迁移边界**
