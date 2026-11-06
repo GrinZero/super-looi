@@ -63,7 +63,8 @@ const target = args[args.indexOf("--target") + 1];
 const nativeEnvironment = nativePluginEnvironment(buildVariables, {
   android: command.endsWith("-android") || target === "android",
   iosReleaseSimulator: command === "package" && target === "ios-simulator",
-  iosSimulator: command.endsWith("-ios") || target === "ios" || target === "ios-simulator",
+  iosSimulator:
+    command.endsWith("-ios") || target === "ios" || target === "ios-simulator",
 });
 const uiTarget = command.endsWith("-android") ? "android" : "ios";
 const uiSteps =
@@ -93,13 +94,23 @@ if (command.startsWith("ui-"))
     uiTest,
     `import {open,test} from "nsh/test";test("native face and offline memory",async()=>{const app=await open("../App.tsx");\n${uiSteps}\n},120000);\n`,
   );
-const scripted = command.startsWith("probe-") || command.startsWith("ui-") || command.startsWith("live-");
+const scripted =
+  command.startsWith("probe-") ||
+  command.startsWith("ui-") ||
+  command.startsWith("live-");
 const result = scripted
   ? spawnSync(
       binary,
       [
         "test",
-        resolve(app, command.startsWith("live-") ? "LiveProbe.tsx" : command.startsWith("ui-") ? uiTest : "CompatProbe.tsx"),
+        resolve(
+          app,
+          command.startsWith("live-")
+            ? "LiveProbe.tsx"
+            : command.startsWith("ui-")
+              ? uiTest
+              : "CompatProbe.tsx",
+        ),
         "--target",
         uiTarget,
         ...args,
@@ -111,8 +122,8 @@ const result = scripted
         input: command.startsWith("live-")
           ? 'await app.waitFor("Native live verified", {timeout:90000})\n'
           : command.startsWith("ui-")
-          ? uiSteps
-          : 'await app.waitFor("Native bridge verified", {timeout:20000})\n',
+            ? uiSteps
+            : 'await app.waitFor("Native bridge verified", {timeout:20000})\n',
       },
     )
   : spawnSync(binary, [command, app, ...args], {

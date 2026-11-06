@@ -7,10 +7,16 @@ import { buildRuntime } from "./build-runtime.js";
 // Test-only entry: never reachable from App.tsx or the shipping runtime.
 const root = resolve(import.meta.dirname, "..");
 const target = process.argv[2];
-if (target !== "ios" && target !== "android") throw new Error("Expected ios or android");
+if (target !== "ios" && target !== "android")
+  throw new Error("Expected ios or android");
 const env = parseEnv(await readFile(resolve(root, "../../.env"), "utf8"));
-const config = { baseUrl: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, model: env.LLM_MODEL };
-if (!config.baseUrl || !config.apiKey || !config.model) throw new Error("Missing LLM configuration");
+const config = {
+  baseUrl: env.LLM_BASE_URL,
+  apiKey: env.LLM_API_KEY,
+  model: env.LLM_MODEL,
+};
+if (!config.baseUrl || !config.apiKey || !config.model)
+  throw new Error("Missing LLM configuration");
 await buildRuntime();
 const entry = resolve(root, "LiveProbe.tsx");
 // No model credential is written to the production vault. Test host data is ephemeral.
@@ -30,38 +36,89 @@ let result;
 let interrupted = false;
 try {
   await writeFile(entry, source, { mode: 0o600 });
-  result = await new Promise<{status: number | null; diagnostics: string}>((done) => {
-    const child = spawn(process.execPath, ["--import", "tsx", "scripts/nsh.ts", `live-${target}`], {
-      cwd: root, detached: true, stdio: ["pipe", "pipe", "pipe"],
-    });
-    let diagnostics = "";
-    const capture = (chunk: Buffer) => { diagnostics = (diagnostics + chunk.toString()).slice(-1024 * 1024); };
-    child.stdout.on("data", capture); child.stderr.on("data", capture);
-    const kill = () => { interrupted = true; if (child.pid) { try { process.kill(-child.pid, "SIGKILL"); } catch {} } };
-    const timer = setTimeout(kill, 240_000);
-    process.once("SIGINT", kill); process.once("SIGTERM", kill);
-    child.on("error", () => { diagnostics += "\nFailed to start native test"; });
-    child.on("close", (status) => {
-      clearTimeout(timer); process.removeListener("SIGINT", kill); process.removeListener("SIGTERM", kill);
-      for (const value of Object.values(config)) diagnostics = diagnostics.replaceAll(value, "[redacted]");
-      done({status, diagnostics});
-    });
-    child.stdin.end();
-  });
-  if (result.status !== 0) await writeFile(resolve(root, ".nsh/live-failure.log"), result.diagnostics, {mode:0o600});
+  result = await new Promise<{ status: number | null; diagnostics: string }>(
+    (done) => {
+      const child = spawn(
+        process.execPath,
+        ["--import", "tsx", "scripts/nsh.ts", `live-${target}`],
+        {
+          cwd: root,
+          detached: true,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      let diagnostics = "";
+      const capture = (chunk: Buffer) => {
+        diagnostics = (diagnostics + chunk.toString()).slice(-1024 * 1024);
+      };
+      child.stdout.on("data", capture);
+      child.stderr.on("data", capture);
+      const kill = () => {
+        interrupted = true;
+        if (child.pid) {
+          try {
+            process.kill(-child.pid, "SIGKILL");
+          } catch {}
+        }
+      };
+      const timer = setTimeout(kill, 240_000);
+      process.once("SIGINT", kill);
+      process.once("SIGTERM", kill);
+      child.on("error", () => {
+        diagnostics += "\nFailed to start native test";
+      });
+      child.on("close", (status) => {
+        clearTimeout(timer);
+        process.removeListener("SIGINT", kill);
+        process.removeListener("SIGTERM", kill);
+        for (const value of Object.values(config))
+          diagnostics = diagnostics.replaceAll(value, "[redacted]");
+        done({ status, diagnostics });
+      });
+      child.stdin.end();
+    },
+  );
+  if (result.status !== 0)
+    await writeFile(
+      resolve(root, ".nsh/live-failure.log"),
+      result.diagnostics,
+      { mode: 0o600 },
+    );
   // Never expose raw test diagnostics: upstream errors can contain request data.
-  console.log(result.status === 0 ? `PASS ${target}: MobileRuntime native fetch/model/task completion` : `FAIL ${target}: native live probe (exit ${result.status ?? "timeout"})`);
+  console.log(
+    result.status === 0
+      ? `PASS ${target}: MobileRuntime native fetch/model/task completion`
+      : `FAIL ${target}: native live probe (exit ${result.status ?? "timeout"})`,
+  );
 } finally {
   if (interrupted) {
-    if (target === "ios") spawnSync("xcrun", ["simctl", "terminate", "booted", "com.longbridge.nsh.host"], {stdio:"ignore",timeout:10000});
-    else spawnSync(resolve(env.ANDROID_HOME || env.ANDROID_SDK_ROOT || resolve(process.env.HOME!, "Library/Android/sdk"), "platform-tools/adb"), ["shell", "am", "force-stop", "com.longbridge.nsh.host"], {stdio:"ignore",timeout:10000});
+    if (target === "ios")
+      spawnSync(
+        "xcrun",
+        ["simctl", "terminate", "booted", "com.longbridge.nsh.host"],
+        { stdio: "ignore", timeout: 10000 },
+      );
+    else
+      spawnSync(
+        resolve(
+          env.ANDROID_HOME ||
+            env.ANDROID_SDK_ROOT ||
+            resolve(process.env.HOME!, "Library/Android/sdk"),
+          "platform-tools/adb",
+        ),
+        ["shell", "am", "force-stop", "com.longbridge.nsh.host"],
+        { stdio: "ignore", timeout: 10000 },
+      );
   }
   await rm(entry, { force: true });
-  await rm(resolve(root, "generated/.nsh"), {recursive:true, force:true});
+  await rm(resolve(root, "generated/.nsh"), { recursive: true, force: true });
   // Only the test compiler cache contains JS source/bytecode; native APKs never do.
-  await rm(resolve(root, ".nsh/test/build"), {recursive:true, force:true});
-  for (const name of await readdir(resolve(root, ".nsh/test")).catch(() => [])) {
-    if (name.includes("LiveProbe")) await rm(resolve(root, ".nsh/test", name), {force:true});
+  await rm(resolve(root, ".nsh/test/build"), { recursive: true, force: true });
+  for (const name of await readdir(resolve(root, ".nsh/test")).catch(
+    () => [],
+  )) {
+    if (name.includes("LiveProbe"))
+      await rm(resolve(root, ".nsh/test", name), { force: true });
   }
 }
 process.exitCode = result?.status === 0 ? 0 : 1;

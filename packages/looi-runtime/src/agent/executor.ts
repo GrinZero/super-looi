@@ -72,6 +72,8 @@ export interface AgentTask {
 
 export interface AgentRunOptions {
   taskId?: string;
+  /** Share successful dialogue history while retaining a distinct task per turn. */
+  sessionId?: string;
   workspaceRoot?: string;
   mode?: "voice" | "text";
   onStep?: (event: AgentStepEvent) => void;

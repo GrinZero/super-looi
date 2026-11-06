@@ -11,6 +11,7 @@
   - [x] 修复模型配置安全存储失败后的旧执行器恢复；新增第十套 QuickJS 回归
   - [x] 修正 iOS simulator Release Keychain 身份选择
 - [ ] Step 4：推进领域能力迁移，逐项满足删除门禁
+  - [x] 保留每轮独立 task 的持久对话 session；同会话并发与 unknown 结果隔离；Node 11项和QuickJS重启/切换测试通过
 - [ ] Step 5：独立复审、记录证据并分阶段提交
 
 ### NSH Node 兼容层与 Pi 落地（2026-11-06）

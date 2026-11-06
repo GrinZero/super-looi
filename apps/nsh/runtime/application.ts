@@ -38,6 +38,8 @@ export class MobileRuntime {
     .filter((task) => task.state === "unknown").length;
   private executor?: PiAgentExecutor;
   private config?: ModelConfiguration;
+  private conversationId = `session_${randomUUID()}`;
+  private conversationPersisted = false;
   private taskId?: string;
   private closed = false;
   private busy = false;
@@ -51,7 +53,15 @@ export class MobileRuntime {
     try {
       const raw = vault.get("model");
       if (raw) {
-        this.config = this.validate(JSON.parse(raw));
+        const stored = JSON.parse(raw);
+        this.config = this.validate(stored);
+        if (
+          typeof stored.conversationId === "string" &&
+          /^[a-zA-Z0-9_-]{1,100}$/.test(stored.conversationId)
+        ) {
+          this.conversationId = stored.conversationId;
+          this.conversationPersisted = true;
+        }
         this.executor = this.createExecutor(this.config);
       }
     } catch (error) {
@@ -113,14 +123,19 @@ export class MobileRuntime {
     try {
       await this.executor?.close();
       if (this.closed) throw new Error("页面已关闭");
+      const conversationId = `session_${randomUUID()}`;
       try {
-        this.vault.set("model", JSON.stringify(next));
+        this.vault.set("model", JSON.stringify({ ...next, conversationId }));
       } catch (error) {
         // A native vault failure must leave the previous configuration usable.
-        this.executor = this.config ? this.createExecutor(this.config) : undefined;
+        this.executor = this.config
+          ? this.createExecutor(this.config)
+          : undefined;
         throw error;
       }
       this.config = next;
+      this.conversationId = conversationId;
+      this.conversationPersisted = true;
       this.executor = this.createExecutor(next);
     } finally {
       this.busy = false;
@@ -278,9 +293,20 @@ export class MobileRuntime {
         return { answer: "已忘记这条内容。", taskId: "", runtimeExited: true };
       }
       if (!this.executor) throw new Error("请先在连接设置中配置对话模型");
+      if (!this.conversationPersisted) {
+        this.vault.set(
+          "model",
+          JSON.stringify({
+            ...this.config,
+            conversationId: this.conversationId,
+          }),
+        );
+        this.conversationPersisted = true;
+      }
       this.taskId = `task_${randomUUID()}`;
       const result = await this.executor.run(text, {
         taskId: this.taskId,
+        sessionId: this.conversationId,
         onStep,
       });
       return {

@@ -228,6 +228,15 @@ export class PiAgentExecutor implements AgentExecutor {
     const id = options.taskId ?? `task_${randomUUID()}`;
     this.store.assertId(id);
     const previous = this.store.get(id);
+    const sessionId = options.sessionId ?? previous?.sessionId;
+    if (sessionId) {
+      this.store.assertId(sessionId);
+      if (previous && previous.sessionId !== sessionId)
+        return Promise.reject(
+          new AgentExecutionError("Cannot change a persisted task session", id),
+        );
+    }
+
     const active = this.workers.get(id);
     if (active) {
       if (previous?.prompt !== prompt)
@@ -260,6 +269,36 @@ export class PiAgentExecutor implements AgentExecutor {
       return Promise.reject(
         new AgentExecutionError("Task to resume was not found", id),
       );
+    if (sessionId) {
+      const siblings = this.store
+        .list()
+        .filter((task) => task.sessionId === sessionId && task.id !== id);
+      if (siblings.some((task) => this.workers.has(task.id)))
+        return Promise.reject(
+          new AgentExecutionError(
+            "Conversation already has an active task",
+            id,
+          ),
+        );
+      if (siblings.some((task) => task.state === "unknown"))
+        return Promise.reject(
+          new AgentExecutionError(
+            "Conversation has an unverified task outcome",
+            id,
+          ),
+        );
+      const requestedWorkspace = path.resolve(
+        options.workspaceRoot ??
+          previous?.workspaceRoot ??
+          this.config.workspaceRoot ??
+          process.env.DSH_WORKSPACE_ROOT ??
+          "data/agent-workspace",
+      );
+      if (siblings.some((task) => task.workspaceRoot !== requestedWorkspace))
+        return Promise.reject(
+          new AgentExecutionError("Cannot change a conversation workspace", id),
+        );
+    }
     if (this.workers.size >= (this.config.maxConcurrentTasks ?? 2)) {
       return Promise.reject(
         new AgentExecutionError("Agent worker capacity reached"),
@@ -285,7 +324,7 @@ export class PiAgentExecutor implements AgentExecutor {
 
     const task: AgentTask = previous ?? {
       id,
-      sessionId: `session_${randomUUID()}`,
+      sessionId: options.sessionId ?? `session_${randomUUID()}`,
       workspaceRoot: path.resolve(options.workspaceRoot ?? workspaceRoot),
       prompt,
       state: "queued",
@@ -722,9 +761,10 @@ export class PiAgentExecutor implements AgentExecutor {
         throw new Error("Task cancelled before runtime startup");
       fs.mkdirSync(task.workspaceRoot, { recursive: true });
 
-      const restoredMessages = options.resume
-        ? this.loadSessionMessages(task.sessionId)
-        : undefined;
+      const restoredMessages =
+        options.resume || options.sessionId
+          ? this.loadSessionMessages(task.sessionId)
+          : undefined;
       if (options.resume && !restoredMessages) {
         throw new Error("Persisted session transcript was not found");
       }

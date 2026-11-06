@@ -43,7 +43,8 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
     const applicationIdentifier = targets.iosReleaseSimulator
       ? config.iosSimulator.releaseApplicationIdentifier
       : config.iosSimulator.applicationIdentifier;
-    if (!applicationIdentifier) throw new Error("Missing simulator application identity");
+    if (!applicationIdentifier)
+      throw new Error("Missing simulator application identity");
     const content = `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>application-identifier</key><string>${applicationIdentifier}</string><key>keychain-access-groups</key><array><string>${applicationIdentifier}</string></array></dict></plist>`;
     const digest = createHash("sha256")
       .update(content)
