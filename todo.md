@@ -227,8 +227,14 @@
 - [ ] 本地模型为后续可选项：固定兼容 provider 版本，真机测中文工具可靠性、内存/热/延迟；不作为首轮去 Hub 前提。
 
 
-## Native Shell 迁移调研（2026-11-06）
+## Native Shell 迁移验证（2026-11-06）
 
-- [ ] 核验 Android / iOS 的 pi-agent 端侧接入、网络流与无 Node 宿主兼容边界。
-- [ ] 核验机器人首页视觉/动画保真与实时音频、BLE、相机、自定义原生组件接入。
-- [ ] 给出无 Hub 架构下的桌面工具替代、后台恢复与凭据边界，并形成 docs/ 阶段结论。
+源码级结论已归档至 [Android / iOS 无 Hub 迁移调研](docs/nsh-mobile-migration-research.md)。用户已确认允许手机直连云 API；以下均为实施/真机待办，不能按调研完成勾选。
+
+- [ ] **双端宿主 PoC**：固定 NSH v0.4.0，验证 iOS / Android embedding、host call/event、原生组件、权限配置、Release 无调试服务器启动及签名发布路径；Android AAB 与 target API 36+ 兼容（v0.4.0 CLI 默认仍为 API 35）。
+- [ ] **Pi / QuickJS 兼容性**：Pi 1.5.0 + 自定义 streamFn + 两个纯 TS 工具；核对 imports、structuredClone、schema、SSE、abort 和预算，随后验证真实网关闭环。
+- [ ] **实时媒体**：原生 PCM / AEC / 播放 / 音频焦点；豆包 X-* WS 真实握手、节拍、打断、断线零重放；Bearer WS 的宿主适配按需验证。
+- [ ] **存储与恢复**：系统安全凭据、SQLite/受控文件、工具意图/回执事务、强退 unknown 核验与旧数据迁入；不得用 5 MiB KV 代替全部持久存储。
+- [ ] **机器人视觉**：按全屏/头像及全部状态比图，验证渐变、内外阴影、点阵、裁剪、真实音量条；双端真机 LIVE 并发帧时/电量/热观察。
+- [ ] **家居与硬件**：米家 OAuth / MIoT 真实回读、BLE 重连与急停、相机采集、前台保持唤醒/热策略；模拟器不能替代硬件验收。
+- [ ] **功能与后台范围**：为原桌面 shell/CLI 工具确定手机替代；逐项退出旧 Hub API、隐藏页面和状态；明确锁屏/后台/强退后的规则、任务与感知支持范围。
