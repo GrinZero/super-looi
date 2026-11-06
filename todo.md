@@ -247,3 +247,10 @@
 - [ ] 比较 NSH QuickJS / 内嵌 NodeMobile 对 Pi 1.5.0 的适配成本；若引入双 JS 引擎，实测事件桥接、内存、取消与停止后重启。
 - [ ] 若借鉴 NodeMobile host，验证 Release 真机签名、addon framework 布局、真实云模型闭环、堆与原生内存/fd管理、强退 unknown 恢复及后台继续；模拟器脚本模型 CI 不替代这些验收。
 - [ ] 若确有 Linux CLI 需求，再验证 arm64 iSH / Alpine guest 的实际程序、审批/路径、取消清理、DNS/网络、真机性能与分发/许可条件；不能默认宣称 Python、任意原生子进程或其他 App 控制可用。
+
+
+## NSH Node 兼容层实施（2026-11-06）
+
+- [ ] 方案中的“100% 可行”和“任意 Bash 语法”需由实际依赖图、VM 和 shell 验证替代；deno_task_shell 非完整 Bash，禁止未知命令回退 OS 执行。
+- [ ] NSH 固定版本使用 quickjs-jit，独立宿主必须对齐同一 VM；手机端绑定和权限尚需原生构建验收。
+- [ ] Hub 移除以任务、审批、记忆、家居、BLE、媒体和 UI 替代验收为前提，不能仅因兼容包 CLI 测试通过就删除。

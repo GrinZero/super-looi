@@ -1,5 +1,27 @@
 # Super-LOOI 重构与演进进度
 
+### NSH Node 兼容层与 Pi 落地（2026-11-06）
+
+- [ ] **Step 1：固定依赖与运行时事实**
+  - [x] 读取方案、仓库指令与工作树；隔离既有语音修改
+  - [ ] 固定 NSH VM / Pi 1.5.0 / Rust 依赖，核对真实导入与接口
+- [ ] **Step 2：独立 Rust + QuickJS 兼容包**
+  - [ ] 沙盒路径、文件读写/扫描、SQLite、哈希与压缩
+  - [ ] 无系统子进程的 shell、取消与资源边界
+  - [ ] JS 垫片、bundler 严格别名与独立 QuickJS runner
+- [ ] **Step 3：Pi 四包真实 QuickJS 验证**
+  - [ ] agent-core 多轮工具、steer/follow-up 与 abort
+  - [ ] pi-ai 模型、SSE、工具参数流与网关调用
+  - [ ] durable 存储恢复、coding tools 与 portable codemode
+  - [ ] coding-agent SDK、JSONL 恢复与七个工具
+- [ ] **Step 4：业务接入与迁移门禁**
+  - [ ] 本机 Agent / 领域工具、凭据和任务持久化接线
+  - [ ] NSH 移动宿主、语音和 UI 迁移验证；满足替代条件再移除 Hub
+- [ ] **Step 5：验收与交付**
+  - [ ] 针对性测试、全仓检查、独立子 agent review 与修复
+  - [ ] docs / todo 记录实际证据和剩余边界，分阶段提交
+
+
 ### dsh-Go iOS 分支与 issue #609 调研（2026-11-06）
 
 - [x] **Step 1：固定证据范围**
