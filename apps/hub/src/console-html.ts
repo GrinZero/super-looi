@@ -1450,20 +1450,20 @@ export function getConsoleHtml(): string {
       <section id="ambient" class="ambient screen" aria-label="LOOI 全屏陪伴">
         <div id="face-stage"><button id="faceHit" class="face-hit" aria-label="轻触 LOOI 唤出功能"></button></div>
         <div class="corners">
-          <button class="capsule perception" data-space="cabin">
+          <button class="capsule perception">
             <span class="dot"></span><span id="perceptionText">感知未接入 · 连接 Hub 中</span>
           </button>
           <div class="row">
             <button id="liveVoiceBtn" class="capsule" aria-label="开启实时全双工对话"><svg class="icon"><use href="#i-mic" /></svg><span id="liveVoiceLabel">LIVE 对话</span></button
             ><button id="stopAgentBtn" class="capsule" hidden>停止任务</button
             ><button id="openAskBtn" class="capsule" aria-label="向 Personal Agent 发送指令">对话</button
-            ><button id="openQuick" class="capsule" aria-label="打开快捷功能抽屉"><span id="open-drawer"><svg class="icon"><use href="#i-grid" /></svg>功能</span></button
-            ><button id="openLab" class="capsule" aria-label="打开仿真演练台"><span id="open-lab"><svg class="icon"><use href="#i-lab" /></svg>仿真台</span>
+            ><button id="openQuick" class="capsule" hidden aria-label="打开快捷功能抽屉"><span id="open-drawer"><svg class="icon"><use href="#i-grid" /></svg>功能</span></button
+            ><button id="openLab" class="capsule" hidden aria-label="打开仿真演练台"><span id="open-lab"><svg class="icon"><use href="#i-lab" /></svg>仿真台</span>
             </button>
           </div>
         </div>
         <form id="askBar" class="ask-bar glass" hidden>
-          <input id="askInput" type="text" placeholder="直接对 LOOI 说（如：记住我钥匙在抽屉 / 查看当前目录）" aria-label="向 LOOI 发送指令" />
+          <input id="askInput" type="text" placeholder="直接对 LOOI 说（如：打开书房灯 / 查看当前目录）" aria-label="向 LOOI 发送指令" />
           <button type="submit">发送</button>
         </form>
         <div id="face" class="face" aria-hidden="true">
@@ -2825,10 +2825,13 @@ export function getConsoleHtml(): string {
         if (touchY !== null && touchY - (event.changedTouches[0]?.clientY ?? touchY) > 45 && !state.motion && !state.privacy && !state.sheet) openSheet("quick");
         touchY = null;
       }
-      $("faceHit").addEventListener("click", () =>
-        state.privacy ? togglePrivacy() : openSheet("quick"),
-      );
-      $("wakeBar").addEventListener("click", () => state.privacy ? togglePrivacy() : openSheet("quick"));
+      $("faceHit").addEventListener("click", () => {
+        if (state.privacy) togglePrivacy();
+      });
+      $("wakeBar").addEventListener("click", () => {
+        if (state.privacy) togglePrivacy();
+        else $("liveVoiceBtn").click();
+      });
       $("toggleReport").addEventListener("click", toggleReportDetails);
       $("openQuick").addEventListener("click", () => openSheet("quick"));
       $("openLab").addEventListener("click", () => openSheet("lab"));

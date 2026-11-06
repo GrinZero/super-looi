@@ -1,13 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createHash, randomUUID } from "node:crypto";
-import { pathToFileURL } from "node:url";
+import { randomUUID } from "node:crypto";
 import { DeepSeekHarness, type DeepSeekHarnessOptions, type HarnessNotification, type SdkUserQuestionResult } from "@deepseek-ai/dsh-sdk-client";
 import { AgentExecutionError, type AgentExecutor, type AgentTask, type AgentRunOptions, type AgentRunResult, type AgentStepEvent, type AgentInteractionAnswer, type AgentStopResult } from "./executor.js";
 import { AgentTaskStore } from "./task-store.js";
-import { MemoryToolBridge } from "./memory-bridge.js";
 import type { PersonalMemoryStore } from "./personal-memory.js";
-import { RECEIPTS_PLUGIN } from "./receipts-plugin.js";
 
 interface RuntimeResult { finalResponse: string; finishReason: string | null }
 export interface DshHarness {
@@ -19,7 +16,7 @@ export interface DshHarness {
 }
 
 export interface DshExecutorConfig {
-  memoryStore: PersonalMemoryStore;
+  memoryStore?: PersonalMemoryStore;
   stateDirectory?: string;
   workspaceRoot?: string;
   baseUrl?: string;
@@ -39,23 +36,20 @@ interface Worker {
   stop?: Promise<AgentStopResult>;
   stopped: boolean;
   pendingShell: Set<string>;
-  revoke?: () => void;
   pending?: { id: string; settle: (answer: AgentInteractionAnswer) => void };
 }
 
 /** Owns runtime lifetimes; the official Harness owns every model/tool turn. */
 export class DshAgentExecutor implements AgentExecutor {
   private readonly store: AgentTaskStore;
-  private readonly bridge: MemoryToolBridge;
   private readonly workers = new Map<string, Worker>();
   private readonly root: string;
   private closed = false;
   private closing?: Promise<void>;
 
-  constructor(private readonly config: DshExecutorConfig) {
+  constructor(private readonly config: DshExecutorConfig = {}) {
     this.root = path.resolve(config.stateDirectory ?? process.env.DSH_STATE_DIRECTORY ?? "data/dsh");
     this.store = new AgentTaskStore(path.join(this.root, "tasks"));
-    this.bridge = new MemoryToolBridge(config.memoryStore);
   }
 
   getTask(id: string): AgentTask | undefined {
@@ -110,16 +104,13 @@ export class DshAgentExecutor implements AgentExecutor {
     const start = Date.now();
     let toolCallsCount = 0;
     let step = 0;
-    const observedFiles = new Set<string>();
     const observedCalls = new Map<string, { name: string; command?: string }>();
-    const completedCalls = new Set<string>();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const emit = (event: Omit<AgentStepEvent, "taskId" | "sessionId">) => {
       const item = { ...event, taskId: task.id, sessionId: task.sessionId, interaction: task.interaction ? structuredClone(task.interaction) : undefined };
       task.steps.push(item);
       if (task.steps.length > 300) task.steps.shift();
       this.update(task);
-      // A disconnected observer must not take down the execution or hide its outcome.
       try { options.onStep?.(item); } catch { /* product transport is optional */ }
     };
     const abort = () => { void this.cancel(task.id).catch(() => {}); };
@@ -136,12 +127,8 @@ export class DshAgentExecutor implements AgentExecutor {
       fs.mkdirSync(launch, { recursive: true, mode: 0o700 });
       fs.mkdirSync(task.workspaceRoot, { recursive: true });
       if (fs.existsSync(path.join(home, ".env")) || fs.existsSync(path.join(launch, ".env"))) throw new Error("DSH launch/home must not contain .env files");
-      const capability = await this.bridge.grant();
-      worker.revoke = capability.revoke;
       if (worker.stopped) throw new Error("Task cancelled during preparation");
       const patch = path.join(home, "looi.patch.json");
-      const receiptPlugin = path.join(home, "receipts.mjs");
-      fs.writeFileSync(receiptPlugin, RECEIPTS_PLUGIN, { mode: 0o600 });
       const disabled = ["session-log-deepseek", "session-telemetry-otel", "tool-subagent", "tool-subagent-fork", "tool-subagent-control", "tool-workflow", "workflow-ptc", "tool-jobs", "tool-plugin-manager"];
       fs.writeFileSync(patch, JSON.stringify([
         ...disabled.map(id => ({ id, disabled: true })),
@@ -149,16 +136,12 @@ export class DshAgentExecutor implements AgentExecutor {
         { id: "sandbox-policy", config: { mode: "workspace-write", workspaceRoot: task.workspaceRoot } },
         { id: "tool-bash", config: { enableRunInBackground: false, promoteOnTimeout: false } },
         { id: "tool-pwsh", config: { enableRunInBackground: false, promoteOnTimeout: false } },
-        { id: "system-prompt", config: { personaPrefix: "你是 LOOI 的任务执行助手。使用真实工具完成任务；个人记忆使用 mcp__looi__memory。不要把失败说成已完成。不要启动后台进程或脱离管理的作业。" } },
+        { id: "system-prompt", config: { personaPrefix: "你是 LOOI 的任务执行助手。使用真实工具完成任务；不要把失败说成已完成。不要启动后台进程或脱离管理的作业。" } },
         { id: "llm-pi-ai", config: { providers: { looi: {
           api: "openai-completions", baseURL: baseUrl, apiKeyEnv: "LOOI_DSH_MODEL_KEY",
           models: [{ id: model, reasoning: false, input: ["text"], contextWindow: 32768, maxTokens: 4096 }],
           timeoutMs: 30000, streamIdleTimeoutMs: 30000, retryPolicy: { mode: "normal", maxRetries: 0 },
         } } } },
-        { insert: [{ id: "looi-receipts", name: pathToFileURL(receiptPlugin).href, config: { url: capability.receiptUrl, token: capability.token } }, { id: "looi-memory", name: "@deepseek-ai/dsh-mcp-client", config: {
-          serverName: "looi", transport: "streamable-http", url: capability.url,
-          headers: { Authorization: `Bearer ${capability.token}` }, failOnStartupError: true, toolCallTimeoutMs: 10000,
-        } }] },
       ]), { mode: 0o600 });
       const env: NodeJS.ProcessEnv = {};
       for (const key of ["PATH", "HOME", "TMPDIR", "LANG", "SystemRoot"]) if (process.env[key]) env[key] = process.env[key];
@@ -177,7 +160,6 @@ export class DshAgentExecutor implements AgentExecutor {
       });
       timer = setTimeout(() => { task.error = "Task deadline exceeded"; abort(); }, this.config.deadlineMs ?? 180000);
       await worker.harness.start();
-      if (!this.config.harnessFactory && !capability.ready()) throw new Error("DSH memory tool discovery did not complete");
       if (worker.stopped) throw new Error("Task stopped during runtime startup");
       const session = options.resume ? await worker.harness.resumeSession(task.sessionId) : worker.harness.session(task.sessionId);
       task.state = "running";
@@ -198,16 +180,13 @@ export class DshAgentExecutor implements AgentExecutor {
             const toolName = String(data.name ?? "tool");
             let args: { command?: string } | undefined;
             try { args = typeof data.arguments === "string" ? JSON.parse(data.arguments) : data.arguments as typeof args; }
-            catch { /* Invalid model JSON cannot become a command receipt. */ }
+            catch { /* Ignore non-JSON tool arguments */ }
             observedCalls.set(String(data.callId), { name: toolName, command: args?.command });
             if (/bash|pwsh|run_code|terminal/.test(toolName)) worker.pendingShell.add(String(data.callId));
             emit({ step, phase: "tool_start", toolName, summary: `DSH · ${toolName}` });
           } else if (event.type === "tool/result") {
             const message = data.message as { toolCallId?: string; isError?: boolean } | undefined;
             worker.pendingShell.delete(String(message?.toolCallId ?? data.callId));
-            if (message?.toolCallId && message.isError === false) completedCalls.add(message.toolCallId);
-            const meta = data.meta as { path?: string } | undefined;
-            if (typeof meta?.path === "string") observedFiles.add(meta.path);
             emit({ step, phase: "tool_end", summary: "工具已返回结果" });
           }
         } },
@@ -216,29 +195,9 @@ export class DshAgentExecutor implements AgentExecutor {
       if (result.finishReason !== "completed" || !result.finalResponse.trim()) throw new Error(`DSH did not complete successfully (${result.finishReason ?? "no terminal reason"})`);
       await worker.harness.close();
       if (worker.stopped) throw new Error(task.error ?? "Task cancelled during runtime shutdown");
-      const executions = new Map<string, (typeof capability.executions)[number]>();
-      for (const receipt of capability.executions) {
-        const call = observedCalls.get(receipt.callId);
-        if (call?.name !== "bash" || call.command !== receipt.command || !completedCalls.has(receipt.callId)) throw new Error("Command receipt does not match an observed official tool execution");
-        const previous = executions.get(receipt.callId);
-        if (previous && JSON.stringify(previous) !== JSON.stringify(receipt)) throw new Error("Conflicting command receipts");
-        executions.set(receipt.callId, receipt);
-      }
-      const artifacts: NonNullable<AgentRunResult["artifacts"]> = [];
-      const workspace = fs.realpathSync(task.workspaceRoot);
-      for (const file of observedFiles) {
-        try {
-          const real = fs.realpathSync(file);
-          const relative = path.relative(workspace, real);
-          if (relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) continue;
-          const stat = fs.statSync(real);
-          if (!stat.isFile() || stat.size > 8 * 1024 * 1024) continue;
-          artifacts.push({ path: relative, sha256: createHash("sha256").update(fs.readFileSync(real)).digest("hex"), size: stat.size });
-        } catch { /* Missing/unreadable files are never a verified artifact. */ }
-      }
       const output: AgentRunResult = {
         taskId: task.id, sessionId: task.sessionId, answer: result.finalResponse,
-        steps: [...task.steps], toolCallsCount, durationMs: Date.now() - start, finishReason: result.finishReason, runtimeExited: true, executions: [...executions.values()], artifacts,
+        steps: [...task.steps], toolCallsCount, durationMs: Date.now() - start, finishReason: result.finishReason, runtimeExited: true,
       };
       task.state = "succeeded"; task.result = output; task.runtimeExited = true; this.update(task);
       emit({ step, phase: "done", summary: result.finalResponse.slice(0, 160) });
@@ -257,7 +216,6 @@ export class DshAgentExecutor implements AgentExecutor {
     } finally {
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener("abort", abort);
-      worker.revoke?.();
       worker.pending?.settle({ cancelled: true });
       delete task.interaction;
       this.update(task);
@@ -310,7 +268,7 @@ export class DshAgentExecutor implements AgentExecutor {
     const worker = this.workers.get(taskId);
     if (!worker) return { state: task.state, runtimeExited: false, confirmed: false };
     if (worker.stop) return worker.stop;
-    worker.stopped = true; worker.revoke?.();
+    worker.stopped = true;
     worker.pending?.settle(task.interaction?.kind === "approval" ? { outcome: "cancelled" } : { cancelled: true });
     task.state = "cancelling"; this.update(task);
     worker.stop = (async () => {
@@ -334,6 +292,5 @@ export class DshAgentExecutor implements AgentExecutor {
     this.closed = true;
     await Promise.allSettled([...this.workers.keys()].map(id => this.cancel(id)));
     await Promise.allSettled([...this.workers.values()].map(worker => worker.promise));
-    await this.bridge.close();
   }
 }

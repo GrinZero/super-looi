@@ -1,5 +1,25 @@
 # Super-LOOI 重构与演进进度
 
+### 核心架构做减法：极简 Agent Loop + 实时语音层 + 纯粹大脸交互（2026-11-06）
+
+- [x] **Step 1：极简 Agent Loop 重构 (`apps/hub/src/agent/dsh-executor.ts`, `executor.ts`)**
+  - [x] 剥离 `MemoryToolBridge` 本地 MCP Server 挂载与 `PersonalMemoryStore` 强制依赖（保留原源码文件不删除）
+  - [x] 剥离 `RECEIPTS_PLUGIN` Cordis 切面注入与 SHA-256 文件产物扫描，回归官方 `@deepseek-ai/dsh-sdk-client` (`DeepSeekHarness` + `session.run`) 典型极简用法
+  - [x] 保留核心会话执行、实时 `onStep` 通知、原生审批 (`approval/request`) 与追问 (`onUserQuestion`) 交互及取消能力
+- [x] **Step 2：双端语音层去记忆化与指令精简 (`apps/hub/src/voice/doubao-engine.ts`, `apps/hub/src/app.ts`, `apps/mobile/src/runtime/*`)**
+  - [x] 精简 `DEFAULT_LOOI_VOICE_TOOLS`：移除 `remember_fact`、`recall_memory`，仅保留 `HOME_VOICE_TOOLS` 与 `run_agent_task`
+  - [x] 精简 `DEFAULT_LOOI_INSTRUCTIONS`：去除个人记忆指令与 `<personal_memory>` 注入，聚焦自然陪伴对话、智能家居控制与 `run_agent_task`
+  - [x] 精简 Hub `/ws/voice`：移除 `remember_fact` / `recall_memory` 工具分支及用户口述“记住...”正则自动写盘逻辑
+  - [x] 精简移动端 `LocalControlCenter` 与 `LocalVoiceSocket`：移除本机语音记忆工具（`remember_fact` / `recall_memory` / `forget_memory`）与本机记忆自动同步
+- [x] **Step 3：移动端与 Web 控制台回归纯粹大脸交互（全部次级页面隐藏，保留源码文件）**
+  - [x] 重构 `apps/mobile/app/index.tsx`：移除右上角 `LAB` 按钮、隐藏 `QuickDrawerOverlay` 快捷抽屉与全部二级空间入口（回忆册、任务、家居、维修舱、SIM LAB），首屏仅呈现纯粹 `RobotFaceView` 大脸 + `LIVE 对话` + `对话` 文本输入 + 字幕/状态提示 + `停止任务` / `AgentInteractionSheet`
+  - [x] 移除 `index.tsx` 启动时拉取 `/api/agent/memories` 及同步回忆册的副作用
+  - [x] 同步隐藏 Hub Web 控制台 (`apps/hub/src/console-html.ts`) 的次级空间抽屉与 LAB 入口，聚焦全屏大脸与实时语音/Agent 交互
+- [x] **Step 4：测试套件对齐、iOS 模拟器验证与独立子 Agent Review**
+  - [x] 更新受减法影响的单元与集成测试，运行全仓 `pnpm typecheck`、`pnpm test`、`pnpm build` 确保 100% 通过
+  - [x] 在 iOS 模拟器验证纯粹大脸首屏 UI 与实时语音/对话框交互，截图留存 (`docs/artifacts/pure-face-minimal-runtime.png`)
+  - [x] 调用独立子 Agent 进行代码审查，修复发现项并归档提交
+
 ### 全部本地改动合并发布到 main（2026-11-06）
 
 - [x] **Step 1：发布范围与备份**

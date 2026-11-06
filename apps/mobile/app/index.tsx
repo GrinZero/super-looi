@@ -28,7 +28,7 @@ import { LocalVoiceSocket } from "../src/runtime/local-voice-socket.js";
 import { CabinSpaceView } from "../src/ui/spaces/CabinSpaceView.js";
 import { requestAcceptanceReport, type MobileAcceptanceReport } from "../src/runtime/acceptance-api.js";
 import { AgentInteractionSheet } from "../src/ui/components/AgentInteractionSheet.js";
-import { LiveVoiceClient, fetchHubMemories, type LiveVoicePhase, type LiveAgentInteraction } from "../src/runtime/live-voice-client.js";
+import { LiveVoiceClient, type LiveVoicePhase, type LiveAgentInteraction } from "../src/runtime/live-voice-client.js";
 import { LOOI_PALETTE as palette } from "../src/ui/theme.js";
 import { useWakeGuide } from "../src/ui/use-wake-guide.js";
 import { useHomeStatus } from "../src/runtime/use-home-status.js";
@@ -236,26 +236,15 @@ export default function SuperLooiScreen() {
 
   useEffect(() => {
     const unsubscribe = localCenter.subscribe(() => {
-      if (localCenter.preferences.voiceMode === "local") syncMemorySpaceFromHub(memories, localCenter.memories.list());
       refresh();
     });
-    void localCenter.initialize().catch(() => notify("本机存储未就绪，请打开家居连接设置检查"));
+    void localCenter.initialize().catch(() => notify("本机存储未就绪，请检查配置"));
     return unsubscribe;
-  }, [localCenter, memories, notify, refresh]);
+  }, [localCenter, notify, refresh]);
 
   useEffect(() => {
     let disposed = false;
-    syncMemorySpaceFromHub(memories, []);
     refresh();
-    const abort = new AbortController();
-    (runtimeVoiceMode === "local" ? localCenter.initialize().then(() => localCenter.memories.list()) : fetchHubMemories(HUB_ORIGIN, abort.signal))
-      .then((items) => {
-        if (disposed || !mounted.current) return;
-        syncMemorySpaceFromHub(memories, items);
-        if (runtimeVoiceMode === "hub") cabin.updateSubsystemStatus("hub", "connected");
-        refresh();
-      })
-      .catch(() => {});
     const client = new LiveVoiceClient({
       hubOrigin: HUB_ORIGIN,
       ...(runtimeVoiceMode === "local" ? { wsFactory: () => new LocalVoiceSocket(localCenter, (url, key) => new WebSocket(url, undefined, { headers: { "X-Api-Key": key } }) as unknown as import("../src/runtime/live-voice-client.js").WebSocketAdapter) } : {}),
@@ -301,9 +290,6 @@ export default function SuperLooiScreen() {
           setAgentInteraction(null);
           setActiveAgentTask(null);
         }
-        if (status.memories) {
-          syncMemorySpaceFromHub(memories, status.memories);
-        }
         if (status.phase === "thinking" || status.phase === "tool_start") {
           presence.setFaceExpression("thinking");
           setSubtitle(`Agent · ${status.summary}`);
@@ -328,11 +314,10 @@ export default function SuperLooiScreen() {
     liveVoiceRef.current = client;
     return () => {
       disposed = true;
-      abort.abort();
       void client.stop();
       liveVoiceRef.current = null;
     };
-  }, [cabin, face, memories, notify, presence, refresh, toasts, localCenter, runtimeVoiceMode, runtimeRevision]);
+  }, [cabin, face, notify, presence, refresh, toasts, localCenter, runtimeVoiceMode, runtimeRevision]);
 
   useEffect(() => {
     const requested = keepAwake.updatePolicy(snapshot.isDocked && foreground, snapshot.captureMode);
@@ -368,8 +353,9 @@ export default function SuperLooiScreen() {
   const openDrawer = useCallback(() => {
     if (presence.getSnapshot().captureMode === "off") return;
     dismissWakeGuide();
-    setDrawerVisible(true);
-  }, [dismissWakeGuide, presence]);
+    // Secondary spaces and quick drawer are hidden in pure face mode unless explicitly navigated via dev route params.
+    if (params.overlay === "quick") setDrawerVisible(true);
+  }, [dismissWakeGuide, params.overlay, presence]);
   const resumePrivacy = useCallback(() => {
     presence.resumePrivacy(presence.getSnapshot().isDocked ? "docked_context" : "foreground_explicit");
     notify("已恢复感知策略，真实相机与麦克风仍待接入");
@@ -512,7 +498,6 @@ export default function SuperLooiScreen() {
         const answer = await localCenter.executeText(text);
         if (revision !== localCenter.revision) return;
         setSubtitle(answer);
-        syncMemorySpaceFromHub(memories, localCenter.memories.list());
         if (client.isActive()) client.speakText(answer);
         refresh();
         return;
@@ -526,7 +511,7 @@ export default function SuperLooiScreen() {
       const detail = err instanceof Error ? err.message : "发送失败";
       notify(`发送失败：${detail}`);
     }
-  }, [askInput, dismissWakeGuide, notify, privacyPaused, runtimeVoiceMode, localCenter, memories, refresh]);
+  }, [askInput, dismissWakeGuide, notify, privacyPaused, runtimeVoiceMode, localCenter, refresh]);
 
   const miniGaze = smoothGaze.current;
   const sensors = cabin.getSensorsState();
@@ -548,13 +533,13 @@ export default function SuperLooiScreen() {
       {activeSpace === "face" ? (
         <View style={styles.stage}>
           <View style={StyleSheet.absoluteFill} {...gestures.panHandlers}>
-          <RobotFaceView mode="fullscreen" {...faceState} drawerOpen={overlayOpen} blinkProgress={privacyPaused ? 1 : faceState.blinkProgress} microShift={microShift} onPress={privacyPaused ? resumePrivacy : openDrawer} />
+          <RobotFaceView mode="fullscreen" {...faceState} drawerOpen={overlayOpen} blinkProgress={privacyPaused ? 1 : faceState.blinkProgress} microShift={microShift} onPress={privacyPaused ? resumePrivacy : undefined} />
           </View>
           <View pointerEvents="none" style={[styles.horizonGlow, overlayOpen && styles.hidden]} />
           {!overlayOpen ? <View pointerEvents="box-none" style={[styles.cornerRow, { top: insets.top + 10, left: insets.left + 14, right: insets.right + 14 }]}>
-            <Pressable accessibilityRole="button" accessibilityLabel={privacyPaused ? "恢复感知策略" : "打开快捷功能抽屉"}
-              accessibilityHint={privacyPaused ? "感知已暂停，轻触恢复" : sensors.camera || sensors.microphone ? "陪伴中，打开功能与状态" : "陪伴待机，相机与麦克风未接入"}
-              hitSlop={8} onPress={privacyPaused ? resumePrivacy : openDrawer} style={({ pressed }) => [styles.ambientPresence, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={privacyPaused ? "恢复感知策略" : "LOOI 在线陪伴状态"}
+              accessibilityHint={privacyPaused ? "感知已暂停，轻触恢复" : sensors.camera || sensors.microphone ? "正在聆听中" : "陪伴待机"}
+              hitSlop={8} onPress={privacyPaused ? resumePrivacy : undefined} style={({ pressed }) => [styles.ambientPresence, pressed && privacyPaused && styles.pressed]}>
               <View style={[styles.presenceDot, privacyPaused && styles.pausedDot, liveActive && styles.liveActiveDot]} />
               <Text style={styles.statusText}>{statusLabel}</Text>
             </Pressable>
@@ -573,7 +558,6 @@ export default function SuperLooiScreen() {
                   style={({ pressed }) => [styles.askTrigger, askVisible && styles.livePillActive, pressed && styles.pressed]}>
                   <Text style={[styles.labText, askVisible && styles.livePillTextActive]}>对话</Text>
                 </Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel="打开仿真演练台" hitSlop={8} onPress={() => setSimLabVisible(true)} style={({ pressed }) => [styles.labTrigger, pressed && styles.pressed]}><View style={styles.labDot} /><Text style={styles.labText}>LAB</Text></Pressable>
               </View>
             )}
           </View> : null}
@@ -582,7 +566,7 @@ export default function SuperLooiScreen() {
               <TextInput
                 value={askInput}
                 onChangeText={setAskInput}
-                placeholder="直接对 LOOI 说（如：记住我钥匙在抽屉 / 查看当前目录）"
+                placeholder="直接对 LOOI 说（如：打开书房灯 / 查看当前目录）"
                 placeholderTextColor={palette.textMuted}
                 style={styles.askInput}
                 returnKeyType="send"
@@ -716,8 +700,6 @@ const styles = StyleSheet.create({
   askInput: { flex: 1, minHeight: 36, color: palette.textPrimary, fontSize: 14, paddingHorizontal: 6 },
   askSendBtn: { minHeight: 34, paddingHorizontal: 14, borderRadius: 16, backgroundColor: "#2B88FF", alignItems: "center", justifyContent: "center" },
   askSendText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
-  labTrigger: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 4, opacity: 0.58 },
-  labDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: palette.textSecondary },
   labText: { color: palette.textSecondary, fontSize: 11, letterSpacing: 1 },
   faceToast: { position: "absolute", alignSelf: "center", maxWidth: "80%" },
   horizonGlow: { position: "absolute", bottom: 0, alignSelf: "center", width: 440, maxWidth: "78%", height: 28, borderRadius: 14, backgroundColor: "transparent", experimental_backgroundImage: "radial-gradient(ellipse at 50% 100%, rgba(43, 136, 255, 0.32) 0%, rgba(43, 136, 255, 0.10) 48%, rgba(43, 136, 255, 0) 75%)" },

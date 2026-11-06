@@ -67,22 +67,24 @@ describe("Official DSH product executor", () => {
     } finally { await f.cleanup(); }
   });
 
-  it("correlates canonical receipts with raw JSON tool arguments and official completion", async () => {
-    for (const match of [true, false]) {
-      const f = fixture(async (settings, emit) => {
-        const patch = JSON.parse(fs.readFileSync(settings.patches![0], "utf8"));
-        const config = patch.flatMap((row: { insert?: Array<{ id: string; config: { url: string; token: string } }> }) => row.insert ?? []).find((row: { id: string }) => row.id === "looi-receipts").config;
-        emit("tool/call", { name: "bash", callId: "canonical-call", arguments: JSON.stringify({ command: "printf proof" }) });
-        const response = await fetch(config.url, { method: "POST", headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ callId: match ? "canonical-call" : "unobserved-call", command: "printf proof", exitCode: 0, signal: null, timedOut: false, aborted: false }) });
-        assert.equal(response.status, 200);
-        emit("tool/result", { message: { toolCallId: "canonical-call", isError: false } });
-        return { finalResponse: "done", finishReason: "completed" };
-      });
-      try {
-        const run = f.agent.run("receipt check");
-        if (match) assert.equal((await run).executions?.[0].exitCode, 0);
-        else await assert.rejects(run, /does not match/);
-      } finally { await f.cleanup(); }
+  it("launches a pure minimal DSH patch without memory/receipt plugins and parses raw JSON tool arguments", async () => {
+    const f = fixture(async (settings, emit) => {
+      const patch = JSON.parse(fs.readFileSync(settings.patches![0], "utf8"));
+      const pluginIds = patch.flatMap((row: { insert?: Array<{ id: string }> }) => row.insert ?? []).map((row: { id: string }) => row.id);
+      assert.deepEqual(pluginIds, []);
+      emit("tool/call", { name: "bash", callId: "canonical-call", arguments: JSON.stringify({ command: "printf proof" }) });
+      emit("tool/result", { message: { toolCallId: "canonical-call", isError: false } });
+      return { finalResponse: "done", finishReason: "completed" };
+    });
+    try {
+      const result = await f.agent.run("minimal check");
+      assert.equal(result.answer, "done");
+      assert.equal(result.toolCallsCount, 1);
+      assert.ok(result.steps.some((step) => step.phase === "tool_start" && step.toolName === "bash"));
+      assert.ok(result.steps.some((step) => step.phase === "tool_end"));
+      assert.ok(result.steps.some((step) => step.phase === "done"));
+    } finally {
+      await f.cleanup();
     }
   });
 
