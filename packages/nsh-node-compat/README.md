@@ -1,6 +1,6 @@
 # @super-looi/nsh-node-compat
 
-NSH v0.4.0 同版本 QuickJS 的独立兼容包与验证宿主。实际 Pi 1.5.0 programmatic SDK 七工具、Durable 与本机隔离 codemode 已通过。当前是经过测试的 Node API 子集，手机 App 迁移和双端宿主仍在进行，见 [实施记录](../../docs/nsh-node-compat-implementation.md)。
+NSH v0.4.0 同版本 QuickJS 的独立兼容包与验证宿主。实际 Pi 1.5.0 programmatic SDK 七工具、Durable 与本机隔离 codemode 已通过。当前是经过测试的 Node API 子集，iOS / Android 模拟器宿主已通过，完整手机业务迁移仍在进行，见 [实施记录](../../docs/nsh-node-compat-implementation.md)。
 
 ```sh
 pnpm install --frozen-lockfile
@@ -17,7 +17,7 @@ rustup target add aarch64-apple-ios-sim
 cargo check --locked --manifest-path packages/nsh-node-compat/rust/Cargo.toml --target aarch64-apple-ios-sim --lib
 ```
 
-这项已在 iPhoneSimulator 26.2 SDK 通过；仅检查 Rust lib，不构成 NSH App 链接或运行验收。移动目标启用 bindgen 生成固定 VM 缺失的 bindings；Android 配置同样启用，但尚未实际编译。
+这项已在 iPhoneSimulator 26.2 SDK 通过；仅检查 Rust lib，不构成 NSH App 链接或运行验收。移动目标启用 bindgen 生成固定 VM 缺失的 bindings；Android 两 ARM ABI 已编译，API 34 ARM64 模拟器已执行通过；32 位 ABI 尚未执行。
 
 需要 Rust/Cargo 和本机 C 编译器；Cargo.lock 固定 `quickjs-jit = 0.14.1`，SQLite 编译进宿主。`test` 使用 Node/esbuild 编译 bundle，再交给 Rust QuickJS 进程执行；不在 Node 中执行被测 bundle。另有真正 SIGKILL 后重启的 Durable 验证。
 
@@ -48,10 +48,10 @@ pnpm --filter @super-looi/nsh-node-compat verify:codemode
 - `@super-looi/nsh-node-compat/adapters/pi-durable-env`：`NshExecutionEnv`，复用上游文件契约并替换 Shell；`namespace` 必须在同一文件空间内保持一致。
 - `@super-looi/nsh-node-compat/adapters/chord-sqlite`：复用 Chord 的队列/事务封装，底层为本包 SQLite 垫片。
 
-宿主可以在同版本 QuickJS `Ctx` 调用 Rust `nsh_node_compat::install(&ctx, app_data_root)`，或用 NSH 原生 class 暴露 `Bridge::request/begin/wait/close`，通过 `@super-looi/nsh-node-compat/native-host` 的 `installNshNativeCompat(host)` 安装相同协议。`apps/nsh` 已注册真实 class，八组测试在 NSH hardened engine（256 MiB）及 iOS 模拟器通过；Android 与业务 App 迁移仍待完成。不能直接在 Expo/Hermes 使用。`files/` 是文件能力根，`sqlite/` 是独立私有数据库目录，`/workspace`、`/home`、`/tmp` 是文件能力根内的虚拟目录。JS 不能借 `node:fs` 读取 SQLite 文件；数据库迁出/备份需由可信宿主完成。
+宿主可以在同版本 QuickJS `Ctx` 调用 Rust `nsh_node_compat::install(&ctx, app_data_root)`，或用 NSH 原生 class 暴露 `Bridge::request/begin/wait/close`，通过 `@super-looi/nsh-node-compat/native-host` 的 `installNshNativeCompat(host)` 安装相同协议。`apps/nsh` 已注册真实 class，十组测试在 NSH hardened engine（256 MiB）及 iOS / Android ARM64 模拟器通过；完整业务 App 迁移仍待完成。不能直接在 Expo/Hermes 使用。`files/` 是文件能力根，`sqlite/` 是独立私有数据库目录，`/workspace`、`/home`、`/tmp` 是文件能力根内的虚拟目录。JS 不能借 `node:fs` 读取 SQLite 文件；数据库迁出/备份需由可信宿主完成。
 
 文件上限 16 MiB、目录上限 10,000 条、文件句柄 256、数据库连接 32、watcher 32（每个原生队列 1,024 条，溢出显式失败）。SQLite 单操作约 1 秒、结果最多 10,000 行/16 MiB；Shell 默认 1 秒、最大 30 秒、输出 1 MiB，解析前限制结构字符，未知命令返回 127，未实现参数在操作前拒绝。Shell 支持有限的管道、重定向、与或、变量、子命令与常用内置命令，**不是任意 Bash、系统进程或 Git/Python/npm 环境**。spawn 输出目前在执行完成后交付，取消为合作式；阻塞文件系统 I/O 不具备硬实时抢占保证。
 
 Codemode 同时最多 4 个 VM，默认堆 32 MiB、最大 64 MiB、栈 256 KiB；每次执行/继续最多 250ms 并有 interrupt 预算。桥接输入帧最多 4 MiB，4 个同步 admission permit，单 VM 待处理/乱序结果各 8 MiB，输出消息最多 4096 条/16 MiB；stop 有独立控制入场。确定性模式固定 seed / 虚拟 UTC 时钟，fingerprint 包含 VM/平台/prelude/适配实现及预算。不同 fingerprint 不保证跨平台 replay 一致。Intl.Segmenter 提供 ICU grapheme/word/sentence；当前 locale 为 und，其他 locale 明确拒绝。
 
-未覆盖的 API 会拒绝，例如 `watchFile`、`statfs`、chmod、运行期 require、任意可执行文件与完整 Windows path 语义。异步 FS 包装当前仍在调用线程执行原生同步 I/O；桥接使用 JSON 拷贝，没有“零开销／零拷贝”承诺。native notify 已在 macOS runner 与 iOS 模拟器原生 class 实测，Android 待验收。
+未覆盖的 API 会拒绝，例如 `watchFile`、`statfs`、chmod、运行期 require、任意可执行文件与完整 Windows path 语义。异步 FS 包装当前仍在调用线程执行原生同步 I/O；桥接使用 JSON 拷贝，没有“零开销／零拷贝”承诺。native notify 已在 macOS runner、iOS 与 Android ARM64 模拟器原生 class 实测。最新范围见 [原生网络与版本复验](../../docs/nsh-native-live-verification.md)。

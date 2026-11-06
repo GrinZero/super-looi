@@ -2,17 +2,20 @@
 
 ### NSH 计划续推与版本复验（2026-11-07）
 
+用户确认本轮先完成模拟器软件验收；真机媒体/BLE/底座验收另行保留。
+
 - [x] Step 1：核对既有实现、工作树与未完成门禁；调度 GPT-6.1 Sol 独立核验
-- [ ] Step 2：固定 Pi 1.5.0 / NSH 0.4.0 的 QuickJS、engine、iOS、Android 验收矩阵
+- [x] Step 2：固定 Pi 1.5.0 / NSH 0.4.0 的 QuickJS、engine、iOS、Android 验收矩阵
   - [x] 四包、Rust 5 项、真实网关与移动适配 SDK 验证；透明 root SDK 36 个构建错误仍单独记录
-  - [ ] 双端宿主回归与 Release 支持范围核验
+  - [x] 双端十套宿主回归与 Release 冷启动、离线记忆/安全凭据重开；两平台业务bytecode一致；Android产品两轮真网对话通过
 - [x] Step 3：补齐本机真实模型网络与任务闭环，修复复验发现
   - [x] iOS / Android MobileRuntime 使用原生 fetch 完成真实模型任务；内存凭据、临时测试入口清理
   - [x] 修复模型配置安全存储失败后的旧执行器恢复；新增第十套 QuickJS 回归
   - [x] 修正 iOS simulator Release Keychain 身份选择
+  - [x] 实际 createAgentSession 双端原生真网：模型write/read、精确回复、JSONL工具回执与最终回复恢复通过
 - [ ] Step 4：推进领域能力迁移，逐项满足删除门禁
   - [x] 保留每轮独立 task 的持久对话 session；同会话并发与 unknown 结果隔离；Node 11项和QuickJS重启/切换测试通过
-- [ ] Step 5：独立复审、记录证据并分阶段提交
+- [x] Step 5：本阶段独立复审、记录证据并分阶段提交；完整业务迁移保持未完成
 
 ### NSH Node 兼容层与 Pi 落地（2026-11-06）
 
@@ -33,7 +36,8 @@
     - [x] iOS 模拟器真实 NSH 宿主运行原生 class：文件/SQLite/Shell、codemode、实际 SDK 七工具与会话恢复全部通过
     - [x] 全部八组兼容套件在 NSH hardened engine（256 MiB）与 iOS 模拟器通过；测试预编译入口压缩后解决开发传输断连
     - [x] Android API 34 ARM64 模拟器八套原生测试；Release APK 编译 arm64-v8a / armeabi-v7a（debug 签名，非商店发行）
-    - [ ] 双端离线 Release 启动、商店签名 / Android API 36 与 AAB
+    - [x] 双端模拟器 Release 无开发服务器冷启动、离线记忆与安全配置重开
+    - [ ] 商店签名 / Android API 36 与 AAB；32位ABI执行
 - [ ] **Step 3：Pi 四包真实 QuickJS 验证**
   - [x] agent-core 真 QuickJS 多轮工具、steer/follow-up 与 abort
   - [x] pi-ai 模型/SSE/UTF-8/工具参数流；Rust HTTPS → QuickJS 上游 SDK 的真实 .env 网关调用通过

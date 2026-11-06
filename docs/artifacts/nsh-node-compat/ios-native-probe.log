@@ -1,6 +1,13 @@
-ios: linked native class; nine suites plus OS credential CRUD
-✓ built the Rust crate nsh-app-nsh (230ms, 1 warning: -v shows it)
-✓ built the development host for the iOS simulator (903ms, 2 warnings: -v shows them)
+
+> @super-looi/nsh@0.1.0 test:ios /Users/bugyaluwang/project/super-looi/apps/nsh
+> pnpm build:probe && node --import tsx scripts/nsh.ts probe-ios
+
+
+> @super-looi/nsh@0.1.0 build:probe /Users/bugyaluwang/project/super-looi/apps/nsh
+> node --import tsx scripts/build-compat-probe.ts
+
+✓ built the Rust crate nsh-app-nsh (376ms, 1 warning: -v shows it)
+✓ built the development host for the iOS simulator (660ms, 2 warnings: -v shows them)
 PASS node-shims: fs, binary, readline, SQLite recovery/rollback, shell, crypto, zlib, clone
 PASS budgets: SQLite deadline, active shell cancellation, virtual paths, UTF-8 errors, native notify watch
 PASS pi-agent-core@1.5.0: real Agent loop, tool I/O, steer, followUp, events, abort
@@ -13,6 +20,8 @@ PASS pi-coding-agent session recovery
 PASS pi-coding-agent@1.5.0 headless source entries: SessionManager JSONL and seven real tools (image/TUI/download excluded; find/bash operations injected)
 PASS pi-coding-agent@1.5.0 SDK: actual createAgentSession + ModelRuntime + DefaultResourceLoader, seven default tools and JSONL recovery
 PASS portable LOOI runtime: 48 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite memory/task reopen, tombstone-safe restore and honest unconfirmed stop
+PASS mobile runtime: failed secure configuration preserves usable prior executor; retry and close
+PASS mobile conversation: independent tasks, persisted transcript after reopen, configuration isolation
 PASS secure credentials: native OS store write/reopen/update/delete (test slot only)
-✓ CompatProbe.tsx › steps (11.1s)
-✓ 1 test: 1 passed, 0 failed (13.3s)
+✓ CompatProbe.tsx › steps (12.2s)
+✓ 1 test: 1 passed, 0 failed (14.7s)

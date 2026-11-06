@@ -14,7 +14,8 @@
     "codemode",
     "pi-coding-agent",
     "pi-sdk",
-    "looi-runtime"
+    "looi-runtime",
+    "mobile-runtime"
   ],
   "headless": {
     "passed": true,
@@ -39,11 +40,11 @@
       "armeabi-v7a"
     ],
     "signing": "debug key (not store release)",
-    "releaseApkArtifactStage": "Earlier native-host template; current face app release still requires rebuild and offline launch verification"
+    "releaseApkArtifactStage": "Final conversation app; cold launch and persistent secure configuration verified on API34 ARM64; see release-audit.json"
   },
   "businessUiMediaMigrated": false,
   "migrationAllowed": false,
-  "note": "Model/SSE uses fixtures in this native-host probe; real gateway streaming was separately verified in the Rust runner. Business/UI/media, credentials, physical devices and signed store release remain gates.",
+  "note": "Ten fixture-based compatibility suites pass on both native simulators. Separate native fetch live MobileRuntime probes pass on both; Android product Release also passes real two-turn conversation. Full business/media/BLE migration and store distribution remain pending.",
   "businessCore": {
     "portablePackage": "@super-looi/runtime",
     "behavioralContracts": 48,
@@ -66,5 +67,22 @@
     "realMobileModelNetworkVerified": false,
     "liveVoiceAvailable": false,
     "bodyConnected": false
-  }
+  },
+  "sourceReference": "40a592c",
+  "nativeModelNetwork": {
+    "iosMobileRuntime": true,
+    "androidMobileRuntime": true,
+    "androidReleaseTwoTurnConversation": true,
+    "usesProductionNativeFetch": true,
+    "actualCodingSdk": {
+      "ios": true,
+      "android": true,
+      "tools": "write then read same sandbox file, matched call IDs and receipts",
+      "session": "JSONL tool receipts and final answer reopened",
+      "network": "NSH native fetch",
+      "credentials": "in-memory only; no production vault writes",
+      "fixture": "packages/nsh-node-compat/test/native-sdk-live.ts"
+    }
+  },
+  "releaseAudit": "release-audit.json"
 }

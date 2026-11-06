@@ -106,7 +106,7 @@ const result = scripted
         resolve(
           app,
           command.startsWith("live-")
-            ? "LiveProbe.tsx"
+            ? ".nsh/LiveProbe.test.tsx"
             : command.startsWith("ui-")
               ? uiTest
               : "CompatProbe.tsx",
