@@ -26,6 +26,8 @@ await build({
       await import("../../packages/nsh-node-compat/test/verify-pi-sdk.ts");
       await import("../../packages/nsh-node-compat/test/verify-looi-runtime.ts");
       await import("../../packages/nsh-node-compat/test/verify-mobile-runtime.ts");
+      await import("../../packages/nsh-node-compat/test/verify-home-runtime.ts");
+      await import("../../packages/nsh-node-compat/test/verify-voice-runtime.ts");
     }
   `,
   },

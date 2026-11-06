@@ -29,6 +29,7 @@
     "@super-looi/runtime": "workspace:*",
     "@super-looi/contracts": "workspace:*",
     "@earendil-works/pi-schema": "1.5.0",
-    "@earendil-works/pi-agent-core": "1.5.0"
+    "@earendil-works/pi-agent-core": "1.5.0",
+    "@super-looi/home-assistant": "workspace:*"
   }
 }

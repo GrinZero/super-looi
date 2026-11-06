@@ -1,10 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
-import { randomUUID } from "node:crypto";
-import { obj, str } from "@earendil-works/pi-schema";
+import { createHash, randomUUID } from "node:crypto";
+import { int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createMemoryClaim, type UserActionRef } from "@super-looi/contracts";
 import { PiAgentExecutor } from "@super-looi/runtime/agent/pi-executor";
 import type {
+  AgentTask,
   AgentStepEvent,
   AgentInteractionAnswer,
 } from "@super-looi/runtime/agent/executor";
@@ -12,6 +13,8 @@ import { MemoryLedgerService } from "@super-looi/runtime/memory/ledger";
 import { SqliteRuntimeStore } from "@super-looi/runtime/storage/sqlite";
 import { assertFreshUiAction } from "@super-looi/runtime/productivity/authorization";
 import { AgentTaskStore } from "@super-looi/runtime/agent/task-store";
+
+import { HomeRuntime, type HomeSettings } from "./home.js";
 
 export interface ModelConfiguration {
   baseUrl: string;
@@ -26,16 +29,14 @@ export interface Vault {
 
 /** One foreground app owns the database and executor. No Hub endpoint exists. */
 export class MobileRuntime {
-  private readonly storage = new SqliteRuntimeStore(
-    new DatabaseSync("/home/looi.sqlite"),
-  );
+  private readonly database = new DatabaseSync("/home/looi.sqlite");
+  private readonly storage = new SqliteRuntimeStore(this.database);
   private readonly ledger = new MemoryLedgerService(this.storage.ledger);
-  private readonly recoveredCount = new AgentTaskStore(
+  private readonly recoveredTasks = new AgentTaskStore(
     "/home/agent/tasks",
     this.storage.tasks,
-  )
-    .list()
-    .filter((task) => task.state === "unknown").length;
+  );
+  private readonly home: HomeRuntime;
   private executor?: PiAgentExecutor;
   private config?: ModelConfiguration;
   private conversationId = `session_${randomUUID()}`;
@@ -51,6 +52,10 @@ export class MobileRuntime {
     private readonly releaseHost: () => void,
   ) {
     try {
+      this.database.exec(
+        "CREATE TABLE IF NOT EXISTS home_action_evidence (request_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, evidence TEXT NOT NULL)",
+      );
+      this.home = new HomeRuntime({ vault });
       const raw = vault.get("model");
       if (raw) {
         const stored = JSON.parse(raw);
@@ -70,6 +75,26 @@ export class MobileRuntime {
     }
   }
 
+  homeConfiguration() {
+    return this.home.configuration();
+  }
+  homeConnection() {
+    return this.home.connection();
+  }
+  async configureHome(input: HomeSettings, action: UserActionRef) {
+    if (this.closed || this.busy) throw new Error("请先停止当前任务");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId)
+      throw new Error("页面已过期，请重新打开");
+    return this.home.configure(input);
+  }
+  async connectHome() {
+    return this.home.connect();
+  }
+  async listHome(query = "", offset = 0) {
+    return this.home.list(query, offset);
+  }
+
   configuration() {
     return {
       baseUrl: this.config?.baseUrl ?? "",
@@ -78,7 +103,66 @@ export class MobileRuntime {
     };
   }
   recoveryCount(): number {
-    return this.recoveredCount;
+    return this.allTasks().filter((task) => task.state === "unknown").length;
+  }
+  private allTasks(): AgentTask[] {
+    if (this.closed) throw new Error("运行时已关闭");
+    return (this.executor?.listTasks() ?? this.recoveredTasks.list()).map(
+      (task) =>
+        this.hasUnknownHome(task.id)
+          ? { ...task, state: "unknown", runtimeExited: false }
+          : task,
+    );
+  }
+  private hasUnknownHome(taskId: string): boolean {
+    return this.database
+      .prepare("SELECT evidence FROM home_action_evidence WHERE task_id = ?")
+      .all(taskId)
+      .some((row) => JSON.parse(String(row.evidence)).status === "unknown");
+  }
+  taskPage(offset = 0) {
+    if (!Number.isSafeInteger(offset) || offset < 0)
+      throw new Error("无效任务页");
+    const tasks = this.allTasks().sort(
+      (a, b) =>
+        Number(b.state === "unknown") - Number(a.state === "unknown") ||
+        b.updatedAt.localeCompare(a.updatedAt),
+    );
+    return {
+      total: tasks.length,
+      offset,
+      items: tasks.slice(offset, offset + 10).map((task) => ({
+        id: task.id,
+        prompt: task.prompt.slice(0, 160),
+        state: task.state,
+        updatedAt: task.updatedAt,
+      })),
+    };
+  }
+  taskDetails(id: string) {
+    const task = this.allTasks().find((item) => item.id === id);
+    if (!task) throw new Error("找不到这项任务");
+    const homeActions = this.database
+      .prepare(
+        "SELECT evidence FROM home_action_evidence WHERE task_id = ? ORDER BY rowid",
+      )
+      .all(task.id)
+      .map((row) => JSON.parse(String(row.evidence)));
+    return { ...structuredClone(task), homeActions };
+  }
+  newConversation(action: UserActionRef): void {
+    if (this.closed || this.busy) throw new Error("请先停止当前任务");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId)
+      throw new Error("页面已过期，请重新打开");
+    const conversationId = `session_${randomUUID()}`;
+    if (this.config)
+      this.vault.set(
+        "model",
+        JSON.stringify({ ...this.config, conversationId }),
+      );
+    this.conversationId = conversationId;
+    this.conversationPersisted = Boolean(this.config);
   }
   private validate(config: ModelConfiguration): ModelConfiguration {
     if (
@@ -151,9 +235,93 @@ export class MobileRuntime {
       approvalUiSessionId: this.uiSessionId,
       requireApprovalForAllWrites: true,
       maxConcurrentTasks: 1,
-      additionalTools: this.memoryTools(),
-      approvalRequiredTools: ["remember_fact", "forget_memory"],
+      additionalTools: [...this.memoryTools(), ...this.homeTools()],
+      approvalRequiredTools: [
+        "remember_fact",
+        "forget_memory",
+        "control_home_device",
+      ],
     });
+  }
+
+  private homeTools(): AgentTool<any>[] {
+    const result = (value: unknown) => ({
+      content: [{ type: "text" as const, text: JSON.stringify(value) }],
+      details: { value },
+    });
+    return [
+      {
+        name: "list_home_devices",
+        label: "查看家居设备",
+        description:
+          "Find devices and current readbacks. Use actual entity_id and connectionId for control. Simulation is explicitly labelled and never represents real devices. Ask when multiple matches exist.",
+        parameters: obj({
+          query: opt(str()),
+          offset: opt(int({ minimum: 0 })),
+        }),
+        execute: async (_, args) =>
+          result(await this.home.list(args.query, args.offset)),
+      },
+      {
+        name: "control_home_device",
+        label: "控制家居设备",
+        description:
+          "Control one device after explicit UI approval. Requires entity_id and connectionId from a recent list. Only a verified receipt confirms success; unknown must not be retried automatically. Simulation changes no real device.",
+        parameters: obj({
+          entity_id: str(),
+          connectionId: str(),
+          service: oneOf(["turn_on", "turn_off"]),
+          brightness: opt(int({ minimum: 1, maximum: 255 })),
+          color_temp_kelvin: opt(int()),
+        }),
+        execute: async (callId, args, signal) => {
+          if (signal?.aborted || !this.taskId) throw new Error("任务已停止");
+          const service_data: Record<string, number> = {};
+          if (args.brightness !== undefined)
+            service_data.brightness = args.brightness;
+          if (args.color_temp_kelvin !== undefined)
+            service_data.color_temp_kelvin = args.color_temp_kelvin;
+          const taskId = this.taskId;
+          const requestId = createHash("sha256")
+            .update(`${taskId}:${callId}`)
+            .digest("hex");
+          const command = {
+            entity_id: args.entity_id,
+            domain: args.entity_id.split(".")[0],
+            service: args.service,
+            service_data,
+          };
+          const evidence = {
+            requestId,
+            connectionId: args.connectionId,
+            command,
+            simulation: this.home.configuration().mode === "simulation",
+            recordedAt: new Date().toISOString(),
+            status: "unknown",
+            receipt: null as unknown,
+          };
+          // Commit intent before any possible side effect; a crash retains unknown.
+          this.database
+            .prepare(
+              "INSERT INTO home_action_evidence (request_id, task_id, evidence) VALUES (?, ?, ?)",
+            )
+            .run(requestId, taskId, JSON.stringify(evidence));
+          const outcome = await this.home.control(command, {
+            connectionId: args.connectionId,
+            requestId,
+            signal,
+          });
+          evidence.status = outcome.receipt.status;
+          evidence.receipt = outcome.receipt;
+          this.database
+            .prepare(
+              "UPDATE home_action_evidence SET evidence = ? WHERE request_id = ?",
+            )
+            .run(JSON.stringify(evidence), requestId);
+          return result(outcome);
+        },
+      },
+    ];
   }
 
   private memoryTools(): AgentTool<any>[] {
@@ -293,6 +461,15 @@ export class MobileRuntime {
         return { answer: "已忘记这条内容。", taskId: "", runtimeExited: true };
       }
       if (!this.executor) throw new Error("请先在连接设置中配置对话模型");
+      if (
+        this.allTasks().some(
+          (task) =>
+            task.sessionId === this.conversationId && task.state === "unknown",
+        )
+      )
+        throw new Error(
+          "这段对话有待核实的操作，请先查看任务记录，再开始新对话",
+        );
       if (!this.conversationPersisted) {
         this.vault.set(
           "model",
@@ -312,7 +489,8 @@ export class MobileRuntime {
       return {
         answer: result.answer,
         taskId: result.taskId,
-        runtimeExited: result.runtimeExited,
+        runtimeExited:
+          result.runtimeExited && !this.hasUnknownHome(result.taskId),
       };
     } finally {
       this.busy = false;
@@ -324,13 +502,20 @@ export class MobileRuntime {
     this.executor.respond(taskId, requestId, answer);
   }
   async cancel() {
-    return this.taskId && this.executor
-      ? this.executor.cancel(this.taskId)
-      : { state: "cancelled", runtimeExited: true, confirmed: true };
+    this.home.suspend();
+    const taskId = this.taskId;
+    const result =
+      taskId && this.executor
+        ? await this.executor.cancel(taskId)
+        : { state: "cancelled", runtimeExited: true, confirmed: true };
+    return taskId && !this.closed && this.hasUnknownHome(taskId)
+      ? { state: "unknown", runtimeExited: false, confirmed: false }
+      : result;
   }
   async close(): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;
+    this.home.close();
     this.closing = (async () => {
       try {
         await this.executor?.close();

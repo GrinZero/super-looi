@@ -1,10 +1,17 @@
 import { cleanup, effect, lifecycle, reduceMotion, signal } from "nsh";
-import { CredentialVault, NodeCompat } from "super-looi/native";
+import { CredentialVault, NodeCompat, VoiceAudio } from "super-looi/native";
+import { connect } from "websocket";
 import {
+  VoiceRuntime,
+  type VoiceState,
   openRuntime,
   RobotFaceController,
+  type HomeConfiguration,
+  type HomeConnection,
   type NativeRuntime,
   type NativeStep,
+  type NativeTask,
+  type NativeTaskPage,
   type UiAction,
 } from "./generated/looi-runtime.js";
 
@@ -14,8 +21,47 @@ export function createAppStore() {
     busy = signal(false),
     status = signal("本机正在启动"),
     message = signal("");
+  const voiceState = signal<VoiceState>({
+    phase: "idle",
+    muted: false,
+    transcript: "",
+    error: "",
+  });
+  const voiceConfigured = signal(false);
+  const voiceTask = signal("");
+  let voice: VoiceRuntime | undefined;
+  let pendingVoice:
+    | {
+        resolve: (value: string) => void;
+        reject: (error: Error) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    | undefined;
+  let voiceExecuting = false;
+  const cancelVoiceTask = () => {
+    if (pendingVoice) {
+      clearTimeout(pendingVoice.timer);
+      pendingVoice.reject(new Error("语音任务已取消"));
+      pendingVoice = undefined;
+    }
+    voiceTask.set("");
+    if (voiceExecuting) {
+      void runtime?.cancel().catch(() => {});
+      voiceExecuting = false;
+    }
+  };
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
+  const homeConfiguration = signal<HomeConfiguration>({
+    mode: "disabled",
+    haUrl: "",
+    region: "cn",
+    hasToken: false,
+  });
+  const homeConnection = signal<HomeConnection | undefined>(undefined);
+  const homeDevices = signal<Record<string, unknown>>({});
   const recoveryCount = signal(0);
+  const tasks = signal<NativeTaskPage>({ total: 0, offset: 0, items: [] });
+  const task = signal<NativeTask | undefined>(undefined);
   const interaction = signal<
     (NonNullable<NativeStep["interaction"]> & { taskId: string }) | undefined
   >(undefined);
@@ -53,9 +99,19 @@ export function createAppStore() {
   };
   effect(() => {
     if (lifecycle() !== "active") {
+      voice?.stop();
       driver.setExpression("sleeping");
       void stop();
-    } else driver.setExpression(busy() ? "thinking" : "neutral");
+    } else
+      driver.setExpression(
+        busy()
+          ? "thinking"
+          : voiceState().phase === "speaking"
+            ? "speaking"
+            : voiceState().phase === "listening"
+              ? "listening"
+              : "neutral",
+      );
   });
   effect(() => {
     if (lifecycle() !== "active" || reduceMotion()) return;
@@ -73,7 +129,33 @@ export function createAppStore() {
         return;
       }
       runtime = opened;
+      voice = new VoiceRuntime({
+        vault,
+        audio: new VoiceAudio(),
+        connect,
+        onState: (state) => {
+          if (alive) voiceState.set(state);
+        },
+        requestTask: (prompt) =>
+          new Promise((resolve, reject) => {
+            if (!alive || pendingVoice || voiceExecuting || busy()) {
+              reject(new Error("已有任务，请稍后"));
+              return;
+            }
+            voiceTask.set(prompt);
+            pendingVoice = {
+              resolve,
+              reject,
+              timer: setTimeout(() => cancelVoiceTask(), 60000),
+            };
+          }),
+        cancelTask: cancelVoiceTask,
+      });
+      voiceConfigured.set(voice.configuration().hasKey);
+      voiceState.set(voice.snapshot());
       configuration.set(opened.configuration());
+      homeConfiguration.set(opened.homeConfiguration());
+      homeConnection.set(opened.homeConnection());
       recoveryCount.set(opened.recoveryCount());
       ready.set(true);
       status.set(recoveryCount() ? "上次任务结果待核实" : "本机就绪");
@@ -90,11 +172,56 @@ export function createAppStore() {
   })();
   cleanup(() => {
     alive = false;
+    voice?.close();
     driver.dispose();
     void runtime?.close().catch(() => {});
   });
 
-  return {
+  const api = {
+    voiceState: () => voiceState(),
+    voiceConfigured: () => voiceConfigured(),
+    voiceTask: () => voiceTask(),
+    async startVoice() {
+      try {
+        await voice?.start();
+      } catch (error) {
+        fail(error);
+      }
+    },
+    stopVoice() {
+      voice?.stop();
+    },
+    muteVoice(value: boolean) {
+      voice?.mute(value);
+    },
+    interruptVoice() {
+      voice?.interrupt();
+    },
+    configureVoice(key: string) {
+      if (!voice) throw new Error("语音尚未就绪");
+      voice.configure(key);
+      voiceConfigured.set(voice.configuration().hasKey);
+    },
+    async confirmVoiceTask(allowed: boolean): Promise<void> {
+      const pending = pendingVoice,
+        prompt = voiceTask();
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      pendingVoice = undefined;
+      voiceTask.set("");
+      if (!allowed) {
+        pending.reject(new Error("用户拒绝"));
+        return;
+      }
+      voiceExecuting = true;
+      try {
+        const success = await api.send(prompt);
+        if (success) pending.resolve(message());
+        else pending.reject(new Error("任务未完成"));
+      } finally {
+        voiceExecuting = false;
+      }
+    },
     ready: () => ready(),
     busy: () => busy(),
     status: () => status(),
@@ -102,6 +229,60 @@ export function createAppStore() {
     face: () => face(),
     configuration: () => configuration(),
     recoveryCount: () => recoveryCount(),
+    homeConfiguration: () => homeConfiguration(),
+    homeConnection: () => homeConnection(),
+    homeDevices: () => homeDevices(),
+    async configureHome(value: Parameters<NativeRuntime["configureHome"]>[0]) {
+      if (!runtime) throw new Error("本机运行时尚未就绪");
+      homeDevices.set({});
+      try {
+        homeConfiguration.set(await runtime.configureHome(value, action()));
+      } finally {
+        homeConnection.set(runtime.homeConnection());
+      }
+    },
+    async connectHome() {
+      if (!runtime) throw new Error("本机运行时尚未就绪");
+      homeDevices.set({});
+      homeConnection.set(await runtime.connectHome());
+      homeDevices.set(await runtime.listHome());
+      homeConnection.set(runtime.homeConnection());
+    },
+    tasks: () => tasks(),
+    task: () => task(),
+    refreshTasks(offset = 0) {
+      if (!runtime) return;
+      try {
+        tasks.set(runtime.taskPage(offset));
+        recoveryCount.set(runtime.recoveryCount());
+        task.set(undefined);
+      } catch (error) {
+        fail(error);
+      }
+    },
+    inspectTask(id: string) {
+      if (!runtime) return;
+      try {
+        task.set(runtime.taskDetails(id));
+      } catch (error) {
+        fail(error);
+      }
+    },
+    closeTask() {
+      task.set(undefined);
+    },
+    newConversation() {
+      if (!runtime || busy()) return false;
+      try {
+        runtime.newConversation(action());
+        message.set("新对话已开始，原任务记录仍保留。");
+        status.set("本机就绪");
+        return true;
+      } catch (error) {
+        fail(error);
+        return false;
+      }
+    },
     interaction: () => interaction(),
     async configure(value: { baseUrl: string; model: string; apiKey: string }) {
       if (!runtime) throw new Error("本机存储尚未就绪");
@@ -134,6 +315,7 @@ export function createAppStore() {
         if (alive) {
           busy.set(false);
           interaction.set(undefined);
+          recoveryCount.set(runtime.recoveryCount());
         }
       }
     },
@@ -164,4 +346,5 @@ export function createAppStore() {
     },
     stop,
   };
+  return api;
 }

@@ -166,6 +166,9 @@ importers:
       '@super-looi/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@super-looi/home-assistant':
+        specifier: workspace:*
+        version: link:../../packages/home-assistant
       '@super-looi/runtime':
         specifier: workspace:*
         version: link:../../packages/looi-runtime

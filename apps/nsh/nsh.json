@@ -26,7 +26,8 @@
           ]
         }
       ]
-    }
+    },
+    "speech": true
   },
   "theme": "theme.json",
   "appearance": "dark"

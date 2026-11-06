@@ -54,6 +54,20 @@ class AndroidPluginTest(unittest.TestCase):
                         self.assertEqual(src.read(name), result.read(name), name)
                 self.assertEqual(result.read("classes3.dex"), dex.read_bytes())
                 self.assertNotIn("classes4.dex", result.namelist())
+            # Add a missing permission without dropping an unrelated permission,
+            # then reapply to prove no duplicate RECORD_AUDIO node appears.
+            manifest.write_text(manifest.read_text().replace("android.permission.RECORD_AUDIO", "android.permission.INTERNET"))
+            no_mic = root / "no-mic.apk"
+            subprocess.run([str(tools / "aapt2"), "link", "-o", str(no_mic), "-I", str(jar), "--manifest", str(manifest), str(compiled)], check=True, capture_output=True)
+            added, repeated = root / "added.apk", root / "repeated.apk"
+            merge(no_mic, dex, added, application, False, ("android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS"))
+            merge(added, dex, repeated, application, False, ("android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS"))
+            permission_tree = tree(repeated)
+            self.assertIn("android.permission.INTERNET", permission_tree)
+            self.assertEqual(len([line for line in permission_tree.splitlines() if "android.permission.RECORD_AUDIO" in line]), 1)
+            self.assertEqual(len([line for line in permission_tree.splitlines() if "android.permission.MODIFY_AUDIO_SETTINGS" in line]), 1)
+            self.assertEqual(tree(added), permission_tree)
+
 
 
 if __name__ == "__main__":

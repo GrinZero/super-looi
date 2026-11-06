@@ -13,14 +13,21 @@ import { nshPiCodingToolsPlugin } from "../../../packages/nsh-node-compat/src/pi
 const root = resolve(import.meta.dirname, "..");
 const target = process.argv[2];
 const sdk = process.argv.includes("--sdk");
+const voice = process.argv.includes("--voice");
 if (target !== "ios" && target !== "android")
   throw new Error("Expected ios or android");
 const env = parseEnv(await readFile(resolve(root, "../../.env"), "utf8"));
-const config = {
-  baseUrl: env.LLM_BASE_URL,
-  apiKey: env.LLM_API_KEY,
-  model: env.LLM_MODEL,
-};
+const config = voice
+  ? {
+      apiKey: env.DOUBAO_API_KEY,
+      baseUrl: "voice-native-probe",
+      model: "1.2.6.1",
+    }
+  : {
+      baseUrl: env.LLM_BASE_URL,
+      apiKey: env.LLM_API_KEY,
+      model: env.LLM_MODEL,
+    };
 if (!config.baseUrl || !config.apiKey || !config.model)
   throw new Error("Missing LLM configuration");
 await buildRuntime();
@@ -50,13 +57,35 @@ if (sdk)
   });
 const entry = resolve(root, "LiveProbe.tsx");
 // No model credential is written to the production vault. Test host data is ephemeral.
-const source = `import {mount,signal,Text,View} from "nsh";
+const source = voice
+  ? `import {mount,signal,Text,View} from "nsh";
+import {VoiceAudio} from "super-looi/native";
+import {connect} from "websocket";
+import {Buffer} from "buffer";
+function Probe(){const status=signal("Testing native voice");
+void(async()=>{let socket,timer;const audio=new VoiceAudio();const key=${JSON.stringify(config.apiKey)};
+let bytes=0,cancelled=false,ack=false;const types=[];
+try{
+ socket=await connect("wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",{headers:{"X-Api-Key":key}});
+ timer=setTimeout(()=>{void socket.close().catch(()=>{});},45000);
+ await socket.write(JSON.stringify({type:"session.create",session:{model:"1.2.6.1",instructions:"你是软件验收语音助手。",tools:[],audio:{input:{format:{type:"pcm",rate:16000}},output:{format:{type:"pcm_s16le",rate:24000},voice:"zh_female_vv_jupiter_bigtts"}}}));
+ for(;;){const raw=await socket.read();if(raw===null)break;if(typeof raw!=="string")continue;const event=JSON.parse(raw);const type=String(event.type);if(!types.includes(type)&&types.length<30)types.push(type);
+ if(type==="session.created"){audio.start(false);await socket.write(JSON.stringify({type:"speech_text_buffer.commit",text:"这是本机语音软件验收。正在验证原生网络、音频播放和语音打断。整个测试只使用合成语音，不采集麦克风。"}));}
+ else if(type==="response.output_audio.delta") {const pcm=Buffer.from(String(event.delta),"base64");bytes+=pcm.length;if(!cancelled){audio.enqueue(pcm,24000);audio.clearPlayback();await socket.write(JSON.stringify({type:"response.cancel"}));cancelled=true;clearTimeout(timer);timer=setTimeout(()=>{void socket.close().catch(()=>{});},5000);}}
+ else if(type==="response.cancelled" || (type==="response.done" && event.response?.status==="cancelled")){ack=true;break;}
+ else if(type==="error" || type==="session.error"){if(!bytes)throw new Error("provider refused voice probe");break;}
+ }
+ if(!bytes)throw new Error("No voice PCM received");
+ console.log("VOICE_PROBE "+JSON.stringify({bytes,cancelAck:ack,eventTypes:types}));status.set("Native live verified");
+}catch(error){console.log("Native voice probe failed (details omitted)");status.set("Native live failed");}finally{if(timer)clearTimeout(timer);audio.stop();await socket?.close().catch(()=>{});}})();
+return <View><Text>{status()}</Text></View>;}mount(Probe);`
+  : `import {mount,signal,Text,View} from "nsh";
 import {NodeCompat} from "super-looi/native";
 import {openRuntime} from "./generated/looi-runtime.js";
 ${sdk ? 'import {verifySdk} from "./generated/sdk-live.js";' : ""}
 function Probe(){const status=signal("Testing native model");
 void(async()=>{let runtime;const config=${JSON.stringify(config)};try{
-runtime=await openRuntime(new NodeCompat(),{get:()=>JSON.stringify(config),set:()=>{},remove:()=>{}});
+runtime=await openRuntime(new NodeCompat(),{get:(key)=>key==="model"?JSON.stringify(config):"",set:()=>{},remove:()=>{}});
 const now=Date.now();
 const result=await runtime.run("Reply with exactly OK. Do not call any tools.",{event_id:"native-live",ui_session_id:runtime.uiSessionId,kind:"tap",captured_at:new Date(now).toISOString(),expires_at:new Date(now+10000).toISOString()},()=>{});
 if(!result.runtimeExited || !result.taskId || !result.answer.trim())throw new Error("Incomplete native result");
@@ -122,12 +151,20 @@ try {
       result.diagnostics,
       { mode: 0o600 },
     );
+  if (voice && result.status === 0) {
+    const report = result.diagnostics
+      .split("\n")
+      .find((line) => line.startsWith("VOICE_PROBE "));
+    if (report) console.log(report);
+  }
   if (result.status === 0)
     await rm(resolve(root, ".nsh/live-failure.log"), { force: true });
   // Never expose raw test diagnostics: upstream errors can contain request data.
   console.log(
     result.status === 0
-      ? `PASS ${target}: MobileRuntime native fetch/model/task completion${sdk ? " + actual coding SDK native tools/session" : ""}`
+      ? voice
+        ? `PASS ${target}: native voice WebSocket, synthetic PCM and interruption probe`
+        : `PASS ${target}: MobileRuntime native fetch/model/task completion${sdk ? " + actual coding SDK native tools/session" : ""}`
       : `FAIL ${target}: native live probe (exit ${result.status ?? "timeout"})`,
   );
 } finally {

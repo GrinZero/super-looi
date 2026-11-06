@@ -30,7 +30,14 @@ public final class UiProbe extends Instrumentation {
             waitText("记住了：" + marker + "在书架上", 10000);
             message("回忆 " + marker); waitText(marker + "在书架上", 10000);
             message("忘记 " + marker); waitText("已忘记这条内容。", 10000);
-            result.putString("result", "PASS native Android face/settings and offline remember/recall/forget through system input");
+            tapText("任务"); waitText("任务记录", 5000);
+            tapText("开始新对话"); SystemClock.sleep(600); waitText("家居", 5000);
+            tapText("家居"); waitText("家居连接", 5000);
+            scrollTo("离线演示"); tapText("离线演示");
+            SystemClock.sleep(500); scrollTo("演示书房吸顶灯"); waitText("演示书房吸顶灯", 5000);
+            scrollTo("关闭家居"); tapText("关闭家居");
+            tapText("关闭");
+            result.putString("result", "PASS native Android face/settings, offline memory, tasks/new conversation and explicit home simulation through system input");
             finish(-1, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL " + error.getClass().getSimpleName() + ": " + error.getMessage());
@@ -58,6 +65,17 @@ public final class UiProbe extends Instrumentation {
         AccessibilityNodeInfo node=text(value);
         if(node==null)throw new IllegalStateException("No visible target: "+value);
         tap(node);
+    }
+    private void scrollTo(String value) {
+        for (int attempt=0;attempt<8;attempt++) {
+            if(text(value)!=null)return;
+            for(AccessibilityNodeInfo node:nodes())if(node.isScrollable()) {
+                node.performAction(attempt < 4 ? AccessibilityNodeInfo.ACTION_SCROLL_FORWARD : AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+                break;
+            }
+            SystemClock.sleep(200);
+        }
+        waitText(value,1000);
     }
     private void tap(AccessibilityNodeInfo node) {
         Rect bounds=new Rect();node.getBoundsInScreen(bounds);

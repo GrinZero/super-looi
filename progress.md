@@ -14,6 +14,21 @@
   - [x] 修正 iOS simulator Release Keychain 身份选择
   - [x] 实际 createAgentSession 双端原生真网：模型write/read、精确回复、JSONL工具回执与最终回复恢复通过
 - [ ] Step 4：推进领域能力迁移，逐项满足删除门禁
+  - [ ] 家居运行时与设置完整验收
+    - [x] 安全单槽凭据、HA/MIoT/显式模拟模式、generation隔离、请求去重；Node与真QuickJS fixture通过
+    - [x] 主agent接入Agent单次审批、下发前SQLite intent/回执、取消中断与unknown恢复；Sol独立复审通过
+    - [x] 取消预读不写、已派发取消不重试；unknown计入恢复状态并阻止原会话继续
+    - [x] HA/演示设置双端移动UI；iOS脚本与Android系统输入实际点击通过
+    - [ ] MIoT登录入口验收
+  - [ ] 原生语音与协议接线
+    - [x] PCM16k采集/24k播放、有界队列/背压/静音；7 Rust单测与双端实际cross-check通过
+    - [x] iOS原生后台/中断/路由停止，Android失焦锁存/AAudio确认清空；独立复审通过
+    - [x] 双端模拟器真实原生静音PCM enqueue/clear/stop通过（未使用麦克风）
+    - [x] WebSocket协议与UI确认后共享Agent调用；真QuickJS/双端fixture通过，独立复审通过
+    - [x] 旧连接写失败隔离、旧音频取消屏障、重复工具去重、损坏语音凭据可重配
+    - [ ] 真实语音WebSocket、取消ack、显式权限/前后台与实际麦克风软件验收
+  - [x] 任务详情与新对话双端移动UI验收
+    - [x] 十项分页、unknown优先、只读详情含家居回执、新对话保留任务；QuickJS副本/会话隔离/重开测试通过
   - [x] 保留每轮独立 task 的持久对话 session；同会话并发与 unknown 结果隔离；Node 11项和QuickJS重启/切换测试通过
 - [x] Step 5：本阶段独立复审、记录证据并分阶段提交；完整业务迁移保持未完成
 

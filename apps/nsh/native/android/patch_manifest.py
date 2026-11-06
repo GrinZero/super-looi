@@ -70,7 +70,7 @@ def extend_pool(pool, strings, values):
     return bytes(result)
 
 
-def patch(data, application, allow_backup=False):
+def patch(data, application, allow_backup=False, permissions=()):
     if len(data) < 8 or u16(data, 0) != 3 or u16(data, 2) != 8 or u32(data, 4) != len(data):
         raise ValueError("Invalid Android binary manifest")
     chunks = []
@@ -83,7 +83,10 @@ def patch(data, application, allow_backup=False):
         offset += size
     pool_index = next(i for i, chunk in enumerate(chunks) if u16(chunk, 0) == 1)
     strings = parse_strings(chunks[pool_index])
-    chunks[pool_index] = extend_pool(chunks[pool_index], strings, [ANDROID, "name", "allowBackup", application])
+    permissions = tuple(dict.fromkeys(permissions))
+    if any(value not in ("android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS") for value in permissions):
+        raise ValueError("Unsupported app plugin permission")
+    chunks[pool_index] = extend_pool(chunks[pool_index], strings, [ANDROID, "name", "allowBackup", application] + (["uses-permission", *permissions] if permissions else []))
     indices = {value: strings.index(value) for value in [ANDROID, "name", "allowBackup", application]}
     resource_index = next(i for i, chunk in enumerate(chunks) if u16(chunk, 0) == 0x180)
     resources = list(struct.unpack("<" + "I" * ((len(chunks[resource_index]) - 8) // 4), chunks[resource_index][8:]))
@@ -127,6 +130,26 @@ def patch(data, application, allow_backup=False):
         chunks[index] = bytes(updated)
     if not found:
         raise ValueError("Manifest has no application")
+    existing_permissions = set()
+    for chunk in chunks:
+        if u16(chunk, 0) != 0x102 or strings[u32(chunk, 20)] != "uses-permission":
+            continue
+        start = 16 + u16(chunk, 24)
+        for attr_index in range(u16(chunk, 28)):
+            attr = chunk[start + attr_index * 20:start + (attr_index + 1) * 20]
+            if u32(attr, 0) == indices[ANDROID] and u32(attr, 4) == indices["name"] and attr[15] == 3:
+                existing_permissions.add(strings[u32(attr, 16)])
+    additions = []
+    for permission in permissions:
+        if permission in existing_permissions:
+            continue
+        element, value = strings.index("uses-permission"), strings.index(permission)
+        attr = struct.pack("<IIIHBBI", indices[ANDROID], indices["name"], value, 8, 0, 3, value)
+        additions.append(struct.pack("<HHIII", 0x102, 16, 56, 0, NO_INDEX) + struct.pack("<IIHHHHHH", NO_INDEX, element, 20, 20, 1, 0, 0, 0) + attr)
+        additions.append(struct.pack("<HHIII", 0x103, 16, 24, 0, NO_INDEX) + struct.pack("<II", NO_INDEX, element))
+    if additions:
+        application_index = next(i for i, chunk in enumerate(chunks) if u16(chunk, 0) == 0x102 and strings[u32(chunk, 20)] == "application")
+        chunks[application_index:application_index] = additions
     result = bytearray(data[:8] + b"".join(chunks))
     struct.pack_into("<I", result, 4, len(result))
     return bytes(result)

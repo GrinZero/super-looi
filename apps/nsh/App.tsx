@@ -1,6 +1,9 @@
 import { effect, mount, signal, Text, View, windowSize } from "nsh";
 import { createAppStore } from "./store";
 import { ActionButton, Panel, TextField, ResponsePreview } from "./ui/Controls";
+import { VoicePanel } from "./ui/VoicePanel";
+import { HomePanel } from "./ui/HomePanel";
+import { TasksPanel } from "./ui/TasksPanel";
 import { RobotFace } from "./ui/RobotFace";
 
 function App() {
@@ -15,6 +18,9 @@ function App() {
     configError = signal("");
   const questionAnswers = signal<Record<string, string>>({});
   const responseOpen = signal(false);
+  const tasksOpen = signal(false);
+  const homeOpen = signal(false);
+  const voiceOpen = signal(false);
   const approvalLabel = () => {
     const details = store.interaction()?.details;
     switch (details?.toolName) {
@@ -26,6 +32,8 @@ function App() {
         return "读取文件";
       case "bash":
         return "运行本机 Shell 命令";
+      case "control_home_device":
+        return "控制家居设备";
       case "remember_fact":
         return "保存待确认记忆";
       case "forget_memory":
@@ -116,11 +124,22 @@ function App() {
             </Text>
             <Text class="text-muted-foreground text-xs">{store.status()}</Text>
           </View>
-          <ActionButton
-            label="连接"
-            testID="connection-settings"
-            onPress={openSettings}
-          />
+          <View class="flex-row gap-2">
+            <ActionButton
+              label="任务"
+              testID="task-history"
+              disabled={!store.ready()}
+              onPress={() => {
+                store.refreshTasks();
+                tasksOpen.set(true);
+              }}
+            />
+            <ActionButton
+              label="连接"
+              testID="connection-settings"
+              onPress={openSettings}
+            />
+          </View>
         </View>
         <View class="flex-1" />
         <View class="gap-3 items-center">
@@ -131,7 +150,17 @@ function App() {
             />
           </If>
           <View class="flex-row gap-3 items-center justify-center">
-            <ActionButton label="LIVE" disabled={true} onPress={() => {}} />
+            <ActionButton
+              label="家居"
+              testID="home-settings"
+              disabled={!store.ready() || store.busy()}
+              onPress={() => homeOpen.set(true)}
+            />
+            <ActionButton
+              label={store.voiceTask() ? "确认语音任务" : "LIVE"}
+              disabled={!store.ready()}
+              onPress={() => voiceOpen.set(true)}
+            />
             <ActionButton
               label="对话"
               testID="compose"
@@ -149,13 +178,41 @@ function App() {
             </If>
           </View>
           <Text class="text-muted-foreground text-xs">
-            麦克风关闭　·　底座未连接　·　
+            {["listening", "speaking"].includes(store.voiceState().phase)
+              ? store.voiceState().muted
+                ? "麦克风静音"
+                : "麦克风开启"
+              : "麦克风关闭"}
+            　·　底座未连接　·　
             {store.configuration().hasKey ? "模型已配置" : "模型未配置"}
-            {store.recoveryCount()?` · ${store.recoveryCount()} 项任务待核实`:""}
+            {store.recoveryCount()
+              ? ` · ${store.recoveryCount()} 项任务待核实`
+              : ""}
           </Text>
         </View>
       </View>
 
+      <VoicePanel
+        open={voiceOpen()}
+        store={store}
+        onClose={() => voiceOpen.set(false)}
+      />
+      <HomePanel
+        open={homeOpen()}
+        store={store}
+        onClose={() => homeOpen.set(false)}
+      />
+      <TasksPanel
+        open={tasksOpen()}
+        store={store}
+        onClose={() => tasksOpen.set(false)}
+        onNewConversation={() => {
+          if (store.newConversation()) {
+            tasksOpen.set(false);
+            draft.set("");
+          }
+        }}
+      />
       <Panel
         open={compose()}
         title="和 LOOI 聊聊"
@@ -341,6 +398,26 @@ function App() {
                 "本机操作",
             )}
           </Text>
+          <If
+            when={
+              store.interaction()?.details.toolName === "control_home_device"
+            }
+          >
+            <View selectable={true}>
+              <Text class="text-foreground text-sm">
+                {JSON.stringify(
+                  store.interaction()?.details.arguments,
+                  null,
+                  2,
+                )}
+              </Text>
+              <Text class="text-muted-foreground text-sm">
+                {store.homeConfiguration().mode === "simulation"
+                  ? "仅演示设备，不会控制真实家居。"
+                  : "将操作当前连接中的设备；结果以实际回读为准。"}
+              </Text>
+            </View>
+          </If>
           <If when={store.interaction()?.details.operation === "write"}>
             <Text class="text-muted-foreground text-sm">写入内容</Text>
             <View class="rounded-xl bg-background p-3" selectable={true}>

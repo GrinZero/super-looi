@@ -1,4 +1,5 @@
 import { MobileRuntime } from "../../../apps/nsh/runtime/application.js";
+import { DatabaseSync } from "node:sqlite";
 import { installFixtureHttp, sseResponse } from "./http-fixture.js";
 import { assert, equal } from "./assert.js";
 
@@ -16,7 +17,7 @@ let failWrite = true;
 let released = false;
 const runtime = new MobileRuntime(
   {
-    get: () => saved,
+    get: (key: string) => (key === "model" ? saved : ""),
     set: (_key, value) => {
       if (failWrite) throw new Error("vault unavailable");
       saved = value;
@@ -90,7 +91,7 @@ console.log(
 );
 
 const vault = {
-  get: () => saved,
+  get: (key: string) => (key === "model" ? saved : ""),
   set: (_key: string, value: string) => {
     saved = value;
   },
@@ -151,6 +152,26 @@ try {
     ),
     "App reopen lost the prior answer",
   );
+  const beforeTasks = mobile.taskPage();
+  assert(beforeTasks.items.some((task) => task.id === first.taskId));
+  const detail = mobile.taskDetails(first.taskId);
+  detail.prompt = "tampered";
+  equal(mobile.taskDetails(first.taskId).prompt, "My code is ORCHID");
+  let invalidPage = false;
+  try {
+    mobile.taskPage(-1);
+  } catch {
+    invalidPage = true;
+  }
+  assert(invalidPage, "Negative task offsets must be rejected");
+  mobile.newConversation(action());
+  assert(JSON.parse(saved).conversationId !== conversation);
+  equal(mobile.taskPage().total, beforeTasks.total);
+  await mobile.run("New conversation", action(), () => {});
+  assert(
+    !JSON.stringify(prompts[2]).includes("ORCHID"),
+    "New conversation leaked prior history",
+  );
   await mobile.configure({ ...oldConfig, model: "new-account" });
   assert(
     JSON.parse(saved).conversationId !== conversation,
@@ -158,7 +179,7 @@ try {
   );
   await mobile.run("Hello", action(), () => {});
   assert(
-    !JSON.stringify(prompts[2]).includes("ORCHID"),
+    !JSON.stringify(prompts[3]).includes("ORCHID"),
     "Configuration switch leaked prior conversation",
   );
 } finally {
@@ -167,4 +188,152 @@ try {
 }
 console.log(
   "PASS mobile conversation: independent tasks, persisted transcript after reopen, configuration isolation",
+);
+
+// Actual Agent tool approval, home intent/receipt persistence, and reopen.
+const homeSlots = new Map<string, string>([
+  ["model", JSON.stringify(oldConfig)],
+]);
+let homeMobile = new MobileRuntime(
+  {
+    get: (key) => homeSlots.get(key) ?? "",
+    set: (key, value) => {
+      homeSlots.set(key, value);
+    },
+    remove: (key) => {
+      homeSlots.delete(key);
+    },
+  },
+  () => {},
+);
+const homeAction = () => {
+  const now = Date.now();
+  return {
+    event_id: `home_${now}`,
+    ui_session_id: homeMobile.uiSessionId,
+    kind: "tap" as const,
+    captured_at: new Date(now).toISOString(),
+    expires_at: new Date(now + 10000).toISOString(),
+  };
+};
+await homeMobile.configureHome({ mode: "simulation" }, homeAction());
+const homeConnection = await homeMobile.connectHome();
+let round = 0,
+  approvals = 0;
+let homeTask = "";
+globalThis.fetch = async () => {
+  const tool = round++ === 0;
+  return sseResponse([
+    {
+      id: "home-chat",
+      object: "chat.completion.chunk",
+      choices: [
+        {
+          index: 0,
+          delta: tool
+            ? {
+                role: "assistant",
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "home-control",
+                    type: "function",
+                    function: {
+                      name: "control_home_device",
+                      arguments: JSON.stringify({
+                        entity_id: "light.study_ceiling",
+                        service: "turn_on",
+                        connectionId: homeConnection.connectionId,
+                      }),
+                    },
+                  },
+                ],
+              }
+            : { role: "assistant", content: "演示设备已回读确认" },
+          finish_reason: tool ? "tool_calls" : "stop",
+        },
+      ],
+    },
+    "[DONE]",
+  ]);
+};
+try {
+  const outcome = await homeMobile.run(
+    "打开演示书房灯",
+    homeAction(),
+    (event) => {
+      if (event.interaction?.kind === "approval" && event.taskId) {
+        approvals++;
+        homeMobile.respond(event.taskId, event.interaction.id, {
+          outcome: "allowed-once",
+          userAction: homeAction(),
+        });
+      }
+    },
+  );
+  homeTask = outcome.taskId;
+  equal(approvals, 1);
+  const evidence = homeMobile.taskDetails(homeTask).homeActions;
+  equal(evidence.length, 1);
+  equal(evidence[0].status, "verified");
+  equal(evidence[0].simulation, true);
+  equal(evidence[0].command.entity_id, "light.study_ceiling");
+  await homeMobile.close();
+  homeMobile = new MobileRuntime(
+    {
+      get: (key) => homeSlots.get(key) ?? "",
+      set: (key, value) => {
+        homeSlots.set(key, value);
+      },
+      remove: (key) => {
+        homeSlots.delete(key);
+      },
+    },
+    () => {},
+  );
+  equal(homeMobile.taskDetails(homeTask).homeActions, evidence);
+  await homeMobile.close();
+  // Model the durable crash boundary: intent committed, receipt not yet saved.
+  const database = new DatabaseSync("/home/looi.sqlite");
+  database
+    .prepare(
+      "UPDATE home_action_evidence SET evidence = ? WHERE request_id = ?",
+    )
+    .run(
+      JSON.stringify({ ...evidence[0], status: "unknown", receipt: null }),
+      evidence[0].requestId,
+    );
+  database.close();
+  homeMobile = new MobileRuntime(
+    {
+      get: (key) => homeSlots.get(key) ?? "",
+      set: (key, value) => {
+        homeSlots.set(key, value);
+      },
+      remove: (key) => {
+        homeSlots.delete(key);
+      },
+    },
+    () => {},
+  );
+  equal(homeMobile.taskDetails(homeTask).state, "unknown");
+  assert(homeMobile.recoveryCount() > 0);
+  let blocked = false;
+  try {
+    await homeMobile.run("Continue", homeAction(), () => {});
+  } catch (error) {
+    blocked = String(error).includes("待核实");
+  }
+  assert(
+    blocked,
+    "Unresolved home side effect allowed same conversation to continue",
+  );
+  homeMobile.newConversation(homeAction());
+  equal(homeMobile.taskDetails(homeTask).state, "unknown");
+} finally {
+  globalThis.fetch = nativeFetch;
+  await homeMobile.close();
+}
+console.log(
+  "PASS mobile home: real Agent approval, simulated control receipt, SQLite evidence after reopen",
 );

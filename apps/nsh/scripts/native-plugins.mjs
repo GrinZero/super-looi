@@ -184,7 +184,9 @@ function applyAndroidPlugin(apk, sdk, tools) {
       min,
       "--output",
       dex,
-      join(classes, "com/superlooi/nsh/SuperLooiApplication.class"),
+      ...readdirSync(join(classes, "com/superlooi/nsh"))
+        .filter((name) => name.endsWith(".class"))
+        .map((name) => join(classes, "com/superlooi/nsh", name)),
     ]);
     const merged = join(work, "merged.apk");
     // Stream large native debug libraries; never hold an APK in JS memory.
@@ -196,6 +198,7 @@ function applyAndroidPlugin(apk, sdk, tools) {
       merged,
       config.android.application,
       String(config.android.allowBackup),
+      ...(config.android.permissions ?? []),
     ]);
     run(join(tools, "zipalign"), ["-P", "16", "-f", "4", merged, apk]);
   } finally {

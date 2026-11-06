@@ -87,6 +87,22 @@ const uiSteps =
     'await app.type("message-input", "忘记 NSH验收标记")',
     'await app.submit("message-input")',
     'await app.waitFor("已忘记这条内容。")',
+    'await app.press("task-history")',
+    'await app.waitFor("任务记录")',
+    'await app.press("开始新对话")',
+    'await app.press("compose")',
+    'await app.waitFor("和 LOOI 聊聊")',
+    'await app.press("关闭")',
+    'await app.press("home-settings")',
+    'await app.waitFor("家居连接")',
+    'await app.scroll("panel-content", 240)',
+    'await app.press("home-simulation")',
+    'await app.waitFor("演示书房吸顶灯")',
+    'await app.scroll("panel-content", -500)',
+    `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-home-simulation.png`))})`,
+    'await app.press("关闭家居")',
+    'await app.waitFor("家居尚未连接")',
+    'await app.press("关闭")',
   ].join("\n") + "\n";
 const uiTest = resolve(app, ".nsh/NativeUi.test.tsx");
 if (command.startsWith("ui-"))

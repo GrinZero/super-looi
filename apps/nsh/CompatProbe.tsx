@@ -1,5 +1,5 @@
 import { cleanup, effect, mount, platform, signal, Text, View } from "nsh";
-import { CredentialVault, NodeCompat } from "super-looi/native";
+import { CredentialVault, NodeCompat, VoiceAudio } from "super-looi/native";
 import {
   installNshNativeCompat,
   verifyNativePackage,
@@ -16,6 +16,24 @@ function CompatProbe() {
         if (platform.os !== "ios" && platform.os !== "android") return;
         const vault = new CredentialVault();
         if (vault.backend() === "desktop") return;
+        const audio = new VoiceAudio();
+        try {
+          if (audio.status().state !== "idle")
+            throw new Error("Audio unexpectedly active at creation");
+          audio.start(false);
+          audio.enqueue(new Uint8Array(960), 24000);
+          if (audio.status().state !== "running")
+            throw new Error("Native output failed to start");
+          audio.clearPlayback();
+          audio.stop();
+          if (audio.status().state !== "idle")
+            throw new Error("Native output failed to stop");
+          console.log(
+            "PASS native PCM output: silent enqueue, clear, stop; no microphone capture",
+          );
+        } finally {
+          audio.stop();
+        }
         try {
           vault.set("probe", "non-secret native vault 你好");
           if (
