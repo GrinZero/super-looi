@@ -1,0 +1,105 @@
+
+> @super-looi/mobile@0.2.0 test /Users/bugyaluwang/project/super-looi/apps/mobile
+> node --test --import tsx test/**/*.test.ts
+
+▶ Hub acceptance result verification
+  ✔ accepts complete verified details and preserves honest failure outcomes (4.544084ms)
+  ✔ rejects forged success, partial results, duplicate IDs and unknown groups (2.532792ms)
+  ✔ refuses all-green success when any safety hard gate is nonzero (2.086875ms)
+✔ Hub acceptance result verification (11.686292ms)
+▶ CabinSpaceController: 维修舱 Conformal UI & Degraded Connection Honesty (Phase 4)
+  ✔ manages conformal morph transitions between robot face and cabin space (477.838375ms)
+  ✔ reports degraded subsystem connections independently without single-green-dot masking (Screen 14) (1.107958ms)
+  ✔ suppresses stale in-flight motion commands upon reconnection (0.575458ms)
+  ✔ controls voice/vision provider switching and reports hardware sensor activity (0.998292ms)
+✔ CabinSpaceController: 维修舱 Conformal UI & Degraded Connection Honesty (Phase 4) (489.920583ms)
+▶ Study home local demonstration safety
+  ✔ verifies color temperature and brightness from readback even while already on (231.114292ms)
+  ✔ rejects lock and bounds before transport access and preserves state offline (0.421958ms)
+  ✔ does not claim verified when the gateway disappears before readback (4.666ms)
+  ✔ third adjustment creates only a proposal and requires explicit confirmation (16.243375ms)
+✔ Study home local demonstration safety (262.111042ms)
+▶ humanized evidence retains epistemic boundaries
+  ✔ translates source kinds without promoting observations to confirmation (44.769792ms)
+  ✔ distinguishes facts, observations, guesses and revoked records (0.474459ms)
+✔ humanized evidence retains epistemic boundaries (49.234041ms)
+▶ natural home rules and commitments
+  ✔ explains the target, condition and requested temperature without mutating the rule (8.984958ms)
+  ✔ names devices and sensor channels with safe unknown fallbacks (0.370084ms)
+  ✔ handles off, brightness, malformed and unsupported payloads honestly (296.947458ms)
+  ✔ preserves existing prose commitments and translates JSON-only actions (24.585917ms)
+✔ natural home rules and commitments (513.662791ms)
+▶ natural productivity descriptions
+  ✔ names workspaces and artifacts (2.885417ms)
+  ✔ only reports verified success when the source explicitly says so (3.009791ms)
+✔ natural productivity descriptions (7.855875ms)
+▶ memory scene anchors follow the recorded location
+  ✔ has distinct two-dimensional anchors for all four regions (6.851875ms)
+  ✔ prioritizes explicit locations over titles and handles coaster and monitor depth (7.603292ms)
+  ✔ moves the same item's anchor after a user location correction (67.595542ms)
+✔ memory scene anchors follow the recorded location (82.467375ms)
+▶ Presence v3 task presentation and scene fallbacks
+  ✔ keeps machine summaries and statuses out of primary prose without inventing verified success (0.433334ms)
+  ✔ uses object fallbacks only after considering a recorded location (0.388709ms)
+✔ Presence v3 task presentation and scene fallbacks (0.96225ms)
+▶ DockedLongevitySupervisor: Dual-End Longevity, Step-Down & OLED Burn-In (Phase 5)
+  ✔ enforces graceful thermal step-down and unloads Edge VLM under high pressure (5.635708ms)
+  ✔ unloads Edge VLM when memory pressure reaches warning or critical (0.498917ms)
+  ✔ guarantees emergency stop execution within <100ms even under thermal critical state (11.539459ms)
+  ✔ BLE auto-heal enforces zero motion replay across disconnection and reconnection (0.527916ms)
+  ✔ applies bounded OLED burn-in pixel micro-shift strictly within [-6, 6] pixels (461.812166ms)
+✔ DockedLongevitySupervisor: Dual-End Longevity, Step-Down & OLED Burn-In (Phase 5) (487.560208ms)
+▶ MemoriesConformalSpaceController: 脸与页面共形 and Life Fragment Cards (Phase 2)
+  ✔ manages signature conformal morph state transitions between robot face and timeline nodes (144.254416ms)
+  ✔ shifts mini-robot avatar gaze toward selected memory card (429.118083ms)
+  ✔ formats 4-question life fragment cards with epistemic trust labels and privacy expiration badges (1.129417ms)
+  ✔ handles user correction, removal, and forget action triggers (0.367709ms)
+✔ MemoriesConformalSpaceController: 脸与页面共形 and Life Fragment Cards (Phase 2) (576.837042ms)
+▶ Presence memory scene evidence integration
+  ✔ shows four distinct demo zones while retaining uncertainty and expired-source boundaries (174.953708ms)
+  ✔ location correction moves the selected scene independently of the object's old title and preserves evidence expiration (38.127334ms)
+  ✔ removal retracts the selected fact; clearing the last forgotten or filtered claim releases avatar focus (1.985791ms)
+✔ Presence memory scene evidence integration (268.701166ms)
+▶ Metro NodeNext relative extension substitution
+  ✔ resolves the three components' actual relative .js source dependencies (20.060667ms)
+  ✔ keeps existing .js files first and lets Metro select platform-specific fallbacks (26.136833ms)
+  ✔ leaves external package resolution intact and never retries non-relative or non-.js requests (9.593333ms)
+  ✔ propagates unrelated resolver errors unchanged without attempting a fallback (0.406875ms)
+✔ Metro NodeNext relative extension substitution (58.274417ms)
+▶ PresenceStateManager and UI Navigation Guards
+  ✔ initializes with default docked presence snapshot (171.715417ms)
+  ✔ bumps capture_epoch and clears buffers on user privacy pause (0.470209ms)
+  ✔ transitions bodyState safely on undock event (4.406083ms)
+  ✔ blocks background tasks from hijacking the foreground screen without trusted user action (2.852ms)
+✔ PresenceStateManager and UI Navigation Guards (194.644791ms)
+▶ Robot Face Kinematics, Toast Queue, and Theme (Phase 1)
+  ✔ enforces color palette semantic rules for receipts and memory claims (1.269875ms)
+  ✔ controls eye gaze vector with safe clamping in [-1, 1] (5.874583ms)
+  ✔ updates audio waveform resonance bars from PCM RMS input (1.787167ms)
+  ✔ triggers local emergency stop in <100ms without network wait (135.656375ms)
+  ✔ manages keep-awake policy across docked and privacy pause states (97.879875ms)
+  ✔ queues toast notifications during active speech and auto-expires after 3000ms (0.565458ms)
+  ✔ privacy pause cancels pending blink work and dispose prevents reopening (550.93075ms)
+✔ Robot Face Kinematics, Toast Queue, and Theme (Phase 1) (835.560042ms)
+▶ local conformal space demonstrations preserve evidence boundaries
+  ✔ correction promotes a new revision without fabricating retained source evidence (323.517458ms)
+  ✔ item removal closes the old location validity with a retained revision trail (0.796459ms)
+  ✔ cancellation stays pending until explicit simulated runner-exit evidence (4.866625ms)
+  ✔ transport loss is unknown and cannot fabricate termination or success evidence (0.404209ms)
+  ✔ readback fixture is explicitly simulated and independently carries probe evidence (1.628084ms)
+✔ local conformal space demonstrations preserve evidence boundaries (332.700125ms)
+▶ TasksAndRulesSpaceController: 约定与任务簿 Conformal UI (Phase 3)
+  ✔ manages conformal morph transitions between robot face and tasks ledger (356.257125ms)
+  ✔ handles undocked transition with honest desk observation cutoff boundary (9.305541ms)
+  ✔ queues gentle 3-second toasts for background task events without hijacking foreground face (1.746834ms)
+  ✔ formats task cards with semantic colors and honest cancellation labels (1.83625ms)
+  ✔ manages commitments (约定 & reminders) list (0.99875ms)
+✔ TasksAndRulesSpaceController: 约定与任务簿 Conformal UI (Phase 3) (546.425458ms)
+ℹ tests 61
+ℹ suites 16
+ℹ pass 61
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7666.717167

@@ -1,0 +1,46 @@
+{
+  "name": "@super-looi/mobile",
+  "version": "0.2.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*.js"
+  },
+  "scripts": {
+    "start": "expo start",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test --import tsx test/**/*.test.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
+    "@siteed/audio-studio": "3.2.1",
+    "@super-looi/contracts": "workspace:*",
+    "@super-looi/home-assistant": "workspace:*",
+    "@super-looi/looi-driver": "workspace:*",
+    "expo": "~56.0.12",
+    "expo-audio": "56.0.12",
+    "expo-crypto": "~56.0.5",
+    "expo-file-system": "~56.0.11",
+    "expo-keep-awake": "~56.0.3",
+    "expo-router": "~56.2.11",
+    "expo-secure-store": "~56.0.4",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-reanimated": "4.3.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2",
+    "react-native-webview": "13.16.1",
+    "react-native-worklets": "0.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "@types/react": "~19.2.2",
+    "babel-preset-expo": "^56.0.15",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

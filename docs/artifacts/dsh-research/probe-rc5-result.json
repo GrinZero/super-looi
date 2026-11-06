@@ -1,0 +1,28 @@
+{
+  "node": "v24.14.0",
+  "profile": "sdk",
+  "usesRealModel": false,
+  "checks": [
+    {
+      "name": "initialize",
+      "ok": true,
+      "durationMs": 2574
+    },
+    {
+      "name": "session-working-directory",
+      "ok": true
+    },
+    {
+      "name": "missing-session-rejects",
+      "ok": true,
+      "errorType": "JsonRpcResponseError"
+    },
+    {
+      "name": "close",
+      "ok": true
+    }
+  ],
+  "durationMs": 3133,
+  "runtimeVersion": "0.2.1-rc.5",
+  "sdkVersion": "0.2.1-rc.5"
+}

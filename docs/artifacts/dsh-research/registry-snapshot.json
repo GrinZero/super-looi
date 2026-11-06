@@ -1,0 +1,64 @@
+{
+  "observed_date": "2026-11-05",
+  "source_sha": "fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159",
+  "node": "v24.14.0",
+  "pnpm": "9.15.9",
+  "packages": [
+    {
+      "name": "@deepseek-ai/dsh",
+      "dist_tags": {
+        "next": "0.2.2-rc.1",
+        "latest": "0.2.1-rc.5",
+        "alpha": "0.2.2-alpha.3"
+      },
+      "candidate_version": "0.2.1-rc.5",
+      "git_head": null,
+      "engines": null,
+      "integrity": "sha512-WkyJZv4zl9sCAxSzRctGm58m0rilGqwR6pniBiLOz5CPDfHfDuAUicg0AAazXI7oj/Cph6/cjNTncA/rpLTXpw==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.1-rc.5.tgz",
+      "next_candidate": {
+        "version": "0.2.2-rc.1",
+        "engines": {
+          "node": ">=24.9.0"
+        },
+        "integrity": "sha512-ijR9UEVYkG15Q/Q79JzvzLBzQOQfc63VLr9n6flpwHPhr5IKn2UxthnSoto/P9l7qGd7pPvI1Ra6TW7LH3oKpg=="
+      }
+    },
+    {
+      "name": "@deepseek-ai/dsh-sdk-client",
+      "dist_tags": {
+        "latest": "0.0.1-rc.1",
+        "next": "0.2.2-rc.1",
+        "alpha": "0.2.2-alpha.3"
+      },
+      "candidate_version": "0.2.1-rc.5",
+      "git_head": null,
+      "engines": null,
+      "integrity": "sha512-kDMYeV0Ar1F6cfg6FlZJrfV8LASZGdqr+BLnXxLdaMFeFFiPEdf02XzTKCOxeALTvLPCDmWg3buV2k5kkrVL1Q==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-sdk-client/-/dsh-sdk-client-0.2.1-rc.5.tgz",
+      "next_candidate": {
+        "version": "0.2.2-rc.1",
+        "engines": null,
+        "integrity": "sha512-Wvpq8qKnNefXG7aPTQgH5GqPkdAV3ReAzm5cS2cvFMM7EwagDjxdbJE7v1T6KEKJfiLkgf1m/F6KBYWCU073Rg=="
+      }
+    }
+  ],
+  "sdk_tarball_comparison": {
+    "0.2.1-rc.5": {
+      "approvalRequests": false,
+      "onUserQuestion": false,
+      "onRequest": false,
+      "finishReason": false,
+      "resumeSession": true,
+      "runtime_cancel_request": false
+    },
+    "0.2.2-rc.1": {
+      "approvalRequests": true,
+      "onUserQuestion": true,
+      "onRequest": true,
+      "finishReason": true,
+      "resumeSession": true,
+      "runtime_cancel_request": false
+    }
+  }
+}

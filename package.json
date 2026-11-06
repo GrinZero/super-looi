@@ -1,67 +1,27 @@
 {
-  "name": "super-looi-app",
-  "main": "expo-router/entry",
-  "version": "1.0.0",
-  "dependencies": {
-    "@siteed/audio-studio": "3.2.1",
-    "@siteed/sherpa-onnx.rn": "1.3.1",
-    "@sourcebug/looi-sdk": "workspace:*",
-    "dotenv": "^17.4.2",
-    "expo": "~56.0.12",
-    "expo-asset": "~56.0.17",
-    "expo-audio": "56.0.12",
-    "expo-battery": "^56.0.4",
-    "expo-calendar": "^56.0.8",
-    "expo-camera": "^56.0.8",
-    "expo-constants": "~56.0.18",
-    "expo-file-system": "56.0.8",
-    "expo-font": "~56.0.7",
-    "expo-image": "^56.0.11",
-    "expo-linking": "~56.0.14",
-    "expo-navigation-bar": "~56.0.3",
-    "expo-notifications": "^56.0.18",
-    "expo-router": "~56.2.11",
-    "expo-secure-store": "^56.0.4",
-    "expo-splash-screen": "~56.0.10",
-    "expo-status-bar": "~56.0.4",
-    "expo-symbols": "~56.0.6",
-    "expo-web-browser": "~56.0.5",
-    "nativewind": "^4.2.6",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-native": "0.85.3",
-    "react-native-ble-plx": "^3.5.1",
-    "react-native-css-interop": "0.2.6",
-    "react-native-dotenv": "^3.4.11",
-    "react-native-mmkv": "^4.3.2",
-    "react-native-nitro-modules": "^0.35.10",
-    "react-native-reanimated": "4.3.1",
-    "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "4.25.2",
-    "react-native-web": "~0.21.0",
-    "react-native-worklets": "0.8.3",
-    "zustand": "^5.0.14"
+  "name": "super-looi-monorepo",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Super-LOOI: Clean-slate monorepo for embodied personal AI presence",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "build": "pnpm --recursive run build",
+    "typecheck": "pnpm --recursive run typecheck",
+    "test": "pnpm --recursive run test",
+    "clean": "pnpm --recursive run clean",
+    "mobile": "pnpm --filter @super-looi/mobile start",
+    "hub": "pnpm --filter @super-looi/hub start"
   },
   "devDependencies": {
-    "@types/react": "~19.2.2",
-    "babel-preset-expo": "^56.0.15",
-    "prettier-plugin-tailwindcss": "^0.5.11",
-    "tailwindcss": "^3.4.17",
-    "typescript": "~6.0.3"
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
   },
-  "scripts": {
-    "start": "expo start",
-    "dev": "pnpm start -- --dev-client",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "test": "node scripts/anti-regression-check.mjs",
-    "voice:accept-device": "node scripts/run-voice-device-acceptance.mjs",
-    "web": "expo start --web"
+  "engines": {
+    "node": ">=24.9.0"
   },
-  "private": true,
   "pnpm": {
-    "patchedDependencies": {
-      "@siteed/sherpa-onnx.rn": "patches/@siteed__sherpa-onnx.rn.patch"
+    "overrides": {
+      "@opentelemetry/api": "1.9.0"
     }
   }
 }

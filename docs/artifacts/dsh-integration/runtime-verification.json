@@ -1,0 +1,58 @@
+{
+  "runtime": "0.2.2-rc.1",
+  "node": "v24.14.0",
+  "checks": [
+    {
+      "name": "official-bash-exit-receipt",
+      "passed": true,
+      "details": [
+        {
+          "exitCode": 0,
+          "timedOut": false,
+          "aborted": false
+        }
+      ]
+    },
+    {
+      "name": "real-file-readback",
+      "passed": true,
+      "details": [
+        {
+          "path": "evidence.txt",
+          "sha256": "443c7d1695e2e4abb75a26e46467b4b3ee5030b24941eba55e9f24f95fcfd698",
+          "size": 40
+        }
+      ]
+    },
+    {
+      "name": "memory-mcp-write",
+      "passed": true
+    },
+    {
+      "name": "persistent-session-restore",
+      "passed": true
+    },
+    {
+      "name": "memory-persists-across-hub-restart",
+      "passed": true
+    },
+    {
+      "name": "native-user-question-roundtrip",
+      "passed": true
+    },
+    {
+      "name": "native-approval-rejection",
+      "passed": true
+    },
+    {
+      "name": "cancel-closes-owned-runtime-with-honest-state",
+      "passed": true,
+      "details": {
+        "state": "unknown",
+        "runtimeExited": true,
+        "confirmed": false
+      }
+    }
+  ],
+  "passed": true
+}

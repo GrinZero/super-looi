@@ -1,64 +1,39 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# Dependencies
 node_modules/
-.venv*/
+.pnpm-store/
 
-# Expo
-.expo/
+# Local Environment Secrets
+.env
+.env*.local
+
+# Builds and Caches
 dist/
-web-build/
-expo-env.d.ts
+build/
+*.tsbuildinfo
+.turbo/
+coverage/
 
-# Native
-.kotlin/
-*.orig.*
+# Expo / Mobile
+.expo/
+web-build/
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
 
-# Metro
-.metro-health-check*
+# Native Folders (generated via expo prebuild)
+/apps/mobile/ios/
+/apps/mobile/android/
 
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
+# OS and Editor
 .DS_Store
 *.pem
+.vscode/
+.idea/
 
-# local env files
-.env
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
-
-# Server data (SQLite DBs)
-server/data/
+# Database data
+pgdata/
 data/
-
-# Server build
-server/dist/
-
-# Models (large files)
-server/models/*.gguf
-app-models/sherpa-onnx/**
-!app-models/sherpa-onnx/
-!app-models/sherpa-onnx/**/
-!app-models/sherpa-onnx/**/.gitkeep
-
-# pnpm
-pnpm-lock.yaml
-.claude/worktrees/
-server/memory.db
-
-output/
+*.db
+.claude/

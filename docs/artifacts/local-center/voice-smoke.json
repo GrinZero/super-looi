@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "hubRequests": 0,
+  "tools": [
+    "remember_fact",
+    "list_home_devices",
+    "control_home_device",
+    "recall_memory"
+  ],
+  "persistedMemories": 1,
+  "receivedPcmBytes": 151552,
+  "realDeviceControl": false
+}

@@ -1,0 +1,151 @@
+
+> @super-looi/mobile@0.2.0 test /Users/bugyaluwang/project/super-looi/apps/mobile
+> node --test --import tsx test/**/*.test.ts
+
+▶ Hub acceptance result verification
+  ✔ accepts complete verified details and preserves honest failure outcomes (1.411791ms)
+  ✔ rejects forged success, partial results, duplicate IDs and unknown groups (0.387583ms)
+  ✔ refuses all-green success when any safety hard gate is nonzero (0.132333ms)
+✔ Hub acceptance result verification (2.650333ms)
+▶ CabinSpaceController: 维修舱 Conformal UI & Degraded Connection Honesty (Phase 4)
+  ✔ manages conformal morph transitions between robot face and cabin space (107.457958ms)
+  ✔ reports degraded subsystem connections independently without single-green-dot masking (Screen 14) (0.291583ms)
+  ✔ suppresses stale in-flight motion commands upon reconnection (0.124333ms)
+  ✔ controls voice/vision provider switching and reports hardware sensor activity (0.154833ms)
+✔ CabinSpaceController: 维修舱 Conformal UI & Degraded Connection Honesty (Phase 4) (108.609ms)
+▶ Study home local demonstration safety
+  ✔ verifies color temperature and brightness from readback even while already on (1.190458ms)
+  ✔ rejects lock and bounds before transport access and preserves state offline (0.117667ms)
+  ✔ does not claim verified when the gateway disappears before readback (0.078833ms)
+  ✔ third adjustment creates only a proposal and requires explicit confirmation (0.1695ms)
+✔ Study home local demonstration safety (2.076417ms)
+▶ humanized evidence retains epistemic boundaries
+  ✔ translates source kinds without promoting observations to confirmation (0.362084ms)
+  ✔ distinguishes facts, observations, guesses and revoked records (0.171ms)
+✔ humanized evidence retains epistemic boundaries (1.97375ms)
+▶ natural home rules and commitments
+  ✔ explains the target, condition and requested temperature without mutating the rule (3.727792ms)
+  ✔ names devices and sensor channels with safe unknown fallbacks (0.113ms)
+  ✔ handles off, brightness, malformed and unsupported payloads honestly (0.230708ms)
+  ✔ preserves existing prose commitments and translates JSON-only actions (0.135375ms)
+✔ natural home rules and commitments (4.358084ms)
+▶ natural productivity descriptions
+  ✔ names workspaces and artifacts (0.114416ms)
+  ✔ only reports verified success when the source explicitly says so (0.479958ms)
+✔ natural productivity descriptions (0.690541ms)
+▶ memory scene anchors follow the recorded location
+  ✔ has distinct two-dimensional anchors for all four regions (0.405375ms)
+  ✔ prioritizes explicit locations over titles and handles coaster and monitor depth (0.260541ms)
+  ✔ moves the same item's anchor after a user location correction (27.780792ms)
+✔ memory scene anchors follow the recorded location (28.534167ms)
+▶ DockedLongevitySupervisor: Dual-End Longevity, Step-Down & OLED Burn-In (Phase 5)
+  ✔ enforces graceful thermal step-down and unloads Edge VLM under high pressure (0.481541ms)
+  ✔ unloads Edge VLM when memory pressure reaches warning or critical (0.109375ms)
+  ✔ guarantees emergency stop execution within <100ms even under thermal critical state (3.007583ms)
+  ✔ BLE auto-heal enforces zero motion replay across disconnection and reconnection (0.241625ms)
+  ✔ applies bounded OLED burn-in pixel micro-shift strictly within [-6, 6] pixels (0.319625ms)
+✔ DockedLongevitySupervisor: Dual-End Longevity, Step-Down & OLED Burn-In (Phase 5) (5.255625ms)
+▶ MemoriesConformalSpaceController: 脸与页面共形 and Life Fragment Cards (Phase 2)
+  ✔ manages signature conformal morph state transitions between robot face and timeline nodes (102.913708ms)
+  ✔ shifts mini-robot avatar gaze toward selected memory card (107.061667ms)
+  ✔ formats 4-question life fragment cards with epistemic trust labels and privacy expiration badges (0.307583ms)
+  ✔ handles user correction, removal, and forget action triggers (0.191166ms)
+✔ MemoriesConformalSpaceController: 脸与页面共形 and Life Fragment Cards (Phase 2) (211.079042ms)
+▶ Metro NodeNext relative extension substitution
+  ✔ resolves the three components' actual relative .js source dependencies (5.67675ms)
+  ✔ keeps existing .js files first and lets Metro select platform-specific fallbacks (3.000167ms)
+  ✖ leaves external package resolution intact and never retries non-relative or non-.js requests (7.509667ms)
+  ✖ propagates unrelated resolver errors unchanged without attempting a fallback (0.601208ms)
+✖ Metro NodeNext relative extension substitution (17.554625ms)
+▶ PresenceStateManager and UI Navigation Guards
+  ✔ initializes with default docked presence snapshot (1.919292ms)
+  ✔ bumps capture_epoch and clears buffers on user privacy pause (1.132875ms)
+  ✔ transitions bodyState safely on undock event (0.634ms)
+  ✔ blocks background tasks from hijacking the foreground screen without trusted user action (0.263958ms)
+✔ PresenceStateManager and UI Navigation Guards (5.391291ms)
+▶ Robot Face Kinematics, Toast Queue, and Theme (Phase 1)
+  ✔ enforces color palette semantic rules for receipts and memory claims (5.172375ms)
+  ✔ controls eye gaze vector with safe clamping in [-1, 1] (0.150042ms)
+  ✔ updates audio waveform resonance bars from PCM RMS input (0.941416ms)
+  ✔ triggers local emergency stop in <100ms without network wait (0.150042ms)
+  ✔ manages keep-awake policy across docked and privacy pause states (0.097208ms)
+  ✔ queues toast notifications during active speech and auto-expires after 3000ms (6.2095ms)
+  ✔ privacy pause cancels pending blink work and dispose prevents reopening (305.735458ms)
+✔ Robot Face Kinematics, Toast Queue, and Theme (Phase 1) (321.322458ms)
+▶ local conformal space demonstrations preserve evidence boundaries
+  ✔ correction promotes a new revision without fabricating retained source evidence (2.854ms)
+  ✔ item removal closes the old location validity with a retained revision trail (0.191583ms)
+  ✔ cancellation stays pending until explicit simulated runner-exit evidence (0.162041ms)
+  ✔ transport loss is unknown and cannot fabricate termination or success evidence (0.087459ms)
+  ✔ readback fixture is explicitly simulated and independently carries probe evidence (0.083625ms)
+✔ local conformal space demonstrations preserve evidence boundaries (3.951333ms)
+▶ TasksAndRulesSpaceController: 约定与任务簿 Conformal UI (Phase 3)
+  ✔ manages conformal morph transitions between robot face and tasks ledger (103.250459ms)
+  ✔ handles undocked transition with honest desk observation cutoff boundary (6.094167ms)
+  ✔ queues gentle 3-second toasts for background task events without hijacking foreground face (1.022875ms)
+  ✔ formats task cards with semantic colors and honest cancellation labels (0.708708ms)
+  ✔ manages commitments (约定 & reminders) list (0.242667ms)
+✔ TasksAndRulesSpaceController: 约定与任务簿 Conformal UI (Phase 3) (116.822208ms)
+ℹ tests 56
+ℹ suites 14
+ℹ pass 54
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1422.091167
+
+✖ failing tests:
+
+test at test/metro-resolver.test.ts:2:4865
+✖ leaves external package resolution intact and never retries non-relative or non-.js requests (7.509667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      'missing-looi-package/icon.js',
+  +   'missing-looi-package/icon'
+    ]
+  
+      at TestContext.<anonymous> (/Users/bugyaluwang/project/super-looi/apps/mobile/test/metro-resolver.test.ts:93:14)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'missing-looi-package/icon.js', 'missing-looi-package/icon' ],
+    expected: [ 'missing-looi-package/icon.js' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/metro-resolver.test.ts:2:5711
+✖ propagates unrelated resolver errors unchanged without attempting a fallback (0.601208ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      '../theme.js',
+  +   '../theme'
+    ]
+  
+      at TestContext.<anonymous> (/Users/bugyaluwang/project/super-looi/apps/mobile/test/metro-resolver.test.ts:107:12)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ '../theme.js', '../theme' ],
+    expected: [ '../theme.js' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+/Users/bugyaluwang/project/super-looi/apps/mobile:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @super-looi/mobile@0.2.0 test: `node --test --import tsx test/**/*.test.ts`
+Exit status 1

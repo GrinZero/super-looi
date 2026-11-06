@@ -1,0 +1,49 @@
+{
+  "runtimeVersion": "0.2.2-rc.1",
+  "usesRealModel": true,
+  "checks": [
+    {
+      "name": "custom-provider-initialize",
+      "ok": true
+    },
+    {
+      "name": "real-model-read-marker",
+      "ok": true
+    },
+    {
+      "name": "close",
+      "ok": true
+    }
+  ],
+  "finishReason": "completed",
+  "eventTypes": [
+    "agent/inbox/spliced",
+    "turn/start",
+    "step/start",
+    "system/message",
+    "user/message",
+    "request/header",
+    "request/context",
+    "session/title",
+    "assistant/message",
+    "tool/call",
+    "tool/result",
+    "step/end",
+    "turn/end"
+  ],
+  "toolEvents": 2,
+  "sessionId": "session-b52e9b238d8f4bca8f2615989cdb8354",
+  "sdkVersion": "0.2.2-rc.1",
+  "modelTask": "Read a random marker from a temporary file via official file tool",
+  "firstAttempt": {
+    "finishReason": "error",
+    "toolEvents": 0,
+    "rootCause": "not captured; unconfirmed"
+  },
+  "retry": "One manual retry of a read-only task in a fresh session; no application retry implementation",
+  "lockfileSha256": "e21c9e422e34d7756334250f46337167184d655a35975c45d376baf894a35cc1",
+  "toolNames": [
+    "read"
+  ],
+  "toolNameEvidence": "Extracted from persisted successful session tool/call event (concatenated Zstandard frames)"
+}

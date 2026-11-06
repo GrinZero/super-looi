@@ -1,0 +1,4 @@
+
+> @super-looi/mobile@0.2.0 typecheck /Users/bugyaluwang/project/super-looi/apps/mobile
+> tsc --noEmit -p tsconfig.json
+

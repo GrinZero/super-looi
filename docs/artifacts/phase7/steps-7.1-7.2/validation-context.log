@@ -1,0 +1,19 @@
+Phase 7 Steps 7.1-7.2 validation, 2026-11-04 Asia/Taipei
+Working tree base HEAD: 6fcdec4e0977591b55e7815f80c4a4d1cbe91b5b
+Commands ran against the current working tree, including concurrent mobile changes.
+pnpm --filter @super-looi/mobile typecheck: exit 0
+pnpm --filter @super-looi/mobile test: exit 0; 61 tests; 16 suites; 61 passed; 0 failed
+pnpm --filter @super-looi/mobile build: exit 0
+
+Initial Metro PID 1920 used apps/mobile as cwd, expo start --port 8081.
+It started before the metro.config.js NodeNext extension resolver was added.
+Existing native launch initially showed missing ../src/shell/presence-state.js.
+Restarted Metro with pnpm start --port 8081; bundling and native first screen then succeeded.
+No native build, prebuild edits, new native dependencies, or environment-secret output.
+
+Initial iPhone 16e: F90B8A44-A2D2-4FF6-90FF-C55E887A3305, iOS 26.3.
+CUA interaction was available; another external session was concurrently operating this device.
+Parent phase7 root-level screenshots were affected by concurrent changes; do not use their names as proof of their content.
+Dedicated iPhone 17 for remaining checks: 631DD30E-8874-4C50-8E1A-F5F0E57E8F2E, iOS 26.3.
+Reused existing Debug-iphonesimulator/superlooiapp.app (com.anonymous.superlooiapp).
+The native app is landscape-locked. Portrait behavior cannot be honestly claimed from rotating this binary.

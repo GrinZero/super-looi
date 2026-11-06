@@ -1,0 +1,11 @@
+services:
+  homeassistant:
+    image: ${HA_IMAGE:-ghcr.io/home-assistant/home-assistant:2026.11.0}
+    container_name: super-looi-homeassistant
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    environment:
+      TZ: Asia/Taipei
+    volumes:
+      - ./data/home-assistant:/config

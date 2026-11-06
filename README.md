@@ -1,285 +1,46 @@
-# Super LOOI / LOOI SDK
+# Super-LOOI (Presence v0.2)
 
-> 中文 / English bilingual README. See the language-specific sections below.
+> 以手机为感知与交互入口、以 LOOI 为身体、以 DeepSeek Harness 为任务执行内核的个人具身 Agent。
 
-## 中文
+## 架构概览
 
-Super LOOI 是一个以 **looi-sdk** 为核心、面向 LOOI Robot 的本地优先实验仓库。当前仓库同时包含：
+本项目采用净室重构的 `pnpm` Monorepo 架构，分层清晰，职责严格隔离：
 
-- `packages/looi-sdk`：早期提供的核心之一，封装 LOOI Robot 的 BLE 控制能力。
-- React Native / Expo 应用：`looi-sdk` 的一个应用场景，用来验证语音、记忆、感知和机器人身体控制如何组合成完整体验。
-- `server`：本地服务端，提供记忆、LLM、会话和设备工具调用等能力。
-- `docs`：阶段性技术设计、验收记录和设备工具文档。
-
-### 当前状态
-
-- 初版 `@sourcebug/looi-sdk` 已经落地在 monorepo 内，版本为早期 alpha。
-- SDK 先聚焦 LOOI Robot 的高层运动、头部、灯光、吸附状态回调和 raw BLE 写入。
-- RN 应用不是 SDK 本身，而是 SDK 的一个首要验证场景：通过移动端语音、视觉、记忆和工具调用来驱动 LOOI。
-
-### 仓库结构
-
-```text
-.
-├── app/                    # Expo Router 应用界面
-├── src/                    # RN 应用业务逻辑、语音、设备工具等
-├── server/                 # 本地 API / LLM / memory 服务
-├── packages/looi-sdk/      # LOOI Robot TypeScript SDK
-├── docs/                   # 架构、验收和路线图文档
-└── scripts/                # 回归、验收和辅助脚本
+```
+super-looi/
+├── packages/
+│   ├── contracts/    # (@super-looi/contracts) 零依赖 TypeScript 契约与协议规范
+│   └── looi-driver/  # (@super-looi/looi-driver) LOOI BLE 驱动与 BodySupervisor 状态机
+├── apps/
+│   ├── hub/          # (@super-looi/hub) Fastify 服务端、双轨语音、证据账本与生产力调度
+│   └── mobile/       # (@super-looi/mobile) Expo React Native 跨端横屏驻留本体
+├── docs/
+│   ├── design-v2/    # V2 核心设计规范 (PRD、技术架构、48条验收场景、协议草案)
+│   └── golden-reference/ # 验证通过的黄金资产 (字节跳动 OpenSpeech 全双工二进制实现等)
+├── docker-compose.yml# 记忆账本 PostgreSQL + pgvector 服务定义
+└── progress.md       # 全局演进阶段看板与任务检查清单
 ```
 
-### 快速开始
+## 核心设计准则
 
-#### 前置条件
+1. **上下文连续**: 记忆三态流转（Candidate -> Inferred -> Confirmed），区分事实、观察与推断；单次行为必须具备可追溯的证据来源（Evidence Identity）。
+2. **行动可核验**: 物理世界操作以真实设备状态回读为准（`ActionReceipt`）；智能家居必须核验设备回报，生产力任务必须核验实际产物与进程 exit code。
+3. **身体安全第一**: 下位机动作由本地 `BodySupervisor` 强管控。单动作互斥租约（`BodyActionLease`）、有界超时自动停车、脱座 (`06`) 瞬时硬件急停与租约吊销。
+4. **相处可掌控**: 支持一键“隐私暂停”（`PrivacyEpoch` 纪元推进并清空本地短时缓冲）；支持用户随时“纠错”与代际“墓碑删除”（Tombstone），彻底隔绝已删除记忆的迟到写回与复活。
 
-- Node.js + pnpm
-- Docker with Compose
-- llama.cpp Metal build（用于本地视觉服务，可选但推荐）
-- MiniCPM-V 2.6 GGUF model 与 mmproj 文件（用于本地视觉服务）
+## 快速开始
 
-#### 环境变量
-
-```bash
-cp .env.example .env
-```
-
-填写 `LLM_API_KEY`、MiniMax 凭据，并把 `EXPO_PUBLIC_LOOI_SERVER_URL` 设置为服务端打印出的局域网 URL。
-
-#### 安装依赖
+### 依赖安装与构建
 
 ```bash
 pnpm install
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
-#### 启动本地服务与应用
+### 启动本地记忆与任务账本数据库
 
 ```bash
 docker compose up -d
-bash server/scripts/start-vision.sh
-cd server && pnpm dev
-pnpm start
 ```
-
-视觉服务默认使用 `8082` 端口，因为 Expo/Metro 可能占用 `8081`。如需覆盖：
-
-```bash
-VISION_PORT=8083 bash server/scripts/start-vision.sh
-```
-
-并同步更新 `.env` 中的 `VISION_SERVER_URL`。
-
-`server/scripts/start-vision.sh` 默认需要以下文件：
-
-- `~/tools/llama.cpp/build/bin/llama-server`
-- `~/models/minicpm-v-2.6/ggml-model-Q4_K_M.gguf`
-- `~/models/minicpm-v-2.6/mmproj-model-f16.gguf`
-
-安装 `huggingface-cli` 后可用 `server/scripts/download-vision-model.sh` 下载模型。
-
-### SDK 使用方式
-
-SDK 文档见 [`packages/looi-sdk/README.md`](packages/looi-sdk/README.md)。最小示例：
-
-```ts
-import { LooiRobot, WebBluetoothLooiTransport } from "@sourcebug/looi-sdk";
-
-const robot = new LooiRobot(new WebBluetoothLooiTransport());
-
-await robot.connect({
-  onDock: ({ docked }) => {
-    console.log("吸附状态", docked);
-  },
-});
-
-await robot.move("forward");
-await robot.setHead("center");
-await robot.setLight(true);
-```
-
-### 验证
-
-```bash
-pnpm exec tsc --noEmit
-pnpm test
-cd server && pnpm build
-cd packages/looi-sdk && pnpm check
-```
-
-记忆链路 smoke test：
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/memory/add \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"我把钥匙放在蓝色抽屉里了"}],"metadata":{"category":"placement"}}'
-
-curl -X POST http://127.0.0.1:8080/api/memory/search \
-  -H "Content-Type: application/json" \
-  -d '{"query":"钥匙在哪"}'
-```
-
-### 鸣谢
-
-特别感谢 [splattydoesstuff/sooperchargeforbots](https://github.com/splattydoesstuff/sooperchargeforbots)。这个项目为我们切入 LOOI Robot 控制与 BLE 探索提供了重要方向。
-
-### GitHub 仓库建议配置
-
-如果需要在 GitHub 仓库设置页手动更新，可以使用：
-
-- **Description**：`Local-first LOOI Robot SDK and Expo app for voice, memory, perception, and BLE body control.`
-- **Website**：可暂留空，或指向发布后的文档/演示页。
-- **Topics**：`looi`, `looi-robot`, `robotics`, `ble`, `bluetooth`, `react-native`, `expo`, `typescript`, `local-first`, `voice-assistant`, `memory`, `sdk`
-- **Labels**：
-  - `sdk` — SDK package and public API changes
-  - `rn-app` — React Native / Expo application work
-  - `server` — local API, LLM, memory, or tool server changes
-  - `device` — physical LOOI Robot or phone-device integration
-  - `ble` — Bluetooth Low Energy protocol / transport work
-  - `docs` — documentation-only changes
-  - `acceptance` — validation, smoke tests, or device acceptance traces
-  - `good first issue` — small, well-scoped contributor task
-  - `help wanted` — external contribution welcome
-  - `blocked` — waiting on hardware, credentials, or environment
-  - `early-alpha` — early SDK/application behavior that may change
-
----
-
-## English
-
-Super LOOI is a local-first experimental repository for LOOI Robot, with **looi-sdk** as one of its early core building blocks. The repository currently contains:
-
-- `packages/looi-sdk`: an early TypeScript SDK for controlling LOOI Robot over BLE.
-- React Native / Expo app: one application scenario for `looi-sdk`, validating how voice, memory, perception, and body-control tools can work together.
-- `server`: local APIs for memory, LLM orchestration, sessions, and device tool calls.
-- `docs`: architecture notes, acceptance records, and roadmap documents.
-
-### Current Status
-
-- The initial `@sourcebug/looi-sdk` package is implemented inside this monorepo as an early alpha.
-- The SDK currently focuses on high-level movement, head position, light control, dock-state callbacks, and raw BLE writes.
-- The RN app is not the SDK itself. It is one primary application scenario that exercises the SDK in a richer assistant experience.
-
-### Repository Layout
-
-```text
-.
-├── app/                    # Expo Router application screens
-├── src/                    # RN app logic, voice, device tools, etc.
-├── server/                 # Local API / LLM / memory server
-├── packages/looi-sdk/      # LOOI Robot TypeScript SDK
-├── docs/                   # Architecture, acceptance, and roadmap docs
-└── scripts/                # Regression, acceptance, and helper scripts
-```
-
-### Quick Start
-
-#### Prerequisites
-
-- Node.js + pnpm
-- Docker with Compose
-- llama.cpp with Metal support for local vision, optional but recommended
-- MiniCPM-V 2.6 GGUF model and mmproj files for local vision
-
-#### Environment
-
-```bash
-cp .env.example .env
-```
-
-Fill in `LLM_API_KEY`, MiniMax credentials, and set `EXPO_PUBLIC_LOOI_SERVER_URL` to the LAN URL printed by the server.
-
-#### Install
-
-```bash
-pnpm install
-```
-
-#### Run the local services and app
-
-```bash
-docker compose up -d
-bash server/scripts/start-vision.sh
-cd server && pnpm dev
-pnpm start
-```
-
-The vision server defaults to port `8082` because Expo/Metro may use `8081`. Override it with:
-
-```bash
-VISION_PORT=8083 bash server/scripts/start-vision.sh
-```
-
-Keep `VISION_SERVER_URL` in `.env` in sync.
-
-`server/scripts/start-vision.sh` expects:
-
-- `~/tools/llama.cpp/build/bin/llama-server`
-- `~/models/minicpm-v-2.6/ggml-model-Q4_K_M.gguf`
-- `~/models/minicpm-v-2.6/mmproj-model-f16.gguf`
-
-Use `server/scripts/download-vision-model.sh` after installing `huggingface-cli`.
-
-### SDK Usage
-
-See [`packages/looi-sdk/README.md`](packages/looi-sdk/README.md) for full SDK docs. Minimal example:
-
-```ts
-import { LooiRobot, WebBluetoothLooiTransport } from "@sourcebug/looi-sdk";
-
-const robot = new LooiRobot(new WebBluetoothLooiTransport());
-
-await robot.connect({
-  onDock: ({ docked }) => {
-    console.log("Dock state", docked);
-  },
-});
-
-await robot.move("forward");
-await robot.setHead("center");
-await robot.setLight(true);
-```
-
-### Validation
-
-```bash
-pnpm exec tsc --noEmit
-pnpm test
-cd server && pnpm build
-cd packages/looi-sdk && pnpm check
-```
-
-Memory smoke test:
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/memory/add \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"I left my keys in the blue drawer."}],"metadata":{"category":"placement"}}'
-
-curl -X POST http://127.0.0.1:8080/api/memory/search \
-  -H "Content-Type: application/json" \
-  -d '{"query":"Where are my keys?"}'
-```
-
-### Acknowledgements
-
-Special thanks to [splattydoesstuff/sooperchargeforbots](https://github.com/splattydoesstuff/sooperchargeforbots). It gave this project an important entry point for exploring LOOI Robot control and BLE behavior.
-
-### Suggested GitHub Repository Settings
-
-If you need to update the repository manually in GitHub settings, use:
-
-- **Description**: `Local-first LOOI Robot SDK and Expo app for voice, memory, perception, and BLE body control.`
-- **Website**: leave empty for now, or point it to the published docs/demo page later.
-- **Topics**: `looi`, `looi-robot`, `robotics`, `ble`, `bluetooth`, `react-native`, `expo`, `typescript`, `local-first`, `voice-assistant`, `memory`, `sdk`
-- **Labels**:
-  - `sdk` — SDK package and public API changes
-  - `rn-app` — React Native / Expo application work
-  - `server` — local API, LLM, memory, or tool server changes
-  - `device` — physical LOOI Robot or phone-device integration
-  - `ble` — Bluetooth Low Energy protocol / transport work
-  - `docs` — documentation-only changes
-  - `acceptance` — validation, smoke tests, or device acceptance traces
-  - `good first issue` — small, well-scoped contributor task
-  - `help wanted` — external contribution welcome
-  - `blocked` — waiting on hardware, credentials, or environment
-  - `early-alpha` — early SDK/application behavior that may change
