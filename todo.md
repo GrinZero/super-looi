@@ -282,3 +282,15 @@
 
 - [x] Android Release 验收误覆盖原未知配置后，已按用户授权用 `.env` 配置恢复，并通过重启读回及真实两轮对话；原值无备份，不能宣称还原原值。后续配置验收必须隔离测试 appId 或先保存原值。
 - [x] NSH 首屏 UI 1:1 还原与极简 Agent Loop 减法收敛（2026-11-07）：从 `apps/nsh/runtime/application.ts` 与 `voice.ts` 剥离 `MemoryLedgerService`、`remember_fact` / `recall_memory` / `forget_memory` 及 `记住/回忆/忘记` 离线正则拦截，收敛为最简 `PiAgentExecutor` 循环（`read_file`/`read`、`write_file`、`bash`、`ask_user_question` 及可选家居工具）；通过真实采集/播放 PCM16 RMS 驱动声波条；修复 `RobotFace.tsx` 光学渲染（移除 `neutral`/`speaking` 常驻眉弧、修正径向渐变圆心与高光透明色差、补齐双椭圆氛围背光与底部地平线流光）及 `App.tsx` 首屏三区轻量胶囊（左上呼吸状态点、右上 `LIVE 对话` / `对话` 内联输入栏 / `连接`、底部对称 7 阶声波纹唤醒引导栏与玻璃字幕胶囊），iOS 模拟器实机截图（`docs/artifacts/nsh-node-compat/ios-face.png`）与独立子 Agent 审查通过。
+
+## 模型服务认证与订阅接入（2026-11-07 调研）
+
+结论见 [接入范围与架构建议](docs/llm-provider-auth-research.md) 和 [MiniMax / MiMo 证据](docs/llm-china-provider-research.md)。本轮未实施或验证真实账号调用。
+
+- [ ] ChatGPT 正式 plan usage：核验项目发行形态，手机系统浏览器 + 127.0.0.1 回调、OIDC 身份验证、注册复用、账号目录与 Responses 工具流。
+- [ ] MiniMax M Plan：确认自有 App OAuth client 接入规则、国内/国际域名与个人交互用途；验证设备码登录和刷新。
+- [ ] 小米 MiMo：先接按量 API 预设；第三方免 Key 授权与 Token Plan 对机器人场景的适用性待确认，不复用米家授权。
+- [ ] 统一多连接/凭据生命周期、协议适配、旧配置迁移与模型发现；套餐额度耗尽不得静默转为按量扣费。
+
+- [ ] 扩展候选落地：Kimi 会员 Key/OAuth 的自有客户端身份与个人交互范围；GLM 标准 API 明确避开 Pi 默认 Coding Plan endpoint；Qwen 新订阅第三方资格另验。
+- [ ] 补齐 DeepSeek、Qwen/百炼、火山、硅基流动预设；腾讯/百度/OpenRouter 扩展目录；火山/Kimi 平台端超额计费设置需可见。
