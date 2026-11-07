@@ -1,5 +1,16 @@
 # Super-LOOI 重构与演进进度
 
+### NSH 语音工具定义与执行聚合（2026-11-08）
+
+- [x] Step 1：核对两个工具的 schema、执行逻辑及会话状态依赖
+- [x] Step 2：将两个工具拆为各自的函数模块，schema 与执行逻辑同处一处
+  - [x] `tools/run-agent-task.ts` 管理任务调用；`tools/end-conversation.ts` 管理道别回执和完成状态
+  - [x] `tools/index.ts` 只处理共享回执格式与调用去重；`protocol.ts` 组装会话消息
+- [x] Step 3：更新会话配置和架构图，完成测试、构建与独立 review
+  - [x] NSH `typecheck`、完整 `test`（19/19）和 `build` 通过
+  - [x] 架构图锚点与工具源码快照一致；独立 review 通过
+
+
 ### NSH 语音运行时模块拆分（2026-11-08）
 
 - [x] Step 1：梳理 `voice.ts` 职责、调用入口与现有语音测试

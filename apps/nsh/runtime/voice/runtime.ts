@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
-import { voicePrompts } from "./prompts.js";
-import { sessionCreateMessage, voiceEndpoint } from "./protocol.js";
+import { createSessionMessage, voiceEndpoint } from "./protocol.js";
+import { createVoiceTools, type VoiceTools } from "./tools/index.js";
 import type { VoiceRuntimeOptions, VoiceSocket, VoiceState } from "./types.js";
 
 function pcm16Rms(pcm: Uint8Array): number {
@@ -32,8 +32,7 @@ export class VoiceRuntime {
   private standbyTimer?: ReturnType<typeof setTimeout>;
   private idleTimer?: ReturnType<typeof setTimeout>;
   private awaitingTimer?: ReturnType<typeof setTimeout>;
-  private farewellTimer?: ReturnType<typeof setTimeout>;
-  private calls = new Set<string>();
+  private readonly tools: VoiceTools;
   private writes = 0;
   private writeQueue: Promise<void> = Promise.resolve();
   private audioWriting = false;
@@ -47,13 +46,21 @@ export class VoiceRuntime {
   private closed = false;
   private turnActivity: "waiting_user" | "user_speaking" | "awaiting_reply" = "waiting_user";
   private outputStreamDone = false;
-  private closingAfterFarewell = false;
-  private farewellStreamDone = false;
-  private farewellToolSent = false;
-  private farewellOriginResponseId = "";
-  private farewellResponseStarted = false;
-  private toolRuns = 0;
   constructor(private readonly options: VoiceRuntimeOptions) {
+    this.tools = createVoiceTools({
+      send: (value, generation) => this.send(value, generation),
+      current: (generation) => this.current(generation),
+      requestTask: options.requestTask,
+      beginFarewell: () => {
+        this.outputStreamDone = false;
+        this.pauseIdleTimer();
+      },
+      endSession: () => this.endSession(),
+      taskFinished: (generation) => {
+        if (this.turnActivity === "awaiting_reply") this.startAwaitingTimer(generation);
+      },
+      fail: (message) => this.fail(message),
+    });
     try {
       const saved = options.vault.get("voice");
       if (saved) {
@@ -192,7 +199,7 @@ export class VoiceRuntime {
         return;
       }
       this.socket = socket;
-      await this.send(sessionCreateMessage, generation);
+      await this.send(createSessionMessage(this.tools.schemas), generation);
       void this.read(socket, generation);
     } catch {
       if (this.current(generation))
@@ -272,8 +279,7 @@ export class VoiceRuntime {
         } else if (event.type === "response.output_audio.started") {
           this.pauseIdleTimer();
           this.outputStreamDone = false;
-          if (this.closingAfterFarewell && this.farewellToolSent && (!responseId || responseId !== this.farewellOriginResponseId))
-            this.farewellResponseStarted = true;
+          this.tools.onAudioStarted(responseId);
           this.publish({ phase: "speaking" });
         } else if (
           event.type === "response.output_audio.delta" &&
@@ -304,8 +310,7 @@ export class VoiceRuntime {
           this.outputBytes += pcm.length;
         } else if (event.type === "response.output_audio.done") {
           this.outputStreamDone = true;
-          if (this.closingAfterFarewell && this.farewellToolSent && this.farewellResponseStarted)
-            this.farewellStreamDone = true;
+          this.tools.onAudioDone();
         }
         else if (event.type === "response.output_text.delta")
           this.publish({
@@ -329,14 +334,14 @@ export class VoiceRuntime {
           this.pauseIdleTimer();
           this.startAwaitingTimer(generation);
         } else if (event.type === "conversation.item.input_audio_transcription.failed" || event.type === "response.done") {
-          if (this.closingAfterFarewell && event.type === "response.done" && this.farewellToolSent && (this.farewellResponseStarted || (responseId && responseId !== this.farewellOriginResponseId))) this.farewellStreamDone = true;
-          else if (this.state.phase !== "speaking" && this.toolRuns === 0) this.resumeWaiting(generation);
+          if (event.type === "response.done" && this.tools.onResponseDone(responseId)) continue;
+          if (this.state.phase !== "speaking" && !this.tools.busy) this.resumeWaiting(generation);
         }
         else if (event.type === "response.function_call_arguments.done") {
           for (const item of Array.isArray(event.items)
             ? event.items.slice(0, 8)
             : [event])
-            this.tool(item, generation);
+            this.tools.handle(item, generation, this.responseId);
         } else if (event.type === "error" || event.type === "session.error")
           throw new Error("Provider error");
       }
@@ -392,11 +397,11 @@ export class VoiceRuntime {
           });
       }
       const drained = this.outputFrames.length === 0 && this.options.audio.status().queuedPlaybackMs <= 0;
-      if (this.closingAfterFarewell && this.farewellStreamDone && drained) {
+      if (this.tools.closingAfterFarewell && this.tools.farewellComplete && drained) {
         this.endSession();
         return;
       }
-      if (!this.closingAfterFarewell && this.state.phase === "speaking" && this.outputStreamDone && drained) {
+      if (!this.tools.closingAfterFarewell && this.state.phase === "speaking" && this.outputStreamDone && drained) {
         this.outputStreamDone = false;
         this.responseId = "";
         this.publish({ phase: "listening" });
@@ -406,76 +411,6 @@ export class VoiceRuntime {
     } catch {
       this.fail("音频被系统中断，请再次点 LIVE 开启");
     }
-  }
-  private tool(item: Record<string, unknown>, generation: number) {
-    const id = typeof item.call_id === "string" ? item.call_id : "";
-    if (!id || id.length > 256 || this.calls.has(id)) return;
-    if (this.calls.size >= 128) {
-      this.fail("本次语音任务较多，请重新开启");
-      return;
-    }
-    this.calls.add(id);
-    if (item.name === "end_conversation") {
-      this.closingAfterFarewell = true;
-      this.farewellStreamDone = false;
-      this.farewellToolSent = false;
-      this.farewellResponseStarted = false;
-      this.farewellOriginResponseId = this.responseId;
-      this.outputStreamDone = false;
-      this.pauseIdleTimer();
-      this.farewellTimer = setTimeout(() => {
-        if (this.current(generation)) this.endSession();
-      }, 5000);
-      void this.send({
-        type: "conversation.item.create",
-        items: [{ call_id: id, role: "tool", content: [{ type: "input_text", text: JSON.stringify({ status: "ending", instruction: voicePrompts.farewell }) }] }],
-      }, generation).then(() => {
-        if (this.current(generation)) this.farewellToolSent = true;
-      }).catch(() => {
-        if (this.current(generation)) this.fail("道别回传失败");
-      });
-      return;
-    }
-    this.toolRuns++;
-    void (async () => {
-      let output: unknown;
-      try {
-        if (
-          item.name !== "run_agent_task" ||
-          typeof item.arguments !== "string" ||
-          item.arguments.length > 8192
-        )
-          throw new Error();
-        const args = JSON.parse(item.arguments);
-        if (
-          typeof args.prompt !== "string" ||
-          !args.prompt.trim() ||
-          args.prompt.length > 4000
-        )
-          throw new Error();
-        output = { answer: await this.options.requestTask(args.prompt) };
-      } catch {
-        output = { error: voicePrompts.taskFailed };
-      }
-      if (!this.current(generation)) return;
-      await this.send(
-        {
-          type: "conversation.item.create",
-          items: [
-            {
-              call_id: id,
-              role: "tool",
-              content: [{ type: "input_text", text: JSON.stringify(output) }],
-            },
-          ],
-        },
-        generation,
-      );
-      this.toolRuns--;
-      if (this.turnActivity === "awaiting_reply") this.startAwaitingTimer(generation);
-    })().catch(() => {
-      if (this.current(generation)) this.fail("语音任务回传失败");
-    });
   }
   mute(value: boolean) {
     if (!["listening", "speaking"].includes(this.state.phase)) return;
@@ -539,14 +474,14 @@ export class VoiceRuntime {
   private startIdleTimer(generation: number) {
     this.pauseIdleTimer();
     this.idleTimer = setTimeout(() => {
-      if (this.current(generation) && this.turnActivity === "waiting_user" && this.toolRuns === 0)
+      if (this.current(generation) && this.turnActivity === "waiting_user" && !this.tools.busy)
         this.endSession();
     }, 12000);
   }
   private startAwaitingTimer(generation: number) {
     if (this.awaitingTimer) clearTimeout(this.awaitingTimer);
     this.awaitingTimer = setTimeout(() => {
-      if (this.current(generation) && this.turnActivity === "awaiting_reply" && this.toolRuns === 0 && this.state.phase === "listening")
+      if (this.current(generation) && this.turnActivity === "awaiting_reply" && !this.tools.busy && this.state.phase === "listening")
         this.resumeWaiting(generation);
     }, 12000);
   }
@@ -563,17 +498,14 @@ export class VoiceRuntime {
     this.frames = [];
     this.outputFrames = [];
     this.outputBytes = 0;
-    this.calls.clear();
-    this.toolRuns = 0;
+    this.tools.reset();
     this.audioWriting = false;
     this.discardOutput = false;
     this.responseId = "";
     this.cancelledResponses.clear();
     this.writes = 0;
     this.writeQueue = Promise.resolve();
-    this.closingAfterFarewell = this.farewellStreamDone = this.outputStreamDone = false;
-    this.farewellToolSent = this.farewellResponseStarted = false;
-    this.farewellOriginResponseId = "";
+    this.outputStreamDone = false;
     this.options.audio.clearPlayback();
     this.options.onAudioLevel?.(0);
     this.options.cancelTask();
@@ -587,9 +519,9 @@ export class VoiceRuntime {
     else this.stop();
   }
   private clearTimers() {
-    for (const timer of [this.timer, this.deadline, this.standbyTimer, this.idleTimer, this.awaitingTimer, this.farewellTimer])
+    for (const timer of [this.timer, this.deadline, this.standbyTimer, this.idleTimer, this.awaitingTimer])
       if (timer) clearTimeout(timer);
-    this.timer = this.deadline = this.standbyTimer = this.idleTimer = this.awaitingTimer = this.farewellTimer = undefined;
+    this.timer = this.deadline = this.standbyTimer = this.idleTimer = this.awaitingTimer = undefined;
   }
   stop() {
     ++this.generation;
@@ -601,11 +533,8 @@ export class VoiceRuntime {
     this.frames = [];
     this.outputFrames = [];
     this.outputBytes = 0;
-    this.calls.clear();
-    this.toolRuns = 0;
-    this.closingAfterFarewell = this.farewellStreamDone = this.outputStreamDone = false;
-    this.farewellToolSent = this.farewellResponseStarted = false;
-    this.farewellOriginResponseId = "";
+    this.tools.reset();
+    this.outputStreamDone = false;
     this.audioWriting = false;
     this.discardOutput = false;
     this.responseId = "";

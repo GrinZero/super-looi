@@ -146,6 +146,17 @@ export async function verifyVoiceRuntime() {
     starts === 0 && writes[0]?.type === "session.create",
     "capture started before provider ready",
   );
+  const tools = writes[0]?.session?.tools;
+  check(
+    Array.isArray(tools) &&
+      tools.length === 2 &&
+      tools[0]?.name === "run_agent_task" &&
+      tools[0]?.parameters?.properties?.prompt?.type === "string" &&
+      tools[0]?.parameters?.required?.includes("prompt") &&
+      tools[1]?.name === "end_conversation" &&
+      tools[1]?.parameters?.additionalProperties === false,
+    "voice tool schemas were not sent with the session",
+  );
   event({ type: "session.created" });
   await settle();
   check(
