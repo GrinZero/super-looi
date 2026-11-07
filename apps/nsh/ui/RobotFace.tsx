@@ -180,34 +180,9 @@ export function RobotFace(props: {
         );
         cx.scale(scale, scale);
 
-        // 4. Dual-ellipse deep blue atmosphere backlight behind both eyes
-        const atmosphereAlpha = sleeping ? 0.12 : 1;
-        for (const centerX of [130, 490]) {
-          cx.save();
-          cx.globalAlpha = atmosphereAlpha;
-          cx.translate(centerX, 158);
-          cx.scale(1, 0.75);
-          const atmo = cx.createRadialGradient(0, 0, 0, 0, 0, 260);
-          atmo.addColorStop(
-            0,
-            alarmed ? token("alarmed-halo") : token("atmosphere-core"),
-          );
-          atmo.addColorStop(
-            0.52,
-            alarmed ? token("alarmed-zero") : token("atmosphere-mid"),
-          );
-          atmo.addColorStop(
-            1,
-            alarmed ? token("alarmed-zero") : token("atmo-zero"),
-          );
-          cx.fillStyle = atmo;
-          circle(cx, 0, 0, 260);
-          cx.restore();
-        }
+        const strokeColor = alarmed ? token("destructive") : token("face-stroke");
 
-        const primaryColor = alarmed ? token("destructive") : token("primary");
-
-        // 5. Pure-circle eyes with optical 3D shading and conditional eyebrows
+        // 4. Pure-circle eyes with soft OLED glow and conditional eyebrows
         for (let index = 0; index < 2; index++) {
           const posture = getEyePosture(state.expression, index);
           const baseX = (index === 0 ? 130 : 490) + gazeX * 10 + posture.dx;
@@ -215,7 +190,7 @@ export function RobotFace(props: {
 
           if (closed) {
             cx.save();
-            cx.strokeStyle = primaryColor;
+            cx.strokeStyle = strokeColor;
             cx.globalAlpha = 0.4;
             cx.lineWidth = 4;
             cx.lineCap = "round";
@@ -235,14 +210,14 @@ export function RobotFace(props: {
           cx.save();
           cx.globalAlpha = blinkOpacity;
 
-          // 5a. Outer cyan halo bloom (Gaussian-like smooth falloff with zero outer ring)
+          // 4a. Eye perimeter soft halo bloom (concentric radial gradient)
           const halo = cx.createRadialGradient(
             baseX,
             baseY,
             radius * 0.85,
             baseX,
             baseY,
-            radius * 1.72,
+            radius * 1.62,
           );
           halo.addColorStop(
             0,
@@ -261,92 +236,35 @@ export function RobotFace(props: {
             alarmed ? token("alarmed-zero") : token("halo-zero"),
           );
           cx.fillStyle = halo;
-          circle(cx, baseX, baseY, radius * 1.72);
+          circle(cx, baseX, baseY, radius * 1.62);
 
-          // 5b. Main 3D eye orb: radial-gradient(circle at 50% 38%, #48E5FF 0%, #29D0FF 68%, #0E84FF 92%, #0051FF 100%)
-          cx.save();
-          cx.beginPath();
-          cx.arc(baseX, baseY, radius, 0, Math.PI * 2);
-          cx.clip();
-
+          // 4b. Pure flat / soft-focus OLED emissive round eye
           const orb = cx.createRadialGradient(
             baseX,
-            baseY - radius * 0.28,
-            radius * 0.04,
+            baseY,
+            0,
             baseX,
-            baseY - radius * 0.28,
-            radius * 1.32,
+            baseY,
+            radius,
           );
           if (alarmed) {
             orb.addColorStop(0, token("alarmed-highlight"));
-            orb.addColorStop(0.78, primaryColor);
+            orb.addColorStop(0.78, token("destructive"));
             orb.addColorStop(1, token("alarmed-rim"));
           } else {
-            orb.addColorStop(0, token("eye-highlight"));
-            orb.addColorStop(0.55, token("eye-bright"));
-            orb.addColorStop(0.82, token("eye"));
-            orb.addColorStop(0.95, token("eye-mid"));
-            orb.addColorStop(1, token("eye-rim"));
+            orb.addColorStop(0, token("eye-core"));
+            orb.addColorStop(0.84, token("eye-core"));
+            orb.addColorStop(1, token("eye-edge"));
           }
           cx.fillStyle = orb;
           circle(cx, baseX, baseY, radius);
 
-          // Inset bottom 3D rim (inset 0 -5px 0 0 #0051FF)
-          cx.fillStyle = alarmed ? token("alarmed-rim") : token("eye-rim");
-          cx.beginPath();
-          cx.arc(baseX, baseY, radius, 0, Math.PI);
-          cx.arc(baseX, baseY - 4.5 * ratio, radius, Math.PI, 0, true);
-          cx.closePath();
-          cx.fill();
-
-          // 5c. Top-left specular highlight (eyeSpecular: left 40, top 26, 38×38)
-          const specX = baseX + (-33 + gazeX * 6) * ratio;
-          const specY = baseY + (-47 + gazeY * 5) * ratio;
-          const specR = 19 * ratio;
-          const glint = cx.createRadialGradient(
-            specX,
-            specY,
-            0,
-            specX,
-            specY,
-            specR,
-          );
-          glint.addColorStop(0, token("eye-glint"));
-          glint.addColorStop(0.76, token("glint-zero"));
-          glint.addColorStop(1, token("glint-zero"));
-          cx.fillStyle = glint;
-          circle(cx, specX, specY, specR);
-
-          // 5d. Bottom-right sparkle for curious / listening
-          if (
-            state.expression === "curious" ||
-            state.expression === "listening"
-          ) {
-            const sparkX = baseX + (40 + gazeX * 4) * ratio;
-            const sparkY = baseY + (46 + gazeY * 4) * ratio;
-            const sparkR = 8 * ratio;
-            const sparkle = cx.createRadialGradient(
-              sparkX,
-              sparkY,
-              0,
-              sparkX,
-              sparkY,
-              sparkR,
-            );
-            sparkle.addColorStop(0, token("eye-sparkle"));
-            sparkle.addColorStop(0.78, token("glint-zero"));
-            sparkle.addColorStop(1, token("glint-zero"));
-            cx.fillStyle = sparkle;
-            circle(cx, sparkX, sparkY, sparkR);
-          }
-          cx.restore();
-
-          // 5e. Conditional outer eyebrow arc (never drawn in neutral or speaking)
+          // 4c. Conditional outer eyebrow arc (never drawn in neutral or speaking)
           if (posture.browAngle !== undefined) {
             cx.save();
             cx.translate(baseX, baseY + (posture.browLift ?? 0) * ratio);
             cx.rotate((posture.browAngle * Math.PI) / 180);
-            cx.strokeStyle = primaryColor;
+            cx.strokeStyle = strokeColor;
             cx.lineWidth = 4 * ratio;
             cx.lineCap = "round";
             cx.globalAlpha = blinkOpacity * 0.68;
@@ -365,7 +283,7 @@ export function RobotFace(props: {
           cx.restore();
         }
 
-        // 6. Mouth / Waveform / Expression Mouth at (310 + gazeX * 4, 263 + gazeY * 3)
+        // 5. Mouth / Waveform / Expression Mouth at (310 + gazeX * 4, 263 + gazeY * 3)
         const mouthX = 310 + gazeX * 4;
         const mouthY = 263 + gazeY * 3;
         const levels = resonanceLevels(state.waveformBars);
@@ -375,8 +293,8 @@ export function RobotFace(props: {
           levels.some((level) => level > 0.06);
 
         cx.save();
-        cx.strokeStyle = primaryColor;
-        cx.fillStyle = primaryColor;
+        cx.strokeStyle = strokeColor;
+        cx.fillStyle = strokeColor;
         cx.lineCap = "round";
 
         if (showWaveform) {

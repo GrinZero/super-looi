@@ -5,6 +5,7 @@
   "build": 1,
   "rust": ".",
   "capabilities": {
+    "clipboard": true,
     "fs": {
       "read": [
         "${dataDir}"
@@ -27,8 +28,13 @@
         }
       ]
     },
+    "openUrl": {
+      "schemes": [
+        "https"
+      ]
+    },
     "speech": true
   },
   "theme": "theme.json",
-  "appearance": "dark"
+  "appearance": "system"
 }

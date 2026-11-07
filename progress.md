@@ -1,5 +1,35 @@
 # Super-LOOI 重构与演进进度
 
+### LLM 凭证配置标准化与 NSH 前后台一体化重构（2026-11-07）
+
+对齐 [`docs/plans/llm-credential-standardization-plan.md`](docs/plans/llm-credential-standardization-plan.md) 与 [`apps/nsh/DESIGN.md`](apps/nsh/DESIGN.md)：直接复用 `@earendil-works/pi-ai@1.5.0` 标准化多服务商凭证架构，落地「全天候深色省电桌宠主页 + A/B 明暗双主题结构 3 后台管理空间」。
+
+- [x] **Step 0：视觉与架构规范定稿 (`apps/nsh/DESIGN.md`, `docs/plans/llm-credential-standardization-plan.md`)**
+  - [x] 敲定「结构 3」后台管理布局（`58pt` 极窄左轨 + `48pt` 横向胶囊顶栏 + `7:5` 平衡双栏工作区，竖屏 `<600pt` 自动折为底栏 + 单列）
+  - [x] 敲定全天候深色省电桌宠舞台（白天 `#11100F` 深炭底 + `#FBF7F0` 清朗暖奶米圆眼；夜间 `#040405` 纯黑 OLED 底 + `#E8DAC3` 柔暗暖燕麦米圆眼，去除拟真眼球高光白斑与青色系束缚）与后台 A/B 明暗双主题
+  - [x] 完成 `apps/nsh/DESIGN.md` 与 `docs/plans/llm-credential-standardization-plan.md` 编写校验
+- [x] **Step 1：构建标准化 LLM Provider 目录与 `VaultCredentialStore` (`packages/looi-runtime`)**
+  - [x] 新增 `packages/looi-runtime/src/agent/llm-providers.ts`：定义五大预置服务品牌（`OpenAI / ChatGPT`、`Kimi`、`MiniMax`、`小米 MiMo`、`智谱 / Z.AI` 含标准按量 `zai-cn`/`zai-intl` 与 Coding Plan 区分）+ `custom` 兼容 API（`openai-completions` / `openai-responses` / `anthropic-messages`）目录矩阵
+  - [x] 实现版本化 `ModelVaultEnvelope`（`version: 2`）与旧版 `{ baseUrl, model, apiKey, conversationId }` 无损迁移，实现对接 Pi `CredentialStore` 全局单槽互斥读写的 `VaultCredentialStore` 及 `createLooiModelsRegistry`
+  - [x] 导出接口并编写单元测试 `packages/looi-runtime/test/llm-providers.test.ts`（68 项测试通过）
+- [x] **Step 2：升级 `PiAgentExecutor` 与 `packages/nsh-node-compat` 静态 OAuth 打包支持**
+  - [x] 在 `packages/nsh-node-compat` 新增沙盒安全的轻量 `node:http` 回调服务垫片（支撑 `openaiChatGPTOAuth` 竞态回退至手动粘贴回调 URL），并在打包入口静态注册 `registerBunOAuthFlows`（覆盖 `kimiCodingOAuth` 设备码授权与 `openaiChatGPTOAuth`）
+  - [x] 升级 `packages/looi-runtime/src/agent/pi-executor.ts`：支持注入共享 `Models` 注册表与 `{ providerId, modelId }` 解析模型和流式函数，100% 兼容既有 `{ baseUrl, apiKey, model }` 与自定义 `streamFn`
+  - [x] 通过 `pnpm --filter @super-looi/runtime test` / `typecheck` / `build` 与 `pnpm --filter @super-looi/nsh-node-compat test`
+- [x] **Step 3：落地全天候深色桌宠光学 Token 与 A/B 双主题 (`apps/nsh/theme.json`, `apps/nsh/ui/RobotFace.tsx`, `apps/nsh/nsh.json`)**
+  - [x] 更新 `apps/nsh/theme.json`：写入 `light`（日间深炭桌宠 + 后台方案 B 暖石日光）与 `dark`（夜间纯黑 OLED 桌宠 + 后台方案 A 中性锌灰）全量语义 Token
+  - [x] 更新 `apps/nsh/nsh.json`：切换 `"appearance": "system"`，补充 OAuth 所需的 `"clipboard": true` 与 `"openUrl": { "schemes": ["https"] }` 权限声明
+  - [x] 重构 `apps/nsh/ui/RobotFace.tsx`：接入 `eye-core` / `eye-edge` / `eye-halo` / `halo-zero` / `face-stroke` / `face-texture` / `horizon-core` / `horizon-zero`，移除拟真高光白斑（`glint`）与暗底月牙内缘，保留正圆几何、条件眉弧与真实音频 RMS 声波
+- [ ] **Step 4：升级 `MobileRuntime`、`store.ts` 与「结构 3」后台四空间 UI (`apps/nsh`)**
+  - [ ] 升级 `apps/nsh/runtime/application.ts` 与 `apps/nsh/scripts/build-runtime.ts`：接入 `VaultCredentialStore` + `createLooiModelsRegistry`，暴露多 Provider 目录快照、API Key 保存/清除、兼容 API 配置、模型切换及 OAuth 登录（设备码通知 / 浏览器回调 URL 提交 / 取消 / 登出）接口，保持旧 `configuration()` / `configure()` 兼容
+  - [ ] 升级 `apps/nsh/store.ts`：管理前后台空间路由（`face | models | voice | home | tasks`）、外观切换（`system | light | dark`）、多服务商凭证/模型状态与 OAuth 交互流
+  - [ ] 实现结构 3 后台管理组件：`ManagementShell.tsx`、`ModelsSpaceView.tsx`、`VoiceSpaceView.tsx`、`HomeSpaceView.tsx`、`TasksSpaceView.tsx`，连通 `apps/nsh/App.tsx` 前台深色省电舞台与后台切换
+- [ ] **Step 5：全量测试回归、iOS 模拟器双模式实机截图验证与独立子 Agent 审查**
+  - [ ] 更新并扩充 `apps/nsh/App.test.tsx`、`apps/nsh/HomePanel.test.tsx` 与 `apps/nsh/scripts/nsh.ts`
+  - [ ] 运行全套 `typecheck`、`build`、`test`（含 QuickJS 兼容套件）全部通过
+  - [ ] 在 iOS 模拟器实机验证白天/暗黑模式下的桌宠大脸与结构 3 四空间截图
+  - [ ] 调度独立审查子 Agent 核验代码与 UI，修复审查项并更新 `progress.md` / `todo.md` 提交 Git Commit
+
 ### Expo / Hub 退役收尾（2026-11-07）
 
 当前产品采用 NSH 最简 Agent Loop。以下历史阶段的旧端保留、Expo 验证与记忆产品迁移要求由本次退役收尾取代；硬件后续事项统一见 todo.md。归档分支 archive/legacy-hub-and-expo（55f77ef）保留旧端及删除前未提交修改。

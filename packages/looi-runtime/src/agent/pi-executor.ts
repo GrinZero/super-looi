@@ -15,6 +15,7 @@ import {
   createProvider,
   type Api,
   type Model,
+  type Models,
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { arr, obj, opt, str } from "@earendil-works/pi-schema";
@@ -94,7 +95,11 @@ export interface PiExecutorConfig {
   requireApprovalForAllWrites?: boolean;
   /** Native callers bind approvals to the current foreground UI session. */
   approvalUiSessionId?: string;
+  modelsRegistry?: Models;
+  providerId?: string;
 }
+
+export type PiAgentExecutorConfig = PiExecutorConfig;
 
 interface Worker {
   agent?: Agent;
@@ -397,6 +402,30 @@ export class PiAgentExecutor implements AgentExecutor {
         maxTokens: 4096,
       };
       return { model: fallbackModel, streamFn: this.config.streamFn };
+    }
+
+    if (this.config.modelsRegistry && this.config.providerId) {
+      const modelId = this.config.model;
+      if (!modelId) {
+        throw new Error(
+          "PiAgentExecutor requires a model when using modelsRegistry",
+        );
+      }
+      const found = this.config.modelsRegistry.getModel(
+        this.config.providerId,
+        modelId,
+      );
+      if (!found) {
+        throw new Error(
+          `Model ${modelId} not found in provider ${this.config.providerId}`,
+        );
+      }
+      return {
+        model: found,
+        streamFn: this.config.modelsRegistry.streamSimple.bind(
+          this.config.modelsRegistry,
+        ),
+      };
     }
 
     const baseUrl = this.config.baseUrl ?? process.env.LLM_BASE_URL;
