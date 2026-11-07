@@ -1,5 +1,21 @@
 # 当前待办
 
+## NSH 自动语音唤醒 → 豆包 Realtime 对话（2026-11-07 规划）
+
+调研与实施方案见 [开源社区调研](docs/voice-wake-realtime-community-research.md) 与 [NSH 语音唤醒实施方案](docs/plans/nsh-voice-wake-realtime-plan.md)。
+
+- [ ] **首版稳健基线（喊 Hey LOOI $\rightarrow$ 眼神/提示音就绪 $\rightarrow$ 开口多轮对话 + 12s 自动休眠）**
+  - [x] 跨端原生库链接与模型资产打包管线：iOS 真机/模拟器静态链接、Android 三架构动态库注入和 16 KB 对齐、模型内嵌与沙盒释放。
+  - [x] Rust 原生音频层：中英双语 KWS、专用推理线程、单流切换、就绪提示音与播放排空状态。
+  - [x] `VoiceRuntime`：本地待机、Duplex 多轮、12 秒自动休眠与道别工具。
+  - [x] 首屏和语音管理空间：唤醒开关、状态文案与前后台/米家登录生命周期联动。
+  - [ ] 用真实麦克风分别说出 Hey LOOI、嘿露伊、你好露伊，记录唤醒准确率和误唤醒情况；模拟器已验证模型加载与切流。
+  - [ ] 用真实豆包 Duplex 凭证验证唤醒后的多轮播报、长句不误休眠、道别工具和 12 秒回待机。
+  - [ ] Android 模拟器或真机运行 KWS 与音频链路；三 ABI APK 已构建并通过 16 KB 对齐验证，当前未连接 Android 设备。
+- [ ] **后续备选优化：零等待连说增强（视首版实机体验按需启用）**
+  - [ ] **备选 B1（冷启动有界 FIFO + 加速节拍追赶）**：唤醒词命中瞬间将词尾后的首句语音缓存在本地有界 FIFO（上限 3 秒），收到 `session.created` 后将豆包发送节拍器从 `20ms` 临时提速至 `11ms`（约 1.8x）排空积压帧后恢复 `20ms` 实时步进，支持 `"Hey LOOI 打开台灯"` 无需停顿连说。
+  - [ ] **备选 B2（Warm Session 静音热备）**：在活跃交互驻座期预先建立豆包 WebSocket 并保持 `input_audio_mute.commit` 静默，本地 KWS 命中瞬间仅发送 `input_audio_unmute.commit` 实现 `0ms` 建连延迟。
+
 ## NSH 后续功能
 
 - [ ] LOOI BLE 原生桥接及真机连接、断连、脱座与停止验证；共享驱动与状态机已保留。
@@ -12,7 +28,7 @@
 
 ## 模型服务认证与订阅接入（2026-11-07 调研）
 
-结论见 [接入范围与架构建议](docs/llm-provider-auth-research.md) 和 [MiniMax / MiMo 证据](docs/llm-china-provider-research.md)。本轮未实施或验证真实账号调用。
+结论见 [接入范围与架构建议](docs/llm-provider-auth-research.md) 和 [MiniMax / MiMo 证据](docs/llm-china-provider-research.md)。
 
 - [ ] ChatGPT 正式 plan usage：核验项目发行形态，手机系统浏览器 + 127.0.0.1 回调、OIDC 身份验证、注册复用、账号目录与 Responses 工具流。
 - [ ] MiniMax M Plan：确认自有 App OAuth client 接入规则、国内/国际域名与个人交互用途；验证设备码登录和刷新。

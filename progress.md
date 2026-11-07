@@ -1,5 +1,22 @@
 # Super-LOOI 重构与演进进度
 
+### NSH 自动语音唤醒与 Realtime 对话（2026-11-07）
+
+- [x] Step 1：固定 sherpa-onnx 模型与原生库，接入 iOS / Android 构建和 APK 打包
+  - [x] 核对发布资产、C API 与唤醒词 token，并实现缓存准备脚本
+  - [x] 配置 Cargo 链接、模型内嵌与 Android 原生库注入
+- [x] Step 2：实现 Rust 音频单流切换、本地 KWS 工作线程与就绪提示音
+  - [x] KWS 模型初始化、专用线程和有界采集队列
+  - [x] KWS / conversation 切换、播放排空与音频状态桥接
+- [x] Step 3：实现 VoiceRuntime 待机唤醒、Duplex 会话、多轮对话和自动休眠
+  - [x] 待机、权限、唤醒、会话结束及道别工具
+  - [x] 播放排空、用户语音阶段和 12 秒空闲计时
+- [x] Step 4：连接状态管理和首屏、语音管理空间交互
+- [ ] Step 5：运行测试与 iOS / Android 构建，独立 review 并提交
+  - [x] iOS 模拟器真实模型加载与单流切换测试；Android 三 ABI APK、ELF 与 ZIP 16 KB 对齐验证
+  - [ ] 最终类型检查、测试、UI 复核与独立子 agent review
+  - [ ] 提交本次改动
+
 ### LIVE 首屏嘴型闪烁修复（2026-11-07）
 
 - [x] Step 1：定位音量阈值导致微笑与波形嘴型反复切换

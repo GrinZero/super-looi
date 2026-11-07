@@ -277,12 +277,12 @@ function App() {
                 else={
                   <If
                     when={
-                      !store.wakeGuideDismissed() &&
                       !compose() &&
-                      store.voiceState().phase === "idle"
+                      (store.voiceState().phase === "standby" ||
+                        (store.voiceState().phase === "idle" && !store.wakeGuideDismissed()))
                     }
                   >
-                    <WakeGuideBar onPress={toggleLiveVoice} />
+                    <WakeGuideBar active={store.voiceState().phase === "standby"} onPress={toggleLiveVoice} />
                   </If>
                 }
               >

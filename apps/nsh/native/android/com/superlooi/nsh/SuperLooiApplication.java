@@ -30,6 +30,8 @@ public final class SuperLooiApplication extends Application {
     @Override public void onCreate() {
         super.onCreate();
         instance = this;
+        System.loadLibrary("onnxruntime");
+        System.loadLibrary("sherpa-onnx-c-api");
         System.loadLibrary("nsh");
         registerVm();
         registerAudioVm();

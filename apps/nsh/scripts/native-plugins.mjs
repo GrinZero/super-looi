@@ -15,6 +15,7 @@ import {
 import { dirname, resolve, join, delimiter } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
+import { cache as sherpaCache } from "./prepare-sherpa-kws.mjs";
 
 const app = resolve(import.meta.dirname, ".."),
   bin = join(app, "scripts/native-bin");
@@ -36,7 +37,7 @@ function owned(path) {
 /** App-local SDK overlay registers a pre-sign plugin without editing NSH,
  * the installed SDK, or Expo prebuild outputs. */
 export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
-  const env = { ...process.env, ...buildVariables };
+  const env = { ...process.env, ...buildVariables, LOOI_SHERPA_CACHE_DIR: sherpaCache };
   if (env.JAVA_HOME)
     env.PATH = join(env.JAVA_HOME, "bin") + delimiter + env.PATH;
   if (targets.iosSimulator) {

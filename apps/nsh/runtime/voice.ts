@@ -8,6 +8,8 @@ export interface VoiceAudioPort {
   enqueue(pcm: Uint8Array, rate: number): void;
   clearPlayback(): void;
   setMuted(muted: boolean): void;
+  setCaptureMode(mode: string): void;
+  playReadyCue(): void;
   drainCapture(): Array<{
     pcm: Uint8Array;
     timestampMs: number;
@@ -18,6 +20,9 @@ export interface VoiceAudioPort {
     permission: string;
     error: string;
     queuedPlaybackMs: number;
+    captureMode: string;
+    wakeWord: string;
+    kwsReady: boolean;
   };
 }
 export interface VoiceSocket {
@@ -28,12 +33,14 @@ export interface VoiceSocket {
 export interface VoiceState {
   phase:
     | "idle"
+    | "standby"
     | "permission"
     | "connecting"
     | "listening"
     | "speaking"
     | "error";
   muted: boolean;
+  wakeEnabled: boolean;
   transcript: string;
   error: string;
 }
@@ -58,6 +65,7 @@ export class VoiceRuntime {
   private state: VoiceState = {
     phase: "idle",
     muted: false,
+    wakeEnabled: false,
     transcript: "",
     error: "",
   };
@@ -65,6 +73,10 @@ export class VoiceRuntime {
   private socket?: VoiceSocket;
   private timer?: ReturnType<typeof setTimeout>;
   private deadline?: ReturnType<typeof setTimeout>;
+  private standbyTimer?: ReturnType<typeof setTimeout>;
+  private idleTimer?: ReturnType<typeof setTimeout>;
+  private awaitingTimer?: ReturnType<typeof setTimeout>;
+  private farewellTimer?: ReturnType<typeof setTimeout>;
   private calls = new Set<string>();
   private writes = 0;
   private writeQueue: Promise<void> = Promise.resolve();
@@ -77,6 +89,14 @@ export class VoiceRuntime {
   private outputBytes = 0;
   private key = "";
   private closed = false;
+  private turnActivity: "waiting_user" | "user_speaking" | "awaiting_reply" = "waiting_user";
+  private outputStreamDone = false;
+  private closingAfterFarewell = false;
+  private farewellStreamDone = false;
+  private farewellToolSent = false;
+  private farewellOriginResponseId = "";
+  private farewellResponseStarted = false;
+  private toolRuns = 0;
   constructor(
     private readonly options: {
       vault: Vault;
@@ -93,7 +113,11 @@ export class VoiceRuntime {
   ) {
     try {
       const saved = options.vault.get("voice");
-      if (saved) this.key = this.validate(JSON.parse(saved).apiKey);
+      if (saved) {
+        const config = JSON.parse(saved);
+        this.key = this.validate(config.apiKey);
+        this.state.wakeEnabled = config.wakeEnabled === true;
+      }
     } catch {
       this.state = {
         ...this.state,
@@ -119,8 +143,18 @@ export class VoiceRuntime {
     if (this.closed) throw new Error("语音已关闭");
     const next = this.validate(value);
     this.stop();
-    this.options.vault.set("voice", JSON.stringify({ apiKey: next }));
+    this.options.vault.set("voice", JSON.stringify({ apiKey: next, wakeEnabled: this.state.wakeEnabled }));
     this.key = next;
+    if (this.state.wakeEnabled) void this.enterStandby();
+  }
+  setWakeEnabled(enabled: boolean): void {
+    if (this.closed) return;
+    if (enabled && !this.key) throw new Error("请先配置豆包语音 API Key");
+    this.options.vault.set("voice", JSON.stringify({ apiKey: this.key, wakeEnabled: enabled }));
+    this.publish({ wakeEnabled: enabled });
+    if (enabled && ["idle", "error", "permission"].includes(this.state.phase))
+      void this.enterStandby();
+    if (!enabled && this.state.phase === "standby") this.stop();
   }
   snapshot(): VoiceState {
     return { ...this.state };
@@ -132,11 +166,63 @@ export class VoiceRuntime {
   private current(generation: number) {
     return !this.closed && generation === this.generation;
   }
-  async start(): Promise<void> {
+  async enterStandby(): Promise<void> {
+    if (this.closed || !this.key || !this.state.wakeEnabled) return;
+    if (this.state.phase === "standby") return;
+    const permission = this.options.audio.status().permission;
+    if (permission !== "granted") {
+      const result = permission === "undetermined" && this.state.phase === "permission"
+        ? "undetermined"
+        : this.options.audio.requestPermission();
+      if (result !== "granted") {
+        if (result !== "undetermined") {
+          this.options.audio.stop();
+          this.publish({ phase: "error", error: "麦克风权限不可用，请在系统设置中开启" });
+          return;
+        }
+        this.publish({ phase: "permission", error: "请允许麦克风权限" });
+        if (result === "undetermined") {
+          const generation = this.generation;
+          this.standbyTimer = setTimeout(() => {
+            if (this.current(generation) && this.state.wakeEnabled) void this.enterStandby();
+          }, 250);
+        }
+        return;
+      }
+    }
+    try {
+      this.options.audio.setCaptureMode("kws");
+      const status = this.options.audio.status();
+      if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady)
+        throw new Error(status.error || "本地语音唤醒引擎未就绪");
+      this.publish({ phase: "standby", muted: false, error: "" });
+      this.pollStandby(this.generation);
+    } catch (error) {
+      this.options.audio.stop();
+      this.publish({ phase: "error", error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  private pollStandby(generation: number): void {
+    if (!this.current(generation) || this.state.phase !== "standby") return;
+    const status = this.options.audio.status();
+    if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady) {
+      this.fail(status.error || "本地语音唤醒引擎未就绪");
+      return;
+    }
+    if (status.wakeWord) {
+      void this.start({ fromWakeWord: true });
+      return;
+    }
+    this.standbyTimer = setTimeout(() => this.pollStandby(generation), 60);
+  }
+  async start(options: { fromWakeWord?: boolean } = {}): Promise<void> {
     if (this.closed) throw new Error("语音已关闭");
-    if (!["idle", "error", "permission"].includes(this.state.phase)) return;
+    if (!["idle", "standby", "error", "permission"].includes(this.state.phase)) return;
     if (!this.key) throw new Error("请先配置豆包语音 API Key");
-    this.stop();
+    const fromStandby = this.state.phase === "standby";
+    if (this.standbyTimer) clearTimeout(this.standbyTimer);
+    this.standbyTimer = undefined;
+    if (!fromStandby) this.stop();
     if (this.options.audio.status().permission !== "granted") {
       const permission = this.options.audio.requestPermission();
       if (permission !== "granted") {
@@ -180,6 +266,12 @@ export class VoiceRuntime {
                   required: ["prompt"],
                   additionalProperties: false,
                 },
+              },
+              {
+                type: "function",
+                name: "end_conversation",
+                description: "用户明确表示结束对话时调用。完成工具回执后简短自然地道别。",
+                parameters: { type: "object", properties: {}, additionalProperties: false },
               },
             ],
             audio: {
@@ -269,10 +361,17 @@ export class VoiceRuntime {
           if (this.state.phase !== "connecting") continue;
           if (this.deadline) clearTimeout(this.deadline);
           this.deadline = undefined;
-          this.options.audio.start(true);
-          this.publish({ phase: "listening" });
+          this.options.audio.setCaptureMode("conversation");
+          this.options.audio.playReadyCue();
+          this.turnActivity = "waiting_user";
+          this.publish({ phase: "listening", muted: false });
+          this.startIdleTimer(generation);
           this.tick(generation);
         } else if (event.type === "response.output_audio.started") {
+          this.pauseIdleTimer();
+          this.outputStreamDone = false;
+          if (this.closingAfterFarewell && this.farewellToolSent && (!responseId || responseId !== this.farewellOriginResponseId))
+            this.farewellResponseStarted = true;
           this.publish({ phase: "speaking" });
         } else if (
           event.type === "response.output_audio.delta" &&
@@ -301,8 +400,11 @@ export class VoiceRuntime {
           for (let offset = 0; offset < pcm.length; offset += 4800)
             this.outputFrames.push(pcm.subarray(offset, offset + 4800));
           this.outputBytes += pcm.length;
-        } else if (event.type === "response.output_audio.done")
-          this.publish({ phase: "listening" });
+        } else if (event.type === "response.output_audio.done") {
+          this.outputStreamDone = true;
+          if (this.closingAfterFarewell && this.farewellToolSent && this.farewellResponseStarted)
+            this.farewellStreamDone = true;
+        }
         else if (event.type === "response.output_text.delta")
           this.publish({
             transcript: (
@@ -315,8 +417,19 @@ export class VoiceRuntime {
               -4096,
             ),
           });
-        else if (String(event.type).includes("speech_started"))
-          this.interrupt();
+        else if (event.type === "conversation.item.input_audio_transcription.started" || event.type === "conversation.item.input_audio_transcription.delta" || event.type === "input_audio_buffer.speech_started") {
+          this.turnActivity = "user_speaking";
+          this.pauseIdleTimer();
+          if (this.state.phase === "speaking" || this.outputFrames.length || this.responseId)
+            this.interrupt();
+        } else if (event.type === "input_audio_buffer.committed" || event.type === "conversation.item.input_audio_transcription.completed" || event.type === "input_audio_buffer.speech_stopped") {
+          this.turnActivity = "awaiting_reply";
+          this.pauseIdleTimer();
+          this.startAwaitingTimer(generation);
+        } else if (event.type === "conversation.item.input_audio_transcription.failed" || event.type === "response.done") {
+          if (this.closingAfterFarewell && event.type === "response.done" && this.farewellToolSent && (this.farewellResponseStarted || (responseId && responseId !== this.farewellOriginResponseId))) this.farewellStreamDone = true;
+          else if (this.state.phase !== "speaking" && this.toolRuns === 0) this.resumeWaiting(generation);
+        }
         else if (event.type === "response.function_call_arguments.done") {
           for (const item of Array.isArray(event.items)
             ? event.items.slice(0, 8)
@@ -376,6 +489,17 @@ export class VoiceRuntime {
             if (this.current(generation)) this.audioWriting = false;
           });
       }
+      const drained = this.outputFrames.length === 0 && this.options.audio.status().queuedPlaybackMs <= 0;
+      if (this.closingAfterFarewell && this.farewellStreamDone && drained) {
+        this.endSession();
+        return;
+      }
+      if (!this.closingAfterFarewell && this.state.phase === "speaking" && this.outputStreamDone && drained) {
+        this.outputStreamDone = false;
+        this.responseId = "";
+        this.publish({ phase: "listening" });
+        this.resumeWaiting(generation);
+      }
       this.timer = setTimeout(() => this.tick(generation), 20);
     } catch {
       this.fail("音频被系统中断，请再次点 LIVE 开启");
@@ -389,6 +513,28 @@ export class VoiceRuntime {
       return;
     }
     this.calls.add(id);
+    if (item.name === "end_conversation") {
+      this.closingAfterFarewell = true;
+      this.farewellStreamDone = false;
+      this.farewellToolSent = false;
+      this.farewellResponseStarted = false;
+      this.farewellOriginResponseId = this.responseId;
+      this.outputStreamDone = false;
+      this.pauseIdleTimer();
+      this.farewellTimer = setTimeout(() => {
+        if (this.current(generation)) this.endSession();
+      }, 5000);
+      void this.send({
+        type: "conversation.item.create",
+        items: [{ call_id: id, role: "tool", content: [{ type: "input_text", text: JSON.stringify({ status: "ending", instruction: "请用简短自然的一句话向用户道别" }) }] }],
+      }, generation).then(() => {
+        if (this.current(generation)) this.farewellToolSent = true;
+      }).catch(() => {
+        if (this.current(generation)) this.fail("道别回传失败");
+      });
+      return;
+    }
+    this.toolRuns++;
     void (async () => {
       let output: unknown;
       try {
@@ -423,6 +569,8 @@ export class VoiceRuntime {
         },
         generation,
       );
+      this.toolRuns--;
+      if (this.turnActivity === "awaiting_reply") this.startAwaitingTimer(generation);
     })().catch(() => {
       if (this.current(generation)) this.fail("语音任务回传失败");
     });
@@ -473,14 +621,77 @@ export class VoiceRuntime {
     });
   }
   private fail(message: string) {
+    if (this.state.wakeEnabled && this.state.phase !== "standby" && this.options.audio.status().state === "running") {
+      this.endSession();
+      this.publish({ error: message });
+      return;
+    }
     this.stop();
     this.publish({ phase: "error", error: message });
   }
+  private pauseIdleTimer() {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.awaitingTimer) clearTimeout(this.awaitingTimer);
+    this.idleTimer = this.awaitingTimer = undefined;
+  }
+  private startIdleTimer(generation: number) {
+    this.pauseIdleTimer();
+    this.idleTimer = setTimeout(() => {
+      if (this.current(generation) && this.turnActivity === "waiting_user" && this.toolRuns === 0)
+        this.endSession();
+    }, 12000);
+  }
+  private startAwaitingTimer(generation: number) {
+    if (this.awaitingTimer) clearTimeout(this.awaitingTimer);
+    this.awaitingTimer = setTimeout(() => {
+      if (this.current(generation) && this.turnActivity === "awaiting_reply" && this.toolRuns === 0 && this.state.phase === "listening")
+        this.resumeWaiting(generation);
+    }, 12000);
+  }
+  private resumeWaiting(generation: number) {
+    this.turnActivity = "waiting_user";
+    this.startIdleTimer(generation);
+  }
+  endSession() {
+    const socket = this.socket;
+    const pendingWrites = this.writeQueue;
+    this.socket = undefined;
+    ++this.generation;
+    this.clearTimers();
+    this.frames = [];
+    this.outputFrames = [];
+    this.outputBytes = 0;
+    this.calls.clear();
+    this.toolRuns = 0;
+    this.audioWriting = false;
+    this.discardOutput = false;
+    this.responseId = "";
+    this.cancelledResponses.clear();
+    this.writes = 0;
+    this.writeQueue = Promise.resolve();
+    this.closingAfterFarewell = this.farewellStreamDone = this.outputStreamDone = false;
+    this.farewellToolSent = this.farewellResponseStarted = false;
+    this.farewellOriginResponseId = "";
+    this.options.audio.clearPlayback();
+    this.options.onAudioLevel?.(0);
+    this.options.cancelTask();
+    if (socket) {
+      void pendingWrites
+        .then(() => socket.write(JSON.stringify({ type: "session.close" })))
+        .catch(() => {})
+        .finally(() => void socket.close().catch(() => {}));
+    }
+    if (this.state.wakeEnabled && !this.closed) void this.enterStandby();
+    else this.stop();
+  }
+  private clearTimers() {
+    for (const timer of [this.timer, this.deadline, this.standbyTimer, this.idleTimer, this.awaitingTimer, this.farewellTimer])
+      if (timer) clearTimeout(timer);
+    this.timer = this.deadline = this.standbyTimer = this.idleTimer = this.awaitingTimer = this.farewellTimer = undefined;
+  }
   stop() {
     ++this.generation;
-    if (this.timer) clearTimeout(this.timer);
-    if (this.deadline) clearTimeout(this.deadline);
-    this.timer = this.deadline = undefined;
+    this.clearTimers();
     const socket = this.socket;
     this.socket = undefined;
     this.options.audio.stop();
@@ -489,6 +700,10 @@ export class VoiceRuntime {
     this.outputFrames = [];
     this.outputBytes = 0;
     this.calls.clear();
+    this.toolRuns = 0;
+    this.closingAfterFarewell = this.farewellStreamDone = this.outputStreamDone = false;
+    this.farewellToolSent = this.farewellResponseStarted = false;
+    this.farewellOriginResponseId = "";
     this.audioWriting = false;
     this.discardOutput = false;
     this.responseId = "";
@@ -500,7 +715,7 @@ export class VoiceRuntime {
     this.publish({ phase: "idle", muted: false, error: "" });
   }
   close() {
-    this.stop();
     this.closed = true;
+    this.stop();
   }
 }

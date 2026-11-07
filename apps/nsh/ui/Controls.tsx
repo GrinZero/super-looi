@@ -106,12 +106,12 @@ export function WaveOrnament(props: { compact?: boolean }) {
 }
 
 /** Bottom wake guide bar for the pure-face home screen. */
-export function WakeGuideBar(props: { onPress: () => void }) {
+export function WakeGuideBar(props: { onPress: () => void; active: boolean }) {
   const narrow = () => windowSize().width < 440;
   return (
     <Button
       testID="wake-guide"
-      accessibilityLabel="说 Hey LOOI 唤醒我，或轻触开启 LIVE 对话"
+      accessibilityLabel={props.active ? "说 Hey LOOI 唤醒我，或轻触开启 LIVE 对话" : "轻触开启 LIVE 实时语音对话"}
       onPress={() => props.onPress()}
       class="flex-row items-center justify-center gap-3 px-3 py-1 active:opacity-75"
       style={{ minHeight: 52 }}
@@ -133,9 +133,11 @@ export function WakeGuideBar(props: { onPress: () => void }) {
               : "text-stage-muted text-base text-center"
           }
         >
-          说 <Text class="text-stage-fg font-medium">Hey LOOI</Text> 唤醒我
-          {"  ·  "}
-          <Text class="text-stage-muted text-xs">轻触开启 LIVE 对话</Text>
+          <If when={props.active} else={<Text class="text-stage-muted">轻触开启 LIVE 实时语音对话</Text>}>
+            说 <Text class="text-stage-fg font-medium">Hey LOOI</Text> 唤醒我
+            {"  ·  "}
+            <Text class="text-stage-muted text-xs">轻触开启 LIVE 对话</Text>
+          </If>
         </Text>
         <View
           class="absolute right-0 top-0 bottom-0 w-3 rounded-r-full border-r-2 border-stage-pill-border"

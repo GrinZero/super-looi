@@ -2,15 +2,19 @@
 use nsh_core::prelude::*;
 use std::{
     collections::VecDeque,
+    path::PathBuf,
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    thread::JoinHandle,
 };
 
 #[cfg(target_os = "ios")]
 #[path = "audio/ios.rs"]
 mod ios;
+#[path = "audio/kws.rs"]
+mod kws;
 #[path = "audio/pcm.rs"]
 mod pcm;
 #[cfg(target_os = "ios")]
@@ -23,6 +27,74 @@ use android as platform;
 
 static AUDIO_OWNER: AtomicBool = AtomicBool::new(false);
 type SharedAudio = Arc<Mutex<AudioBuffers>>;
+const MAX_KWS_CHUNKS: usize = 50;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CaptureMode {
+    KwsStandby,
+    RealtimeCapture,
+}
+
+struct KwsWorker {
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+impl KwsWorker {
+    fn start(shared: SharedAudio, directory: PathBuf) -> Result<Self, String> {
+        let mut spotter = kws::KeywordSpotter::new(&directory)?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopping = stop.clone();
+        let thread = std::thread::Builder::new()
+            .name("looi-kws".into())
+            .spawn(move || {
+                let mut seen_epoch = u64::MAX;
+                while !stopping.load(Ordering::Acquire) {
+                    let (epoch, chunks) = {
+                        let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
+                        while state.kws_queue.is_empty() && !stopping.load(Ordering::Acquire) {
+                            let signal = state.kws_notify.clone();
+                            state = signal.wait(state).unwrap_or_else(|e| e.into_inner());
+                        }
+                        (
+                            state.kws_epoch,
+                            state.kws_queue.drain(..).collect::<Vec<_>>(),
+                        )
+                    };
+                    if stopping.load(Ordering::Acquire) {
+                        break;
+                    }
+                    if epoch != seen_epoch {
+                        spotter.reset();
+                        seen_epoch = epoch;
+                    }
+                    for chunk in chunks {
+                        if let Some(word) = spotter.accept_pcm16(&chunk) {
+                            let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
+                            if state.kws_epoch == seen_epoch
+                                && state.mode == CaptureMode::KwsStandby
+                            {
+                                state.detected_wake_word = Some(word);
+                            }
+                            break;
+                        }
+                    }
+                }
+            })
+            .map_err(|_| "Cannot start local wake worker")?;
+        Ok(Self {
+            stop,
+            thread: Some(thread),
+        })
+    }
+    fn stop(&mut self, shared: &SharedAudio) {
+        self.stop.store(true, Ordering::Release);
+        if let Ok(state) = shared.lock() {
+            state.kws_notify.notify_all();
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 #[cfg_attr(
     not(any(target_os = "ios", target_os = "android", test)),
@@ -35,9 +107,16 @@ pub(super) struct AudioBuffers {
     captured_samples: u64,
     dropped_packets: u32,
     pending_samples: usize,
+    cue_pending_samples: usize,
     generation: u64,
     muted: bool,
     error: String,
+    mode: CaptureMode,
+    kws_queue: VecDeque<Vec<u8>>,
+    kws_epoch: u64,
+    kws_notify: Arc<Condvar>,
+    detected_wake_word: Option<String>,
+    suppress_until_sample: u64,
 }
 
 impl Default for AudioBuffers {
@@ -49,9 +128,16 @@ impl Default for AudioBuffers {
             captured_samples: 0,
             dropped_packets: 0,
             pending_samples: 0,
+            cue_pending_samples: 0,
             generation: 0,
             muted: false,
             error: String::new(),
+            mode: CaptureMode::RealtimeCapture,
+            kws_queue: VecDeque::with_capacity(MAX_KWS_CHUNKS),
+            kws_epoch: 0,
+            kws_notify: Arc::new(Condvar::new()),
+            detected_wake_word: None,
+            suppress_until_sample: 0,
         }
     }
 }
@@ -61,13 +147,36 @@ impl Default for AudioBuffers {
     allow(dead_code)
 )]
 impl AudioBuffers {
+    fn switch_mode(&mut self, next: CaptureMode) {
+        self.mode = next;
+        self.muted = false;
+        self.capture.clear();
+        self.partial.clear();
+        self.kws_queue.clear();
+        self.detected_wake_word = None;
+        self.kws_epoch = self.kws_epoch.wrapping_add(1);
+        self.suppress_until_sample = self.captured_samples + 2400;
+        self.kws_notify.notify_one();
+    }
     fn captured(&mut self, bytes: &[u8]) {
         if !self.error.is_empty() {
             return;
         }
-        if self.muted {
+        if self.muted || self.captured_samples < self.suppress_until_sample {
             self.partial.clear();
+            self.kws_queue.clear();
+            self.kws_epoch = self.kws_epoch.wrapping_add(1);
             self.captured_samples += (bytes.len() / 2) as u64;
+            return;
+        }
+        if self.mode == CaptureMode::KwsStandby {
+            self.captured_samples += (bytes.len() / 2) as u64;
+            if self.kws_queue.len() == MAX_KWS_CHUNKS {
+                self.kws_queue.clear();
+                self.kws_epoch = self.kws_epoch.wrapping_add(1);
+            }
+            self.kws_queue.push_back(bytes.to_vec());
+            self.kws_notify.notify_one();
             return;
         }
         self.partial.extend_from_slice(bytes);
@@ -85,6 +194,7 @@ impl AudioBuffers {
         self.generation = self.generation.wrapping_add(1);
         self.playback.clear();
         self.pending_samples = 0;
+        self.cue_pending_samples = 0;
     }
 }
 
@@ -118,6 +228,9 @@ pub struct VoiceAudioStatus {
     pub dropped_capture_packets: u32,
     /// Sanitized failure, without audio or credentials.
     pub error: String,
+    pub capture_mode: String,
+    pub wake_word: String,
+    pub kws_ready: bool,
 }
 
 /// Explicit-lifetime mobile PCM capture/playback. Call stop on background/disconnect.
@@ -127,18 +240,31 @@ pub struct VoiceAudio {
     native: Option<platform::Audio>,
     capture: bool,
     owns_session: bool,
+    kws_worker: Option<KwsWorker>,
+    kws_directory: PathBuf,
 }
 
 #[class]
 impl VoiceAudio {
     /// Create an idle bridge; neither capture nor permission prompts begin here.
-    pub fn new() -> Self {
-        Self {
+    pub fn new(sys: System) -> Result<Self, String> {
+        let data = sys
+            .data_dir
+            .as_ref()
+            .ok_or("Private app storage unavailable")?;
+        for write in [true, false] {
+            sys.access
+                .authorize_file_with_paths(data, data, &sys.paths, write)
+                .map_err(|_| "Wake model storage access denied")?;
+        }
+        Ok(Self {
             shared: Arc::new(Mutex::new(AudioBuffers::default())),
             native: None,
             capture: false,
             owns_session: false,
-        }
+            kws_worker: None,
+            kws_directory: data.join("kws"),
+        })
     }
 
     /// Request microphone permission explicitly; poll status for the result.
@@ -221,6 +347,56 @@ impl VoiceAudio {
         }
     }
 
+    /// Change local wake listening and realtime capture without restarting devices.
+    pub fn set_capture_mode(&mut self, mode: String) -> Result<(), String> {
+        let next = match mode.as_str() {
+            "kws" => CaptureMode::KwsStandby,
+            "conversation" => CaptureMode::RealtimeCapture,
+            _ => return Err("Unsupported capture mode".into()),
+        };
+        if self.native.is_none() {
+            self.start(true)?;
+        }
+        if next == CaptureMode::KwsStandby && self.kws_worker.is_none() {
+            self.kws_worker = Some(KwsWorker::start(
+                self.shared.clone(),
+                self.kws_directory.clone(),
+            )?);
+        }
+        let mut state = self.shared.lock().map_err(|_| "Audio state unavailable")?;
+        state.switch_mode(next);
+        Ok(())
+    }
+
+    /// A short two-note cue through the existing 24 kHz output stream.
+    pub fn play_ready_cue(&mut self) -> Result<(), String> {
+        let mut pcm = Vec::with_capacity(2880 * 2);
+        for n in 0..2880 {
+            let frequency = if n < 1440 { 880.0 } else { 1320.0 };
+            let phase = (n % 1440) as f64 / 1440.0;
+            let envelope = (std::f64::consts::PI * phase).sin().powi(2);
+            let sample = (envelope
+                * 0.19
+                * (2.0 * std::f64::consts::PI * frequency * n as f64 / 24000.0).sin()
+                * i16::MAX as f64) as i16;
+            pcm.extend_from_slice(&sample.to_le_bytes());
+        }
+        {
+            let mut state = self.shared.lock().map_err(|_| "Audio state unavailable")?;
+            state.suppress_until_sample = state.captured_samples + 3200;
+            state.capture.clear();
+            state.partial.clear();
+            state.cue_pending_samples += 2880;
+        }
+        let result = self.enqueue(pcm, 24000);
+        if result.is_err() {
+            if let Ok(mut state) = self.shared.lock() {
+                state.cue_pending_samples = state.cue_pending_samples.saturating_sub(2880);
+            }
+        }
+        result
+    }
+
     /// Suppress capture and discard already queued microphone packets.
     pub fn set_muted(&self, muted: bool) {
         if let Ok(mut buffers) = self.shared.lock() {
@@ -252,7 +428,7 @@ impl VoiceAudio {
     /// Poll native state; no audio thread invokes JavaScript callbacks.
     pub fn status(&mut self) -> VoiceAudioStatus {
         self.refresh_native();
-        let buffers = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        let mut buffers = self.shared.lock().unwrap_or_else(|e| e.into_inner());
         VoiceAudioStatus {
             state: if !buffers.error.is_empty() {
                 "error"
@@ -270,14 +446,30 @@ impl VoiceAudio {
                 .unwrap_or_else(|| "unavailable".into()),
             capture: self.capture && self.native.is_some(),
             muted: buffers.muted,
-            queued_playback_ms: buffers.pending_samples as f64 / 24.0,
+            queued_playback_ms: buffers
+                .pending_samples
+                .saturating_sub(buffers.cue_pending_samples) as f64
+                / 24.0,
             dropped_capture_packets: buffers.dropped_packets,
             error: buffers.error.clone(),
+            capture_mode: if self.native.is_none() {
+                "idle"
+            } else if buffers.mode == CaptureMode::KwsStandby {
+                "kws"
+            } else {
+                "conversation"
+            }
+            .into(),
+            wake_word: buffers.detected_wake_word.take().unwrap_or_default(),
+            kws_ready: self.kws_worker.is_some(),
         }
     }
 
     /// Idempotently stop devices, release audio focus, and discard all audio.
     pub fn stop(&mut self) {
+        if let Some(mut worker) = self.kws_worker.take() {
+            worker.stop(&self.shared);
+        }
         self.native.take();
         self.capture = false;
         if let Ok(mut buffers) = self.shared.lock() {
@@ -383,10 +575,37 @@ mod tests {
         assert!(audio.partial.is_empty());
     }
 
+    #[test]
+    fn kws_mode_keeps_pcm_out_of_js_and_switch_resets_mute() {
+        let mut audio = AudioBuffers::default();
+        audio.switch_mode(CaptureMode::KwsStandby);
+        for _ in 0..70 {
+            audio.captured(&[0; 640]);
+        }
+        assert_eq!(audio.kws_queue.len(), 20);
+        assert_eq!(audio.kws_epoch, 2);
+        assert!(audio.capture.is_empty());
+        assert_eq!(audio.captured_samples, 70 * 320);
+        audio.muted = true;
+        let epoch = audio.kws_epoch;
+        audio.switch_mode(CaptureMode::RealtimeCapture);
+        assert!(!audio.muted);
+        assert!(audio.kws_queue.is_empty());
+        assert_eq!(audio.kws_epoch, epoch + 1);
+        assert_eq!(audio.suppress_until_sample, audio.captured_samples + 2400);
+    }
+
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     #[test]
     fn construction_is_idle_and_unsupported_start_is_observable() {
-        let mut audio = VoiceAudio::new();
+        let mut audio = VoiceAudio {
+            shared: Arc::new(Mutex::new(AudioBuffers::default())),
+            native: None,
+            capture: false,
+            owns_session: false,
+            kws_worker: None,
+            kws_directory: PathBuf::new(),
+        };
         let idle = audio.status();
         assert_eq!(idle.state, "idle");
         assert!(!idle.capture);

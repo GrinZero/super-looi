@@ -291,6 +291,7 @@ export function createAppStore() {
   const voiceState = signal<VoiceState>({
     phase: "idle",
     muted: false,
+    wakeEnabled: false,
     transcript: "",
     error: "",
   });
@@ -406,13 +407,21 @@ export function createAppStore() {
     if (lifecycle() !== "active") {
       homeLogin?.cancel();
       runtime?.cancelProviderOAuth();
-      voice?.stop();
+      if (voiceState().phase !== "idle") voice?.stop();
       if (driver.getState().expression !== "sleeping") {
         driver.setExpression("sleeping");
       }
-      void stop();
+      if (busy()) void stop();
     } else if (driver.getState().expression !== next) {
       driver.setExpression(next);
+    }
+  });
+  effect(() => {
+    if (!ready() || !voice) return;
+    if (lifecycle() !== "active" || homeLoggingIn()) {
+      if (voiceState().phase !== "idle") voice.stop();
+    } else if (voiceState().wakeEnabled && voiceState().phase === "idle") {
+      void voice.enterStandby();
     }
   });
   effect(() => {
@@ -710,7 +719,11 @@ export function createAppStore() {
       }
     },
     stopVoice() {
-      voice?.stop();
+      voice?.endSession();
+    },
+    setWakeEnabled(enabled: boolean) {
+      try { voice?.setWakeEnabled(enabled); }
+      catch (error) { fail(error); }
     },
     muteVoice(value: boolean) {
       voice?.mute(value);
@@ -758,6 +771,8 @@ export function createAppStore() {
           ? "语音任务待确认"
           : voiceState().phase === "connecting"
             ? "LIVE 连接中"
+            : voiceState().phase === "standby"
+              ? "待机 · 听 Hey LOOI"
             : voiceState().phase === "speaking"
               ? "LOOI 说话中"
               : voiceState().phase === "listening"
@@ -778,6 +793,7 @@ export function createAppStore() {
     },
     async loginMiot(region: HomeConfiguration["region"]) {
       if (!runtime || !homeLogin) throw new Error("本机运行时尚未就绪");
+      homeLoggingIn.set(true);
       voice?.stop();
       homeDevices.set({});
       try {
@@ -786,6 +802,7 @@ export function createAppStore() {
         if (connection.configured && connection.connectionId)
           homeDevices.set(await runtime.listHome());
       } finally {
+        homeLoggingIn.set(false);
         if (alive) {
           homeConfiguration.set(runtime.homeConfiguration());
           homeConnection.set(runtime.homeConnection());

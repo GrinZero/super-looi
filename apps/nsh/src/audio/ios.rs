@@ -269,6 +269,7 @@ impl Audio {
                 if let Ok(mut state) = shared.lock() {
                     if state.generation == generation {
                         state.pending_samples = state.pending_samples.saturating_sub(count);
+                        state.cue_pending_samples = state.cue_pending_samples.saturating_sub(count);
                     }
                 }
             });

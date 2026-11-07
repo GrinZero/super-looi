@@ -39,8 +39,10 @@ export async function verifyVoicePipeline(options: {
   await options.runtime.run(`请记住并在后续对话中直接回答：${note}（无需调用工具，直接回复“已记住”）`, action(), () => {});
   const audio: VoiceAudioPort = {
     requestPermission: () => "granted", // Synthetic-input adapter; no OS permission request.
-    status: () => ({ ...options.audio.status(), permission: "granted" }),
+    status: () => ({ ...options.audio.status(), permission: "granted", captureMode: "conversation", wakeWord: "", kwsReady: false }),
     start: () => options.audio.start(false),
+    setCaptureMode: () => options.audio.start(false),
+    playReadyCue: () => {},
     stop: () => options.audio.stop(),
     enqueue: (pcm, rate) => {
       outputBytes += pcm.length;

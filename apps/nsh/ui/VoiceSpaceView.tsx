@@ -25,8 +25,12 @@ export function VoiceSpaceView(props: {
         return "等待麦克风权限…";
       case "error":
         return "连接异常";
+      case "standby":
+        return windowSize().width < 600
+          ? "本地待机 · 听 Hey LOOI"
+          : "待机监听唤醒词（本地离线 KWS）";
       default:
-        return "待机";
+        return "待机（未占用麦克风）";
     }
   };
 
@@ -134,6 +138,18 @@ export function VoiceSpaceView(props: {
           {phaseDescription()}
         </Text>
       </View>
+
+      <ActionButton
+        label={props.store.voiceState().wakeEnabled ? "关闭 Hey LOOI 自动唤醒" : "开启 Hey LOOI 自动唤醒"}
+        testID="wake-toggle"
+        kind="quiet"
+        compact={true}
+        disabled={!props.store.voiceConfigured()}
+        onPress={() => props.store.setWakeEnabled(!props.store.voiceState().wakeEnabled)}
+      />
+      <Text class="text-muted-foreground text-xs">
+        前台待机时仅在本地检测唤醒词；进入后台后停止麦克风。
+      </Text>
 
       <ActionButton
         label={active() ? "结束实时语音" : "开启 LIVE 语音"}

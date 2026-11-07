@@ -5,7 +5,7 @@ globalThis.LOOI_ARCH = {
   views: [
     { id: "all", label: "架构总览", description: "手机本地运行 Agent，直接连接模型、语音与家居服务。", nodes: [] },
     { id: "agent", label: "任务执行", description: "文字从界面进入共享任务入口，Pi 执行工具并将结果写回界面。", nodes: ["app", "store", "runtime", "agent", "models", "compat", "native", "contracts"] },
-    { id: "voice", label: "实时语音", description: "VoiceRuntime 直连豆包；语音工具通过 store.requestTask 进入同一个 Agent。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native"] },
+    { id: "voice", label: "语音唤醒", description: "Rust 本地 KWS 待机，命中后复用音频流连接豆包；VoiceRuntime 管理多轮对话与自动休眠。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native"] },
     { id: "home", label: "家居控制", description: "管理界面与 Agent 家居工具共用 HomeRuntime，经网关访问 HA 或 MIoT。", nodes: ["app", "store", "runtime", "agent", "home", "gateway", "services", "contracts"] },
   ],
   nodes: [
@@ -45,32 +45,34 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "store", x: 28, y: 274, title: "响应式应用状态", symbol: "sliders", category: "TypeScript · 状态编排", detail: "signal / 生命周期 / 运行时接线", path: "apps/nsh/store.ts",
-      description: "createAppStore 把原生宿主、MobileRuntime、VoiceRuntime 和界面接在一起。语音 requestTask 通过 api.send 复用文字任务链路，状态变更驱动表情与字幕。",
+      description: "createAppStore 把原生宿主、MobileRuntime、VoiceRuntime 和界面接在一起。前台恢复本地唤醒，后台与米家登录时停麦；语音状态驱动表情与字幕。",
       files: [
-        { path: "apps/nsh/store.ts", entry: "export function createAppStore", anchors: [{ label: "状态入口", match: "export function createAppStore" }, { label: "原生接线", match: "const opened = await openRuntime" }, { label: "语音转任务", match: "requestTask: async" }] },
+        { path: "apps/nsh/store.ts", entry: "export function createAppStore", anchors: [{ label: "状态入口", match: "export function createAppStore" }, { label: "原生接线", match: "const opened = await openRuntime" }, { label: "唤醒恢复", match: "void voice.enterStandby()" }, { label: "语音转任务", match: "requestTask: async" }] },
       ],
     },
     {
-      id: "voice", x: 280, y: 274, title: "VoiceRuntime", symbol: "wave", category: "TypeScript · 实时语音", detail: "PCM 音频 / 字幕 / 工具调用", path: "apps/nsh/runtime/voice.ts",
-      description: "建立豆包 Duplex 会话，收发 PCM 音频、更新字幕，并处理语音工具调用。音频交给 VoiceAudio；需要执行任务时调用注入的 requestTask。",
+      id: "voice", x: 280, y: 274, title: "VoiceRuntime", symbol: "wave", category: "TypeScript · 语音编排", detail: "待机唤醒 / 多轮 / 休眠", path: "apps/nsh/runtime/voice.ts",
+      description: "轮询本地唤醒结果，命中后建立豆包 Duplex 会话；提示音后上行 PCM。回复播完再继续聆听，空闲 12 秒回本地待机。语音工具通过 requestTask 进入 Agent。",
       files: [
-        { path: "apps/nsh/runtime/voice.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音入口", match: "export class VoiceRuntime" }, { label: "建立会话", match: "async start():" }, { label: "工具分发", match: "private tool(" }] },
+        { path: "apps/nsh/runtime/voice.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音入口", match: "export class VoiceRuntime" }, { label: "本地待机", match: "async enterStandby()" }, { label: "建立会话", match: "async start(" }, { label: "休眠收尾", match: "endSession()" }, { label: "工具分发", match: "private tool(" }] },
         { path: "apps/nsh/ui/VoiceSpaceView.tsx", entry: "export function VoiceSpaceView" },
       ],
     },
     {
-      id: "audio", x: 535, y: 274, title: "原生音频", symbol: "mic", category: "Rust · iOS / Android", detail: "麦克风采集 / PCM 播放 / 静音", path: "apps/nsh/src/audio.rs",
-      description: "VoiceAudio 是暴露给 JavaScript 的 Rust 原生类，管理麦克风权限、采集队列与播放队列。iOS 和 Android 各有平台音频实现。",
+      id: "audio", x: 535, y: 274, title: "原生音频 + KWS", symbol: "mic", category: "Rust · iOS / Android", detail: "本地唤醒 / 单流采集 / 播放", path: "apps/nsh/src/audio.rs",
+      description: "VoiceAudio 在同一硬件流中切换本地唤醒与 Realtime 采集。PCM 经有界队列送到独立 KWS 线程，sherpa-onnx 在本机识别 Hey LOOI；播放队列负责双音提示与回复排空。",
       files: [
-        { path: "apps/nsh/src/audio.rs", entry: "pub struct VoiceAudio", anchors: [{ label: "原生类", match: "pub struct VoiceAudio" }, { label: "采集入口", match: "pub fn start(" }, { label: "播放入口", match: "pub fn enqueue(" }] },
+        { path: "apps/nsh/src/audio.rs", entry: "pub struct VoiceAudio", anchors: [{ label: "原生类", match: "pub struct VoiceAudio" }, { label: "KWS 工作线程", match: "struct KwsWorker" }, { label: "单流切换", match: "pub fn set_capture_mode(" }, { label: "就绪提示", match: "pub fn play_ready_cue(" }] },
+        { path: "apps/nsh/src/audio/kws.rs", entry: "pub struct KeywordSpotter" },
+        { path: "apps/nsh/build.rs", entry: "fn main()" },
         { path: "apps/nsh/src/audio/ios.rs", entry: "pub struct Audio" },
         { path: "apps/nsh/src/audio/android.rs", entry: "pub struct Audio" },
       ],
     },
     {
       id: "doubao", x: 790, y: 274, title: "豆包 Realtime", symbol: "wave", category: "外部服务 · WebSocket", detail: "Duplex V3 / 流式语音 / 转写", path: "apps/nsh/runtime/voice.ts", external: true,
-      description: "实时语音服务的本仓库接入源码位于 voice.ts：WebSocket endpoint、会话配置、收发循环与音频事件处理都在这里。",
-      files: [{ path: "apps/nsh/runtime/voice.ts", entry: "const endpoint =", anchors: [{ label: "服务地址", match: "const endpoint =" }, { label: "连接会话", match: "async start():" }, { label: "接收事件", match: "private async read(" }] }],
+      description: "豆包 Duplex V3 会话的 WebSocket endpoint、会话配置与收发事件位于 voice.ts；用户语音检测、回复音频结束和工具回执都由 VoiceRuntime 消费。",
+      files: [{ path: "apps/nsh/runtime/voice.ts", entry: "const endpoint =", anchors: [{ label: "服务地址", match: "const endpoint =" }, { label: "连接会话", match: "async start(" }, { label: "接收事件", match: "private async read(" }] }],
     },
     {
       id: "face", x: 28, y: 462, title: "表情与陪伴", symbol: "eyes", category: "TypeScript · 界面反馈", detail: "情绪 / 眨眼 / 视线 / 音量响应", path: "packages/looi-runtime/src/ui/robot-face-controller.ts",
@@ -151,7 +153,7 @@ globalThis.LOOI_ARCH = {
     { from: "agent", to: "models", d: "M739 144 H790", label: "HTTPS", x: 764, y: 129 },
     { from: "store", to: "voice", d: "M232 350 H280", label: "接线", x: 256, y: 374 },
     { from: "voice", to: "store", d: "M280 300 H232", label: "任务", x: 256, y: 290 },
-    { from: "voice", to: "audio", d: "M484 332 H535", label: "PCM ↔", x: 510, y: 317 },
+    { from: "voice", to: "audio", d: "M484 332 H535", label: "切流 ↔", x: 510, y: 317 },
     { from: "voice", to: "doubao", d: "M382 390 V419 H892 V390", label: "WebSocket · PCM / 转写 / 工具", x: 645, y: 419 },
     { from: "store", to: "face", d: "M130 390 V462", label: "状态驱动", x: 165, y: 430 },
     { from: "runtime", to: "home", d: "M306 202 V246 H269 V438 H306 V462", label: "homeTools", x: 313, y: 446 },

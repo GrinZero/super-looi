@@ -429,6 +429,8 @@ impl Audio {
                     if state.generation == generation {
                         let consumed = count.min(written as usize);
                         state.pending_samples = state.pending_samples.saturating_sub(consumed);
+                        state.cue_pending_samples =
+                            state.cue_pending_samples.saturating_sub(consumed);
                         // A partial timed write must keep speech that has not
                         // reached the device, in order, before the next chunk.
                         for &sample in buffer[consumed..count].iter().rev() {

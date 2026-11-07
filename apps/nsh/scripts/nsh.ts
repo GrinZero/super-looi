@@ -6,6 +6,7 @@ import { parseEnv } from "node:util";
 import { nativePluginEnvironment } from "./native-plugins.mjs";
 import { buildRuntime } from "./build-runtime.js";
 import { pickBuildVariables } from "./build-env.mjs";
+import { prepareSherpaKws } from "./prepare-sherpa-kws.mjs";
 
 const app = resolve(import.meta.dirname, "..");
 const repo = resolve(app, "../..");
@@ -60,6 +61,8 @@ const [command = "check", ...args] = process.argv.slice(2);
 if (command !== "--help" && command !== "--version") await buildRuntime();
 const buildVariables = pickBuildVariables(config);
 const target = args[args.indexOf("--target") + 1];
+if (command === "build" || command === "package" || target === "android" || target === "ios" || target === "ios-simulator" || command.endsWith("-android") || command.endsWith("-ios"))
+  await prepareSherpaKws(target === "android" || command.endsWith("-android") ? "android" : target === "ios" || target === "ios-simulator" || command.endsWith("-ios") ? "ios" : "all");
 const nativeEnvironment = nativePluginEnvironment(buildVariables, {
   android: command.endsWith("-android") || target === "android",
   iosReleaseSimulator: command === "package" && target === "ios-simulator",
@@ -136,9 +139,15 @@ if (command.startsWith("ui-"))
   );
 const scripted =
   command.startsWith("login-") ||
+  command.startsWith("wake-") ||
   command.startsWith("probe-") ||
   command.startsWith("ui-") ||
   command.startsWith("live-");
+if (command === "wake-ios") {
+  const bundleId = JSON.parse(readFileSync(resolve(app, "nsh.json"), "utf8")).id;
+  const grant = spawnSync("xcrun", ["simctl", "privacy", "booted", "grant", "microphone", bundleId], { stdio: "inherit" });
+  if (grant.status !== 0) throw new Error("Cannot grant simulator microphone to wake probe");
+}
 const result = scripted
   ? spawnSync(
       binary,
@@ -148,6 +157,8 @@ const result = scripted
           app,
           command.startsWith("login-")
             ? "LoginProbe.tsx"
+            : command.startsWith("wake-")
+            ? "WakeProbe.tsx"
             : command.startsWith("live-")
             ? ".nsh/LiveProbe.test.tsx"
             : command.startsWith("ui-")
@@ -164,6 +175,8 @@ const result = scripted
         stdio: ["pipe", "inherit", "inherit"],
         input: command.startsWith("login-")
           ? 'await app.waitFor("Native login window verified", {timeout:20000})\n'
+          : command.startsWith("wake-")
+          ? 'await app.waitFor("Native wake pipeline verified", {timeout:40000})\n'
           : command.startsWith("live-")
           ? 'await app.waitFor("Native live verified", {timeout:90000})\n'
           : command.startsWith("ui-")

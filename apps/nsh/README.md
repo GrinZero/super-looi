@@ -6,6 +6,9 @@
 pnpm --filter @super-looi/nsh build
 pnpm --filter @super-looi/nsh typecheck
 pnpm --filter @super-looi/nsh test
+pnpm --filter @super-looi/nsh test:voice-runtime
+pnpm --filter @super-looi/nsh test:wake:ios
+pnpm --filter @super-looi/nsh test:plugins
 pnpm --filter @super-looi/nsh test:ios
 pnpm --filter @super-looi/nsh test:android
 pnpm --filter @super-looi/nsh test:live:ios
@@ -16,6 +19,10 @@ pnpm --filter @super-looi/nsh test:ui:ios
 pnpm --filter @super-looi/nsh test:ui:android
 pnpm --filter @super-looi/nsh ios
 ```
+
+在「语音」空间保存豆包 API Key 后，可开启 Hey LOOI 自动唤醒。前台待机时，Rust 音频线程把 16 kHz PCM 交给本机 sherpa-onnx KWS 工作线程；命中后沿用同一硬件音频流建立 Realtime 会话，播放就绪双音，再开始上行。会话在回复真正播完后继续聆听，12 秒无人说话便关闭 WebSocket 并回到本地待机。进入后台或米家登录时停止麦克风，返回前台后恢复已启用的自动唤醒。
+
+移动端构建自动运行 `scripts/prepare-sherpa-kws.mjs`，固定使用 sherpa-onnx v1.12.26 与中英双语 KWS 模型，缓存于 `~/.cache/super-looi/sherpa-onnx/v1.12.26/`。iOS 真机与模拟器静态链接模型推理库；Android APK 注入对应 ABI 的两个动态库并保持 16 KB 对齐。`test:wake:ios` 在模拟器上加载真实模型，检查待机、切流与提示音。
 
 普通 build/run/check/test/package 自动生成业务 bundle，干净 checkout 直接 ios 不依赖预生成缓存。业务与十组兼容验收 bundle 分开，验收 fixtures 和独立 Android UI 测试 APK 不进入产品入口。生成物在 `generated/` / `.nsh/`，不提交；平台专用生成测试放隐藏 `.nsh/`，避免被普通 headless 测试发现。
 
