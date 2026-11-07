@@ -174,7 +174,7 @@ mod mobile {
                     nemo_ctc: ZipformerCtc { model: ptr::null() },
                     t_one_ctc: ZipformerCtc { model: ptr::null() },
                 },
-                max_active_paths: 4,
+                max_active_paths: 16,
                 num_trailing_blanks: 1,
                 keywords_score: 1.5,
                 keywords_threshold: 0.25,
