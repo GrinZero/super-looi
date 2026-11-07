@@ -20,7 +20,6 @@ export interface FaceVisualState {
     | "alarmed";
   gaze: { x: number; y: number };
   blinkProgress: number;
-  waveformBars: number[];
 }
 
 interface EyePosture {
@@ -74,18 +73,6 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Number.isFinite(value)
     ? Math.max(minimum, Math.min(maximum, value))
     : 0;
-}
-
-function resonanceLevels(bars: number[]): number[] {
-  if (bars.length === 0) return [0, 0, 0, 0, 0, 0, 0];
-  return Array.from({ length: 7 }, (_, index) => {
-    const position = (index / 6) * (bars.length - 1);
-    const lower = Math.floor(position);
-    const weight = position - lower;
-    const first = clamp(bars[lower] ?? 0, 0, 1);
-    const next = clamp(bars[Math.min(lower + 1, bars.length - 1)] ?? 0, 0, 1);
-    return first + (next - first) * weight;
-  });
 }
 
 /** The 620 × 340 pure-circle face rendered 1:1 with RobotFaceView optical layers. */
@@ -283,31 +270,16 @@ export function RobotFace(props: {
           cx.restore();
         }
 
-        // 5. Mouth / Waveform / Expression Mouth at (310 + gazeX * 4, 263 + gazeY * 3)
+        // 5. Expression mouth; audio amplitude does not change its shape.
         const mouthX = 310 + gazeX * 4;
         const mouthY = 263 + gazeY * 3;
-        const levels = resonanceLevels(state.waveformBars);
-        const showWaveform =
-          (state.expression === "listening" ||
-            state.expression === "speaking") &&
-          levels.some((level) => level > 0.06);
 
         cx.save();
         cx.strokeStyle = strokeColor;
         cx.fillStyle = strokeColor;
         cx.lineCap = "round";
 
-        if (showWaveform) {
-          cx.lineWidth = 3;
-          levels.forEach((level, index) => {
-            const barHeight = 4 + level * 32;
-            const barX = mouthX - 27 + index * 9;
-            cx.beginPath();
-            cx.moveTo(barX, mouthY - barHeight / 2);
-            cx.lineTo(barX, mouthY + barHeight / 2);
-            cx.stroke();
-          });
-        } else if (state.expression === "thinking" || sleeping) {
+        if (state.expression === "thinking" || sleeping) {
           cx.globalAlpha = sleeping ? 0.28 : 0.9;
           cx.lineWidth = 4;
           cx.beginPath();
