@@ -93,6 +93,11 @@ export async function verifyWakeRuntime() {
     await wait(35);
     second.push({ type: "response.function_call_arguments.done", response_id: "old", call_id: "end-1", name: "end_conversation", arguments: "{}" });
     await wait(25);
+    const farewellReply = second.writes.find((item) => item.type === "conversation.item.create") as
+      | { items?: Array<{ content?: Array<{ text?: string }> }> }
+      | undefined;
+    check(farewellReply?.items?.[0]?.content?.[0]?.text === "{}",
+      "farewell tool reply should leave the response to the model");
     second.push({ type: "response.done", response_id: "old" });
     await wait(25);
     check(voice.snapshot().phase === "listening", "tool call response was mistaken for farewell");

@@ -41,10 +41,7 @@ export function createEndConversation(
       timer = setTimeout(() => {
         if (context.current(generation)) context.endSession();
       }, 5000);
-      void context.reply(callId, {
-        status: "ending",
-        instruction: "请用简短自然的一句话向用户道别",
-      }, generation).then(() => {
+      void context.reply(callId, {}, generation).then(() => {
         if (context.current(generation)) toolSent = true;
       }).catch(() => {
         if (context.current(generation)) context.fail("道别回传失败");
