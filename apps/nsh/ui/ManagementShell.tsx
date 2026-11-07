@@ -292,13 +292,13 @@ export function ManagementShell(props: {
           </View>
 
           {/* Main Workspace */}
-          <View class="flex-1 p-3 min-h-0">
+          <View class="flex-1 p-3 min-h-0 relative">
+            {renderActiveWorkspace()}
             <If when={props.store.toast()}>
-              <View class="items-center mb-2">
+              <View class="absolute top-2 inset-x-0 items-center pointer-events-none z-30">
                 <LightToast text={props.store.toast()} />
               </View>
             </If>
-            {renderActiveWorkspace()}
           </View>
 
           {/* Bottom navigation bar */}
@@ -342,7 +342,7 @@ export function ManagementShell(props: {
         </View>
 
         {/* Right Main Workspace */}
-        <View class="flex-1 min-w-0 flex flex-col">
+        <View class="flex-1 min-w-0 flex flex-col min-h-0">
           {/* Top 48pt Context Pill Bar */}
           <View class="min-h-12 border-b border-border px-4 py-1.5 flex-row items-center justify-between gap-3 bg-card">
             {renderContextPillBar()}
@@ -367,13 +367,13 @@ export function ManagementShell(props: {
           </View>
 
           {/* Bottom Workspace Body */}
-          <View class="flex-1 p-3.5 min-h-0">
+          <View class="flex-1 p-3 min-h-0 relative">
+            {renderActiveWorkspace()}
             <If when={props.store.toast()}>
-              <View class="items-center mb-2">
+              <View class="absolute top-2 inset-x-0 items-center pointer-events-none z-30">
                 <LightToast text={props.store.toast()} />
               </View>
             </If>
-            {renderActiveWorkspace()}
           </View>
         </View>
       </View>

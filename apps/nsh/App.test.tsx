@@ -42,7 +42,7 @@ test("keeps the pure face primary with inline ask bar and Structure 3 management
 
   // 4. Switch spaces
   await app.press("nav-voice");
-  expect(app.texts()).toContain("豆包实时语音 API Key");
+  expect(app.texts()).toContain("豆包实时语音凭证");
 
   await app.press("nav-home");
   expect(app.texts()).toContain("米家直连");

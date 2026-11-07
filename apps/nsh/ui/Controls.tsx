@@ -185,8 +185,8 @@ export function LightToast(props: { text: string; stage?: boolean }) {
       role="alert"
       class={
         props.stage
-          ? "rounded-full border border-stage-pill-border bg-elevated-glass px-4 py-2 flex-row items-center gap-2"
-          : "rounded-full border border-border bg-card px-4 py-2 flex-row items-center gap-2"
+          ? "rounded-full border border-stage-pill-border bg-elevated-glass px-4 py-2 flex-row items-center gap-2 shadow-lg"
+          : "rounded-full border border-border bg-card px-4 py-2 flex-row items-center gap-2 shadow-lg"
       }
       style={{ maxWidth: 520, minHeight: 40 }}
     >

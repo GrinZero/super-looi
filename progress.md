@@ -1,5 +1,25 @@
 # Super-LOOI 重构与演进进度
 
+### 语音管理空间 UI 体验优化（去冗余提示、消除 CLS、修复边界溢出）（2026-11-07）
+
+针对横屏与移动端语音配置界面的视觉与交互优化：清除未要求冗余提示文案，将 Toast 提示升级为绝对定位悬浮层消除 CLS 抖动，精简卡片结构与尺寸以消除边界溢出与文字截断。
+
+- [x] **Step 1：精简冗余提示文案与状态展示 (`apps/nsh/ui/VoiceSpaceView.tsx`)**
+  - [x] 移除冷门技术参数副标题（`16kHz PCM...`）与未要求的免责/安全废话（系统钥匙串存储声明、麦克风权限隐私声明）
+  - [x] 移除卡片右上角与顶栏重复的被挤断徽标（`已配`），保持顶栏统一表达状态
+  - [x] 简化输入框占位符、操作按钮文案及 `phaseDescription` 阶段文案
+- [x] **Step 2：将 Toast 改为绝对定位悬浮层消除 CLS (`apps/nsh/ui/ManagementShell.tsx`, `apps/nsh/ui/Controls.tsx`)**
+  - [x] 在 `ManagementShell.tsx` 中将横屏与竖屏下的 Toast 脱离文档流，改为 `absolute` 浮动层
+  - [x] 在 `Controls.tsx` 中优化 `LightToast` 悬浮阴影与层次
+  - [x] 缩短保存通知文案，避免打扰用户
+- [x] **Step 3：消除横屏下的内容与徽标超出边界问题 (`apps/nsh/ui/VoiceSpaceView.tsx`, `apps/nsh/ui/ManagementShell.tsx`)**
+  - [x] 优化卡片内边距与间隙（`p-3.5 gap-3`），卡片首屏完整可见（输入框与保存按钮不被切断）
+  - [x] 补齐 `min-h-0`、`min-w-0` 弹性盒属性，确保外层视口自适应与滚动安全兜底
+- [x] **Step 4：测试与构建验证、独立子 Agent 审查与 Git 提交**
+  - [x] 运行 `pnpm --filter @super-looi/nsh typecheck` 和 `test`（17 项全部通过）
+  - [x] 启动独立 review 子 agent 审查代码与 UI（审查结论：PASS）
+  - [x] 提交 git commit
+
 ### LLM 凭证配置标准化与 NSH 前后台一体化重构（2026-11-07）
 
 对齐 [`docs/plans/llm-credential-standardization-plan.md`](docs/plans/llm-credential-standardization-plan.md) 与 [`apps/nsh/DESIGN.md`](apps/nsh/DESIGN.md)：直接复用 `@earendil-works/pi-ai@1.5.0` 标准化多服务商凭证架构，落地「全天候深色省电桌宠主页 + A/B 明暗双主题结构 3 后台管理空间」。

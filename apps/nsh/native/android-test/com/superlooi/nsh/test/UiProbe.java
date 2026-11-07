@@ -26,7 +26,7 @@ public final class UiProbe extends Instrumentation {
             tapText("对话"); waitText("发送", 5000);
             tapText("对话");
             tapText("连接"); waitText("OpenAI / ChatGPT", 5000);
-            tapText("语音"); waitText("豆包实时语音 API Key", 5000);
+            tapText("语音"); waitText("豆包实时语音凭证", 5000);
             tapText("返回");
             waitText("陪伴待机", 5000);
             result.putString("result", "PASS native Android pure face, inline ask bar, and Structure 3 management shell through system input");

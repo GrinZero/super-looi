@@ -102,7 +102,7 @@ const standardUiSteps =
     'await app.waitFor("标准 API (国内 BigModel)")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings-zai.png`))})`,
     'await app.press("nav-voice")',
-    'await app.waitFor("豆包实时语音 API Key")',
+    'await app.waitFor("豆包实时语音凭证")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings-voice.png`))})`,
     'await app.press("nav-home")',
     'await app.waitFor("米家服务区域")',
