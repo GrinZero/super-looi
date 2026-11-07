@@ -12,7 +12,6 @@
       "default": "./dist/index.js"
     },
     "./*": {
-      "react-native": "./src/*.ts",
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",
       "default": "./dist/*.js"

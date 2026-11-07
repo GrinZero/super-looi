@@ -54,7 +54,7 @@ Buffer/crypto/URL/压缩复用同版本原生 stdlib；额外实现 crc32、虚�
 
 已通过 NSH 原生 class、hardened engine 与 iOS 模拟器真实运行。原生 class 使用官方 [native_module / module / class 注册](https://github.com/longbridge/nsh/blob/e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3/crates/nsh-cli/src/templates/mixed/lib.rs)，没有直接修改 Expo prebuild。`apps/nsh/App.tsx` 已迁为本机大脸、文字/离线记忆、完整回复与审批界面，系统凭据与双端 UI 证据见 [移动基础记录](nsh-mobile-foundation.md)；媒体与完整业务迁移仍未完成。签名发行、真实模型网络、PCM/AEC、安全凭据、BLE/相机及任务/审批/记忆数据迁入仍待完成。证据见 [native-host-audit.json](artifacts/nsh-node-compat/native-host-audit.json) 与 [iOS 日志](artifacts/nsh-node-compat/ios-native-probe.log)、[Android 日志](artifacts/nsh-node-compat/android-native-probe.log)。
 
-保留 Hub 与现有手机业务路径，直到手机迁移硬门禁满足。后续必须补签名发行、凭据/媒体/领域工具、持久任务与 unknown 回执、UI 和全部 Hub 职责替代后，才能删除 Hub。
+Hub 与 Expo 旧端已归档到 `archive/legacy-hub-and-expo` 并移出工作区。当前应用采用 NSH 最简 Agent Loop；签名发行、真机媒体与硬件接线见根目录 `todo.md`。
 
 ## 独立审查
 

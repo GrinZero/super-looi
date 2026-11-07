@@ -1,5 +1,17 @@
 # Super-LOOI 重构与演进进度
 
+### Expo / Hub 退役收尾（2026-11-07）
+
+当前产品采用 NSH 最简 Agent Loop。以下历史阶段的旧端保留、Expo 验证与记忆产品迁移要求由本次退役收尾取代；硬件后续事项统一见 todo.md。归档分支 archive/legacy-hub-and-expo（55f77ef）保留旧端及删除前未提交修改。
+
+- [x] Step 1：归档旧端（包含未提交修改），核对共享代码与回归测试
+- [x] Step 2：迁移可复用测试，删除旧应用、依赖与启动配置
+- [x] Step 3：更新 NSH 入口、当前说明与待办，移除过时的 Expo 工作项
+- [x] Step 4：完成 pnpm 构建、类型检查、测试和 iOS UI 验证，独立审查并提交
+  - [x] pnpm build / typecheck / test 通过；共享包 128 项测试、NSH 17 项及 QuickJS 兼容套件通过
+  - [x] iOS 首屏真实交互测试通过，检查 ios-face.png 截图
+  - [x] 独立审查发现并清除旧 RN 视图文件断言，复审通过
+
 ### NSH 首屏 UI 1:1 还原与极简 Agent Loop 减法收敛（2026-11-07）
 
 - [x] **Step 1：运行时做减法 — 移除记忆账本耦合，精简为最简 Agent Loop (`apps/nsh/runtime/*`, `apps/nsh/store.ts`)**

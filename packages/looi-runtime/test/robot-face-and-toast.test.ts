@@ -1,6 +1,5 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   RobotFaceController,
   KeepAwakeController,
@@ -138,7 +137,7 @@ describe("Robot Face Kinematics, Toast Queue, and Theme (Phase 1)", () => {
     assert.deepEqual(face.getState(), stopped);
   });
 
-  it("notifies onStateChange across the full blink cycle and keeps eyes strictly circular", async () => {
+  it("notifies onStateChange across the full blink cycle and clears interrupted blinks", async () => {
     const observedProgress: number[] = [];
     const face = new RobotFaceController({
       onStateChange: () => {
@@ -165,12 +164,6 @@ describe("Robot Face Kinematics, Toast Queue, and Theme (Phase 1)", () => {
     assert.equal(face.getState().blinkProgress, 0.0);
     assert.equal(face.getState().blinkState, "open");
 
-    const viewSource = readFileSync(
-      new URL("../src/ui/components/RobotFaceView.tsx", import.meta.url),
-      "utf8",
-    );
-    assert.match(viewSource, /eyeOrb: \{ width: 184, height: 184, borderRadius: 92\b/);
-    assert.match(viewSource, /miniEye: \{ position: "absolute", top: 0, width: 24, height: 24, borderRadius: 12\b/);
-    assert.doesNotMatch(viewSource, /scaleY/);
+
   });
 });

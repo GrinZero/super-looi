@@ -88,7 +88,7 @@ export function WaveOrnament(props: { compact?: boolean }) {
   );
 }
 
-/** Bottom wake guide bar matching apps/mobile/app/index.tsx wakeGuide 1:1. */
+/** Bottom wake guide bar for the pure-face home screen. */
 export function WakeGuideBar(props: { onPress: () => void }) {
   const narrow = () => windowSize().width < 440;
   return (

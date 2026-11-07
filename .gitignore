@@ -13,18 +13,12 @@ build/
 .turbo/
 coverage/
 
-# Expo / Mobile
-.expo/
-web-build/
+# Mobile signing
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
-
-# Native Folders (generated via expo prebuild)
-/apps/mobile/ios/
-/apps/mobile/android/
 
 # OS and Editor
 .DS_Store

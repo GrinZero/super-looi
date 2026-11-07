@@ -9,8 +9,8 @@
     "typecheck": "pnpm --recursive run typecheck",
     "test": "pnpm --recursive run test",
     "clean": "pnpm --recursive run clean",
-    "mobile": "pnpm --filter @super-looi/mobile start",
-    "hub": "pnpm --filter @super-looi/hub start"
+    "mobile": "pnpm --filter @super-looi/nsh ios",
+    "ios": "pnpm --filter @super-looi/nsh ios"
   },
   "devDependencies": {
     "tsx": "^4.19.3",

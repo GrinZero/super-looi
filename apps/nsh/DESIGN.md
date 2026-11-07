@@ -1,6 +1,6 @@
 # Mobile UI standards
 
-Targets: native iOS and Android; headless is a behavior harness. Preserve the pure-face first screen (`apps/mobile/app/index.tsx` + `RobotFaceView.tsx`) 1:1: the 620 × 340 cyan/blue circular-eye face occupies the full stage with dual-ellipse atmosphere backlight and bottom horizon glow, while only lightweight peripheral capsules float at the top corners and bottom edge.
+Targets: native iOS and Android; headless is a behavior harness. Preserve the pure-face first screen (`apps/nsh/App.tsx` + `apps/nsh/ui/RobotFace.tsx`) 1:1: the 620 × 340 cyan/blue circular-eye face occupies the full stage with dual-ellipse atmosphere backlight and bottom horizon glow, while only lightweight peripheral capsules float at the top corners and bottom edge.
 
 All presentation colors live in `theme.json`. Cyan (`primary` / `eye-highlight` / `eye`) belongs to the face, active presence dot and subtitle ornament; electric blue (`brand-blue` / `live-text`) belongs to the `LIVE 对话` pill and wake-guide highlights; green (`verified`) belongs to active LIVE listening/speaking states; coral (`destructive` / `agent-stop`) belongs to stop/failure. Do not synthesize audio amplitudes; waveform bars are driven by real microphone capture and TTS playback RMS.
 
