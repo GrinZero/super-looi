@@ -20,15 +20,15 @@
   - [x] 更新 `apps/nsh/theme.json`：写入 `light`（日间深炭桌宠 + 后台方案 B 暖石日光）与 `dark`（夜间纯黑 OLED 桌宠 + 后台方案 A 中性锌灰）全量语义 Token
   - [x] 更新 `apps/nsh/nsh.json`：切换 `"appearance": "system"`，补充 OAuth 所需的 `"clipboard": true` 与 `"openUrl": { "schemes": ["https"] }` 权限声明
   - [x] 重构 `apps/nsh/ui/RobotFace.tsx`：接入 `eye-core` / `eye-edge` / `eye-halo` / `halo-zero` / `face-stroke` / `face-texture` / `horizon-core` / `horizon-zero`，移除拟真高光白斑（`glint`）与暗底月牙内缘，保留正圆几何、条件眉弧与真实音频 RMS 声波
-- [ ] **Step 4：升级 `MobileRuntime`、`store.ts` 与「结构 3」后台四空间 UI (`apps/nsh`)**
-  - [ ] 升级 `apps/nsh/runtime/application.ts` 与 `apps/nsh/scripts/build-runtime.ts`：接入 `VaultCredentialStore` + `createLooiModelsRegistry`，暴露多 Provider 目录快照、API Key 保存/清除、兼容 API 配置、模型切换及 OAuth 登录（设备码通知 / 浏览器回调 URL 提交 / 取消 / 登出）接口，保持旧 `configuration()` / `configure()` 兼容
-  - [ ] 升级 `apps/nsh/store.ts`：管理前后台空间路由（`face | models | voice | home | tasks`）、外观切换（`system | light | dark`）、多服务商凭证/模型状态与 OAuth 交互流
-  - [ ] 实现结构 3 后台管理组件：`ManagementShell.tsx`、`ModelsSpaceView.tsx`、`VoiceSpaceView.tsx`、`HomeSpaceView.tsx`、`TasksSpaceView.tsx`，连通 `apps/nsh/App.tsx` 前台深色省电舞台与后台切换
-- [ ] **Step 5：全量测试回归、iOS 模拟器双模式实机截图验证与独立子 Agent 审查**
-  - [ ] 更新并扩充 `apps/nsh/App.test.tsx`、`apps/nsh/HomePanel.test.tsx` 与 `apps/nsh/scripts/nsh.ts`
-  - [ ] 运行全套 `typecheck`、`build`、`test`（含 QuickJS 兼容套件）全部通过
-  - [ ] 在 iOS 模拟器实机验证白天/暗黑模式下的桌宠大脸与结构 3 四空间截图
-  - [ ] 调度独立审查子 Agent 核验代码与 UI，修复审查项并更新 `progress.md` / `todo.md` 提交 Git Commit
+- [x] **Step 4：升级 `MobileRuntime`、`store.ts` 与「结构 3」后台四空间 UI (`apps/nsh`)**
+  - [x] 升级 `apps/nsh/runtime/application.ts` 与 `apps/nsh/scripts/build-runtime.ts`：接入 `VaultCredentialStore` + `createLooiModelsRegistry`，暴露多 Provider 目录快照、API Key 保存/清除、兼容 API 配置、模型切换及 OAuth 登录（设备码通知 / 浏览器回调 URL 提交 / 取消 / 登出）接口，保持旧 `configuration()` / `configure()` 兼容（QuickJS 12 项验收全通过）
+  - [x] 升级 `apps/nsh/store.ts`：管理前后台空间路由（`face | models | voice | home | tasks`）、外观切换（`system | light | dark`）、多服务商凭证/模型状态与 OAuth 交互流
+  - [x] 实现结构 3 后台管理组件：`ManagementShell.tsx`、`ModelsSpaceView.tsx`、`VoiceSpaceView.tsx`、`HomeSpaceView.tsx`、`TasksSpaceView.tsx`，连通 `apps/nsh/App.tsx` 前台深色省电舞台与后台切换
+- [x] **Step 5：全量测试回归、iOS 模拟器双模式实机截图验证与独立子 Agent 审查**
+  - [x] 更新并扩充 `apps/nsh/App.test.tsx`、`apps/nsh/HomePanelProbe.tsx`、`apps/nsh/native/android-test/com/superlooi/nsh/test/UiProbe.java` 与 `apps/nsh/scripts/nsh.ts`
+  - [x] 运行全套 `typecheck`、`build`、`test`（含 QuickJS 兼容套件）全部通过
+  - [x] 在 iOS 模拟器实机验证白天/暗黑模式下的桌宠大脸与结构 3 四空间截图
+  - [x] 调度独立审查子 Agent 核验代码与 UI，修复全部审查发现项（离开模型空间自动中止悬空 OAuth、`custom` 兼容保存按钮禁用校验、全量胶囊 `44pt` 触控热区对齐、`openUrl` 异常防御、`DESIGN.md` Token 同步）并提交 Git Commit
 
 ### Expo / Hub 退役收尾（2026-11-07）
 

@@ -7,16 +7,19 @@ export class EventEmitter {
   }
   addListener = this.on;
   once(event: string | symbol, listener: Listener): this {
-    const once = (...args: any[]) => {
+    const once: Listener & { listener?: Listener } = (...args: any[]) => {
       this.off(event, once);
       listener(...args);
     };
+    once.listener = listener;
     return this.on(event, once);
   }
   off(event: string | symbol, listener: Listener): this {
     this.handlers.set(
       event,
-      (this.handlers.get(event) ?? []).filter((fn) => fn !== listener),
+      (this.handlers.get(event) ?? []).filter(
+        (fn) => fn !== listener && (fn as any).listener !== listener,
+      ),
     );
     return this;
   }

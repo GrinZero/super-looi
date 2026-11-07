@@ -73,6 +73,18 @@ export class MiotLoginFlow {
  start(region:HomeConfiguration["region"],action:UiAction):Promise<HomeConnection>;
  cancel():void;
 }
+export type LlmBrandId = "openai" | "kimi" | "minimax" | "xiaomi" | "zai" | "custom";
+export type CompatibleApiProtocol = "openai-completions" | "openai-responses" | "anthropic-messages";
+export interface CustomEndpointConfig {api:CompatibleApiProtocol;baseUrl:string;modelId:string}
+export interface LlmModelItem {id:string;name:string;reasoning:boolean;contextWindow:number;isCustom:boolean}
+export interface LlmChannelStatus {providerId:string;label:string;baseUrl:string;protocolLabel:string;authTypes:Array<"api_key"|"oauth">;defaultModelId:string;hasApiKey:boolean;hasOAuth:boolean;oauthExpiresAt:number|null;models:LlmModelItem[]}
+export interface LlmBrandStatus {brandId:LlmBrandId;label:string;shortLabel:string;configured:boolean;channels:LlmChannelStatus[]}
+export interface LlmCatalogSnapshot {brands:LlmBrandStatus[];active:{brandId:LlmBrandId;providerId:string;modelId:string;authType:"api_key"|"oauth"}|null;custom:CustomEndpointConfig}
+export type LlmOAuthUiEvent =
+ | {kind:"device_code";userCode:string;verificationUri:string;expiresInSeconds?:number}
+ | {kind:"auth_url";url:string;instructions?:string}
+ | {kind:"awaiting_callback";message:string;placeholder:string}
+ | {kind:"progress";message:string};
 export interface NativeRuntime {
  homeConfiguration():HomeConfiguration;
  homeConnection():HomeConnection;
@@ -94,6 +106,13 @@ export interface NativeRuntime {
  respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  close():Promise<void>;
+ llmSnapshot():LlmCatalogSnapshot;
+ saveProviderApiKey(input:{providerId:string;apiKey?:string;modelId?:string;custom?:CustomEndpointConfig;setActive?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
+ selectActiveModel(input:{providerId:string;modelId:string;addCustomModel?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
+ removeProviderCredential(providerId:string,action:UiAction):Promise<LlmCatalogSnapshot>;
+ startProviderOAuth(providerId:string,action:UiAction,onEvent:(event:LlmOAuthUiEvent)=>void):Promise<LlmCatalogSnapshot>;
+ submitProviderOAuthCallback(callbackUrl:string):void;
+ cancelProviderOAuth():void;
 }
 export interface FaceState {expression:"neutral"|"listening"|"thinking"|"speaking"|"curious"|"sleeping"|"alarmed";gaze:{x:number;y:number};blinkProgress:number;waveformBars:number[]}
 export class RobotFaceController {

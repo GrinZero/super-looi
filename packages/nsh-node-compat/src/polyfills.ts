@@ -1,6 +1,7 @@
 import { NshSegmenter } from "./segmenter.js";
 import { installAbortSignalAny } from "./abort.js";
 import { Utf8Encoder, Utf8Decoder } from "./encoding.js";
+import * as cryptoShim from "./shims/crypto.js";
 import process from "./shims/process.js";
 import { unsupported } from "./bridge.js";
 /** Data clone used by Pi transcripts. Preserve cycles, binary, maps and dates;
@@ -89,4 +90,56 @@ export function installNodeCompatGlobals() {
   g.clearImmediate ??= (id: unknown) => g.clearTimeout(id);
   g.atob ??= (value: string) => Buffer.from(value, "base64").toString("binary");
   g.btoa ??= (value: string) => Buffer.from(value, "binary").toString("base64");
+  if (typeof Buffer !== "undefined") {
+    let supportsBase64Url = false;
+    try {
+      supportsBase64Url =
+        Buffer.from([0xfb, 0xff]).toString("base64url") === "-_8";
+    } catch {
+      supportsBase64Url = false;
+    }
+    if (!supportsBase64Url) {
+      const origToString = Buffer.prototype.toString;
+      Buffer.prototype.toString = function (...args: any[]) {
+        if (args[0] === "base64url") {
+          const nextArgs = ["base64", ...args.slice(1)];
+          return origToString
+            .apply(this, nextArgs as any)
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+        }
+        return origToString.apply(this, args as any);
+      };
+    }
+  }
+  g.crypto ??= {};
+  g.crypto.randomUUID ??= () => (cryptoShim as any).randomUUID();
+  g.crypto.getRandomValues ??= <T extends ArrayBufferView>(array: T): T => {
+    const view = new Uint8Array(
+      array.buffer,
+      array.byteOffset,
+      array.byteLength,
+    );
+    view.set((cryptoShim as any).randomBytes(view.byteLength));
+    return array;
+  };
+  g.crypto.subtle ??= {};
+  g.crypto.subtle.digest ??= async (
+    algorithm: string | { name: string },
+    data: BufferSource,
+  ): Promise<ArrayBuffer> => {
+    const rawName =
+      typeof algorithm === "string" ? algorithm : algorithm?.name ?? "";
+    const alg = rawName.toLowerCase().replace("-", "");
+    const bytes =
+      data instanceof ArrayBuffer
+        ? new Uint8Array(data)
+        : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    const digest = (cryptoShim as any).createHash(alg).update(bytes).digest();
+    return digest.buffer.slice(
+      digest.byteOffset,
+      digest.byteOffset + digest.byteLength,
+    );
+  };
 }

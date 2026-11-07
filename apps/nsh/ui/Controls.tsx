@@ -8,29 +8,46 @@ export function ActionButton(props: {
   disabled?: boolean;
   kind?: "primary" | "quiet" | "danger";
   testID?: string;
+  compact?: boolean;
 }) {
+  const containerClass = () => {
+    if (props.compact) {
+      if (props.kind === "primary") {
+        return "min-h-11 rounded-xl bg-primary px-3.5 items-center justify-center active:opacity-70 focus:border-ring disabled:opacity-35";
+      }
+      if (props.kind === "danger") {
+        return "min-h-11 rounded-xl border border-destructive px-3.5 items-center justify-center active:opacity-60 disabled:opacity-35";
+      }
+      return "min-h-11 rounded-xl border border-border bg-card px-3.5 items-center justify-center active:bg-muted focus:border-ring disabled:opacity-35";
+    }
+    if (props.kind === "primary") {
+      return "min-h-12 rounded-full bg-primary px-5 items-center justify-center active:opacity-70 focus:border-ring disabled:opacity-35";
+    }
+    if (props.kind === "danger") {
+      return "min-h-12 rounded-full border border-destructive px-5 items-center justify-center active:opacity-60 disabled:opacity-35";
+    }
+    return "min-h-12 rounded-full border border-border bg-card px-5 items-center justify-center active:bg-muted focus:border-ring disabled:opacity-35";
+  };
+
+  const textClass = () => {
+    const size = props.compact ? "text-sm" : "text-base";
+    if (props.kind === "primary") {
+      return `text-primary-foreground ${size} font-semibold`;
+    }
+    if (props.kind === "danger") {
+      return `text-destructive ${size} font-medium`;
+    }
+    return `text-foreground ${size} font-medium`;
+  };
+
   return (
     <Button
       testID={props.testID}
       disabled={props.disabled}
       onPress={() => props.onPress()}
-      class={
-        props.kind === "primary"
-          ? "min-h-12 rounded-full bg-primary px-5 items-center justify-center active:opacity-70 focus:border-ring disabled:opacity-35"
-          : props.kind === "danger"
-            ? "min-h-12 rounded-full border border-destructive px-5 items-center justify-center active:opacity-60 disabled:opacity-35"
-            : "min-h-12 rounded-full border border-border bg-card px-5 items-center justify-center active:bg-muted focus:border-ring disabled:opacity-35"
-      }
+      class={containerClass()}
     >
-      <Text
-        class={
-          props.kind === "primary"
-            ? "text-primary-foreground text-base font-semibold"
-            : props.kind === "danger"
-              ? "text-destructive text-base font-medium"
-              : "text-foreground text-base font-medium"
-        }
-      >
+      <Text class={textClass()}>
         {props.label}
       </Text>
     </Button>
@@ -77,7 +94,7 @@ export function WaveOrnament(props: { compact?: boolean }) {
     >
       {WAVE_RATIOS.map((ratio) => (
         <View
-          class="rounded-full bg-brand-blue"
+          class="rounded-full bg-eye-core"
           style={{
             width: 2.5,
             height: Math.max(4, Math.round(24 * ratio * scale())),
@@ -107,21 +124,21 @@ export function WakeGuideBar(props: { onPress: () => void }) {
         style={{ minHeight: 44 }}
       >
         <View
-          class="absolute left-0 top-0 bottom-0 w-3 rounded-l-full border-l-2 border-wake-paren"
+          class="absolute left-0 top-0 bottom-0 w-3 rounded-l-full border-l-2 border-stage-pill-border"
         />
         <Text
           class={
             narrow()
-              ? "text-muted-foreground text-sm text-center"
-              : "text-muted-foreground text-base text-center"
+              ? "text-stage-muted text-sm text-center"
+              : "text-stage-muted text-base text-center"
           }
         >
-          说 <Text class="text-brand-blue font-medium">Hey LOOI</Text> 唤醒我
+          说 <Text class="text-stage-fg font-medium">Hey LOOI</Text> 唤醒我
           {"  ·  "}
-          <Text class="text-subtle-text text-xs">轻触开启 LIVE 对话</Text>
+          <Text class="text-stage-muted text-xs">轻触开启 LIVE 对话</Text>
         </Text>
         <View
-          class="absolute right-0 top-0 bottom-0 w-3 rounded-r-full border-r-2 border-wake-paren"
+          class="absolute right-0 top-0 bottom-0 w-3 rounded-r-full border-r-2 border-stage-pill-border"
         />
       </View>
       <If when={!narrow()}>
@@ -137,24 +154,24 @@ export function ResponsePreview(props: { text: string; onOpen: () => void }) {
     <Button
       testID="subtitle-capsule"
       accessibilityLabel="查看完整回复"
-      class="w-full rounded-full border border-ask-trigger-border bg-glass-bg px-5 py-3 flex-row items-center gap-3 active:opacity-75"
+      class="w-full rounded-full border border-stage-pill-border bg-glass-bg px-5 py-3 flex-row items-center gap-3 active:opacity-75"
       style={{ maxWidth: 720, minHeight: 54 }}
       onPress={() => props.onOpen()}
     >
       <View class="flex-row items-center gap-0.5">
-        <View class="w-1 h-2.5 rounded-full bg-primary" />
-        <View class="w-1 h-4 rounded-full bg-primary" />
-        <View class="w-1 h-2.5 rounded-full bg-primary" />
+        <View class="w-1 h-2.5 rounded-full bg-eye-core" />
+        <View class="w-1 h-4 rounded-full bg-eye-core" />
+        <View class="w-1 h-2.5 rounded-full bg-eye-core" />
       </View>
       <View class="flex-1 gap-0.5" style={{ minWidth: 0 }}>
         <Text
-          class="text-foreground text-base font-medium"
+          class="text-stage-fg text-base font-medium"
           style={{ numberOfLines: 2 }}
         >
           {props.text}
         </Text>
         <If when={props.text.length > 48 || props.text.includes("\n")}>
-          <Text class="text-muted-foreground text-xs">轻触查看完整回复</Text>
+          <Text class="text-stage-muted text-xs">轻触查看完整回复</Text>
         </If>
       </View>
     </Button>
@@ -162,16 +179,26 @@ export function ResponsePreview(props: { text: string; onOpen: () => void }) {
 }
 
 /** Floating transient toast capsule matching LightToastCapsule. */
-export function LightToast(props: { text: string }) {
+export function LightToast(props: { text: string; stage?: boolean }) {
   return (
     <View
       role="alert"
-      class="rounded-full border border-live-border bg-card px-4 py-2 flex-row items-center gap-2"
+      class={
+        props.stage
+          ? "rounded-full border border-stage-pill-border bg-elevated-glass px-4 py-2 flex-row items-center gap-2"
+          : "rounded-full border border-border bg-card px-4 py-2 flex-row items-center gap-2"
+      }
       style={{ maxWidth: 520, minHeight: 40 }}
     >
-      <View class="w-2 h-2 rounded-full bg-primary" />
+      <View
+        class={
+          props.stage
+            ? "w-2 h-2 rounded-full bg-eye-core"
+            : "w-2 h-2 rounded-full bg-primary"
+        }
+      />
       <Text
-        class="text-foreground text-sm"
+        class={props.stage ? "text-stage-fg text-sm" : "text-foreground text-sm"}
         style={{ numberOfLines: 2, flexShrink: 1 }}
       >
         {props.text}
