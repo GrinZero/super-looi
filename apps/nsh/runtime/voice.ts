@@ -40,6 +40,18 @@ export interface VoiceState {
 const endpoint =
   "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue";
 
+function pcm16Rms(pcm: Uint8Array): number {
+  const samples = Math.floor(pcm.byteLength / 2);
+  if (samples <= 0) return 0;
+  const view = new DataView(pcm.buffer, pcm.byteOffset, samples * 2);
+  let sumSq = 0;
+  for (let i = 0; i < samples; i++) {
+    const sample = view.getInt16(i * 2, true) / 32768;
+    sumSq += sample * sample;
+  }
+  return Math.min(1, Math.sqrt(sumSq / samples) * 3.2);
+}
+
 /** One explicit foreground voice session. No reconnect or tool replay. Audio
  * queues and call identities are bounded; native lifecycle stops independently. */
 export class VoiceRuntime {
@@ -74,6 +86,7 @@ export class VoiceRuntime {
         options: { headers: Record<string, string> },
       ) => Promise<VoiceSocket>;
       onState: (state: VoiceState) => void;
+      onAudioLevel?: (level: number) => void;
       requestTask: (prompt: string) => Promise<string>;
       cancelTask: () => void;
     },
@@ -154,7 +167,7 @@ export class VoiceRuntime {
           session: {
             model: "1.2.6.1",
             instructions:
-              "你是 LOOI，用简短自然的中文回答。需要查询记忆、执行任务或控制家居时使用 run_agent_task。手机会请用户确认后由本机 Agent 执行；没有实际工具回执不得声称成功。演示设备必须明确说是演示。不自动重试未知结果。",
+              "你是 LOOI，用简短自然的中文回答，不念括号舞台提示。需要执行任务或控制家居时使用 run_agent_task。手机会请用户确认后由本机 Agent 执行；没有实际工具回执不得声称成功。演示设备必须明确说是演示。不自动重试未知结果。",
             tools: [
               {
                 type: "function",
@@ -322,6 +335,7 @@ export class VoiceRuntime {
     try {
       if (this.options.audio.status().state !== "running")
         throw new Error("Native audio interrupted");
+      let peakLevel = 0;
       for (let count = 0; count < 5 && this.outputFrames.length; count++) {
         const frame = this.outputFrames[0];
         if (
@@ -331,13 +345,17 @@ export class VoiceRuntime {
           break;
         this.outputFrames.shift();
         this.outputBytes -= frame.length;
+        peakLevel = Math.max(peakLevel, pcm16Rms(frame));
         this.options.audio.enqueue(frame, 24000);
       }
       for (const packet of this.options.audio.drainCapture()) {
         if (packet.sampleRate !== 16000 || packet.pcm.length !== 640)
           throw new Error("Invalid capture frame");
+        if (!this.state.muted)
+          peakLevel = Math.max(peakLevel, pcm16Rms(packet.pcm));
         this.frames.push(packet.pcm);
       }
+      this.options.onAudioLevel?.(peakLevel);
       if (this.frames.length > 25)
         this.frames.splice(0, this.frames.length - 25);
       if (!this.state.muted && !this.audioWriting) {
@@ -442,6 +460,7 @@ export class VoiceRuntime {
     this.outputFrames = [];
     this.outputBytes = 0;
     this.options.audio.clearPlayback();
+    this.options.onAudioLevel?.(0);
     this.publish({ phase: "listening", transcript: "" });
     const generation = this.generation;
     // No-ID frames are unsafe until the peer acknowledges cancellation. If
@@ -465,6 +484,7 @@ export class VoiceRuntime {
     const socket = this.socket;
     this.socket = undefined;
     this.options.audio.stop();
+    this.options.onAudioLevel?.(0);
     this.frames = [];
     this.outputFrames = [];
     this.outputBytes = 0;

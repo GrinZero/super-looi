@@ -69,30 +69,19 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
 const uiTarget = command.endsWith("-android") ? "android" : "ios";
 const standardUiSteps =
   [
-    'await app.waitFor("本机就绪", {timeout:15000})',
+    'await app.waitFor("陪伴待机", {timeout:15000})',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-face.png`))})`,
+    'await app.press("compose")',
+    'await app.waitFor("发送")',
+    'await app.press("compose")',
     'await app.press("connection-settings")',
     'await app.waitFor("连接设置")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings.png`))})`,
-    'await app.press("关闭")',
-    'await app.press("compose")',
-    'await app.type("message-input", "记住NSH验收标记在书架上")',
-    'await app.submit("message-input")',
-    'await app.waitFor("记住了：NSH验收标记在书架上")',
-    'await app.press("compose")',
-    'await app.type("message-input", "回忆 NSH验收标记")',
-    'await app.submit("message-input")',
-    'await app.waitFor("NSH验收标记在书架上")',
-    'await app.press("compose")',
-    'await app.type("message-input", "忘记 NSH验收标记")',
-    'await app.submit("message-input")',
-    'await app.waitFor("已忘记这条内容。")',
     'await app.press("task-history")',
     'await app.waitFor("任务记录")',
     'await app.press("开始新对话")',
-    'await app.press("compose")',
-    'await app.waitFor("和 LOOI 聊聊")',
-    'await app.press("关闭")',
+    'await app.press("connection-settings")',
+    'await app.waitFor("连接设置")',
     'await app.press("home-settings")',
     'await app.waitFor("家居连接")',
     'await app.scroll("panel-content", 240)',
@@ -105,7 +94,9 @@ const standardUiSteps =
     'await app.press("关闭")',
   ].join("\n") + "\n";
 const uiSteps = command.startsWith("ui-miot-") ? [
-  'await app.waitFor("本机就绪", {timeout:15000})',
+  'await app.waitFor("陪伴待机", {timeout:15000})',
+  'await app.press("connection-settings")',
+  'await app.waitFor("连接设置")',
   'await app.press("home-settings")',
   'await app.waitFor("米家账号")',
   'await app.scroll("panel-content", 300)',
@@ -118,7 +109,7 @@ const uiSteps = command.startsWith("ui-miot-") ? [
   'await app.press("关闭")',
 ].join("\n") + "\n" : standardUiSteps;
 const uiTest = resolve(app, ".nsh/NativeUi.test.tsx");
-const uiTestName = command.startsWith("ui-miot-") ? "native MIoT region, login and cancellation" : "native face and offline memory";
+const uiTestName = command.startsWith("ui-miot-") ? "native MIoT region, login and cancellation" : "native pure face, inline ask bar, tasks and home panels";
 if (command.startsWith("ui-"))
   writeFileSync(
     uiTest,

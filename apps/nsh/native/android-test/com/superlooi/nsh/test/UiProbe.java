@@ -22,16 +22,13 @@ public final class UiProbe extends Instrumentation {
         Bundle result = new Bundle();
         try {
             automation = getUiAutomation();
-            waitText("本机就绪", 20000);
+            waitText("陪伴待机", 20000);
+            tapText("对话"); waitText("发送", 5000);
+            tapText("对话");
             tapText("连接"); waitText("连接设置", 5000);
-            tapText("关闭"); waitText("对话", 5000);
-            String marker = "NSH原生验收" + System.currentTimeMillis();
-            message("记住" + marker + "在书架上");
-            waitText("记住了：" + marker + "在书架上", 10000);
-            message("回忆 " + marker); waitText(marker + "在书架上", 10000);
-            message("忘记 " + marker); waitText("已忘记这条内容。", 10000);
             tapText("任务"); waitText("任务记录", 5000);
-            tapText("开始新对话"); SystemClock.sleep(600); waitText("家居", 5000);
+            tapText("开始新对话"); SystemClock.sleep(600);
+            tapText("连接"); waitText("连接设置", 5000);
             tapText("家居"); waitText("家居连接", 5000);
             scrollTo("离线演示"); tapText("离线演示");
             SystemClock.sleep(500); scrollTo("演示书房吸顶灯"); waitText("演示书房吸顶灯", 5000);
@@ -44,7 +41,7 @@ public final class UiProbe extends Instrumentation {
             waitText("米家登录已取消", 10000);
             scrollTo("关闭家居"); tapText("关闭家居");
             tapText("关闭");
-            result.putString("result", "PASS native Android face/settings, offline memory, tasks/new conversation, home simulation and MIoT region/native login/cancel through system input");
+            result.putString("result", "PASS native Android pure face, inline ask bar, tasks/new conversation, home simulation and MIoT region/native login/cancel through system input");
             finish(-1, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL " + error.getClass().getSimpleName() + ": " + error.getMessage());

@@ -58,7 +58,7 @@ export async function buildRuntime() {
     `
 export interface VoiceState {phase:"idle"|"permission"|"connecting"|"listening"|"speaking"|"error";muted:boolean;transcript:string;error:string}
 export class VoiceRuntime {
- constructor(options:{vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;stop():void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;requestTask:(prompt:string)=>Promise<string>;cancelTask:()=>void});
+ constructor(options:{vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;stop():void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;onAudioLevel?:(level:number)=>void;requestTask:(prompt:string)=>Promise<string>;cancelTask:()=>void});
  configuration():{hasKey:boolean};configure(value:string):void;snapshot():VoiceState;start():Promise<void>;mute(value:boolean):void;interrupt():void;stop():void;close():void;
 }
 export interface UiAction {event_id:string;ui_session_id:string;kind:"tap"|"gesture"|"voice_command";captured_at:string;expires_at:string}
@@ -90,14 +90,14 @@ export interface NativeRuntime {
  taskDetails(id:string):NativeTask;
  newConversation(action:UiAction):void;
  configure(value:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
- run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{agentOnly?:boolean}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
+ run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{agentOnly?:boolean;mode?:"text"|"voice"}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
  respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  close():Promise<void>;
 }
 export interface FaceState {expression:"neutral"|"listening"|"thinking"|"speaking"|"curious"|"sleeping"|"alarmed";gaze:{x:number;y:number};blinkProgress:number;waveformBars:number[]}
 export class RobotFaceController {
- constructor(options?:{onStateChange?:()=>void});getState():FaceState;setExpression(value:FaceState["expression"]):void;triggerBlink():void;dispose():void;
+ constructor(options?:{onStateChange?:()=>void});getState():FaceState;setExpression(value:FaceState["expression"]):void;setGaze(x:number,y:number):void;updateAudioLevel(rms:number):void;triggerBlink():void;dispose():void;
 }
 export function openRuntime(host:{request(raw:string):string;begin(kind:string,raw:string):string;wait(ticket:string):Promise<string>;close():void},vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void}):Promise<NativeRuntime>;
 `,

@@ -1,5 +1,27 @@
 # Super-LOOI 重构与演进进度
 
+### NSH 首屏 UI 1:1 还原与极简 Agent Loop 减法收敛（2026-11-07）
+
+- [x] **Step 1：运行时做减法 — 移除记忆账本耦合，精简为最简 Agent Loop (`apps/nsh/runtime/*`, `apps/nsh/store.ts`)**
+  - [x] 从 `apps/nsh/runtime/application.ts` (`MobileRuntime`) 剥离 `MemoryLedgerService`、`createMemoryClaim`、`memoryTools()`（`recall_memory` / `remember_fact` / `forget_memory`）及 `记住/回忆/忘记` 离线正则拦截，所有对话统一走最简 `PiAgentExecutor` 循环（`read_file`/`read`、`write_file`、`bash`、`ask_user_question` 及可选家居工具）
+  - [x] 精简 `apps/nsh/runtime/voice.ts` 与 `apps/nsh/store.ts`：去除语音系统提示词中的记忆描述，支持从顶栏 `LIVE 对话` 胶囊一键开启/打断/关闭实时语音（及在连接设置中统一保存豆包语音 API Key），保留高危/写入工具的单次审批门禁
+  - [x] 同步更新 `apps/nsh/scripts/build-runtime.ts` 生成声明与相关测试探针（`verify-mobile-runtime.ts`, `native-voice-pipeline.ts`）
+- [x] **Step 2：大脸光学与几何 1:1 还原 (`apps/nsh/ui/RobotFace.tsx`, `apps/nsh/theme.json`)**
+  - [x] 移除 `RobotFace.tsx` 的 `bottomInset` 压缩与上移，对齐 `RobotFaceView.tsx` 全屏居中 `620×340` 比例与视口自适应缩放
+  - [x] 补齐双椭圆深空蓝氛围背光 (`atmosphere`) 与底部地平线流光 (`horizonGlow`)
+  - [x] 修复正圆眼眸光学渲染：移除 `neutral` / `speaking` 状态下的常驻突兀眉弧（仅在 `getEyePosture` 定义的情绪下按角度/位移绘制眉弧），修正径向渐变圆心与半径（消除顶部/两侧死黑蓝圈，还原底部 3D 内阴影月牙边缘、左上高光 `eyeSpecular` 与右下灵动星芒 `eyeSparkle`）
+  - [x] 对齐微笑弧度、视线跟随 (`gaze`) 与声波条渲染
+- [x] **Step 3：首屏纯粹大脸交互 1:1 还原 (`apps/nsh/App.tsx`, `apps/nsh/ui/Controls.tsx`)**
+  - [x] 移除旧首屏左上角粗体 `LOOI` 文字、右上角大号 `任务/连接` 按钮及底部 `家居/LIVE/对话` 按钮栏与状态底栏
+  - [x] 还原原版首屏顶栏 (`cornerRow`)：左上角半透明呼吸状态点 + 状态文案（`陪伴待机` / `实时聆听中` / `Agent 思考中` / `LOOI 说话中`）；右上角精修 `LIVE 对话` 流光胶囊（含状态点与 `LIVE 中`/`打断` 态）、`对话` 胶囊及轻量 `连接` 入口
+  - [x] 还原顶栏下方内联悬浮输入框 (`askBar`)、居中轻提示胶囊 (`LightToastCapsule`)、底部对称 7 阶声波纹 + 声波括号唤醒引导栏 (`wakeGuide`：`说 Hey LOOI 唤醒我 · 轻触开启 LIVE 对话`)、底部玻璃字幕胶囊 (`ConversationSubtitleOverlay`) 与右下角 `停止任务` 胶囊
+  - [x] 将模型配置与豆包语音 API Key 整合进统一的 `连接设置` 弹窗，移除首屏多余二级面板入口（保留组件源码不删除）
+- [x] **Step 4：测试回归、iOS 模拟器实机截图核验与独立子 Agent Review**
+  - [x] 更新 `apps/nsh/App.test.tsx`、`apps/nsh/scripts/nsh.ts`、`apps/nsh/tests/native_compat.rs`、`apps/nsh/tests/native-voice-pipeline.ts` 与 `apps/nsh/native/android-test/com/superlooi/nsh/test/UiProbe.java`
+  - [x] 运行 `pnpm --filter @super-looi/nsh typecheck`、`pnpm --filter @super-looi/nsh test`（17/17 通过）、`pnpm --filter @super-looi/nsh-node-compat test`（20/20 验收套件通过）及共享包测试
+  - [x] 在 iOS 模拟器运行 `pnpm --filter @super-looi/nsh test:ui:ios` 截取 `docs/artifacts/nsh-node-compat/ios-face.png` 与 `ios-settings.png`，对比 `pure-face-minimal-runtime.png` 核验 1:1 还原度
+  - [x] 调用独立子 Agent 进行代码与 UI 审查，修复 4 项审查发现（`store.ts` 表情切换防打断眨眼保护、`RobotFace.tsx` 呼吸动画 `computed` 隔离、`TasksPanel.tsx` 过期文案清理、Android `UiProbe.java` 验收流同步）并更新 `progress.md` / `todo.md` 提交 Git Commit
+
 ### NSH 计划续推与版本复验（2026-11-07）
 
 用户确认本轮先完成模拟器软件验收；真机媒体/BLE/底座验收另行保留。

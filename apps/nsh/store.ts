@@ -20,8 +20,21 @@ import {
 export function createAppStore() {
   const ready = signal(false),
     busy = signal(false),
-    status = signal("本机正在启动"),
-    message = signal("");
+    status = signal("陪伴待机"),
+    message = signal(""),
+    toast = signal(""),
+    wakeGuideDismissed = signal(false);
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  const notify = (text: string) => {
+    if (!alive) return;
+    if (toastTimer) clearTimeout(toastTimer);
+    toast.set(text);
+    if (text) {
+      toastTimer = setTimeout(() => {
+        if (alive) toast.set("");
+      }, 3200);
+    }
+  };
   const voiceState = signal<VoiceState>({
     phase: "idle",
     muted: false,
@@ -88,7 +101,9 @@ export function createAppStore() {
     };
   };
   const fail = (error: unknown) => {
-    message.set(error instanceof Error ? error.message : String(error));
+    const text = error instanceof Error ? error.message : String(error);
+    message.set(text);
+    notify(text);
     status.set("暂时无法完成");
   };
   const stop = async () => {
@@ -102,21 +117,28 @@ export function createAppStore() {
     }
   };
   effect(() => {
-    if (lifecycle() !== "active") {
-      homeLogin?.cancel();
-      voice?.stop();
-      driver.setExpression("sleeping");
-      void stop();
-    } else
-      driver.setExpression(
-        busy()
+    const next =
+      lifecycle() !== "active"
+        ? "sleeping"
+        : busy()
           ? "thinking"
           : voiceState().phase === "speaking"
             ? "speaking"
             : voiceState().phase === "listening"
               ? "listening"
-              : "neutral",
-      );
+              : voiceState().phase === "connecting"
+                ? "curious"
+                : "neutral";
+    if (lifecycle() !== "active") {
+      homeLogin?.cancel();
+      voice?.stop();
+      if (driver.getState().expression !== "sleeping") {
+        driver.setExpression("sleeping");
+      }
+      void stop();
+    } else if (driver.getState().expression !== next) {
+      driver.setExpression(next);
+    }
   });
   effect(() => {
     if (lifecycle() !== "active" || reduceMotion()) return;
@@ -139,7 +161,21 @@ export function createAppStore() {
         audio: new VoiceAudio(),
         connect,
         onState: (state) => {
-          if (alive) voiceState.set(state);
+          if (!alive) return;
+          voiceState.set(state);
+          if (state.phase !== "listening" && state.phase !== "speaking") {
+            driver.updateAudioLevel(0);
+            face.set(driver.getState());
+          }
+          if (state.phase === "error" && state.error) {
+            notify(state.error);
+          }
+        },
+        onAudioLevel: (level) => {
+          if (alive) {
+            driver.updateAudioLevel(level);
+            face.set(driver.getState());
+          }
         },
         requestTask: (prompt) =>
           new Promise((resolve, reject) => {
@@ -169,7 +205,7 @@ export function createAppStore() {
       homeConnection.set(opened.homeConnection());
       recoveryCount.set(opened.recoveryCount());
       ready.set(true);
-      status.set(recoveryCount() ? "上次任务结果待核实" : "本机就绪");
+      status.set(recoveryCount() ? "上次任务结果待核实" : "陪伴待机");
       if (recoveryCount())
         message.set(
           `有 ${recoveryCount()} 项任务的执行结果无法确认，尚未自动重放。请先核实已产生的更改。`,
@@ -183,6 +219,7 @@ export function createAppStore() {
   })();
   cleanup(() => {
     alive = false;
+    if (toastTimer) clearTimeout(toastTimer);
     homeLogin?.cancel();
     voice?.close();
     driver.dispose();
@@ -194,6 +231,7 @@ export function createAppStore() {
     voiceConfigured: () => voiceConfigured(),
     voiceTask: () => voiceTask(),
     async startVoice() {
+      wakeGuideDismissed.set(true);
       try {
         await voice?.start();
       } catch (error) {
@@ -236,19 +274,25 @@ export function createAppStore() {
     },
     ready: () => ready(),
     busy: () => busy(),
+    toast: () => toast(),
+    notify,
+    wakeGuideDismissed: () => wakeGuideDismissed(),
+    dismissWakeGuide() {
+      wakeGuideDismissed.set(true);
+    },
     status: () =>
       busy()
         ? status()
         : voiceTask()
           ? "语音任务待确认"
           : voiceState().phase === "connecting"
-            ? "语音连接中"
+            ? "LIVE 连接中"
             : voiceState().phase === "speaking"
-              ? "正在说话"
+              ? "LOOI 说话中"
               : voiceState().phase === "listening"
                 ? voiceState().muted
                   ? "语音已静音"
-                  : "正在聆听"
+                  : "实时聆听中"
                 : status(),
     message: () => message(),
     face: () => face(),
@@ -326,8 +370,9 @@ export function createAppStore() {
       if (!runtime || busy()) return false;
       try {
         runtime.newConversation(action());
-        message.set("新对话已开始，原任务记录仍保留。");
-        status.set("本机就绪");
+        message.set("");
+        notify("新对话已开始");
+        status.set("陪伴待机");
         return true;
       } catch (error) {
         fail(error);
@@ -339,14 +384,15 @@ export function createAppStore() {
       if (!runtime) throw new Error("本机存储尚未就绪");
       await runtime.configure(value);
       configuration.set(runtime.configuration());
-      status.set("模型已配置");
-      message.set("");
+      status.set("陪伴待机");
+      notify("模型已配置");
     },
     async send(prompt: string, agentOnly = false) {
       if (busy() || !runtime || !prompt.trim()) return false;
+      wakeGuideDismissed.set(true);
       busy.set(true);
       message.set("");
-      status.set("正在思考");
+      status.set("Agent 思考中");
       try {
         const result = await runtime.run(
           prompt,
@@ -357,11 +403,11 @@ export function createAppStore() {
             if (event.interaction && event.taskId)
               interaction.set({ ...event.interaction, taskId: event.taskId });
           },
-          { agentOnly },
+          { agentOnly, mode: agentOnly ? "voice" : "text" },
         );
         if (alive) {
           message.set(result.answer);
-          status.set(result.runtimeExited ? "本机就绪" : "任务结果待核实");
+          status.set(result.runtimeExited ? "陪伴待机" : "任务结果待核实");
         }
         return true;
       } catch (error) {

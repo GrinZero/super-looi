@@ -281,3 +281,4 @@
 - [ ] 商店签名、API 36/AAB、32位ABI执行另验；真机硬件按用户要求留待后续。
 
 - [x] Android Release 验收误覆盖原未知配置后，已按用户授权用 `.env` 配置恢复，并通过重启读回及真实两轮对话；原值无备份，不能宣称还原原值。后续配置验收必须隔离测试 appId 或先保存原值。
+- [x] NSH 首屏 UI 1:1 还原与极简 Agent Loop 减法收敛（2026-11-07）：从 `apps/nsh/runtime/application.ts` 与 `voice.ts` 剥离 `MemoryLedgerService`、`remember_fact` / `recall_memory` / `forget_memory` 及 `记住/回忆/忘记` 离线正则拦截，收敛为最简 `PiAgentExecutor` 循环（`read_file`/`read`、`write_file`、`bash`、`ask_user_question` 及可选家居工具）；通过真实采集/播放 PCM16 RMS 驱动声波条；修复 `RobotFace.tsx` 光学渲染（移除 `neutral`/`speaking` 常驻眉弧、修正径向渐变圆心与高光透明色差、补齐双椭圆氛围背光与底部地平线流光）及 `App.tsx` 首屏三区轻量胶囊（左上呼吸状态点、右上 `LIVE 对话` / `对话` 内联输入栏 / `连接`、底部对称 7 阶声波纹唤醒引导栏与玻璃字幕胶囊），iOS 模拟器实机截图（`docs/artifacts/nsh-node-compat/ios-face.png`）与独立子 Agent 审查通过。

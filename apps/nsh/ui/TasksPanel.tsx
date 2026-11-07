@@ -57,7 +57,7 @@ export function TasksPanel(props: {
             </View>
             <If when={!props.store.tasks().total}>
               <Text class="text-muted-foreground text-base">
-                还没有模型任务。离线记忆保存在本机，不列为模型任务。
+                还没有任务记录。
               </Text>
             </If>
             <Each of={props.store.tasks().items} key={(item) => item.id}>

@@ -36,7 +36,7 @@ export async function verifyVoicePipeline(options: {
     };
   };
   const note = `软件验收码${Date.now()}是纸鸢`;
-  await options.runtime.run(`记住${note}`, action(), () => {});
+  await options.runtime.run(`请记住并在后续对话中直接回答：${note}（无需调用工具，直接回复“已记住”）`, action(), () => {});
   const audio: VoiceAudioPort = {
     requestPermission: () => "granted", // Synthetic-input adapter; no OS permission request.
     status: () => ({ ...options.audio.status(), permission: "granted" }),
@@ -153,6 +153,6 @@ export async function verifyVoicePipeline(options: {
   } finally {
     voice.close();
     await options.runtime.cancel();
-    await options.runtime.run(`忘记${note}`, action(), () => {});
+    options.runtime.newConversation(action());
   }
 }

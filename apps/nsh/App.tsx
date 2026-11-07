@@ -1,6 +1,14 @@
 import { effect, mount, signal, Text, View, windowSize } from "nsh";
+import { Button, Input } from "nsh/base";
 import { createAppStore } from "./store";
-import { ActionButton, Panel, TextField, ResponsePreview } from "./ui/Controls";
+import {
+  ActionButton,
+  LightToast,
+  Panel,
+  ResponsePreview,
+  TextField,
+  WakeGuideBar,
+} from "./ui/Controls";
 import { VoicePanel } from "./ui/VoicePanel";
 import { HomePanel } from "./ui/HomePanel";
 import { TasksPanel } from "./ui/TasksPanel";
@@ -14,6 +22,7 @@ function App() {
   const baseUrl = signal(""),
     model = signal(""),
     apiKey = signal(""),
+    voiceKey = signal(""),
     saving = signal(false),
     configError = signal("");
   const questionAnswers = signal<Record<string, string>>({});
@@ -21,11 +30,25 @@ function App() {
   const tasksOpen = signal(false);
   const homeOpen = signal(false);
   const voiceOpen = signal(false);
+
+  const voiceActive = () =>
+    ["connecting", "listening", "speaking"].includes(store.voiceState().phase);
+
+  const voicePillLabel = () => {
+    const phase = store.voiceState().phase;
+    if (phase === "speaking") return "打断";
+    if (phase === "connecting") return "连接中";
+    if (phase === "listening") return "LIVE 中";
+    if (store.voiceTask()) return "确认任务";
+    return "LIVE 对话";
+  };
+
   const responseText = () =>
     ["listening", "speaking"].includes(store.voiceState().phase) &&
     store.voiceState().transcript
       ? store.voiceState().transcript
       : store.message();
+
   const approvalLabel = () => {
     const details = store.interaction()?.details;
     switch (details?.toolName) {
@@ -39,14 +62,11 @@ function App() {
         return "运行本机 Shell 命令";
       case "control_home_device":
         return "控制家居设备";
-      case "remember_fact":
-        return "保存待确认记忆";
-      case "forget_memory":
-        return "删除记忆";
       default:
         return `执行 ${String(details?.toolName ?? "本机操作")}`;
     }
   };
+
   const questions = () => {
     const value = store.interaction()?.details.questions;
     return Array.isArray(value)
@@ -66,28 +86,66 @@ function App() {
         )
       : [];
   };
+
   effect(() => {
     store.interaction()?.id;
     questionAnswers.set({});
   });
+
   const openSettings = () => {
     baseUrl.set(store.configuration().baseUrl);
     model.set(store.configuration().model);
     apiKey.set("");
+    voiceKey.set("");
     configError.set("");
     settings.set(true);
   };
+
+  const toggleLiveVoice = () => {
+    store.dismissWakeGuide();
+    if (!store.ready()) return;
+    if (store.voiceTask()) {
+      voiceOpen.set(true);
+      return;
+    }
+    const phase = store.voiceState().phase;
+    if (phase === "speaking") {
+      store.interruptVoice();
+      return;
+    }
+    if (phase === "listening" || phase === "connecting") {
+      store.stopVoice();
+      return;
+    }
+    if (store.voiceConfigured()) {
+      void store.startVoice();
+      return;
+    }
+    openSettings();
+  };
+
   const save = async () => {
     if (saving()) return;
     saving.set(true);
     configError.set("");
     try {
-      await store.configure({
-        baseUrl: baseUrl(),
-        model: model(),
-        apiKey: apiKey(),
-      });
+      const hasModelFields = Boolean(baseUrl().trim() && model().trim());
+      const hasVoiceField = Boolean(voiceKey().trim());
+      if (!hasModelFields && !hasVoiceField) {
+        throw new Error("请填写对话模型配置或豆包语音 API Key");
+      }
+      if (hasModelFields) {
+        await store.configure({
+          baseUrl: baseUrl(),
+          model: model(),
+          apiKey: apiKey(),
+        });
+      }
+      if (hasVoiceField) {
+        store.configureVoice(voiceKey().trim());
+      }
       apiKey.set("");
+      voiceKey.set("");
       settings.set(false);
     } catch (error) {
       configError.set(error instanceof Error ? error.message : String(error));
@@ -95,6 +153,7 @@ function App() {
       saving.set(false);
     }
   };
+
   const send = () => {
     const text = draft().trim();
     if (!text || store.busy() || !store.ready()) return;
@@ -113,87 +172,174 @@ function App() {
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      <RobotFace
-        state={store.face()}
-        shift={{ dx: 0, dy: 0 }}
-        bottomInset={store.message() ? 120 : 72}
-      />
-      <View class="flex-1 px-6 py-3">
-        <View class="flex-row items-center justify-between gap-3">
-          <View class="gap-1">
-            <Text
-              class="text-foreground text-lg font-semibold"
-              style={{ letterSpacing: 5 }}
+      <RobotFace state={store.face()} shift={{ dx: 0, dy: 0 }} />
+
+      <View class="flex-1 px-4 py-2.5 justify-between">
+        <View class="gap-2">
+          <View class="flex-row items-center justify-between gap-3">
+            <View
+              class="flex-row items-center gap-2 px-2 py-1"
+              style={{ opacity: 0.58, minHeight: 34, maxWidth: "56%" }}
             >
-              LOOI
-            </Text>
-            <Text class="text-muted-foreground text-xs">{store.status()}</Text>
+              <View
+                class={
+                  voiceActive()
+                    ? "w-1.5 h-1.5 rounded-full bg-verified"
+                    : "w-1.5 h-1.5 rounded-full bg-primary"
+                }
+              />
+              <Text
+                class="text-muted-foreground text-xs"
+                style={{ letterSpacing: 1, flexShrink: 1 }}
+              >
+                {store.status()}
+              </Text>
+            </View>
+
+            <View class="flex-row items-center gap-2">
+              <Button
+                testID="voice-toggle"
+                accessibilityLabel={
+                  voiceActive() ? "结束或打断实时对话" : "开启豆包实时语音对话"
+                }
+                disabled={!store.ready()}
+                onPress={toggleLiveVoice}
+                class={
+                  voiceActive()
+                    ? "rounded-full border border-verified bg-live-active-bg px-3 flex-row items-center gap-1.5 active:opacity-75 disabled:opacity-40"
+                    : "rounded-full border border-live-border bg-live-bg px-3 flex-row items-center gap-1.5 active:opacity-75 disabled:opacity-40"
+                }
+                style={{ minHeight: 34 }}
+              >
+                <View
+                  class={
+                    voiceActive()
+                      ? "w-1.5 h-1.5 rounded-full bg-verified"
+                      : "w-1.5 h-1.5 rounded-full bg-brand-blue"
+                  }
+                />
+                <Text
+                  class={
+                    voiceActive()
+                      ? "text-verified text-xs font-semibold"
+                      : "text-live-text text-xs font-semibold"
+                  }
+                  style={{ letterSpacing: 0.6 }}
+                >
+                  {voicePillLabel()}
+                </Text>
+              </Button>
+
+              <Button
+                testID="compose"
+                accessibilityLabel="向 LOOI 发送消息"
+                onPress={() => compose.set(!compose())}
+                class={
+                  compose()
+                    ? "rounded-full border border-live-border bg-live-bg px-3 items-center justify-center active:opacity-75"
+                    : "rounded-full border border-ask-trigger-border bg-ask-trigger-bg px-3 items-center justify-center active:opacity-75"
+                }
+                style={{ minHeight: 34 }}
+              >
+                <Text
+                  class={
+                    compose()
+                      ? "text-live-text text-xs font-medium"
+                      : "text-muted-foreground text-xs"
+                  }
+                  style={{ letterSpacing: 1 }}
+                >
+                  对话
+                </Text>
+              </Button>
+
+              <Button
+                testID="connection-settings"
+                accessibilityLabel="打开连接设置"
+                onPress={openSettings}
+                class="rounded-full border border-ask-trigger-border bg-ask-trigger-bg px-3 items-center justify-center active:opacity-75"
+                style={{ minHeight: 34 }}
+              >
+                <Text
+                  class="text-muted-foreground text-xs"
+                  style={{ letterSpacing: 1 }}
+                >
+                  连接
+                </Text>
+              </Button>
+            </View>
           </View>
-          <View class="flex-row gap-2">
-            <ActionButton
-              label="任务"
-              testID="task-history"
-              disabled={!store.ready()}
-              onPress={() => {
-                store.refreshTasks();
-                tasksOpen.set(true);
-              }}
-            />
-            <ActionButton
-              label="连接"
-              testID="connection-settings"
-              onPress={openSettings}
-            />
-          </View>
+
+          <If when={compose()}>
+            <View class="rounded-2xl border border-live-border bg-ask-bar-bg px-3 py-1.5 flex-row items-center gap-2">
+              <Input
+                testID="message-input"
+                value={draft()}
+                onChange={(e) => draft.set(e.value)}
+                onSubmit={send}
+                autoCorrect={false}
+                autoCapitalize="none"
+                maxLength={8192}
+                placeholder="直接对 LOOI 说（如：打开书房灯 / 查看当前目录）"
+                class="flex-1 h-9 rounded-xl border border-transparent bg-transparent px-2 text-foreground text-sm focus:border-ring"
+              />
+              <Button
+                testID="send-message"
+                disabled={!draft().trim() || !store.ready() || store.busy()}
+                onPress={send}
+                class="rounded-full bg-brand-blue px-3.5 items-center justify-center active:opacity-75 disabled:opacity-40"
+                style={{ minHeight: 34 }}
+              >
+                <Text class="text-foreground text-xs font-semibold">发送</Text>
+              </Button>
+            </View>
+          </If>
+
+          <If when={store.toast()}>
+            <View class="items-center">
+              <LightToast text={store.toast()} />
+            </View>
+          </If>
         </View>
-        <View class="flex-1" />
-        <View class="gap-3 items-center">
-          <If when={responseText()}>
+
+        <View class="items-center gap-2">
+          <If when={store.busy()}>
+            <View class="w-full flex-row justify-end">
+              <Button
+                testID="stop-task"
+                accessibilityLabel="停止当前工作任务"
+                onPress={() => {
+                  void store.stop();
+                }}
+                class="rounded-full bg-agent-stop px-4 items-center justify-center active:opacity-75"
+                style={{ minHeight: 44 }}
+              >
+                <Text class="text-foreground text-xs font-semibold">
+                  停止任务
+                </Text>
+              </Button>
+            </View>
+          </If>
+
+          <If
+            when={responseText()}
+            else={
+              <If
+                when={
+                  !store.wakeGuideDismissed() &&
+                  !compose() &&
+                  store.voiceState().phase === "idle"
+                }
+              >
+                <WakeGuideBar onPress={toggleLiveVoice} />
+              </If>
+            }
+          >
             <ResponsePreview
               text={responseText()}
               onOpen={() => responseOpen.set(true)}
             />
           </If>
-          <View class="flex-row gap-3 items-center justify-center">
-            <ActionButton
-              label="家居"
-              testID="home-settings"
-              disabled={!store.ready() || store.busy()}
-              onPress={() => homeOpen.set(true)}
-            />
-            <ActionButton
-              label={store.voiceTask() ? "确认语音任务" : "LIVE"}
-              disabled={!store.ready()}
-              onPress={() => voiceOpen.set(true)}
-            />
-            <ActionButton
-              label="对话"
-              testID="compose"
-              kind="primary"
-              onPress={() => compose.set(true)}
-            />
-            <If when={store.busy()}>
-              <ActionButton
-                label="停止任务"
-                kind="danger"
-                onPress={() => {
-                  void store.stop();
-                }}
-              />
-            </If>
-          </View>
-          <Text class="text-muted-foreground text-xs">
-            {["listening", "speaking"].includes(store.voiceState().phase)
-              ? store.voiceState().muted
-                ? "麦克风静音"
-                : "麦克风开启"
-              : "麦克风关闭"}
-            　·　底座未连接　·　
-            {store.configuration().hasKey ? "模型已配置" : "模型未配置"}
-            {store.recoveryCount()
-              ? ` · ${store.recoveryCount()} 项任务待核实`
-              : ""}
-          </Text>
         </View>
       </View>
 
@@ -218,51 +364,66 @@ function App() {
           }
         }}
       />
-      <Panel
-        open={compose()}
-        title="和 LOOI 聊聊"
-        height={300}
-        onClose={() => compose.set(false)}
-      >
-        <TextField
-          label="你想说什么？"
-          testID="message-input"
-          value={draft()}
-          onChange={(value) => draft.set(value)}
-          onSubmit={send}
-          placeholder="也可以说：记住钥匙在书架上"
-        />
-        <Text class="text-muted-foreground text-sm">
-          记住、回忆和忘记可以在本机离线使用。
-        </Text>
-        <View class="flex-row justify-end gap-3">
-          <ActionButton label="取消" onPress={() => compose.set(false)} />
-          <ActionButton
-            label="发送"
-            testID="send-message"
-            kind="primary"
-            disabled={!draft().trim() || !store.ready() || store.busy()}
-            onPress={send}
-          />
-        </View>
-      </Panel>
 
       <Panel
         open={settings()}
         title="连接设置"
-        height={500}
+        height={540}
         wide={true}
         dismissible={!saving()}
         onClose={() => {
           if (!saving()) {
             apiKey.set("");
+            voiceKey.set("");
             settings.set(false);
           }
         }}
       >
-        <Text class="text-muted-foreground text-sm">
-          对话由手机直接连接你的模型服务。
-        </Text>
+        <View class="flex-row flex-wrap items-center justify-between gap-2">
+          <Text class="text-muted-foreground text-sm">
+            对话由本机 Agent 直接连接你的模型服务与豆包实时语音。
+          </Text>
+          <View class="flex-row flex-wrap gap-2">
+            <ActionButton
+              label="新对话"
+              disabled={!store.ready() || store.busy()}
+              onPress={() => {
+                if (store.newConversation()) {
+                  draft.set("");
+                  settings.set(false);
+                }
+              }}
+            />
+            <ActionButton
+              label="家居"
+              testID="home-settings"
+              disabled={!store.ready() || store.busy()}
+              onPress={() => {
+                settings.set(false);
+                setTimeout(() => homeOpen.set(true), 50);
+              }}
+            />
+            <ActionButton
+              label="任务"
+              testID="task-history"
+              disabled={!store.ready()}
+              onPress={() => {
+                settings.set(false);
+                store.refreshTasks();
+                setTimeout(() => tasksOpen.set(true), 50);
+              }}
+            />
+            <ActionButton
+              label="语音设置"
+              testID="voice-settings"
+              disabled={!store.ready()}
+              onPress={() => {
+                settings.set(false);
+                setTimeout(() => voiceOpen.set(true), 50);
+              }}
+            />
+          </View>
+        </View>
         <View
           style={{
             flexDirection: windowSize().width >= 680 ? "row" : "column",
@@ -284,8 +445,6 @@ function App() {
               onChange={(value) => model.set(value)}
               placeholder="服务提供的模型名称"
             />
-          </View>
-          <View class="flex-1 gap-4" style={{ minWidth: 0 }}>
             <TextField
               label="API Key"
               testID="model-key"
@@ -298,11 +457,28 @@ function App() {
               placeholder={
                 store.configuration().hasKey
                   ? "已安全保存；同一服务可留空继续使用"
-                  : "输入 API Key"
+                  : "输入模型 API Key"
+              }
+            />
+          </View>
+          <View class="flex-1 gap-4" style={{ minWidth: 0 }}>
+            <TextField
+              label="豆包实时语音 API Key"
+              testID="voice-key"
+              value={voiceKey()}
+              onChange={(value) => voiceKey.set(value)}
+              masked={true}
+              onSubmit={() => {
+                void save();
+              }}
+              placeholder={
+                store.voiceConfigured()
+                  ? "已安全保存；留空保持不变"
+                  : "输入豆包语音 API Key（可选）"
               }
             />
             <Text class="text-muted-foreground text-sm">
-              API Key 保存在这台设备的系统安全存储中。
+              凭据保存在这台设备的系统安全存储中。
             </Text>
             <If when={configError()}>
               <Text class="text-destructive text-sm" role="alert">
@@ -315,9 +491,8 @@ function App() {
                 kind="primary"
                 disabled={
                   saving() ||
-                  !baseUrl().trim() ||
-                  !model().trim() ||
-                  store.busy()
+                  store.busy() ||
+                  (!(baseUrl().trim() && model().trim()) && !voiceKey().trim())
                 }
                 onPress={() => {
                   void save();
@@ -338,6 +513,7 @@ function App() {
           <Text class="text-foreground text-base">{responseText()}</Text>
         </View>
       </Panel>
+
       <Panel
         open={Boolean(store.interaction())}
         title={
@@ -389,16 +565,6 @@ function App() {
             {String(
               store.interaction()?.details.command ??
                 store.interaction()?.details.path ??
-                (
-                  store.interaction()?.details.arguments as
-                    | Record<string, unknown>
-                    | undefined
-                )?.fact ??
-                (
-                  store.interaction()?.details.arguments as
-                    | Record<string, unknown>
-                    | undefined
-                )?.query ??
                 store.interaction()?.details.toolName ??
                 "本机操作",
             )}
