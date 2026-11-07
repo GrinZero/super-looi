@@ -86,12 +86,12 @@ def patch(data, application, allow_backup=False, permissions=()):
     permissions = tuple(dict.fromkeys(permissions))
     if any(value not in ("android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS") for value in permissions):
         raise ValueError("Unsupported app plugin permission")
-    chunks[pool_index] = extend_pool(chunks[pool_index], strings, [ANDROID, "name", "allowBackup", application] + (["uses-permission", *permissions] if permissions else []))
-    indices = {value: strings.index(value) for value in [ANDROID, "name", "allowBackup", application]}
+    chunks[pool_index] = extend_pool(chunks[pool_index], strings, [ANDROID, "name", "allowBackup", "usesCleartextTraffic", application] + (["uses-permission", *permissions] if permissions else []))
+    indices = {value: strings.index(value) for value in [ANDROID, "name", "allowBackup", "usesCleartextTraffic", application]}
     resource_index = next(i for i, chunk in enumerate(chunks) if u16(chunk, 0) == 0x180)
     resources = list(struct.unpack("<" + "I" * ((len(chunks[resource_index]) - 8) // 4), chunks[resource_index][8:]))
-    resources.extend([0] * (max(indices["name"], indices["allowBackup"]) + 1 - len(resources)))
-    for name, resource in [("name", NAME_ID), ("allowBackup", BACKUP_ID)]:
+    resources.extend([0] * (max(indices["name"], indices["allowBackup"], indices["usesCleartextTraffic"]) + 1 - len(resources)))
+    for name, resource in [("name", NAME_ID), ("allowBackup", BACKUP_ID), ("usesCleartextTraffic", 0x010104ec)]:
         index = indices[name]
         if resources[index] not in (0, resource):
             raise ValueError("Conflicting manifest resource ID")
@@ -111,6 +111,7 @@ def patch(data, application, allow_backup=False, permissions=()):
             indices["name"]: struct.pack("<IIIHBBI", indices[ANDROID], indices["name"], indices[application], 8, 0, 3, indices[application]),
             indices["allowBackup"]: struct.pack("<IIIHBBI", indices[ANDROID], indices["allowBackup"], NO_INDEX, 8, 0, 0x12, int(allow_backup)),
         }
+        replacement[indices["usesCleartextTraffic"]] = struct.pack("<IIIHBBI", indices[ANDROID], indices["usesCleartextTraffic"], NO_INDEX, 8, 0, 0x12, 0)
         retained = []
         for attr in attrs:
             name = u32(attr, 4)

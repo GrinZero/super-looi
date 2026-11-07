@@ -20,7 +20,7 @@ class AndroidPluginTest(unittest.TestCase):
             manifest = root / "AndroidManifest.xml"
             manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.superlooi.app">
               <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-              <application android:label="@string/label" android:allowBackup="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+              <application android:label="@string/label" android:allowBackup="true" android:usesCleartextTraffic="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
                 <meta-data android:name="original.metadata" android:value="retained"/>
                 <activity android:name="demo.Main" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
                 <service android:name="demo.Service" android:exported="false"/>
@@ -42,10 +42,12 @@ class AndroidPluginTest(unittest.TestCase):
             def tree(path):
                 return subprocess.check_output([str(tools / "aapt2"), "dump", "xmltree", "--file", "AndroidManifest.xml", str(path)], text=True)
             def unchanged(text):
-                return "\n".join(line for line in text.splitlines() if "allowBackup" not in line and application not in line)
+                return "\n".join(line for line in text.splitlines() if "allowBackup" not in line and "usesCleartextTraffic" not in line and application not in line)
             self.assertEqual(unchanged(tree(original)), unchanged(tree(second)))
             self.assertIn(application, tree(second))
             self.assertIn("allowBackup", tree(second))
+            cleartext = next(line for line in tree(second).splitlines() if "usesCleartextTraffic" in line)
+            self.assertRegex(cleartext, r"(?:false|0x0)(?:\s|$)")
             self.assertEqual(tree(first), tree(second))
             with zipfile.ZipFile(original) as src, zipfile.ZipFile(second) as result:
                 self.assertEqual(len(result.namelist()), len(set(result.namelist())))

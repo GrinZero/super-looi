@@ -176,6 +176,7 @@ function applyAndroidPlugin(apk, sdk, tools) {
       "-d",
       classes,
       source,
+      join(app, "native/android/com/superlooi/nsh/MiotLoginDialog.java"),
     ]);
     run(join(tools, "d8"), [
       "--lib",

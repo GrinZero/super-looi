@@ -111,6 +111,7 @@ if (command.startsWith("ui-"))
     `import {open,test} from "nsh/test";test("native face and offline memory",async()=>{const app=await open("../App.tsx");\n${uiSteps}\n},120000);\n`,
   );
 const scripted =
+  command.startsWith("login-") ||
   command.startsWith("probe-") ||
   command.startsWith("ui-") ||
   command.startsWith("live-");
@@ -121,7 +122,9 @@ const result = scripted
         "test",
         resolve(
           app,
-          command.startsWith("live-")
+          command.startsWith("login-")
+            ? "LoginProbe.tsx"
+            : command.startsWith("live-")
             ? ".nsh/LiveProbe.test.tsx"
             : command.startsWith("ui-")
               ? uiTest
@@ -135,7 +138,9 @@ const result = scripted
         cwd: app,
         env: nativeEnvironment,
         stdio: ["pipe", "inherit", "inherit"],
-        input: command.startsWith("live-")
+        input: command.startsWith("login-")
+          ? 'await app.waitFor("Native login window verified", {timeout:20000})\n'
+          : command.startsWith("live-")
           ? 'await app.waitFor("Native live verified", {timeout:90000})\n'
           : command.startsWith("ui-")
             ? uiSteps

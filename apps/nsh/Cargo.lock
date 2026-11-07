@@ -2507,6 +2507,7 @@ dependencies = [
  "nsh-node-compat-rs",
  "nsh-testing",
  "objc2",
+ "objc2-core-foundation",
  "objc2-foundation",
  "rolldown_devtools",
  "rolldown_devtools_action",
@@ -2515,6 +2516,7 @@ dependencies = [
  "rolldown_tracing",
  "security-framework",
  "tempfile",
+ "url",
 ]
 
 [[package]]
@@ -2777,7 +2779,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
 dependencies = [
  "bitflags 2.13.2",
+ "block2",
  "dispatch2",
+ "libc",
  "objc2",
 ]
 

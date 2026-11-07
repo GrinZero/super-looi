@@ -26,6 +26,16 @@ Agent 家居控制经过单次 UI 审批。下发前在同一个 SQLite 数据�
 
 全仓 `pnpm build`、`pnpm typecheck`、`pnpm test` 通过：324 项 JavaScript 测试和 10 项 NSH 测试。软件通过不等同物理设备验收。
 
+## 米家原生登录浏览器基础
+
+专用 `MiotLoginBrowser` 已注册到 app 自有 native 模块。iOS 使用非持久 WKWebsiteDataStore，先安装回调主机资源阻断规则，再加载登录页；Android 使用独立 Dialog/WebView，关闭文件访问、页面调试、console 输出和混合内容。两端不安装 JS 消息桥，不记录授权 URL，错误只返回固定代码。
+
+Android 插件强制 `usesCleartextTraffic=false`，浏览器启动前还检查回调主机的 NetworkSecurityPolicy；开发与产品包均不依赖 WebView 回调去覆盖 POST 重定向。该限制与当前家居 HTTPS 配置一致。Android CookieStore 是进程共享的，不能称为无持久 cookie。
+
+登录会话限制为单一 owner；回调只消费一次，取消/超时清理未消费 code。原生后台监听在窗口关闭后仍能使 callback/consumed 状态失效，防止 JS 暂停时残留授权继续被消费。产品 token 提交前仍必须读取该原生会话状态并校验代际；UI 与 token 交换接线尚未完成。
+
+验证：6 项 Rust 登录状态/URL 策略测试、Android 插件增量/幂等测试通过；NSH 共 16 项测试通过。双端模拟器运行 `test:login:ios` / `test:login:android`，验证真实原生窗口展示、无效初始 URL 拒绝、第二个 owner 拒绝、取消及空 callback。探针不使用用户账户、不授权、不读写凭据。此冒烟不证明 OAuth 成功，也不证明全部回调路径零网络请求；GET/POST 307/子资源请求计数 fixture 仍待完成。
+
 ## 尚未完成
 
 MIoT 登录界面、实时语音真实服务、BLE 桥及旧数据迁移继续推进。双端家居/任务界面已通过实际输入验收。实时语音协议及共享 Agent 的 UI 确认流程已通过 fixture；取消后只在服务确认取消时恢复输出，无确认则四秒后结束会话，实际服务双端原生测试确认使用 `response.canceled`（单个 l），实现已兼容该事件。双端各接收 247808 字节合成 PCM 并确认取消，未开启麦克风或写入产品凭据；证据见 `artifacts/nsh-node-compat/voice-native-audit.json`。合成语音输入至实际 Agent 查询本机记忆再生成原生 PCM 回复已在双端通过（iOS 55296 字节，Android 75776 字节，各一次工具调用）；产品 UI 确认单独由 fixture 和审查覆盖。真实麦克风与 AEC 效果仍未验收。静音输出验证不代表麦克风、外放 AEC、物理 BLE 或底座验收。Hub/Expo 删除门禁仍未满足。

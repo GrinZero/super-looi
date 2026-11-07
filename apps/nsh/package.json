@@ -17,7 +17,9 @@
     "test:live:android": "node --import tsx scripts/verify-live.ts android",
     "test:live:sdk:ios": "node --import tsx scripts/verify-live.ts ios --sdk",
     "test:live:sdk:android": "node --import tsx scripts/verify-live.ts android --sdk",
-    "test:plugins": "python3 -B native/android/test_plugin.py"
+    "test:plugins": "python3 -B native/android/test_plugin.py",
+    "test:login:ios": "node --import tsx scripts/nsh.ts login-ios",
+    "test:login:android": "node --import tsx scripts/nsh.ts login-android"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
