@@ -36,8 +36,15 @@ public final class UiProbe extends Instrumentation {
             scrollTo("离线演示"); tapText("离线演示");
             SystemClock.sleep(500); scrollTo("演示书房吸顶灯"); waitText("演示书房吸顶灯", 5000);
             scrollTo("关闭家居"); tapText("关闭家居");
+            scrollTo("登录米家");
+            tapDescription("米家服务区域"); waitText("新加坡", 5000); tapText("新加坡");
+            SystemClock.sleep(400); tapText("登录米家");
+            waitText("取消米家登录", 15000); tapText("取消米家登录");
+            SystemClock.sleep(300); scrollTo("米家登录已取消");
+            waitText("米家登录已取消", 10000);
+            scrollTo("关闭家居"); tapText("关闭家居");
             tapText("关闭");
-            result.putString("result", "PASS native Android face/settings, offline memory, tasks/new conversation and explicit home simulation through system input");
+            result.putString("result", "PASS native Android face/settings, offline memory, tasks/new conversation, home simulation and MIoT region/native login/cancel through system input");
             finish(-1, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL " + error.getClass().getSimpleName() + ": " + error.getMessage());
@@ -65,6 +72,14 @@ public final class UiProbe extends Instrumentation {
         AccessibilityNodeInfo node=text(value);
         if(node==null)throw new IllegalStateException("No visible target: "+value);
         tap(node);
+    }
+    private void tapDescription(String value) {
+        for (AccessibilityNodeInfo node:nodes()) {
+            if (node.isVisibleToUser() && value.contentEquals(node.getContentDescription()==null?"":node.getContentDescription())) {
+                tap(node); return;
+            }
+        }
+        throw new IllegalStateException("No visible description: "+value);
     }
     private void scrollTo(String value) {
         for (int attempt=0;attempt<8;attempt++) {

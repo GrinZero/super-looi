@@ -23,7 +23,9 @@
     - [ ] MIoT登录入口验收
       - [x] 原生专用浏览器、回调导航/资源阻断、一次性消费及生命周期；6 Rust登录测试/Android插件测试/NSH16项通过，Sol复审通过
       - [x] 双端最终原生窗口冒烟复验：真实窗口展示/无效URL拒绝/并发owner拒绝/取消均通过；Android三ABI编译，执行为API34 ARM64
-      - [ ] 双端UI接线、本地零请求fixture及取消/过期验收
+      - [x] OAuth提交点动态native consumed/expiry/代际guard；异常视为失效，CAS从最新vault仅回滚本次值；13 OAuth与6类真实单槽竞态、Flow/QuickJS通过并独立复审
+      - [x] 产品区域/登录/取消/退出/刷新接线；双端实际选择新加坡、打开官方页并原生取消返回通过，未输入账号；已保存账号UI作用域测试通过
+      - [ ] 本地GET/POST307/子资源回调零请求fixture及完整OAuth fixture验收
   - [ ] 原生语音与协议接线
     - [x] PCM16k采集/24k播放、有界队列/背压/静音；7 Rust单测与双端实际cross-check通过
     - [x] iOS原生后台/中断/路由停止，Android失焦锁存/AAudio确认清空；独立复审通过

@@ -271,7 +271,7 @@
 - [x] 普通多轮对话保留上下文、重启恢复与配置切换隔离；独立 task 证据保留。
 - [ ] unknown 任务详情、明确核验和续跑入口；目前仅提示计数。
 - [ ] NSH MIoT安全登录、语音端到端、BLE原生桥、旧数据迁入。
-  - MIoT双端专用原生浏览器已实现并通过实际窗口冒烟；仍需产品UI、OAuth交换提交前原生session有效性守卫，以及GET/POST307/子资源回调零请求fixture。后台切换已同时取消窗口关闭后尚未消费的callback/交换。后续OAuth commit guard须在token store.get/set后及最终continuation动态重查native consumed状态、原授权expiry、home/store generation；捕获guard异常并返回false以保证旧账号回滚。
+  - MIoT双端专用浏览器、产品登录UI和token提交guard已接入。guard在token读写及最终提交动态重查native consumed/expiry/generation，异常转false；CAS读取最新vault保护后续账号/配置。双端区域/官方登录页/原生取消返回已通过；GET/POST307/子资源回调零请求、完整OAuth fixture仍待完成。
   - BLE传输重连/订阅/取消与并发断开问题已修，15项测试通过；固定NSH没有现成BLE API，需要app自有原生桥。
   - 家居Agent审批/SQLite intent与回执、取消unknown恢复通过QuickJS与独立复审；双端合成语音→真实ASR→实际Agent查询→原生语音回复通过，真实麦克风/AEC仍待硬件验收。
   - BodySupervisor已移除settling伪证据，主动观察缺证据停止；仍需接入真实停稳传感器及对应相机帧，模拟fixture不代表物理验收。

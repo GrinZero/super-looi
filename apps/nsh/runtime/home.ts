@@ -14,6 +14,7 @@ import {
   HomeAssistantRestTransport,
   InMemoryHaTransportAdapter,
   MiotHttpClient,
+  MIOT_CLIENT_ID,
   MiotOAuthClient,
   MiotSpecResolver,
   readHomeRegistry,
@@ -49,6 +50,7 @@ export interface HomeConfiguration {
   haUrl: string;
   region: MiotRegion;
   hasToken: boolean;
+  hasMiotAccount: boolean;
 }
 export interface HomeConnection {
   mode: HomeMode;
@@ -81,6 +83,18 @@ interface SavedHome {
     callbackId: string;
   };
   credentials: Record<string, string>;
+}
+function validateSaved(saved: SavedHome): void {
+  if (
+    saved.version !== 1 || !saved.config ||
+    !modes.includes(saved.config.mode) || !regions.includes(saved.config.region) ||
+    typeof saved.config.haUrl !== "string" ||
+    !/^[a-f0-9-]{36}$/i.test(saved.config.callbackId) ||
+    !saved.credentials || typeof saved.credentials !== "object" ||
+    Array.isArray(saved.credentials) ||
+    Object.entries(saved.credentials).some(([key, value]) => !key || typeof value !== "string")
+  ) throw new Error("home_configuration_unavailable");
+  if (saved.config.haUrl) saved.config.haUrl = httpsAddress(saved.config.haUrl);
 }
 interface ConnectionOwner {
   generation: number;
@@ -173,23 +187,7 @@ export class HomeRuntime {
             },
             credentials: {},
           };
-      if (
-        saved.version !== 1 ||
-        !saved.config ||
-        !modes.includes(saved.config.mode) ||
-        !regions.includes(saved.config.region) ||
-        typeof saved.config.haUrl !== "string" ||
-        !/^[a-f0-9-]{36}$/i.test(saved.config.callbackId) ||
-        !saved.credentials ||
-        typeof saved.credentials !== "object" ||
-        Array.isArray(saved.credentials) ||
-        Object.entries(saved.credentials).some(
-          ([key, value]) => !key || typeof value !== "string",
-        )
-      )
-        throw new Error();
-      if (saved.config.haUrl)
-        saved.config.haUrl = httpsAddress(saved.config.haUrl);
+      validateSaved(saved);
       this.saved = saved;
     } catch {
       throw new Error("home_configuration_unavailable");
@@ -203,6 +201,7 @@ export class HomeRuntime {
       haUrl,
       region,
       hasToken: Boolean(this.saved.credentials[credentialKey(haUrl)]),
+      hasMiotAccount: Boolean(this.saved.credentials[`super-looi.miot.${region}.${MIOT_CLIENT_ID}.${encodeURIComponent(`http://homeassistant.local:8123/api/webhook/${this.saved.config.callbackId}`)}`]),
     };
   }
   connection(): HomeConnection {
@@ -378,6 +377,24 @@ export class HomeRuntime {
         delete next.credentials[key];
         this.commit(next);
       },
+      restoreIfUnchanged: async (key, attempted, previous) => {
+        // Cancellation invalidates normal writes; rollback is a narrow CAS over
+        // the current envelope and never restores an old configuration snapshot.
+        let current: SavedHome;
+        try {
+          const raw = this.options.vault.get("home");
+          if (!raw) return false;
+          current = JSON.parse(raw);
+          validateSaved(current);
+        } catch { throw new Error("home_credential_store_failed"); }
+        this.saved = current;
+        if (current.credentials[key] !== attempted) return false;
+        const next = copy(current);
+        if (previous === null) delete next.credentials[key];
+        else next.credentials[key] = previous;
+        this.commit(next);
+        return true;
+      },
     };
   }
   private auth(): MiotOAuthClient {
@@ -404,9 +421,11 @@ export class HomeRuntime {
   interceptMiotCallback(url: string): MiotCallbackResult {
     return this.auth().tryInterceptCallbackUrl(url);
   }
-  async finishMiotLogin(code: string): Promise<HomeConnection> {
+  async finishMiotLogin(code: string, isCurrent: () => boolean = () => true): Promise<HomeConnection> {
     const generation = this.generation;
-    await this.auth().completeAuthWithCode(code);
+    await this.auth().completeAuthWithCode(code, () =>
+      !this.closed && generation === this.generation &&
+      this.saved.config.mode === "direct_miot" && isCurrent());
     this.assertCurrent(generation);
     return this.connect();
   }

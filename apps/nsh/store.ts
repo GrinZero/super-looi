@@ -1,8 +1,9 @@
 import { cleanup, effect, lifecycle, reduceMotion, signal } from "nsh";
-import { CredentialVault, NodeCompat, VoiceAudio } from "super-looi/native";
+import { CredentialVault, NodeCompat, VoiceAudio, MiotLoginBrowser } from "super-looi/native";
 import { connect } from "websocket";
 import {
   VoiceRuntime,
+  MiotLoginFlow,
   type VoiceState,
   openRuntime,
   RobotFaceController,
@@ -56,9 +57,12 @@ export function createAppStore() {
     haUrl: "",
     region: "cn",
     hasToken: false,
+    hasMiotAccount: false,
   });
   const homeConnection = signal<HomeConnection | undefined>(undefined);
   const homeDevices = signal<Record<string, unknown>>({});
+  const homeLoggingIn = signal(false);
+  let homeLogin: MiotLoginFlow | undefined;
   const recoveryCount = signal(0);
   const tasks = signal<NativeTaskPage>({ total: 0, offset: 0, items: [] });
   const task = signal<NativeTask | undefined>(undefined);
@@ -99,6 +103,7 @@ export function createAppStore() {
   };
   effect(() => {
     if (lifecycle() !== "active") {
+      homeLogin?.cancel();
       voice?.stop();
       driver.setExpression("sleeping");
       void stop();
@@ -154,6 +159,12 @@ export function createAppStore() {
       voiceConfigured.set(voice.configuration().hasKey);
       voiceState.set(voice.snapshot());
       configuration.set(opened.configuration());
+      homeLogin = new MiotLoginFlow({
+        runtime: opened,
+        browser: () => new MiotLoginBrowser(),
+        active: () => alive && lifecycle() === "active",
+        onRunning: (value) => { if (alive) homeLoggingIn.set(value); },
+      });
       homeConfiguration.set(opened.homeConfiguration());
       homeConnection.set(opened.homeConnection());
       recoveryCount.set(opened.recoveryCount());
@@ -172,6 +183,7 @@ export function createAppStore() {
   })();
   cleanup(() => {
     alive = false;
+    homeLogin?.cancel();
     voice?.close();
     driver.dispose();
     void runtime?.close().catch(() => {});
@@ -245,7 +257,33 @@ export function createAppStore() {
     homeConfiguration: () => homeConfiguration(),
     homeConnection: () => homeConnection(),
     homeDevices: () => homeDevices(),
+    homeLoggingIn: () => homeLoggingIn(),
+    cancelHomeLogin() { homeLogin?.cancel(); },
+    async loginMiot(region: HomeConfiguration["region"]) {
+      if (!runtime || !homeLogin) throw new Error("本机运行时尚未就绪");
+      voice?.stop();
+      homeDevices.set({});
+      try {
+        const connection = await homeLogin.start(region, action());
+        homeConnection.set(connection);
+        if (connection.configured && connection.connectionId) homeDevices.set(await runtime.listHome());
+      } finally {
+        if (alive) {
+          homeConfiguration.set(runtime.homeConfiguration());
+          homeConnection.set(runtime.homeConnection());
+        }
+      }
+    },
+    async logoutMiot() {
+      if (!runtime) throw new Error("本机运行时尚未就绪");
+      homeLogin?.cancel();
+      await runtime.logoutMiot(action());
+      homeDevices.set({});
+      homeConfiguration.set(runtime.homeConfiguration());
+      homeConnection.set(runtime.homeConnection());
+    },
     async configureHome(value: Parameters<NativeRuntime["configureHome"]>[0]) {
+      homeLogin?.cancel();
       if (!runtime) throw new Error("本机运行时尚未就绪");
       homeDevices.set({});
       try {

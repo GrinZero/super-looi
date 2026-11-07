@@ -1,4 +1,6 @@
 import { HomeRuntime, type HomeVault } from "../runtime/home.js";
+import { MIOT_CLIENT_ID, createMiotCredentials } from "@super-looi/home-assistant";
+import { verifyMiotLoginFlow } from "./miot-login-cases.js";
 import type {
   HomeControlCommand,
   HomeStateSnapshot,
@@ -132,6 +134,8 @@ const registry = async () =>
 /** Pure fixture integration tests, importable by the real QuickJS/NSH probe.
  * All network functions are injected; no real HA/MIoT account or device is used. */
 export async function verifyHomeRuntime(): Promise<void> {
+  await verifyMiotLoginFlow();
+  await verifyLoginRollback();
   const vault = vaultFixture();
   let networkCalls = 0;
   const local = new HomeRuntime({
@@ -555,4 +559,65 @@ export async function verifyHomeRuntime(): Promise<void> {
     "raw network error leaked or simulation fallback occurred",
   );
   failing.close();
+}
+
+async function verifyLoginRollback() {
+  for (const prior of [false, true]) {
+    for (const change of ["cancel", "configuration", "later-writer"]) {
+      const vault = vaultFixture();
+      const bootstrap = new HomeRuntime({ vault });
+      const initial = await bootstrap.beginMiotLogin();
+      bootstrap.close();
+      const key = `super-looi.miot.cn.${MIOT_CLIENT_ID}.${encodeURIComponent(initial.redirectUri)}`;
+      const credential = (accessToken: string) => JSON.stringify(createMiotCredentials(
+        { clientId: MIOT_CLIENT_ID, region: "cn", redirectUri: initial.redirectUri },
+        "ha.00000000-0000-0000-0000-000000000001",
+        { accessToken, refreshToken: "fixture-refresh", expiresIn: 3600 }, Date.now()));
+      const original = credential("ORIGINAL_ACCOUNT");
+      if (prior) {
+        const saved = JSON.parse(vault.get("home")); saved.credentials[key] = original;
+        vault.set("home", JSON.stringify(saved));
+      }
+      const home = new HomeRuntime({ vault, fetch: (async () => ({
+        ok: true, json: async () => ({ code: 0, result: {
+          access_token: "ATTEMPTED_ACCOUNT", refresh_token: "fixture-refresh", expires_in: 3600,
+        } }),
+      } as Response)) as typeof fetch });
+      const session = await home.beginMiotLogin();
+      home.interceptMiotCallback(`${session.redirectUri}?state=${session.state}&code=fixture`);
+      const set = vault.set.bind(vault);
+      let armed = true;
+      let mutation: Promise<void> = Promise.resolve();
+      vault.set = (slot, value) => {
+        set(slot, value);
+        if (armed && value.includes("ATTEMPTED_ACCOUNT")) {
+          armed = false;
+          mutation = Promise.resolve().then(async () => {
+            if (change === "cancel") home.suspend();
+            else if (change === "configuration") await home.configure({ mode: "simulation" });
+            else {
+              home.close();
+              const newer = new HomeRuntime({ vault });
+              await newer.configure({ mode: "simulation" });
+              const current = JSON.parse(vault.get("home"));
+              current.credentials[key] = credential("LATER_ACCOUNT");
+              current.credentials.unrelated = "KEEP_ME";
+              set("home", JSON.stringify(current));
+              newer.close();
+            }
+          });
+        }
+      };
+      await rejects(() => home.finishMiotLogin("fixture", () => true), "miot_session_changed");
+      await mutation;
+      const saved = JSON.parse(vault.get("home"));
+      const value = saved.credentials[key];
+      check(!JSON.stringify(saved).includes("ATTEMPTED_ACCOUNT"), "cancelled native account remained in secure slot");
+      if (change === "later-writer") {
+        check(JSON.parse(value).accessToken === "LATER_ACCOUNT" && saved.credentials.unrelated === "KEEP_ME", "rollback overwrote a later writer");
+      } else check(value === (prior ? original : undefined), "rollback did not restore the previous account");
+      if (change !== "cancel") check(saved.config.mode === "simulation", "rollback restored an obsolete configuration");
+      home.close();
+    }
+  }
 }

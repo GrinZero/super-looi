@@ -1,4 +1,6 @@
 import { effect, signal, Text, View, windowSize } from "nsh";
+import { Select } from "nsh/base";
+import type { HomeConfiguration } from "../generated/looi-runtime.js";
 import type { createAppStore } from "../store";
 import { ActionButton, Panel, TextField } from "./Controls";
 
@@ -7,16 +9,29 @@ export function HomePanel(props: {
   store: ReturnType<typeof createAppStore>;
   onClose: () => void;
 }) {
+  const regions = [
+    { value: "cn", title: "中国大陆" }, { value: "de", title: "欧洲" },
+    { value: "i2", title: "印度" }, { value: "ru", title: "俄罗斯" },
+    { value: "sg", title: "新加坡" }, { value: "us", title: "美国" },
+  ];
+  const region = signal<HomeConfiguration["region"]>("cn");
   const url = signal(""),
     token = signal(""),
     working = signal(false),
     error = signal("");
+  let wasOpen = false;
   effect(() => {
-    if (props.open) {
+    if (props.open && !wasOpen) {
       url.set(props.store.homeConfiguration().haUrl);
+      region.set(props.store.homeConfiguration().region);
       token.set("");
       error.set("");
-    } else token.set("");
+    }
+    if (!props.open) {
+      token.set("");
+      if (wasOpen) props.store.cancelHomeLogin();
+    }
+    wasOpen = props.open;
   });
   const configure = async (mode: "disabled" | "simulation" | "external_ha") => {
     if (working()) return;
@@ -37,6 +52,30 @@ export function HomePanel(props: {
       working.set(false);
     }
   };
+  const login = async (logout = false) => {
+    if (working()) return;
+    working.set(true); error.set("");
+    try {
+      if (logout) await props.store.logoutMiot();
+      else await props.store.loginMiot(region());
+    } catch (cause) {
+      error.set(cause instanceof Error && cause.message.startsWith("米家")
+        ? cause.message : "米家连接未完成，请稍后重试。");
+    } finally { working.set(false); }
+  };
+  const refreshMiot = async () => {
+    if (working()) return;
+    working.set(true); error.set("");
+    try {
+      if (props.store.homeConfiguration().mode !== "direct_miot")
+        await props.store.configureHome({ mode: "direct_miot", region: region() });
+      await props.store.connectHome();
+    }
+    catch { error.set("暂时无法读取米家设备，请稍后重试。"); }
+    finally { working.set(false); }
+  };
+  const savedMiotSelected = () => props.store.homeConfiguration().hasMiotAccount &&
+    region() === props.store.homeConfiguration().region;
   const devices = () => {
     const value = props.store.homeDevices().devices;
     return Array.isArray(value)
@@ -100,9 +139,10 @@ export function HomePanel(props: {
                 ? "已连接家居服务"
                 : "家居尚未连接"}
           </Text>
-          <Text class="text-muted-foreground text-sm">
-            控制设备前会请你允许一次，并回读设备状态。连接失败不会切换到演示设备。
-          </Text>
+          <View class="gap-1">
+            <Text class="text-muted-foreground text-sm">控制前需允许一次，并回读设备状态。</Text>
+            <Text class="text-muted-foreground text-sm">连接失败不会改用演示设备。</Text>
+          </View>
           <View class="flex-row gap-2">
             <ActionButton
               label="离线演示"
@@ -119,6 +159,38 @@ export function HomePanel(props: {
                 void configure("disabled");
               }}
             />
+          </View>
+          <View class="gap-3 border-t border-border pt-3">
+            <Text class="text-foreground text-base">米家账号</Text>
+            <Text class="text-muted-foreground text-sm">选择与米家 App 相同的服务区域。</Text>
+            <Select
+              testID="home-miot-region"
+              accessibilityLabel="米家服务区域"
+              items={regions}
+              value={region()}
+              disabled={working() || props.store.busy()}
+              onChange={(event) => {
+                if (regions.some((item) => item.value === event.value)) region.set(event.value as HomeConfiguration["region"]);
+              }}
+              popupClass="bg-card rounded-xl border border-border"
+              itemClass="min-h-12 px-4 text-foreground selected:bg-muted"
+              trigger={<View class="min-h-12 justify-center rounded-xl border border-input bg-background px-4"><Text class="text-foreground text-base">{regions.find((item) => item.value === region())?.title}</Text></View>}
+            />
+            <ActionButton
+              label={props.store.homeLoggingIn() ? "等待米家授权…" : savedMiotSelected() ? "重新登录米家" : "登录米家"}
+              testID="home-miot-login"
+              disabled={working() || props.store.busy()}
+              onPress={() => { void login(); }}
+            />
+            <If when={props.store.homeLoggingIn()}>
+              <ActionButton label="取消米家登录" testID="home-miot-cancel" onPress={() => props.store.cancelHomeLogin()} />
+            </If>
+            <If when={savedMiotSelected()}>
+              <ActionButton label={props.store.homeConfiguration().mode === "direct_miot" ? "刷新米家设备" : "连接已保存的米家账号"} testID="home-miot-refresh" disabled={working() || props.store.busy()} onPress={() => { void refreshMiot(); }} />
+            </If>
+            <If when={props.store.homeConfiguration().mode === "direct_miot" && savedMiotSelected()}>
+              <ActionButton label="退出米家账号" testID="home-miot-logout" disabled={working() || props.store.busy()} onPress={() => { void login(true); }} />
+            </If>
           </View>
           <If when={error() || props.store.homeConnection()?.error}>
             <Text role="alert" class="text-destructive text-sm">

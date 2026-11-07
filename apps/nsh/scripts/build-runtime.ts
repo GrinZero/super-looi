@@ -15,6 +15,7 @@ export async function buildRuntime() {
       contents: `
     import {installNshNativeCompat} from "../../packages/nsh-node-compat/src/native-host.ts";
     export {VoiceRuntime} from "./runtime/voice.ts";
+    export {MiotLoginFlow} from "./runtime/miot-login.ts";
     export {RobotFaceController} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
     export async function openRuntime(host,vault) {
       const release=installNshNativeCompat(host);
@@ -65,13 +66,22 @@ export interface NativeStep {step:number;phase:string;summary:string;taskId?:str
 export interface NativeTaskSummary {id:string;prompt:string;state:string;updatedAt:string}
 export interface NativeTask extends NativeTaskSummary {homeActions:Array<{requestId:string;connectionId:string;command:Record<string,unknown>;simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;sessionId:string;createdAt:string;error?:string;runtimeExited?:boolean;steps:NativeStep[];result?:{answer:string;executions?:Array<{command:string;exitCode:number|null;signal:string|null;timedOut:boolean;aborted:boolean}>;artifacts?:Array<{path:string;sha256:string;size:number}>}}
 export interface NativeTaskPage {total:number;offset:number;items:NativeTaskSummary[]}
-export interface HomeConfiguration {mode:"disabled"|"simulation"|"external_ha"|"direct_miot";haUrl:string;region:"cn"|"de"|"i2"|"ru"|"sg"|"us";hasToken:boolean}
+export interface HomeConfiguration {mode:"disabled"|"simulation"|"external_ha"|"direct_miot";haUrl:string;region:"cn"|"de"|"i2"|"ru"|"sg"|"us";hasToken:boolean;hasMiotAccount:boolean}
 export interface HomeConnection {mode:string;simulation:boolean;configured:boolean;healthy:boolean;connectionId:string|null;lastVerifiedAt:string|null;error:string|null;entityCount:number}
+export class MiotLoginFlow {
+ constructor(options:{runtime:NativeRuntime;browser:()=>{open(authorization:string,redirect:string):void;status():string;takeCallback():string;cancel():void};active:()=>boolean;onRunning:(value:boolean)=>void});
+ start(region:HomeConfiguration["region"],action:UiAction):Promise<HomeConnection>;
+ cancel():void;
+}
 export interface NativeRuntime {
  homeConfiguration():HomeConfiguration;
  homeConnection():HomeConnection;
  configureHome(input:{mode:HomeConfiguration["mode"];haUrl?:string;haToken?:string;region?:HomeConfiguration["region"]},action:UiAction):Promise<HomeConfiguration>;
  connectHome():Promise<HomeConnection>;
+ beginMiotLogin(region:HomeConfiguration["region"],action:UiAction):Promise<{authorizationUrl:string;redirectUri:string;expiresAt:number;attempt:number}>;
+ finishMiotLogin(attempt:number,callback:string,isCurrent:()=>boolean):Promise<HomeConnection>;
+ cancelMiotLogin():void;
+ logoutMiot(action:UiAction):Promise<void>;
  listHome(query?:string,offset?:number):Promise<Record<string,unknown>>;
  readonly uiSessionId:string;
  configuration():{baseUrl:string;model:string;hasKey:boolean};

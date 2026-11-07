@@ -347,3 +347,39 @@ try {
 console.log(
   "PASS mobile home: real Agent approval, simulated control receipt, SQLite evidence after reopen",
 );
+
+const loginSlots = new Map<string, string>();
+const loginMobile = new MobileRuntime({
+  get: (key) => loginSlots.get(key) ?? "",
+  set: (key, value) => { loginSlots.set(key, value); },
+  remove: (key) => { loginSlots.delete(key); },
+}, () => {});
+const loginAction = () => ({ ...action(), ui_session_id: loginMobile.uiSessionId });
+async function loginReject(operation: () => unknown) {
+  let rejected = false;
+  try { await operation(); } catch { rejected = true; }
+  assert(rejected, "Login boundary unexpectedly allowed an operation");
+}
+try {
+  await loginReject(() => loginMobile.beginMiotLogin("cn", { ...loginAction(), ui_session_id: "old-page" }));
+  equal(loginSlots.size, 0);
+  const session = await loginMobile.beginMiotLogin("cn", loginAction());
+  await loginReject(() => loginMobile.connectHome());
+  await loginReject(() => loginMobile.listHome());
+  await loginReject(() => loginMobile.run("记住不应执行的笔记", loginAction(), () => {}));
+  await loginReject(() => loginMobile.configureHome({ mode: "simulation" }, loginAction()));
+  await loginReject(() => loginMobile.finishMiotLogin(session.attempt,
+    `${session.redirectUri}?state=${session.state}&code=fixture`, () => false));
+  assert(!loginMobile.homeConfiguration().hasMiotAccount, "Native invalidation persisted an account");
+  const stale = loginMobile.beginMiotLogin("cn", loginAction());
+  loginMobile.cancelMiotLogin();
+  await loginReject(() => stale);
+  const fresh = await loginMobile.beginMiotLogin("sg", loginAction());
+  await loginReject(() => loginMobile.finishMiotLogin(session.attempt, "old-callback", () => true));
+  await loginReject(() => loginMobile.connectHome());
+  loginMobile.cancelMiotLogin();
+  await loginMobile.configureHome({ mode: "simulation" }, loginAction());
+  assert((await loginMobile.connectHome()).healthy, "Login cancellation did not release the home runtime");
+  assert(fresh.attempt !== session.attempt, "Login attempt identity was reused");
+} finally { await loginMobile.close(); }
+console.log("PASS mobile MIoT: fresh UI authorization, pending-operation isolation, native commit guard and cancellation generations");

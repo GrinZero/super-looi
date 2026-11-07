@@ -67,7 +67,7 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
     command.endsWith("-ios") || target === "ios" || target === "ios-simulator",
 });
 const uiTarget = command.endsWith("-android") ? "android" : "ios";
-const uiSteps =
+const standardUiSteps =
   [
     'await app.waitFor("本机就绪", {timeout:15000})',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-face.png`))})`,
@@ -104,11 +104,25 @@ const uiSteps =
     'await app.waitFor("家居尚未连接")',
     'await app.press("关闭")',
   ].join("\n") + "\n";
+const uiSteps = command.startsWith("ui-miot-") ? [
+  'await app.waitFor("本机就绪", {timeout:15000})',
+  'await app.press("home-settings")',
+  'await app.waitFor("米家账号")',
+  'await app.scroll("panel-content", 300)',
+  'await app.press("米家服务区域")',
+  'await app.press("新加坡")',
+  'await app.press("home-miot-login")',
+  'await app.waitFor("米家登录已取消", {timeout:120000})',
+  'await app.scroll("panel-content", -500)',
+  'await app.press("关闭家居")',
+  'await app.press("关闭")',
+].join("\n") + "\n" : standardUiSteps;
 const uiTest = resolve(app, ".nsh/NativeUi.test.tsx");
+const uiTestName = command.startsWith("ui-miot-") ? "native MIoT region, login and cancellation" : "native face and offline memory";
 if (command.startsWith("ui-"))
   writeFileSync(
     uiTest,
-    `import {open,test} from "nsh/test";test("native face and offline memory",async()=>{const app=await open("../App.tsx");\n${uiSteps}\n},120000);\n`,
+    `import {open,test} from "nsh/test";test(${JSON.stringify(uiTestName)},async()=>{const app=await open("../App.tsx");\n${uiSteps}\n},180000);\n`,
   );
 const scripted =
   command.startsWith("login-") ||

@@ -44,6 +44,8 @@ export class MobileRuntime {
   private taskId?: string;
   private closed = false;
   private busy = false;
+  private loginPending = false;
+  private loginAttempt = 0;
   private closing?: Promise<void>;
   readonly uiSessionId = `ui_${randomUUID()}`;
 
@@ -82,16 +84,60 @@ export class MobileRuntime {
     return this.home.connection();
   }
   async configureHome(input: HomeSettings, action: UserActionRef) {
-    if (this.closed || this.busy) throw new Error("请先停止当前任务");
+    if (this.closed || this.busy || this.loginPending) throw new Error("请先停止当前任务或取消登录");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
       throw new Error("页面已过期，请重新打开");
     return this.home.configure(input);
   }
   async connectHome() {
+    if (this.loginPending) throw new Error("请先完成或取消米家登录");
     return this.home.connect();
   }
+  async beginMiotLogin(region: NonNullable<HomeSettings["region"]>, action: UserActionRef) {
+    if (this.closed || this.busy || this.loginPending) throw new Error("请先停止当前任务或取消登录");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId) throw new Error("页面已过期，请重新打开");
+    const attempt = ++this.loginAttempt;
+    this.loginPending = true;
+    try {
+      const session = await this.home.beginMiotLogin(region);
+      if (attempt !== this.loginAttempt || this.closed) throw new Error("米家登录已取消");
+      return { ...session, attempt };
+    } catch (error) {
+      if (attempt === this.loginAttempt) this.cancelMiotLogin();
+      throw error;
+    }
+  }
+  async finishMiotLogin(attempt: number, callback: string, isCurrent: () => boolean) {
+    if (!this.loginPending || attempt !== this.loginAttempt || this.closed) throw new Error("米家登录已取消");
+    try {
+      const result = this.home.interceptMiotCallback(callback);
+      if (!result.intercepted || "error" in result) throw new Error("米家授权回调无效或已过期");
+      return await this.home.finishMiotLogin(result.code, () =>
+        this.loginPending && attempt === this.loginAttempt && !this.closed && isCurrent());
+    } catch (error) {
+      if (attempt === this.loginAttempt) this.cancelMiotLogin();
+      throw error;
+    } finally {
+      if (attempt === this.loginAttempt) this.loginPending = false;
+    }
+  }
+  cancelMiotLogin() {
+    ++this.loginAttempt;
+    if (!this.loginPending) return;
+    this.loginPending = false;
+    // Invalidate the pending OAuth exchange and abort its native network request.
+    this.home.suspend();
+  }
+  async logoutMiot(action: UserActionRef) {
+    if (this.closed || this.busy || this.loginPending) throw new Error("请先停止当前任务或取消登录");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId) throw new Error("页面已过期，请重新打开");
+    await this.home.logoutMiot();
+  }
   async listHome(query = "", offset = 0) {
+    if (this.loginPending) throw new Error("请先完成或取消米家登录");
     return this.home.list(query, offset);
   }
 
@@ -151,7 +197,7 @@ export class MobileRuntime {
     return { ...structuredClone(task), homeActions };
   }
   newConversation(action: UserActionRef): void {
-    if (this.closed || this.busy) throw new Error("请先停止当前任务");
+    if (this.closed || this.busy || this.loginPending) throw new Error("请先停止当前任务或取消登录");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
       throw new Error("页面已过期，请重新打开");
@@ -195,7 +241,7 @@ export class MobileRuntime {
   }
 
   async configure(input: ModelConfiguration): Promise<void> {
-    if (this.closed || this.busy) throw new Error("请先停止当前任务");
+    if (this.closed || this.busy || this.loginPending) throw new Error("请先停止当前任务或取消登录");
     const sameOrigin =
       this.config &&
       new URL(input.baseUrl).origin === new URL(this.config.baseUrl).origin;
@@ -423,7 +469,7 @@ export class MobileRuntime {
     onStep: (event: AgentStepEvent) => void,
     options: { agentOnly?: boolean } = {},
   ): Promise<{ answer: string; taskId: string; runtimeExited: boolean }> {
-    if (this.closed || this.busy) throw new Error("当前已有任务，请先停止");
+    if (this.closed || this.busy || this.loginPending) throw new Error("当前已有任务或登录，请先停止");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
       throw new Error("页面已过期，请重新打开");
@@ -503,6 +549,7 @@ export class MobileRuntime {
     this.executor.respond(taskId, requestId, answer);
   }
   async cancel() {
+    this.cancelMiotLogin();
     this.home.suspend();
     const taskId = this.taskId;
     const result =
