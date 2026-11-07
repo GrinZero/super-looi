@@ -734,7 +734,10 @@ export function syncLooiModelsRegistry(
   for (const providerId of PRESET_PROVIDER_IDS) {
     const base = getPresetProvider(providerId);
     if (!base) continue;
-    const customModels = envelope.customModelsByProvider?.[providerId];
+    const customModels = [...(envelope.customModelsByProvider?.[providerId] ?? [])];
+    if (envelope.active?.providerId === providerId && envelope.active.modelId) {
+      customModels.push(envelope.active.modelId);
+    }
     const wrapped = wrapProviderWithCustomModels(base, customModels);
     models.setProvider(wrapped);
   }

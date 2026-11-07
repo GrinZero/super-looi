@@ -249,6 +249,16 @@ test("3. VaultCredentialStore, models registry, custom model injection, and 3-pr
   assert.equal(customModel.provider, "openai");
   assert.equal(customModel.baseUrl, "https://api.openai.com/v1");
 
+  envelope = store.updateEnvelope((draft) => ({
+    ...draft,
+    active: { providerId: "openai", modelId: "account-only-model", authType: "api_key" },
+  }));
+  syncLooiModelsRegistry(models, envelope);
+  assert.ok(models.getModel("openai", "account-only-model"));
+  assert.deepEqual(envelope.customModelsByProvider?.openai, [
+    "custom-gpt-finetuned", "custom-gpt-experiment",
+  ]);
+
   // 3. Custom provider switching between 3 protocols
   // Protocol 1: openai-completions
   envelope = store.updateEnvelope((draft) => ({

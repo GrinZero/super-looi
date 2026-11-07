@@ -98,6 +98,9 @@ export function ModelsSpaceView(props: {
     extraModelId.set("");
     oauthCallbackUrl.set("");
     localModelChoice.set("");
+    if (props.store.ready() && (ch.hasApiKey || ch.hasOAuth)) {
+      void props.store.refreshProviderModels(ch.providerId);
+    }
   });
 
   const isGloballyActiveChannel = () =>
@@ -577,7 +580,7 @@ export function ModelsSpaceView(props: {
   const renderRightCard = () => (
     <View class="rounded-2xl border border-border bg-card p-4 gap-3">
       <View class="flex-row items-center justify-between border-b border-border pb-2.5">
-        <Text class="text-foreground text-sm font-semibold">生效模型</Text>
+        <Text class="text-foreground text-sm font-semibold">可用模型</Text>
         <If
           when={isGloballyActiveChannel()}
           else={
@@ -598,6 +601,18 @@ export function ModelsSpaceView(props: {
       </View>
 
       <View class="gap-1.5">
+        <If when={!channel().modelsFetched}>
+          <Text class="text-muted-foreground text-xs py-2">
+            {channel().hasApiKey || channel().hasOAuth
+              ? channel().modelsError || "正在获取在线模型列表…"
+              : "连接成功后加载可用模型"}
+          </Text>
+        </If>
+        <If when={channel().modelsFetched && !channel().models.length}>
+          <Text class="text-muted-foreground text-xs py-2">
+            当前账号未返回可用模型，可在下方输入模型 ID
+          </Text>
+        </If>
         <Each of={channel().models} key={(m) => m.id}>
           {(m) => {
             const isGlobalActive = () =>
@@ -621,16 +636,26 @@ export function ModelsSpaceView(props: {
                   class="flex-row items-center gap-1.5"
                   style={{ flex: 1, minWidth: 0 }}
                 >
-                  <Text
-                    class={
-                      active()
-                        ? "text-primary-foreground font-mono text-sm font-medium"
-                        : "text-foreground font-mono text-sm font-medium"
-                    }
-                    style={{ numberOfLines: 1, flexShrink: 1 }}
-                  >
-                    {m().id}
-                  </Text>
+                  <View class="flex-1 min-w-0 gap-0.5">
+                    <Text
+                      class={
+                        active()
+                          ? "text-primary-foreground font-mono text-sm font-medium"
+                          : "text-foreground font-mono text-sm font-medium"
+                      }
+                      style={{ numberOfLines: 1 }}
+                    >
+                      {m().id}
+                    </Text>
+                    <If when={m().name !== m().id}>
+                      <Text
+                        class={active() ? "text-primary-foreground text-xs" : "text-muted-foreground text-xs"}
+                        style={{ numberOfLines: 1 }}
+                      >
+                        {m().name}
+                      </Text>
+                    </If>
+                  </View>
                   <If when={m().reasoning}>
                     <View class="px-1.5 py-0.5 rounded-md bg-secondary">
                       <Text class="text-muted-foreground text-xs">思考</Text>

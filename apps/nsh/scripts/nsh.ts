@@ -72,32 +72,32 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
 const uiTarget = command.endsWith("-android") ? "android" : "ios";
 const standardUiSteps =
   [
-    'await app.waitFor("陪伴待机", {timeout:15000})',
+    'await app.waitFor("连接", {timeout:15000})',
     'await app.press("compose")',
     'await app.waitFor("发送")',
     'await app.press("compose")',
     'await app.press("connection-settings")',
     'await app.waitFor("OpenAI / ChatGPT")',
-    'await app.press("oauth-start-btn")',
-    'await app.waitFor("系统浏览器登录授权")',
+    'const hadSubscription = app.texts().includes("已连接订阅账号")',
+    'if (hadSubscription) await app.waitFor("gpt-6.1-sol")',
+    'if (app.texts().includes("使用 ChatGPT 订阅登录")) { await app.press("oauth-start-btn"); await app.waitFor("系统浏览器登录授权"); }',
     'await app.press("back-to-face")',
-    'await app.waitFor("陪伴待机")',
+    'await app.waitFor("连接")',
     'await app.press("connection-settings")',
-    'await app.waitFor("使用 ChatGPT 订阅登录")',
+    'await app.waitFor("OpenAI / ChatGPT")',
     'await app.press("appearance-cycle")',
     'await app.waitFor("外观: 日间")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings-light.png`))})`,
     'await app.press("back-to-face")',
-    'await app.waitFor("陪伴待机")',
+    'await app.waitFor("连接")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-face-light.png`))})`,
     'await app.press("connection-settings")',
     'await app.waitFor("OpenAI / ChatGPT")',
-    'await app.press("oauth-start-btn")',
-    'await app.waitFor("系统浏览器登录授权")',
+    'if (app.texts().includes("使用 ChatGPT 订阅登录")) { await app.press("oauth-start-btn"); await app.waitFor("系统浏览器登录授权"); }',
     'await app.press("back-to-face")',
-    'await app.waitFor("陪伴待机")',
+    'await app.waitFor("连接")',
     'await app.press("connection-settings")',
-    'await app.waitFor("使用 ChatGPT 订阅登录")',
+    'await app.waitFor("OpenAI / ChatGPT")',
     'await app.press("appearance-cycle")',
     'await app.waitFor("外观: 夜间")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings.png`))})`,
@@ -114,7 +114,7 @@ const standardUiSteps =
     'await app.waitFor("任务与审计记录")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings-tasks.png`))})`,
     'await app.press("back-to-face")',
-    'await app.waitFor("陪伴待机")',
+    'await app.waitFor("连接")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-face.png`))})`,
   ].join("\n") + "\n";
 const uiSteps = command.startsWith("ui-miot-") ? [
@@ -132,10 +132,18 @@ const uiSteps = command.startsWith("ui-miot-") ? [
 ].join("\n") + "\n" : standardUiSteps;
 const uiTest = resolve(app, ".nsh/NativeUi.test.tsx");
 const uiTestName = command.startsWith("ui-miot-") ? "native MIoT region, login and cancellation" : "native pure face, inline ask bar, tasks and home panels";
+const uiNetwork = {
+  "GET https://api.openai.com/v1/models": {
+    body: { models: [
+      { slug: "gpt-5.4", display_name: "GPT 5.4", visibility: "list" },
+      { slug: "gpt-6.1-sol", display_name: "GPT 6.1 Sol", visibility: "list" },
+    ] },
+  },
+};
 if (command.startsWith("ui-"))
   writeFileSync(
     uiTest,
-    `import {open,test} from "nsh/test";test(${JSON.stringify(uiTestName)},async()=>{const app=await open("../App.tsx");\n${uiSteps}\n},180000);\n`,
+    `import {open,test} from "nsh/test";test(${JSON.stringify(uiTestName)},async()=>{const app=await open("../App.tsx", {network:${JSON.stringify(uiNetwork)}});\n${uiSteps}\n},180000);\n`,
   );
 const scripted =
   command.startsWith("login-") ||

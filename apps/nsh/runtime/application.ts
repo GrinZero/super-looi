@@ -27,6 +27,7 @@ import {
 } from "@super-looi/runtime/agent/llm-providers";
 
 import { HomeRuntime, type HomeSettings } from "./home.js";
+import { chooseConnectedModelId, fetchOnlineModels, type OnlineModel } from "./model-list.js";
 
 type MutableModels = ReturnType<typeof createLooiModelsRegistry>;
 type Credential = ModelVaultEnvelope["credentials"][string];
@@ -70,6 +71,8 @@ export interface LlmChannelStatus {
   hasOAuth: boolean;
   oauthExpiresAt: number | null;
   models: LlmModelItem[];
+  modelsFetched?: boolean;
+  modelsError?: string;
 }
 
 export interface LlmBrandStatus {
@@ -113,6 +116,9 @@ export class MobileRuntime {
   private readonly home: HomeRuntime;
   private readonly credentialStore: VaultCredentialStore;
   private readonly modelsRegistry: MutableModels;
+  private readonly fetchedModels = new Map<string, OnlineModel[]>();
+  private readonly modelFetchErrors = new Map<string, string>();
+  private readonly modelFetchVersions = new Map<string, number>();
   private executor?: PiAgentExecutor;
   private conversationId = `session_${randomUUID()}`;
   private conversationPersisted = false;
@@ -780,30 +786,41 @@ export class MobileRuntime {
             : null;
 
         const customIds = new Set(customModelsMap[ch.providerId] ?? []);
-        let rawModels: readonly {
-          id: string;
-          name?: string;
-          reasoning?: boolean;
-          contextWindow?: number;
-        }[] = [];
-        try {
-          rawModels = this.modelsRegistry.getModels(ch.providerId) ?? [];
-        } catch {
-          rawModels = [];
-        }
-
         const activeIdOnChannel =
           envelope.active?.providerId === ch.providerId
             ? envelope.active.modelId
             : "";
-        const models: LlmModelItem[] = rawModels
-          .map((m) => ({
-            id: m.id,
-            name: m.name ?? m.id,
-            reasoning: Boolean(m.reasoning),
-            contextWindow: m.contextWindow ?? 32768,
-            isCustom: customIds.has(m.id) || ch.providerId === "custom",
-          }))
+        const visibleModels = new Map<string, { id: string; name: string }>();
+        if (hasApiKey || hasOAuth) {
+          for (const model of this.fetchedModels.get(ch.providerId) ?? []) {
+            visibleModels.set(model.id, model);
+          }
+          for (const id of customIds) {
+            if (!visibleModels.has(id)) visibleModels.set(id, { id, name: id });
+          }
+          if (
+            activeIdOnChannel &&
+            !this.fetchedModels.has(ch.providerId) &&
+            !this.modelFetchErrors.has(ch.providerId) &&
+            !visibleModels.has(activeIdOnChannel)
+          ) {
+            visibleModels.set(activeIdOnChannel, {
+              id: activeIdOnChannel,
+              name: activeIdOnChannel,
+            });
+          }
+        }
+        const models: LlmModelItem[] = [...visibleModels.values()]
+          .map((m) => {
+            const known = this.modelsRegistry.getModel(ch.providerId, m.id);
+            return {
+              id: m.id,
+              name: m.name,
+              reasoning: Boolean(known?.reasoning),
+              contextWindow: known?.contextWindow ?? 32768,
+              isCustom: customIds.has(m.id) || ch.providerId === "custom",
+            };
+          })
           .sort((a, b) => {
             const rank = (item: LlmModelItem) => {
               if (activeIdOnChannel && item.id === activeIdOnChannel) return 0;
@@ -830,6 +847,8 @@ export class MobileRuntime {
           hasOAuth,
           oauthExpiresAt,
           models,
+          modelsFetched: this.fetchedModels.has(ch.providerId),
+          modelsError: this.modelFetchErrors.get(ch.providerId),
         };
       });
 
@@ -872,6 +891,54 @@ export class MobileRuntime {
         modelId: "",
       },
     };
+  }
+
+  async refreshProviderModels(providerId: string, signal?: AbortSignal): Promise<LlmCatalogSnapshot> {
+    const envelope = this.credentialStore.readEnvelope();
+    const credential = envelope.credentials[providerId];
+    if (!credential) return this.llmSnapshot();
+    const channel = LLM_PROVIDER_CATALOG.flatMap((brand) => brand.channels)
+      .find((item) => item.providerId === providerId);
+    if (!channel) throw new Error(`未知服务商: ${providerId}`);
+
+    const version = this.invalidateFetchedModels(providerId);
+    try {
+      const auth = await this.modelsRegistry.getAuth(providerId, { signal });
+      if (!auth) throw new Error("请先连接模型服务");
+      const headers: Record<string, string> = {};
+      for (const [name, value] of Object.entries(auth.auth.headers ?? {})) {
+        if (value !== null) headers[name] = value;
+      }
+      if (auth.auth.apiKey) headers.Authorization = `Bearer ${auth.auth.apiKey}`;
+      const baseUrl = providerId === "custom"
+        ? envelope.custom?.baseUrl
+        : channel.baseUrl;
+      if (!baseUrl) return this.llmSnapshot();
+      const knownChatIds = credential.type === "api_key"
+        ? new Set(this.modelsRegistry.getModels(providerId).map((model) => model.id))
+        : undefined;
+      const models = await fetchOnlineModels(baseUrl, headers, { knownChatIds, signal });
+      signal?.throwIfAborted();
+      if (this.modelFetchVersions.get(providerId) !== version) return this.llmSnapshot();
+      this.fetchedModels.set(providerId, models);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (this.modelFetchVersions.get(providerId) === version) {
+        this.modelFetchErrors.set(
+          providerId,
+          error instanceof Error ? error.message : "获取在线模型列表失败",
+        );
+      }
+    }
+    return this.llmSnapshot();
+  }
+
+  private invalidateFetchedModels(providerId: string): number {
+    const version = (this.modelFetchVersions.get(providerId) ?? 0) + 1;
+    this.modelFetchVersions.set(providerId, version);
+    this.fetchedModels.delete(providerId);
+    this.modelFetchErrors.delete(providerId);
+    return version;
   }
 
   async saveProviderApiKey(
@@ -954,7 +1021,11 @@ export class MobileRuntime {
           if (validatedCustom) {
             draft.custom = validatedCustom;
           }
-          if (input.providerId !== "custom" && !isKnownModel) {
+          if (
+            input.providerId !== "custom" &&
+            !isKnownModel &&
+            !this.fetchedModels.get(input.providerId)?.some((model) => model.id === targetModelId)
+          ) {
             draft.customModelsByProvider ??= {};
             draft.customModelsByProvider[input.providerId] ??= [];
             if (
@@ -1008,6 +1079,7 @@ export class MobileRuntime {
       ) {
         this.executor = this.createExecutorForSelection(nextEnvelope.active);
       }
+      this.invalidateFetchedModels(input.providerId);
       return this.llmSnapshot();
     } finally {
       this.busy = false;
@@ -1060,7 +1132,11 @@ export class MobileRuntime {
       let nextEnvelope: ModelVaultEnvelope;
       try {
         nextEnvelope = await this.credentialStore.updateEnvelopeAsync((draft) => {
-          if (!isKnownModel && input.providerId !== "custom") {
+          if (
+            !isKnownModel &&
+            input.providerId !== "custom" &&
+            !this.fetchedModels.get(input.providerId)?.some((model) => model.id === targetModelId)
+          ) {
             draft.customModelsByProvider ??= {};
             draft.customModelsByProvider[input.providerId] ??= [];
             if (
@@ -1163,6 +1239,7 @@ export class MobileRuntime {
         this.conversationPersisted = true;
       }
       syncLooiModelsRegistry(this.modelsRegistry, nextEnvelope);
+      this.invalidateFetchedModels(providerId);
       return this.llmSnapshot();
     } finally {
       this.busy = false;
@@ -1269,25 +1346,22 @@ export class MobileRuntime {
         },
       );
 
+      abort.signal.throwIfAborted();
+      await this.refreshProviderModels(providerId, abort.signal);
       const envelope = this.credentialStore.readEnvelope();
-      let targetModelId = "";
-      if (
-        envelope.active?.providerId === providerId &&
-        envelope.active.modelId
-      ) {
-        targetModelId = envelope.active.modelId;
-      } else if (targetChannel.defaultModelId) {
-        targetModelId = targetChannel.defaultModelId;
-      } else {
-        const availableModels = this.modelsRegistry.getModels(providerId);
-        targetModelId = availableModels[0]?.id ?? "";
-      }
+      const targetModelId = chooseConnectedModelId(
+        this.fetchedModels.get(providerId),
+        envelope.active?.providerId === providerId ? envelope.active.modelId : "",
+        targetChannel.defaultModelId,
+        this.modelsRegistry.getModels(providerId)[0]?.id ?? "",
+      );
 
       this.busy = true;
       try {
         const conversationId = `session_${randomUUID()}`;
         await this.executor?.close();
         this.executor = undefined;
+        abort.signal.throwIfAborted();
 
         const nextEnvelope = await this.credentialStore.updateEnvelopeAsync(
           (draft) => {
@@ -1299,6 +1373,7 @@ export class MobileRuntime {
             };
             return draft;
           },
+          { signal: abort.signal },
         );
 
         this.conversationId = conversationId;

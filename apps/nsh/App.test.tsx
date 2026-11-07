@@ -18,6 +18,8 @@ test("keeps the pure face primary with inline ask bar and Structure 3 management
   expect(app.texts()).toContain("小米 MiMo");
   expect(app.texts()).toContain("智谱 / Z.AI");
   expect(app.texts()).toContain("+ 兼容 API");
+  expect(app.texts()).toContain("连接成功后加载可用模型");
+  expect(app.texts()).not.toContain("gpt-5.4");
 
   // Verify space navigation buttons
   expect(app.texts()).toContain("模型");

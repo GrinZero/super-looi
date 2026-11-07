@@ -545,12 +545,23 @@ export function createAppStore() {
     },
     llm: () => llmSnapshot(),
     oauth: () => oauthFlow(),
+    async refreshProviderModels(providerId: string) {
+      if (!runtime) return;
+      try {
+        llmSnapshot.set(await runtime.refreshProviderModels(providerId));
+      } catch {
+        llmSnapshot.set(runtime.llmSnapshot());
+      }
+    },
     async saveProviderApiKey(
       input: Parameters<NativeRuntime["saveProviderApiKey"]>[0],
     ) {
       if (!runtime) throw new Error("本机存储尚未就绪");
       const snap = await runtime.saveProviderApiKey(input, action());
       llmSnapshot.set(snap);
+      if (input.providerId !== "custom") {
+        await api.refreshProviderModels(input.providerId);
+      }
       configuration.set(runtime.configuration());
       status.set("陪伴待机");
       notify("模型配置已保存并生效");

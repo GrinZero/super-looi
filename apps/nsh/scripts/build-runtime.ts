@@ -77,7 +77,7 @@ export type LlmBrandId = "openai" | "kimi" | "minimax" | "xiaomi" | "zai" | "cus
 export type CompatibleApiProtocol = "openai-completions" | "openai-responses" | "anthropic-messages";
 export interface CustomEndpointConfig {api:CompatibleApiProtocol;baseUrl:string;modelId:string}
 export interface LlmModelItem {id:string;name:string;reasoning:boolean;contextWindow:number;isCustom:boolean}
-export interface LlmChannelStatus {providerId:string;label:string;baseUrl:string;protocolLabel:string;authTypes:Array<"api_key"|"oauth">;defaultModelId:string;hasApiKey:boolean;hasOAuth:boolean;oauthExpiresAt:number|null;models:LlmModelItem[]}
+export interface LlmChannelStatus {providerId:string;label:string;baseUrl:string;protocolLabel:string;authTypes:Array<"api_key"|"oauth">;defaultModelId:string;hasApiKey:boolean;hasOAuth:boolean;oauthExpiresAt:number|null;models:LlmModelItem[];modelsFetched?:boolean;modelsError?:string}
 export interface LlmBrandStatus {brandId:LlmBrandId;label:string;shortLabel:string;configured:boolean;channels:LlmChannelStatus[]}
 export interface LlmCatalogSnapshot {brands:LlmBrandStatus[];active:{brandId:LlmBrandId;providerId:string;modelId:string;authType:"api_key"|"oauth"}|null;custom:CustomEndpointConfig}
 export type LlmOAuthUiEvent =
@@ -107,6 +107,7 @@ export interface NativeRuntime {
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  close():Promise<void>;
  llmSnapshot():LlmCatalogSnapshot;
+ refreshProviderModels(providerId:string):Promise<LlmCatalogSnapshot>;
  saveProviderApiKey(input:{providerId:string;apiKey?:string;modelId?:string;custom?:CustomEndpointConfig;setActive?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
  selectActiveModel(input:{providerId:string;modelId:string;addCustomModel?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
  removeProviderCredential(providerId:string,action:UiAction):Promise<LlmCatalogSnapshot>;
