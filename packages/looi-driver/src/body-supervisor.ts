@@ -50,7 +50,11 @@ export class BodySupervisor {
     private readonly transport: LooiBleTransport,
     private readonly events: BodySupervisorEvents = {}
   ) {
-    if (this.transport.onDisconnected) {
+    this.listenForDisconnect();
+  }
+
+  private listenForDisconnect(): void {
+    if (!this.unsubscribeTransportDisconnect && this.transport.onDisconnected) {
       this.unsubscribeTransportDisconnect = this.transport.onDisconnected(() => {
         this.handleUnexpectedDisconnect();
       });
@@ -81,6 +85,7 @@ export class BodySupervisor {
     if (this.state !== "disconnected" && this.state !== "fault") {
       return;
     }
+    this.listenForDisconnect();
 
     this.currentSessionEpoch = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     this.currentLeaseEpoch = 0;
@@ -367,6 +372,7 @@ export class BodySupervisor {
       this.isDocked = false;
       this.isTearingDown = false;
       this.unsubscribeTransportDisconnect?.();
+      this.unsubscribeTransportDisconnect = undefined;
       this.transitionTo("disconnected");
     }
   }
