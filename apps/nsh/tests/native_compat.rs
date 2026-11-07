@@ -38,17 +38,8 @@ fn real_app_task_and_home_panels() -> Result<(), String> {
     app.press("compose")?;
     app.press("connection-settings")?;
     app.wait_for_within("连接设置", Duration::from_secs(5))?;
-    app.press("task-history")?;
-    app.wait_for_within("任务记录", Duration::from_secs(5))?;
-    app.press("开始新对话")?;
-    app.press("connection-settings")?;
-    app.wait_for_within("连接设置", Duration::from_secs(5))?;
-    app.press("home-settings")?;
-    app.wait_for_within("家居尚未连接", Duration::from_secs(5))?;
-    app.press("home-simulation")?;
-    // Desktop headless deliberately has no mobile credential backend. The UI
-    // must report the failure and retain disabled mode, never pretend connected.
-    app.wait_for_within("home_credential_store_failed", Duration::from_secs(5))?;
-    app.wait_for_within("家居尚未连接", Duration::from_secs(5))?;
+    app.wait_for_within("豆包实时语音 API Key", Duration::from_secs(5))?;
+    app.press("关闭")?;
+    app.wait_for_within("陪伴待机", Duration::from_secs(5))?;
     Ok(())
 }

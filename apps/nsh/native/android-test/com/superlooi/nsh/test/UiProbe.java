@@ -26,22 +26,10 @@ public final class UiProbe extends Instrumentation {
             tapText("对话"); waitText("发送", 5000);
             tapText("对话");
             tapText("连接"); waitText("连接设置", 5000);
-            tapText("任务"); waitText("任务记录", 5000);
-            tapText("开始新对话"); SystemClock.sleep(600);
-            tapText("连接"); waitText("连接设置", 5000);
-            tapText("家居"); waitText("家居连接", 5000);
-            scrollTo("离线演示"); tapText("离线演示");
-            SystemClock.sleep(500); scrollTo("演示书房吸顶灯"); waitText("演示书房吸顶灯", 5000);
-            scrollTo("关闭家居"); tapText("关闭家居");
-            scrollTo("登录米家");
-            tapDescription("米家服务区域"); waitText("新加坡", 5000); tapText("新加坡");
-            SystemClock.sleep(400); tapText("登录米家");
-            waitText("取消米家登录", 15000); tapText("取消米家登录");
-            SystemClock.sleep(300); scrollTo("米家登录已取消");
-            waitText("米家登录已取消", 10000);
-            scrollTo("关闭家居"); tapText("关闭家居");
+            waitText("豆包实时语音 API Key", 5000);
             tapText("关闭");
-            result.putString("result", "PASS native Android pure face, inline ask bar, tasks/new conversation, home simulation and MIoT region/native login/cancel through system input");
+            waitText("陪伴待机", 5000);
+            result.putString("result", "PASS native Android pure face, inline ask bar, and LLM/voice connection settings through system input");
             finish(-1, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL " + error.getClass().getSimpleName() + ": " + error.getMessage());

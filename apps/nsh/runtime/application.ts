@@ -86,7 +86,12 @@ export class MobileRuntime {
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
       throw new Error("页面已过期，请重新打开");
-    return this.home.configure(input);
+    const result = await this.home.configure(input);
+    if (this.config && !this.closed) {
+      await this.executor?.close();
+      this.executor = this.createExecutor(this.config);
+    }
+    return result;
   }
   async connectHome() {
     if (this.loginPending) throw new Error("请先完成或取消米家登录");
@@ -271,6 +276,7 @@ export class MobileRuntime {
   }
 
   private createExecutor(config: ModelConfiguration): PiAgentExecutor {
+    const homeEnabled = this.home.configuration().mode !== "disabled";
     return new PiAgentExecutor({
       ...config,
       stateDirectory: "/home/agent",
@@ -279,8 +285,8 @@ export class MobileRuntime {
       approvalUiSessionId: this.uiSessionId,
       requireApprovalForAllWrites: true,
       maxConcurrentTasks: 1,
-      additionalTools: [...this.homeTools()],
-      approvalRequiredTools: ["control_home_device"],
+      additionalTools: homeEnabled ? [...this.homeTools()] : [],
+      approvalRequiredTools: homeEnabled ? ["control_home_device"] : [],
     });
   }
 

@@ -9,9 +9,6 @@ import {
   TextField,
   WakeGuideBar,
 } from "./ui/Controls";
-import { VoicePanel } from "./ui/VoicePanel";
-import { HomePanel } from "./ui/HomePanel";
-import { TasksPanel } from "./ui/TasksPanel";
 import { RobotFace } from "./ui/RobotFace";
 
 function App() {
@@ -27,9 +24,6 @@ function App() {
     configError = signal("");
   const questionAnswers = signal<Record<string, string>>({});
   const responseOpen = signal(false);
-  const tasksOpen = signal(false);
-  const homeOpen = signal(false);
-  const voiceOpen = signal(false);
 
   const voiceActive = () =>
     ["connecting", "listening", "speaking"].includes(store.voiceState().phase);
@@ -39,7 +33,6 @@ function App() {
     if (phase === "speaking") return "打断";
     if (phase === "connecting") return "连接中";
     if (phase === "listening") return "LIVE 中";
-    if (store.voiceTask()) return "确认任务";
     return "LIVE 对话";
   };
 
@@ -60,8 +53,6 @@ function App() {
         return "读取文件";
       case "bash":
         return "运行本机 Shell 命令";
-      case "control_home_device":
-        return "控制家居设备";
       default:
         return `执行 ${String(details?.toolName ?? "本机操作")}`;
     }
@@ -104,10 +95,6 @@ function App() {
   const toggleLiveVoice = () => {
     store.dismissWakeGuide();
     if (!store.ready()) return;
-    if (store.voiceTask()) {
-      voiceOpen.set(true);
-      return;
-    }
     const phase = store.voiceState().phase;
     if (phase === "speaking") {
       store.interruptVoice();
@@ -143,6 +130,9 @@ function App() {
       }
       if (hasVoiceField) {
         store.configureVoice(voiceKey().trim());
+        if (!hasModelFields) {
+          store.notify("语音配置已保存");
+        }
       }
       apiKey.set("");
       voiceKey.set("");
@@ -280,7 +270,7 @@ function App() {
                 autoCorrect={false}
                 autoCapitalize="none"
                 maxLength={8192}
-                placeholder="直接对 LOOI 说（如：打开书房灯 / 查看当前目录）"
+                placeholder="直接对 LOOI 说（如：查看当前目录 / 帮我写一段脚本）"
                 class="flex-1 h-9 rounded-xl border border-transparent bg-transparent px-2 text-foreground text-sm focus:border-ring"
               />
               <Button
@@ -343,32 +333,10 @@ function App() {
         </View>
       </View>
 
-      <VoicePanel
-        open={voiceOpen()}
-        store={store}
-        onClose={() => voiceOpen.set(false)}
-      />
-      <HomePanel
-        open={homeOpen()}
-        store={store}
-        onClose={() => homeOpen.set(false)}
-      />
-      <TasksPanel
-        open={tasksOpen()}
-        store={store}
-        onClose={() => tasksOpen.set(false)}
-        onNewConversation={() => {
-          if (store.newConversation()) {
-            tasksOpen.set(false);
-            draft.set("");
-          }
-        }}
-      />
-
       <Panel
         open={settings()}
         title="连接设置"
-        height={540}
+        height={500}
         wide={true}
         dismissible={!saving()}
         onClose={() => {
@@ -379,58 +347,16 @@ function App() {
           }
         }}
       >
-        <View class="flex-row flex-wrap items-center justify-between gap-2">
-          <Text class="text-muted-foreground text-sm">
-            对话由本机 Agent 直接连接你的模型服务与豆包实时语音。
-          </Text>
-          <View class="flex-row flex-wrap gap-2">
-            <ActionButton
-              label="新对话"
-              disabled={!store.ready() || store.busy()}
-              onPress={() => {
-                if (store.newConversation()) {
-                  draft.set("");
-                  settings.set(false);
-                }
-              }}
-            />
-            <ActionButton
-              label="家居"
-              testID="home-settings"
-              disabled={!store.ready() || store.busy()}
-              onPress={() => {
-                settings.set(false);
-                setTimeout(() => homeOpen.set(true), 50);
-              }}
-            />
-            <ActionButton
-              label="任务"
-              testID="task-history"
-              disabled={!store.ready()}
-              onPress={() => {
-                settings.set(false);
-                store.refreshTasks();
-                setTimeout(() => tasksOpen.set(true), 50);
-              }}
-            />
-            <ActionButton
-              label="语音设置"
-              testID="voice-settings"
-              disabled={!store.ready()}
-              onPress={() => {
-                settings.set(false);
-                setTimeout(() => voiceOpen.set(true), 50);
-              }}
-            />
-          </View>
-        </View>
+        <Text class="text-muted-foreground text-sm">
+          配置本机 Agent 对话使用的 LLM 模型服务与豆包实时语音 API Key。
+        </Text>
         <View
           style={{
             flexDirection: windowSize().width >= 680 ? "row" : "column",
             gap: 20,
           }}
         >
-          <View class="flex-1 gap-4" style={{ minWidth: 0 }}>
+          <View class="flex-1 gap-3" style={{ minWidth: 0 }}>
             <TextField
               label="模型服务地址"
               testID="model-url"
@@ -445,6 +371,11 @@ function App() {
               onChange={(value) => model.set(value)}
               placeholder="服务提供的模型名称"
             />
+            <Text class="text-muted-foreground text-xs">
+              API Key 保存在这台设备的系统安全存储中。
+            </Text>
+          </View>
+          <View class="flex-1 gap-3" style={{ minWidth: 0 }}>
             <TextField
               label="API Key"
               testID="model-key"
@@ -460,8 +391,6 @@ function App() {
                   : "输入模型 API Key"
               }
             />
-          </View>
-          <View class="flex-1 gap-4" style={{ minWidth: 0 }}>
             <TextField
               label="豆包实时语音 API Key"
               testID="voice-key"
@@ -477,9 +406,6 @@ function App() {
                   : "输入豆包语音 API Key（可选）"
               }
             />
-            <Text class="text-muted-foreground text-sm">
-              凭据保存在这台设备的系统安全存储中。
-            </Text>
             <If when={configError()}>
               <Text class="text-destructive text-sm" role="alert">
                 {configError()}
@@ -569,26 +495,6 @@ function App() {
                 "本机操作",
             )}
           </Text>
-          <If
-            when={
-              store.interaction()?.details.toolName === "control_home_device"
-            }
-          >
-            <View selectable={true}>
-              <Text class="text-foreground text-sm">
-                {JSON.stringify(
-                  store.interaction()?.details.arguments,
-                  null,
-                  2,
-                )}
-              </Text>
-              <Text class="text-muted-foreground text-sm">
-                {store.homeConfiguration().mode === "simulation"
-                  ? "仅演示设备，不会控制真实家居。"
-                  : "将操作当前连接中的设备；结果以实际回读为准。"}
-              </Text>
-            </View>
-          </If>
           <If when={store.interaction()?.details.operation === "write"}>
             <Text class="text-muted-foreground text-sm">写入内容</Text>
             <View class="rounded-xl bg-background p-3" selectable={true}>

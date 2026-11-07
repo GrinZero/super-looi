@@ -167,13 +167,13 @@ export class VoiceRuntime {
           session: {
             model: "1.2.6.1",
             instructions:
-              "你是 LOOI，用简短自然的中文回答，不念括号舞台提示。需要执行任务或控制家居时使用 run_agent_task。手机会请用户确认后由本机 Agent 执行；没有实际工具回执不得声称成功。演示设备必须明确说是演示。不自动重试未知结果。",
+              "你是 LOOI，用简短自然的中文回答，不念括号舞台提示。需要执行本机任务时使用 run_agent_task，由本机 Agent 执行；没有实际工具回执不得声称成功。不自动重试未知结果。",
             tools: [
               {
                 type: "function",
                 name: "run_agent_task",
                 description:
-                  "提交本机任务。需用户在手机确认，控制还需单次审批；只根据返回结果回答。",
+                  "提交本机任务由 Agent 执行（写入或命令需用户在手机单次审批）；只根据返回结果回答。",
                 parameters: {
                   type: "object",
                   properties: { prompt: { type: "string" } },

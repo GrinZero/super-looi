@@ -177,19 +177,19 @@ export function createAppStore() {
             face.set(driver.getState());
           }
         },
-        requestTask: (prompt) =>
-          new Promise((resolve, reject) => {
-            if (!alive || pendingVoice || voiceExecuting || busy()) {
-              reject(new Error("已有任务，请稍后"));
-              return;
-            }
-            voiceTask.set(prompt);
-            pendingVoice = {
-              resolve,
-              reject,
-              timer: setTimeout(() => cancelVoiceTask(), 60000),
-            };
-          }),
+        requestTask: async (prompt) => {
+          if (!alive || voiceExecuting || busy()) {
+            throw new Error("已有任务，请稍后");
+          }
+          voiceExecuting = true;
+          try {
+            const success = await api.send(prompt, true);
+            if (!success) throw new Error("任务未完成");
+            return message();
+          } finally {
+            voiceExecuting = false;
+          }
+        },
         cancelTask: cancelVoiceTask,
       });
       voiceConfigured.set(voice.configuration().hasKey);
