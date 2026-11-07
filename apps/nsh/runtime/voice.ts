@@ -231,7 +231,7 @@ export class VoiceRuntime {
           event.response_id ?? event.response?.id ?? "",
         );
         const cancelAck =
-          event.type === "response.cancelled" ||
+          (event.type === "response.canceled" || event.type === "response.cancelled") ||
           (event.type === "response.done" &&
             event.response?.status === "cancelled");
         if (this.discardOutput && cancelAck) {

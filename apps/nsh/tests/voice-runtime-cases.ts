@@ -165,7 +165,7 @@ export async function verifyVoiceRuntime() {
     playback === 0 && !voice.snapshot().transcript.includes("obsolete"),
     "obsolete started frame bypassed cancellation",
   );
-  event({ type: "response.cancelled" });
+  event({ type: "response.canceled" });
   await settle();
   voice.mute(true);
   await settle();

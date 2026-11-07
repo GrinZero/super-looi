@@ -68,11 +68,11 @@ let bytes=0,cancelled=false,ack=false;const types=[];
 try{
  socket=await connect("wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",{headers:{"X-Api-Key":key}});
  timer=setTimeout(()=>{void socket.close().catch(()=>{});},45000);
- await socket.write(JSON.stringify({type:"session.create",session:{model:"1.2.6.1",instructions:"你是软件验收语音助手。",tools:[],audio:{input:{format:{type:"pcm",rate:16000}},output:{format:{type:"pcm_s16le",rate:24000},voice:"zh_female_vv_jupiter_bigtts"}}}));
+ await socket.write(JSON.stringify({type:"session.create",session:{model:"1.2.6.1",instructions:"你是软件验收语音助手。",tools:[],audio:{input:{format:{type:"pcm",rate:16000}},output:{format:{type:"pcm_s16le",rate:24000},voice:"zh_female_vv_jupiter_bigtts"}}}}));
  for(;;){const raw=await socket.read();if(raw===null)break;if(typeof raw!=="string")continue;const event=JSON.parse(raw);const type=String(event.type);if(!types.includes(type)&&types.length<30)types.push(type);
  if(type==="session.created"){audio.start(false);await socket.write(JSON.stringify({type:"speech_text_buffer.commit",text:"这是本机语音软件验收。正在验证原生网络、音频播放和语音打断。整个测试只使用合成语音，不采集麦克风。"}));}
  else if(type==="response.output_audio.delta") {const pcm=Buffer.from(String(event.delta),"base64");bytes+=pcm.length;if(!cancelled){audio.enqueue(pcm,24000);audio.clearPlayback();await socket.write(JSON.stringify({type:"response.cancel"}));cancelled=true;clearTimeout(timer);timer=setTimeout(()=>{void socket.close().catch(()=>{});},5000);}}
- else if(type==="response.cancelled" || (type==="response.done" && event.response?.status==="cancelled")){ack=true;break;}
+ else if(type==="response.canceled" || type==="response.cancelled" || (type==="response.done" && event.response?.status==="cancelled")){ack=true;break;}
  else if(type==="error" || type==="session.error"){if(!bytes)throw new Error("provider refused voice probe");break;}
  }
  if(!bytes)throw new Error("No voice PCM received");

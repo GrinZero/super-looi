@@ -26,7 +26,8 @@
     - [x] 双端模拟器真实原生静音PCM enqueue/clear/stop通过（未使用麦克风）
     - [x] WebSocket协议与UI确认后共享Agent调用；真QuickJS/双端fixture通过，独立复审通过
     - [x] 旧连接写失败隔离、旧音频取消屏障、重复工具去重、损坏语音凭据可重配
-    - [ ] 真实语音WebSocket、取消ack、显式权限/前后台与实际麦克风软件验收
+    - [x] 双端真实原生WebSocket、合成PCM与response.canceled确认；各247808字节，不采集麦克风/不写产品凭据
+    - [ ] 显式权限/前后台与麦克风到Agent的软件验收
   - [x] 任务详情与新对话双端移动UI验收
     - [x] 十项分页、unknown优先、只读详情含家居回执、新对话保留任务；QuickJS副本/会话隔离/重开测试通过
   - [x] 保留每轮独立 task 的持久对话 session；同会话并发与 unknown 结果隔离；Node 11项和QuickJS重启/切换测试通过

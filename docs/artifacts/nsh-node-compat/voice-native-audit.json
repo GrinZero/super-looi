@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-07",
+  "provider": "Doubao duplex realtime",
+  "model": "1.2.6.1",
+  "credentialSource": ".env in-memory temporary test entry; no product vault write",
+  "capture": false,
+  "results": {
+    "ios-simulator": {
+      "nativeWebSocket": true,
+      "syntheticPcmBytes": 247808,
+      "cancelAck": true,
+      "cancelEvent": "response.canceled",
+      "nativeOutputEnqueueClearStop": true
+    },
+    "android-emulator": {
+      "nativeWebSocket": true,
+      "syntheticPcmBytes": 247808,
+      "cancelAck": true,
+      "cancelEvent": "response.canceled",
+      "nativeOutputEnqueueClearStop": true
+    }
+  },
+  "limits": [
+    "No microphone capture",
+    "No physical AEC or base verification",
+    "Direct native protocol probe plus separate VoiceRuntime fixture, not complete microphone-to-Agent end-to-end"
+  ]
+}
