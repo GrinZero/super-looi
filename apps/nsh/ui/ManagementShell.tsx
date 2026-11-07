@@ -260,9 +260,20 @@ export function ManagementShell(props: {
       when={wide()}
       else={
         // Handheld portrait layout
-        <View class="flex-1 bg-background">
+        <View
+          class="flex-1 bg-background"
+          style={{
+            paddingLeft: "env(safe-area-inset-left)",
+            paddingRight: "env(safe-area-inset-right)",
+          }}
+        >
           {/* Top header */}
-          <View class="min-h-12 border-b border-border px-3 py-1.5 flex-row items-center justify-between gap-2 bg-card">
+          <View
+            class="min-h-12 border-b border-border px-3 py-1.5 flex-row items-center justify-between gap-2 bg-card"
+            style={{
+              paddingTop: "calc(env(safe-area-inset-top) + 6px)",
+            }}
+          >
             <Button
               testID="back-to-face"
               accessibilityLabel="返回桌宠主页"
@@ -302,7 +313,12 @@ export function ManagementShell(props: {
           </View>
 
           {/* Bottom navigation bar */}
-          <View class="min-h-14 bg-sidebar border-t border-border flex-row items-center justify-around px-2 py-1">
+          <View
+            class="min-h-14 bg-sidebar border-t border-border flex-row items-center justify-around px-2 py-1"
+            style={{
+              paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)",
+            }}
+          >
             {renderNavButton("models", "模型", "nav-models")}
             {renderNavButton("voice", "语音", "nav-voice")}
             {renderNavButton("home", "家居", "nav-home")}
@@ -312,7 +328,13 @@ export function ManagementShell(props: {
       }
     >
       {/* Landscape dock layout */}
-      <View class="flex-1 flex-row bg-background">
+      <View
+        class="flex-1 flex-row bg-background"
+        style={{
+          paddingLeft: "env(safe-area-inset-left)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
         {/* 58pt Left Slim Rail */}
         <View class="w-[58px] bg-sidebar border-r border-border py-2.5 items-center justify-between">
           <Button
@@ -344,7 +366,12 @@ export function ManagementShell(props: {
         {/* Right Main Workspace */}
         <View class="flex-1 min-w-0 flex flex-col min-h-0">
           {/* Top 48pt Context Pill Bar */}
-          <View class="min-h-12 border-b border-border px-4 py-1.5 flex-row items-center justify-between gap-3 bg-card">
+          <View
+            class="min-h-12 border-b border-border pl-4 py-1.5 flex-row items-center justify-between gap-3 bg-card"
+            style={{
+              paddingRight: "calc(env(safe-area-inset-right) + 16px)",
+            }}
+          >
             {renderContextPillBar()}
             <View class="flex-row items-center gap-2">
               <Button
@@ -367,7 +394,12 @@ export function ManagementShell(props: {
           </View>
 
           {/* Bottom Workspace Body */}
-          <View class="flex-1 p-3 min-h-0 relative">
+          <View
+            class="flex-1 pl-3.5 pt-3.5 pb-3.5 min-h-0 relative"
+            style={{
+              paddingRight: "calc(env(safe-area-inset-right) + 14px)",
+            }}
+          >
             {renderActiveWorkspace()}
             <If when={props.store.toast()}>
               <View class="absolute top-2 inset-x-0 items-center pointer-events-none z-30">

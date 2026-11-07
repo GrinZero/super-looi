@@ -111,18 +111,20 @@ function App() {
           ? "flex-1 bg-stage-bg"
           : "flex-1 bg-background"
       }
-      style={{
-        paddingTop: "env(safe-area-inset-top)",
-        paddingBottom: "env(safe-area-inset-bottom)",
-        paddingLeft: "env(safe-area-inset-left)",
-        paddingRight: "env(safe-area-inset-right)",
-      }}
     >
       <If
         when={store.activeSpace() === "face"}
         else={<ManagementShell store={store} />}
       >
-        <View class="flex-1 justify-between">
+        <View
+          class="flex-1 justify-between"
+          style={{
+            paddingTop: "env(safe-area-inset-top)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+            paddingLeft: "env(safe-area-inset-left)",
+            paddingRight: "env(safe-area-inset-right)",
+          }}
+        >
           <RobotFace state={store.face()} shift={{ dx: 0, dy: 0 }} />
 
           <View class="flex-1 px-4 py-2.5 justify-between">
