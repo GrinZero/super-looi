@@ -332,11 +332,15 @@ export function ManagementShell(props: {
         class="flex-1 flex-row bg-background"
         style={{
           paddingLeft: "env(safe-area-inset-left)",
-          paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
         {/* 58pt Left Slim Rail */}
-        <View class="w-[58px] bg-sidebar border-r border-border py-2.5 items-center justify-between">
+        <View
+          class="w-[58px] bg-sidebar border-r border-border pt-2.5 items-center justify-between"
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)",
+          }}
+        >
           <Button
             testID="back-to-face"
             accessibilityLabel="返回桌宠主页"
@@ -395,9 +399,10 @@ export function ManagementShell(props: {
 
           {/* Bottom Workspace Body */}
           <View
-            class="flex-1 pl-3.5 pt-3.5 pb-3.5 min-h-0 relative"
+            class="flex-1 pl-3.5 pt-3.5 min-h-0 relative"
             style={{
               paddingRight: "calc(env(safe-area-inset-right) + 14px)",
+              paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)",
             }}
           >
             {renderActiveWorkspace()}
