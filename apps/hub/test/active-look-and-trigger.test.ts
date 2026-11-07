@@ -11,6 +11,7 @@ import type { BodySupervisor } from "@super-looi/looi-driver";
 import type {
   EventEnvelope,
   ObservationRequest,
+  MotionObservation,
   SelfEventWindow,
   VisionAnalyzeRequest,
   VisionAnalyzeResult,
@@ -235,7 +236,9 @@ describe("BoundedActiveLookCoordinator (Phase 2)", () => {
           observation_id: "obs_motion_1",
           primitive: leaseReq.primitive,
           executed_ms: leaseReq.durationMs,
-          settled_at: new Date().toISOString(),
+          stop_command_at: new Date().toISOString(),
+          verified_motion_end_at: new Date().toISOString(),
+          stable_capture_at: new Date().toISOString(),
           stability_evidence_ids: ["ev_stable_frame_1"],
         };
       },
@@ -291,6 +294,48 @@ describe("BoundedActiveLookCoordinator (Phase 2)", () => {
     assert.deepEqual(result.detectedClaim.evidence_ids, ["ev_stable_frame_1"]);
   });
 
+  it("rejects missing or inconsistent motion evidence before vision or another pulse", async () => {
+    const at = (offset: number) => new Date(Date.now() + offset).toISOString();
+    for (const invalid of [
+      { verified_motion_end_at: null }, { stable_capture_at: null },
+      { stop_command_at: null }, { stability_evidence_ids: [] },
+      { stability_evidence_ids: [" "] }, { stable_capture_at: "invalid" },
+      { verified_motion_end_at: at(-60000) }, { stable_capture_at: at(-60000) },
+      { stable_capture_at: at(60000) },
+      { stop_command_at: "2000-01-01T00:00:00.000Z",
+        verified_motion_end_at: "2000-01-01T00:00:01.000Z",
+        stable_capture_at: "2000-01-01T00:00:02.000Z" },
+      { stability_evidence_ids: null }, { stability_evidence_ids: [42] },
+    ]) {
+      let pulses = 0;
+      let visionCalls = 0;
+      const coordinator = new BoundedActiveLookCoordinator({
+        getIsDocked: () => true,
+        executePulse: async () => {
+          pulses++;
+          const timestamp = at(0);
+          return { stop_command_at: timestamp, verified_motion_end_at: timestamp,
+            stable_capture_at: timestamp, stability_evidence_ids: ["fixture_frame"],
+            ...invalid } as unknown as MotionObservation;
+        },
+      }, {
+        kind: "edge", name: "NeverCalled",
+        analyze: async () => { visionCalls++; throw new Error("must not analyze"); },
+      });
+      const result = await coordinator.executeActiveLook({
+        observation_id: "unverified", question: "keys?",
+        budget: { max_attempts: 2, max_total_motion_ms: 1000 },
+        allowed_primitives: ["head_up", "turn_left"], settling_ms: 1,
+      } as ObservationRequest);
+      assert.equal(result.success, false);
+      assert.equal(result.found, false);
+      assert.equal(result.detectedClaim, undefined);
+      assert.equal(pulses, 1);
+      assert.equal(visionCalls, 0);
+      assert.match(result.honestFallbackMessage!, /尚未确认底座停稳/);
+    }
+  });
+
   it("exhausts budget honestly when target is occluded, returning epistemic fallback phrase", async () => {
     let pulsesCount = 0;
     const mockSupervisor = {
@@ -301,8 +346,10 @@ describe("BoundedActiveLookCoordinator (Phase 2)", () => {
           observation_id: `obs_${pulsesCount}`,
           primitive: "head_up",
           executed_ms: 200,
-          settled_at: new Date().toISOString(),
-          stability_evidence_ids: [],
+          stop_command_at: new Date().toISOString(),
+          verified_motion_end_at: new Date().toISOString(),
+          stable_capture_at: new Date().toISOString(),
+          stability_evidence_ids: ["fixture_stable_frame"],
         };
       },
     } as unknown as BodySupervisor;

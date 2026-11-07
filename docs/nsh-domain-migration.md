@@ -8,6 +8,8 @@
 
 Agent 家居控制经过单次 UI 审批。下发前在同一个 SQLite 数据库保存 intent，完成后保存领域回执。取消使连接代际失效并中止请求；预读后不能继续派发，已经发出的操作无法确认时保留 unknown。任务列表、取消结果与恢复计数均合并领域 unknown；原会话不得继续，新对话保留旧证据。
 
+底座 `executePulse` 仅记录停止指令；settling 计时不再生成停稳时间或证据 ID。主动观察必须收到本次动作之后、顺序有效且不在未来的停止/停稳/取帧时间和非空字符串证据，否则立即返回停稳未确认，不调用视觉服务，也不继续下一次动作。A04/A05 的正向测试显式注入模拟稳定观测，不能作为真机证明。物理停稳传感器与帧绑定仍待接入。
+
 任务面板提供每页十项的列表和只读详情，展示执行步骤、文件、命令及家居操作证据。新对话更换 session，不删除旧任务。
 
 原生 VoiceAudio 支持显式权限、16kHz PCM 采集、24kHz PCM 播放、有界队列、静音及背压。iOS 原生通知处理后台/中断/路由变化，Android 原生线程检查锁存的失焦状态。重新获得焦点不会恢复旧音频。Android manifest 和 Application 均由 app 自有插件合并；没有修改 Expo prebuild 产物。
@@ -22,7 +24,7 @@ Agent 家居控制经过单次 UI 审批。下发前在同一个 SQLite 数据�
 - NSH 十项测试通过，含七项音频 Rust 测试、两项真实 engine 测试和界面测试。
 - Android manifest 插件测试验证保留既有权限、增量添加录音/音频设置权限、重复合并无重复节点。
 
-全仓 `pnpm build`、`pnpm typecheck`、`pnpm test` 通过：323 项 JavaScript 测试和 10 项 NSH 测试。软件通过不等同物理设备验收。
+全仓 `pnpm build`、`pnpm typecheck`、`pnpm test` 通过：324 项 JavaScript 测试和 10 项 NSH 测试。软件通过不等同物理设备验收。
 
 ## 尚未完成
 

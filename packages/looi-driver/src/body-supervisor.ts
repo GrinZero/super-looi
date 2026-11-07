@@ -296,14 +296,14 @@ export class BodySupervisor {
       await new Promise((resolve) => setTimeout(resolve, settlingMs));
     }
 
-    const verifiedMotionEndAt = new Date().toISOString();
     await this.stop("lease_expired");
 
     return {
       stop_command_at: stopCommandAt,
-      verified_motion_end_at: verifiedMotionEndAt,
-      stable_capture_at: new Date().toISOString(),
-      stability_evidence_ids: [`stab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`],
+      // A stop write and elapsed settling time do not prove physical stability.
+      verified_motion_end_at: null,
+      stable_capture_at: null,
+      stability_evidence_ids: [],
     };
   }
 

@@ -21,7 +21,7 @@ export interface ActiveLookResult {
 
 export class BoundedActiveLookCoordinator {
   constructor(
-    private readonly supervisor: BodySupervisor,
+    private readonly supervisor: Pick<BodySupervisor, "getIsDocked" | "executePulse">,
     private readonly visionProvider: VisionProvider,
   ) {}
 
@@ -63,6 +63,7 @@ export class BoundedActiveLookCoordinator {
 
       try {
         // Execute calibrated bounded pulse
+        const pulseStartedAt = Date.now();
         const motionObs = await this.supervisor.executePulse(
           {
             holder: `active_look_${request.observation_id}`,
@@ -72,6 +73,22 @@ export class BoundedActiveLookCoordinator {
           request.settling_ms || 200,
         );
         observations.push(motionObs);
+
+        const stopAt = Date.parse(motionObs.stop_command_at ?? "");
+        const endAt = Date.parse(motionObs.verified_motion_end_at ?? "");
+        const captureAt = Date.parse(motionObs.stable_capture_at ?? "");
+        if (!Number.isFinite(stopAt) || !Number.isFinite(endAt) ||
+            !Number.isFinite(captureAt) || endAt < stopAt || captureAt < endAt ||
+            stopAt < pulseStartedAt || captureAt > Date.now() ||
+            !Array.isArray(motionObs.stability_evidence_ids) ||
+            !motionObs.stability_evidence_ids.length ||
+            motionObs.stability_evidence_ids.some((id) => typeof id !== "string" || !id.trim())) {
+          return {
+            success: false, found: false, attemptsUsed, totalMotionMs,
+            honestFallbackMessage: "已发送停止指令，但尚未确认底座停稳，无法确认新视角中的物体。",
+            motionObservations: observations,
+          };
+        }
 
         // Analyze new viewpoint
         const visionResult = await this.visionProvider.analyze({

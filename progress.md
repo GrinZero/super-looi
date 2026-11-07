@@ -14,6 +14,7 @@
   - [x] 修正 iOS simulator Release Keychain 身份选择
   - [x] 实际 createAgentSession 双端原生真网：模型write/read、精确回复、JSONL工具回执与最终回复恢复通过
 - [ ] Step 4：推进领域能力迁移，逐项满足删除门禁
+  - [x] 修复底座计时伪证据；主动观察缺少本次有效稳定性证据时停止；324 JS/10 NSH全仓通过，最终24相关测试与QuickJS48契约通过，Sol复审通过
   - [ ] 家居运行时与设置完整验收
     - [x] 安全单槽凭据、HA/MIoT/显式模拟模式、generation隔离、请求去重；Node与真QuickJS fixture通过
     - [x] 主agent接入Agent单次审批、下发前SQLite intent/回执、取消中断与unknown恢复；Sol独立复审通过

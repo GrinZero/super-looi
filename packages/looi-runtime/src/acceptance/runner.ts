@@ -288,6 +288,19 @@ export class AcceptanceRunner {
     await supervisorA4.connect(new Date());
     transportA4.emitNotification("dockNotify", "05"); // docked
 
+    // Explicit simulated observation fixture: this exercises coordinator behavior,
+    // not physical BLE stability. The real supervisor supplies no sensor evidence.
+    const simulatedStableSupervisor = {
+      getIsDocked: () => supervisorA4.getIsDocked(),
+      executePulse: async (...args: Parameters<BodySupervisor["executePulse"]>) => {
+        const observation = await supervisorA4.executePulse(...args);
+        const observedAt = new Date().toISOString();
+        return { ...observation, verified_motion_end_at: observedAt,
+          stable_capture_at: observedAt,
+          stability_evidence_ids: ["fixture_simulated_stable_frame"] };
+      },
+    };
+
     const mockVisionA4 = {
       kind: "edge" as const,
       name: "EdgeMock",
@@ -302,7 +315,7 @@ export class AcceptanceRunner {
       }),
     };
     const coordA4 = new BoundedActiveLookCoordinator(
-      supervisorA4,
+      simulatedStableSupervisor,
       mockVisionA4,
     );
     const reqA4: ObservationRequest = {
@@ -329,7 +342,7 @@ export class AcceptanceRunner {
       name: "有界微主动观察收益",
       score: a04Pass ? 2 : 0,
       passed: a04Pass,
-      details: `Found target in ${resA4.attemptsUsed} attempt(s) within budget`,
+      details: `Simulated stability fixture: found target in ${resA4.attemptsUsed} attempt(s) within budget; physical stability unverified`,
     });
 
     // A05: 无信息增益/严重遮挡 -> 耗尽预算停止并诚实请求协助
@@ -347,7 +360,7 @@ export class AcceptanceRunner {
       }),
     };
     const coordA5 = new BoundedActiveLookCoordinator(
-      supervisorA4,
+      simulatedStableSupervisor,
       mockVisionA5,
     );
     const resA5 = await coordA5.executeActiveLook(
@@ -380,7 +393,7 @@ export class AcceptanceRunner {
       name: "无信息增益诚实停止与回退",
       score: a05Pass ? 2 : 0,
       passed: a05Pass,
-      details: resA5.honestFallbackMessage || "No message",
+      details: `Simulated stability fixture; physical stability unverified: ${resA5.honestFallbackMessage || "No message"}`,
     });
 
     // A06: 原始证据按隐私策略过期 -> 保留摘要但标记已安全删除，不伪造 URI

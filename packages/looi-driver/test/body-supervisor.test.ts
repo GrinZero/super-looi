@@ -223,7 +223,7 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     assert.equal(supervisor.getState(), "ready");
   });
 
-  it("executes bounded pulse (executePulse) and returns valid MotionObservation evidence", async () => {
+  it("executes bounded pulse without inventing physical stability evidence", async () => {
     const transport = new SimulatedBleTransport();
     const supervisor = new BodySupervisor(transport);
     await supervisor.connect();
@@ -236,9 +236,9 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
 
     const observation = await pulsePromise;
     assert.ok(observation.stop_command_at);
-    assert.ok(observation.verified_motion_end_at);
-    assert.ok(observation.stable_capture_at);
-    assert.ok(observation.stability_evidence_ids.length > 0);
+    assert.equal(observation.verified_motion_end_at, null);
+    assert.equal(observation.stable_capture_at, null);
+    assert.deepEqual(observation.stability_evidence_ids, []);
 
     // Stop command payload (0000) must have been written
     const lastCommand = transport.writtenCommands[transport.writtenCommands.length - 1];
