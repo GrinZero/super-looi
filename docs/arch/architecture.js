@@ -51,10 +51,14 @@ globalThis.LOOI_ARCH = {
       ],
     },
     {
-      id: "voice", x: 280, y: 274, title: "VoiceRuntime", symbol: "wave", category: "TypeScript · 语音编排", detail: "待机唤醒 / 多轮 / 休眠", path: "apps/nsh/runtime/voice.ts",
-      description: "轮询本地唤醒结果，命中后建立豆包 Duplex 会话；提示音后上行 PCM。回复播完再继续聆听，空闲 12 秒回本地待机。语音工具通过 requestTask 进入 Agent。",
+      id: "voice", x: 280, y: 274, title: "VoiceRuntime", symbol: "wave", category: "TypeScript · 语音编排", detail: "待机唤醒 / 多轮 / 休眠", path: "apps/nsh/runtime/voice/runtime.ts",
+      description: "轮询本地唤醒结果，命中后建立豆包 Duplex 会话；提示音后上行 PCM。回复播完再继续聆听，空闲 12 秒回本地待机。语音工具通过 requestTask 进入 Agent；模型提示词集中在 prompts.ts。",
       files: [
-        { path: "apps/nsh/runtime/voice.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音入口", match: "export class VoiceRuntime" }, { label: "本地待机", match: "async enterStandby()" }, { label: "建立会话", match: "async start(" }, { label: "休眠收尾", match: "endSession()" }, { label: "工具分发", match: "private tool(" }] },
+        { path: "apps/nsh/runtime/voice.ts", entry: "export { VoiceRuntime }" },
+        { path: "apps/nsh/runtime/voice/runtime.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音入口", match: "export class VoiceRuntime" }, { label: "本地待机", match: "async enterStandby()" }, { label: "建立会话", match: "async start(" }, { label: "休眠收尾", match: "endSession()" }, { label: "工具分发", match: "private tool(" }] },
+        { path: "apps/nsh/runtime/voice/prompts.ts", entry: "export const voicePrompts" },
+        { path: "apps/nsh/runtime/voice/protocol.ts", entry: "export const sessionCreateMessage" },
+        { path: "apps/nsh/runtime/voice/types.ts", entry: "export interface VoiceAudioPort" },
         { path: "apps/nsh/ui/VoiceSpaceView.tsx", entry: "export function VoiceSpaceView" },
       ],
     },
@@ -70,9 +74,13 @@ globalThis.LOOI_ARCH = {
       ],
     },
     {
-      id: "doubao", x: 790, y: 274, title: "豆包 Realtime", symbol: "wave", category: "外部服务 · WebSocket", detail: "Duplex V3 / 流式语音 / 转写", path: "apps/nsh/runtime/voice.ts", external: true,
-      description: "豆包 Duplex V3 会话的 WebSocket endpoint、会话配置与收发事件位于 voice.ts；用户语音检测、回复音频结束和工具回执都由 VoiceRuntime 消费。",
-      files: [{ path: "apps/nsh/runtime/voice.ts", entry: "const endpoint =", anchors: [{ label: "服务地址", match: "const endpoint =" }, { label: "连接会话", match: "async start(" }, { label: "接收事件", match: "private async read(" }] }],
+      id: "doubao", x: 790, y: 274, title: "豆包 Realtime", symbol: "wave", category: "外部服务 · WebSocket", detail: "Duplex V3 / 流式语音 / 转写", path: "apps/nsh/runtime/voice/protocol.ts", external: true,
+      description: "豆包 Duplex V3 的 WebSocket 地址与会话配置位于 protocol.ts，模型提示词位于 prompts.ts；VoiceRuntime 接收事件、处理音频和工具回执。",
+      files: [
+        { path: "apps/nsh/runtime/voice/protocol.ts", entry: "export const voiceEndpoint", anchors: [{ label: "服务地址", match: "export const voiceEndpoint" }, { label: "会话配置", match: "export const sessionCreateMessage" }] },
+        { path: "apps/nsh/runtime/voice/prompts.ts", entry: "export const voicePrompts" },
+        { path: "apps/nsh/runtime/voice/runtime.ts", entry: "async start(", anchors: [{ label: "连接会话", match: "async start(" }, { label: "接收事件", match: "private async read(" }] },
+      ],
     },
     {
       id: "face", x: 28, y: 462, title: "表情与陪伴", symbol: "eyes", category: "TypeScript · 界面反馈", detail: "情绪 / 眨眼 / 视线 / 音量响应", path: "packages/looi-runtime/src/ui/robot-face-controller.ts",

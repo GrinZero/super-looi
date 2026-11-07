@@ -1,5 +1,16 @@
 # Super-LOOI 重构与演进进度
 
+### NSH 语音运行时模块拆分（2026-11-08）
+
+- [x] Step 1：梳理 `voice.ts` 职责、调用入口与现有语音测试
+- [x] Step 2：建立 `runtime/voice/`，集中模型提示词和 Realtime 会话配置，保留现有公开入口
+  - [x] 拆出类型、提示词、协议配置；`VoiceRuntime` 保留原有状态机和调用签名
+  - [x] 更新架构图中的语音源码入口与本地快照
+- [x] Step 3：完成语音测试、类型检查、构建及独立 review
+  - [x] `test:voice-runtime`、NSH `typecheck`、完整 `test`（19/19）与 `build` 通过
+  - [x] 架构图源码锚点与语音快照一致；独立 review 未发现回归
+
+
 ### NSH 自动语音唤醒与 Realtime 对话（2026-11-07）
 
 - [x] Step 1：固定 sherpa-onnx 模型与原生库，接入 iOS / Android 构建和 APK 打包
