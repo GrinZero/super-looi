@@ -61,6 +61,8 @@ export class VoiceRuntime {
   private responseId = "";
   private cancelledResponses = new Set<string>();
   private frames: Uint8Array[] = [];
+  private outputFrames: Uint8Array[] = [];
+  private outputBytes = 0;
   private key = "";
   private closed = false;
   constructor(
@@ -231,7 +233,8 @@ export class VoiceRuntime {
           event.response_id ?? event.response?.id ?? "",
         );
         const cancelAck =
-          (event.type === "response.canceled" || event.type === "response.cancelled") ||
+          event.type === "response.canceled" ||
+          event.type === "response.cancelled" ||
           (event.type === "response.done" &&
             event.response?.status === "cancelled");
         if (this.discardOutput && cancelAck) {
@@ -268,7 +271,23 @@ export class VoiceRuntime {
             !/^[A-Za-z0-9+/]*={0,2}$/.test(event.delta)
           )
             throw new Error("Invalid PCM");
-          this.options.audio.enqueue(Buffer.from(event.delta, "base64"), 24000);
+          const pcm = Buffer.from(event.delta, "base64");
+          if (pcm.length % 2) throw new Error("Invalid PCM length");
+          // Keep control events responsive even while native playback is full.
+          // At most 30 seconds of mono PCM waits here, plus the native 4.5s.
+          if (
+            this.outputBytes + pcm.length > 1_440_000 ||
+            this.outputFrames.length + Math.ceil(pcm.length / 4800) > 300
+          ) {
+            this.interrupt();
+            this.publish({
+              error: "回复较长，已停止朗读；可以缩短问题后重新提问。",
+            });
+            continue;
+          }
+          for (let offset = 0; offset < pcm.length; offset += 4800)
+            this.outputFrames.push(pcm.subarray(offset, offset + 4800));
+          this.outputBytes += pcm.length;
         } else if (event.type === "response.output_audio.done")
           this.publish({ phase: "listening" });
         else if (event.type === "response.output_text.delta")
@@ -303,6 +322,17 @@ export class VoiceRuntime {
     try {
       if (this.options.audio.status().state !== "running")
         throw new Error("Native audio interrupted");
+      for (let count = 0; count < 5 && this.outputFrames.length; count++) {
+        const frame = this.outputFrames[0];
+        if (
+          this.options.audio.status().queuedPlaybackMs + frame.length / 48 >
+          4500
+        )
+          break;
+        this.outputFrames.shift();
+        this.outputBytes -= frame.length;
+        this.options.audio.enqueue(frame, 24000);
+      }
       for (const packet of this.options.audio.drainCapture()) {
         if (packet.sampleRate !== 16000 || packet.pcm.length !== 640)
           throw new Error("Invalid capture frame");
@@ -397,7 +427,8 @@ export class VoiceRuntime {
     if (this.discardOutput) return;
     if (
       this.state.phase !== "speaking" &&
-      this.options.audio.status().queuedPlaybackMs <= 0
+      this.options.audio.status().queuedPlaybackMs <= 0 &&
+      this.outputBytes === 0
     ) {
       this.publish({ transcript: "" });
       return;
@@ -408,6 +439,8 @@ export class VoiceRuntime {
       this.fail("请重新开启语音");
       return;
     }
+    this.outputFrames = [];
+    this.outputBytes = 0;
     this.options.audio.clearPlayback();
     this.publish({ phase: "listening", transcript: "" });
     const generation = this.generation;
@@ -433,6 +466,8 @@ export class VoiceRuntime {
     this.socket = undefined;
     this.options.audio.stop();
     this.frames = [];
+    this.outputFrames = [];
+    this.outputBytes = 0;
     this.calls.clear();
     this.audioWriting = false;
     this.discardOutput = false;

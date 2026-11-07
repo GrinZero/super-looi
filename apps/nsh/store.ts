@@ -215,7 +215,7 @@ export function createAppStore() {
       }
       voiceExecuting = true;
       try {
-        const success = await api.send(prompt);
+        const success = await api.send(prompt, true);
         if (success) pending.resolve(message());
         else pending.reject(new Error("任务未完成"));
       } finally {
@@ -224,7 +224,20 @@ export function createAppStore() {
     },
     ready: () => ready(),
     busy: () => busy(),
-    status: () => status(),
+    status: () =>
+      busy()
+        ? status()
+        : voiceTask()
+          ? "语音任务待确认"
+          : voiceState().phase === "connecting"
+            ? "语音连接中"
+            : voiceState().phase === "speaking"
+              ? "正在说话"
+              : voiceState().phase === "listening"
+                ? voiceState().muted
+                  ? "语音已静音"
+                  : "正在聆听"
+                : status(),
     message: () => message(),
     face: () => face(),
     configuration: () => configuration(),
@@ -291,18 +304,23 @@ export function createAppStore() {
       status.set("模型已配置");
       message.set("");
     },
-    async send(prompt: string) {
+    async send(prompt: string, agentOnly = false) {
       if (busy() || !runtime || !prompt.trim()) return false;
       busy.set(true);
       message.set("");
       status.set("正在思考");
       try {
-        const result = await runtime.run(prompt, action(), (event) => {
-          if (!alive) return;
-          status.set(event.summary);
-          if (event.interaction && event.taskId)
-            interaction.set({ ...event.interaction, taskId: event.taskId });
-        });
+        const result = await runtime.run(
+          prompt,
+          action(),
+          (event) => {
+            if (!alive) return;
+            status.set(event.summary);
+            if (event.interaction && event.taskId)
+              interaction.set({ ...event.interaction, taskId: event.taskId });
+          },
+          { agentOnly },
+        );
         if (alive) {
           message.set(result.answer);
           status.set(result.runtimeExited ? "本机就绪" : "任务结果待核实");

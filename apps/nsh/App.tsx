@@ -21,6 +21,11 @@ function App() {
   const tasksOpen = signal(false);
   const homeOpen = signal(false);
   const voiceOpen = signal(false);
+  const responseText = () =>
+    ["listening", "speaking"].includes(store.voiceState().phase) &&
+    store.voiceState().transcript
+      ? store.voiceState().transcript
+      : store.message();
   const approvalLabel = () => {
     const details = store.interaction()?.details;
     switch (details?.toolName) {
@@ -143,9 +148,9 @@ function App() {
         </View>
         <View class="flex-1" />
         <View class="gap-3 items-center">
-          <If when={store.message()}>
+          <If when={responseText()}>
             <ResponsePreview
-              text={store.message()}
+              text={responseText()}
               onOpen={() => responseOpen.set(true)}
             />
           </If>
@@ -330,7 +335,7 @@ function App() {
         height={500}
       >
         <View selectable={true}>
-          <Text class="text-foreground text-base">{store.message()}</Text>
+          <Text class="text-foreground text-base">{responseText()}</Text>
         </View>
       </Panel>
       <Panel

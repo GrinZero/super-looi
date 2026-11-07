@@ -6,7 +6,7 @@ import {
 function check(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
 }
-const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 25));
 export async function verifyVoiceRuntime() {
   let state = "idle",
     permission = "granted",
@@ -15,6 +15,8 @@ export async function verifyVoiceRuntime() {
     playback = 0,
     requests = 0,
     taskCalls = 0;
+  let maxPlaybackFrame = 0,
+    fullQueueChecks = 0;
   const audio: VoiceAudioPort = {
     requestPermission: () => {
       requests++;
@@ -29,6 +31,7 @@ export async function verifyVoiceRuntime() {
       state = "idle";
     },
     enqueue: (pcm) => {
+      maxPlaybackFrame = Math.max(maxPlaybackFrame, pcm.length);
       playback += pcm.length;
     },
     clearPlayback: () => {
@@ -40,7 +43,7 @@ export async function verifyVoiceRuntime() {
       state,
       permission,
       error: "",
-      queuedPlaybackMs: playback > 0 ? 10 : 0,
+      queuedPlaybackMs: fullQueueChecks-- > 0 ? 5000 : playback > 0 ? 10 : 0,
     }),
   };
   const slots = new Map<string, string>();
@@ -165,6 +168,29 @@ export async function verifyVoiceRuntime() {
     playback === 0 && !voice.snapshot().transcript.includes("obsolete"),
     "obsolete started frame bypassed cancellation",
   );
+  event({ type: "response.canceled" });
+  await settle();
+  fullQueueChecks = 4;
+  event({ type: "response.output_audio.delta", delta: "AAAA".repeat(3200) });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  check(
+    Number(playback) === 9600 && maxPlaybackFrame <= 4800,
+    "native playback backpressure was ignored or PCM was not chunked",
+  );
+  const beforeInterrupts = writes.filter(
+    (item) => item.type === "response.cancel",
+  ).length;
+  fullQueueChecks = 100;
+  event({ type: "response.output_audio.started" });
+  event({ type: "response.output_audio.delta", delta: "AAAA".repeat(3200) });
+  event({ type: "input_audio_buffer.speech_started" });
+  await settle();
+  check(
+    writes.filter((item) => item.type === "response.cancel").length ===
+      beforeInterrupts + 1 && Number(playback) === 0,
+    "saturated playback blocked incoming ASR interruption",
+  );
+  fullQueueChecks = 0;
   event({ type: "response.canceled" });
   await settle();
   voice.mute(true);

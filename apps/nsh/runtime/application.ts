@@ -421,6 +421,7 @@ export class MobileRuntime {
     prompt: string,
     action: UserActionRef,
     onStep: (event: AgentStepEvent) => void,
+    options: { agentOnly?: boolean } = {},
   ): Promise<{ answer: string; taskId: string; runtimeExited: boolean }> {
     if (this.closed || this.busy) throw new Error("当前已有任务，请先停止");
     assertFreshUiAction(action);
@@ -433,7 +434,7 @@ export class MobileRuntime {
       const remember = text.match(/^记住[：:,，\s]*(.+)$/s),
         recall = text.match(/^(?:回忆|查找记忆)[：:,，\s]*(.*)$/s),
         forget = text.match(/^忘记[：:,，\s]*(.+)$/s);
-      if (remember) {
+      if (remember && !options.agentOnly) {
         const note = await this.remember(remember[1], true);
         return {
           answer: `记住了：${note.text}`,
@@ -441,7 +442,7 @@ export class MobileRuntime {
           runtimeExited: true,
         };
       }
-      if (recall) {
+      if (recall && !options.agentOnly) {
         const notes = await this.recall(recall[1]);
         return {
           answer: notes.length
@@ -456,7 +457,7 @@ export class MobileRuntime {
           runtimeExited: true,
         };
       }
-      if (forget) {
+      if (forget && !options.agentOnly) {
         await this.forget(forget[1]);
         return { answer: "已忘记这条内容。", taskId: "", runtimeExited: true };
       }

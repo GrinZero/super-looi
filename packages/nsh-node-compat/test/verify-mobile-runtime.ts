@@ -182,6 +182,16 @@ try {
     !JSON.stringify(prompts[3]).includes("ORCHID"),
     "Configuration switch leaked prior conversation",
   );
+  const semanticRecall = await mobile.run(
+    "回忆我曾经保存的某件事",
+    action(),
+    () => {},
+    { agentOnly: true },
+  );
+  assert(
+    Boolean(semanticRecall.taskId) && semanticRecall.answer === "ORCHID",
+    "Voice task was diverted into literal offline recall instead of Agent reasoning",
+  );
 } finally {
   globalThis.fetch = nativeFetch;
   await mobile.close();

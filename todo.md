@@ -272,7 +272,8 @@
 - [ ] unknown 任务详情、明确核验和续跑入口；目前仅提示计数。
 - [ ] NSH MIoT安全登录、语音端到端、BLE原生桥、旧数据迁入。
   - BLE传输重连/订阅/取消与并发断开问题已修，15项测试通过；固定NSH没有现成BLE API，需要app自有原生桥。
-  - 家居Agent审批/SQLite intent与回执、取消unknown恢复已通过QuickJS与独立复审；原生PCM静音输出双端模拟器通过，不能等同麦克风/AEC或完整实时语音验收。
+  - 家居Agent审批/SQLite intent与回执、取消unknown恢复通过QuickJS与独立复审；双端合成语音→真实ASR→实际Agent查询→原生语音回复通过，真实麦克风/AEC仍待硬件验收。
+  - 迁移前继续纠正BodySupervisor把settling计时当成物理停稳证据的问题；当前不能以该时间戳证明实际停止。
   - 保留Hub/Expo直到端侧全量替代门禁通过；本轮仅模拟器软件验收，真机BLE/底座/音频效果另列。
 - [ ] 透明 root SDK 构建仍有 36 个错误；移动适配 SDK 单独通过，不用空垫片掩盖不支持项。
 - [x] 当前双端模拟器 Release 构建、无开发服务器冷启动及持久化验收通过。

@@ -14,6 +14,7 @@ const root = resolve(import.meta.dirname, "..");
 const target = process.argv[2];
 const sdk = process.argv.includes("--sdk");
 const voice = process.argv.includes("--voice");
+const pipeline = process.argv.includes("--voice-pipeline");
 if (target !== "ios" && target !== "android")
   throw new Error("Expected ios or android");
 const env = parseEnv(await readFile(resolve(root, "../../.env"), "utf8"));
@@ -55,10 +56,39 @@ if (sdk)
     ],
     outfile: resolve(root, "generated/sdk-live.js"),
   });
+if (pipeline)
+  await build({
+    tsconfig: resolve(root, "tsconfig.runtime.json"),
+    entryPoints: [resolve(root, "tests/native-voice-pipeline.ts")],
+    bundle: true,
+    platform: "browser",
+    format: "esm",
+    target: "es2022",
+    minify: true,
+    plugins: [nshNodeCompatPlugin()],
+    outfile: resolve(root, "generated/voice-live.js"),
+  });
+const pipelinePcm = pipeline
+  ? (
+      await readFile(resolve(root, "tests/fixtures/voice-recall-16k.pcm"))
+    ).toString("base64")
+  : "";
 const entry = resolve(root, "LiveProbe.tsx");
 // No model credential is written to the production vault. Test host data is ephemeral.
-const source = voice
+const source = pipeline
   ? `import {mount,signal,Text,View} from "nsh";
+import {NodeCompat,VoiceAudio} from "super-looi/native";
+import {connect} from "websocket";
+import {Buffer} from "buffer";
+import {openRuntime} from "./generated/looi-runtime.js";
+import {verifyVoicePipeline} from "./generated/voice-live.js";
+function Probe(){const status=signal("Testing synthetic voice pipeline");void(async()=>{let runtime;const config=${JSON.stringify(config)};try{
+ runtime=await openRuntime(new NodeCompat(),{get:key=>key==="model"?JSON.stringify(config):"",set:()=>{},remove:()=>{}});
+ const result=await verifyVoicePipeline({runtime,audio:new VoiceAudio(),connect,pcm:Buffer.from(${JSON.stringify(pipelinePcm)},"base64"),voiceKey:${JSON.stringify(env.DOUBAO_API_KEY)}});
+ console.log("VOICE_PIPELINE "+JSON.stringify(result));status.set("Native live verified");
+}catch(error){console.log("Native pipeline failure: "+String(error).split(config.apiKey).join("[redacted]"));status.set("Native live failed");}finally{await runtime?.close();}})();return <View><Text>{status()}</Text></View>;}mount(Probe);`
+  : voice
+    ? `import {mount,signal,Text,View} from "nsh";
 import {VoiceAudio} from "super-looi/native";
 import {connect} from "websocket";
 import {Buffer} from "buffer";
@@ -79,7 +109,7 @@ try{
  console.log("VOICE_PROBE "+JSON.stringify({bytes,cancelAck:ack,eventTypes:types}));status.set("Native live verified");
 }catch(error){console.log("Native voice probe failed (details omitted)");status.set("Native live failed");}finally{if(timer)clearTimeout(timer);audio.stop();await socket?.close().catch(()=>{});}})();
 return <View><Text>{status()}</Text></View>;}mount(Probe);`
-  : `import {mount,signal,Text,View} from "nsh";
+    : `import {mount,signal,Text,View} from "nsh";
 import {NodeCompat} from "super-looi/native";
 import {openRuntime} from "./generated/looi-runtime.js";
 ${sdk ? 'import {verifySdk} from "./generated/sdk-live.js";' : ""}
@@ -138,7 +168,10 @@ try {
         clearTimeout(timer);
         process.removeListener("SIGINT", kill);
         process.removeListener("SIGTERM", kill);
-        for (const value of Object.values(config))
+        for (const value of [
+          ...Object.values(config),
+          env.DOUBAO_API_KEY,
+        ].filter(Boolean))
           diagnostics = diagnostics.replaceAll(value, "[redacted]");
         done({ status, diagnostics });
       });
@@ -151,10 +184,12 @@ try {
       result.diagnostics,
       { mode: 0o600 },
     );
-  if (voice && result.status === 0) {
+  if ((voice || pipeline) && result.status === 0) {
     const report = result.diagnostics
       .split("\n")
-      .find((line) => line.startsWith("VOICE_PROBE "));
+      .find((line) =>
+        line.startsWith(pipeline ? "VOICE_PIPELINE " : "VOICE_PROBE "),
+      );
     if (report) console.log(report);
   }
   if (result.status === 0)
@@ -162,9 +197,11 @@ try {
   // Never expose raw test diagnostics: upstream errors can contain request data.
   console.log(
     result.status === 0
-      ? voice
-        ? `PASS ${target}: native voice WebSocket, synthetic PCM and interruption probe`
-        : `PASS ${target}: MobileRuntime native fetch/model/task completion${sdk ? " + actual coding SDK native tools/session" : ""}`
+      ? pipeline
+        ? `PASS ${target}: synthetic speech → shared local task → native voice reply`
+        : voice
+          ? `PASS ${target}: native voice WebSocket, synthetic PCM and interruption probe`
+          : `PASS ${target}: MobileRuntime native fetch/model/task completion${sdk ? " + actual coding SDK native tools/session" : ""}`
       : `FAIL ${target}: native live probe (exit ${result.status ?? "timeout"})`,
   );
 } finally {
@@ -190,6 +227,7 @@ try {
   await rm(entry, { force: true });
   await rm(resolve(root, ".nsh/LiveProbe.test.tsx"), { force: true });
   await rm(resolve(root, "generated/sdk-live.js"), { force: true });
+  await rm(resolve(root, "generated/voice-live.js"), { force: true });
   await rm(resolve(root, "generated/.nsh"), { recursive: true, force: true });
   // Only the test compiler cache contains JS source/bytecode; native APKs never do.
   await rm(resolve(root, ".nsh/test/build"), { recursive: true, force: true });

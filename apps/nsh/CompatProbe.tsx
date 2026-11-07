@@ -20,6 +20,15 @@ function CompatProbe() {
         try {
           if (audio.status().state !== "idle")
             throw new Error("Audio unexpectedly active at creation");
+          const permission = audio.status().permission;
+          if (permission !== "granted") {
+            let denied = false;
+            try { audio.start(true); } catch { denied = true; }
+            if (!denied || audio.status().permission !== permission)
+              throw new Error("Native capture bypassed the explicit permission boundary");
+            audio.stop();
+            console.log("PASS native microphone permission gate: ungranted capture rejected without prompt");
+          }
           audio.start(false);
           audio.enqueue(new Uint8Array(960), 24000);
           if (audio.status().state !== "running")
