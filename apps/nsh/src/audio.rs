@@ -108,6 +108,7 @@ pub(super) struct AudioBuffers {
     dropped_packets: u32,
     pending_samples: usize,
     cue_pending_samples: usize,
+    cue_queued_samples: usize,
     generation: u64,
     muted: bool,
     error: String,
@@ -129,6 +130,7 @@ impl Default for AudioBuffers {
             dropped_packets: 0,
             pending_samples: 0,
             cue_pending_samples: 0,
+            cue_queued_samples: 0,
             generation: 0,
             muted: false,
             error: String::new(),
@@ -195,6 +197,7 @@ impl AudioBuffers {
         self.playback.clear();
         self.pending_samples = 0;
         self.cue_pending_samples = 0;
+        self.cue_queued_samples = 0;
     }
 }
 
@@ -387,11 +390,13 @@ impl VoiceAudio {
             state.capture.clear();
             state.partial.clear();
             state.cue_pending_samples += 2880;
+            state.cue_queued_samples += 2880;
         }
         let result = self.enqueue(pcm, 24000);
         if result.is_err() {
             if let Ok(mut state) = self.shared.lock() {
                 state.cue_pending_samples = state.cue_pending_samples.saturating_sub(2880);
+                state.cue_queued_samples = state.cue_queued_samples.saturating_sub(2880);
             }
         }
         result
@@ -579,11 +584,15 @@ mod tests {
     fn kws_mode_keeps_pcm_out_of_js_and_switch_resets_mute() {
         let mut audio = AudioBuffers::default();
         audio.switch_mode(CaptureMode::KwsStandby);
-        for _ in 0..70 {
+        for _ in 0..58 {
             audio.captured(&[0; 640]);
         }
-        assert_eq!(audio.kws_queue.len(), 20);
-        assert_eq!(audio.kws_epoch, 2);
+        let epoch_before_overflow = audio.kws_epoch;
+        for _ in 58..70 {
+            audio.captured(&[0; 640]);
+        }
+        assert_eq!(audio.kws_queue.len(), 12);
+        assert_eq!(audio.kws_epoch, epoch_before_overflow + 1);
         assert!(audio.capture.is_empty());
         assert_eq!(audio.captured_samples, 70 * 320);
         audio.muted = true;

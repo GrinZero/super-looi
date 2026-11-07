@@ -240,10 +240,9 @@ impl Audio {
         }
         let (samples, generation) = {
             let mut state = self.shared.lock().map_err(|_| "Audio state unavailable")?;
-            (
-                state.playback.drain(..).collect::<Vec<_>>(),
-                state.generation,
-            )
+            let samples = state.playback.drain(..).collect::<Vec<_>>();
+            state.cue_queued_samples = state.cue_queued_samples.saturating_sub(samples.len());
+            (samples, state.generation)
         };
         if samples.is_empty() {
             return Ok(());

@@ -12,10 +12,11 @@
   - [x] 待机、权限、唤醒、会话结束及道别工具
   - [x] 播放排空、用户语音阶段和 12 秒空闲计时
 - [x] Step 4：连接状态管理和首屏、语音管理空间交互
-- [ ] Step 5：运行测试与 iOS / Android 构建，独立 review 并提交
-  - [x] iOS 模拟器真实模型加载与单流切换测试；Android 三 ABI APK、ELF 与 ZIP 16 KB 对齐验证
-  - [ ] 最终类型检查、测试、UI 复核与独立子 agent review
-  - [ ] 提交本次改动
+- [x] Step 5：运行测试与 iOS / Android 构建，独立 review 并提交
+  - [x] iOS 模拟器真实模型加载与单流切换；Android API 34 模拟器首次授权后 KWS 与单流切换通过
+  - [x] Android 三 ABI APK 构建、ELF 与 ZIP 16 KB 对齐验证；iOS 合成 PCM → 豆包 ASR → Agent 工具 → 原生语音输出通过
+  - [x] 类型检查、NSH 18 项测试、插件测试和 iOS UI 复核通过；独立 review 指出并复核播放完成与权限时序修复
+  - [x] 分阶段提交本次改动
 
 ### LIVE 首屏嘴型闪烁修复（2026-11-07）
 

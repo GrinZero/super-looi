@@ -3,6 +3,7 @@ package com.superlooi.nsh;
 import android.Manifest;
 import android.app.Activity;
 import android.app.Application;
+import android.app.Fragment;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
@@ -26,6 +27,8 @@ public final class SuperLooiApplication extends Application {
     private static boolean ownsAudio;
     private static long audioGeneration;
     private static volatile boolean interrupted = true;
+    private static volatile boolean permissionPending;
+    private static volatile boolean permissionCancelled;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -59,20 +62,54 @@ public final class SuperLooiApplication extends Application {
 
     public static String voicePermission() {
         if (instance == null) return "unavailable";
-        if (Build.VERSION.SDK_INT < 23 || instance.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) return "granted";
+        if (Build.VERSION.SDK_INT < 23) return "granted";
+        if (instance.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            final Activity owner = activity.get();
+            return owner != null && owner.hasWindowFocus() ? "granted" : "undetermined";
+        }
+        if (permissionPending) return "undetermined";
+        if (permissionCancelled) return "cancelled";
         return instance.getSharedPreferences("voice-permission", MODE_PRIVATE).getBoolean("asked", false) ? "denied" : "undetermined";
     }
 
     public static String requestVoicePermission() {
-        if ("granted".equals(voicePermission())) return "granted";
+        final String state = voicePermission();
+        if (instance != null && Build.VERSION.SDK_INT >= 23 && instance.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) return state;
+        if (!("undetermined".equals(state) || "cancelled".equals(state)) || permissionPending) return state;
         final Activity owner = activity.get();
         if (owner == null || Build.VERSION.SDK_INT < 23) return "unavailable";
+        permissionCancelled = false;
+        permissionPending = true;
         new Handler(Looper.getMainLooper()).post(() -> {
-            if (activity.get() != owner || owner.isFinishing()) return;
-            instance.getSharedPreferences("voice-permission", MODE_PRIVATE).edit().putBoolean("asked", true).apply();
-            owner.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7401);
+            if (activity.get() != owner || owner.isFinishing()) { permissionPending = false; return; }
+            try {
+                owner.getFragmentManager().beginTransaction().add(new VoicePermissionFragment(), "looi-voice-permission").commit();
+            } catch (RuntimeException error) { permissionPending = false; }
         });
         return "undetermined";
+    }
+
+    /** Application has no permission-result callback; this fragment owns that one request. */
+    public static final class VoicePermissionFragment extends Fragment {
+        private boolean requested;
+
+        @Override public void onResume() {
+            super.onResume();
+            if (!requested) {
+                requested = true;
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7401);
+            }
+        }
+
+        @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+            if (code == 7401) {
+                permissionCancelled = results.length == 0;
+                if (!permissionCancelled)
+                    instance.getSharedPreferences("voice-permission", MODE_PRIVATE).edit().putBoolean("asked", true).apply();
+                permissionPending = false;
+                getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();
+            }
+        }
     }
 
     public static synchronized boolean beginVoiceAudio(boolean capture) {

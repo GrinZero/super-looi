@@ -106,6 +106,68 @@ export async function verifyWakeRuntime() {
     check(voice.snapshot().phase === "error" && state === "idle" && stops > 0,
       "unavailable KWS was shown as listening");
     voice.close();
+
+    let completeAppend!: () => void;
+    let appendEntered = false, closeWritten = false;
+    const socket = new SocketFixture();
+    const ordering = new VoiceRuntime({
+      vault: { get: () => JSON.stringify({ apiKey: "test-key", wakeEnabled: false }), set: () => {}, remove: () => {} },
+      audio,
+      connect: async () => ({
+        read: () => socket.read(),
+        write: async (raw) => {
+          const message = JSON.parse(raw);
+          if (message.type === "input_audio_buffer.append") {
+            appendEntered = true;
+            await new Promise<void>((resolve) => { completeAppend = resolve; });
+          }
+          if (message.type === "session.close") closeWritten = true;
+        },
+        close: () => socket.close(),
+      }),
+      onState: () => {}, requestTask: async () => "", cancelTask: () => {},
+    });
+    await ordering.start();
+    socket.push({ type: "session.created" });
+    await wait(35);
+    check(appendEntered, "capture write did not begin");
+    ordering.endSession();
+    check(!closeWritten, "session.close overtook an active PCM write");
+    completeAppend();
+    await wait(25);
+    check(closeWritten, "session.close was not sent after PCM write");
+    ordering.close();
+
+    permission = "undetermined";
+    let permissionRequests = 0;
+    const permissionVoice = new VoiceRuntime({
+      vault: { get: () => JSON.stringify({ apiKey: "test-key", wakeEnabled: true }), set: () => {}, remove: () => {} },
+      audio: { ...audio, requestPermission: () => { permissionRequests++; return permission; } },
+      connect: async () => new SocketFixture(),
+      onState: () => {}, requestTask: async () => "", cancelTask: () => {},
+    });
+    await permissionVoice.enterStandby();
+    check(permissionVoice.snapshot().phase === "permission" && permissionRequests === 1,
+      "first microphone request did not wait for the platform callback");
+    permission = "denied";
+    await wait(280);
+    check(permissionVoice.snapshot().phase === "error" && permissionRequests === 1,
+      "denied microphone permission retried the system request");
+    permissionVoice.close();
+
+    permission = "undetermined";
+    const cancelledVoice = new VoiceRuntime({
+      vault: { get: () => JSON.stringify({ apiKey: "test-key", wakeEnabled: true }), set: () => {}, remove: () => {} },
+      audio: { ...audio, requestPermission: () => { permissionRequests++; return permission; } },
+      connect: async () => new SocketFixture(),
+      onState: () => {}, requestTask: async () => "", cancelTask: () => {},
+    });
+    await cancelledVoice.enterStandby();
+    permission = "cancelled";
+    await wait(280);
+    check(cancelledVoice.snapshot().phase === "error" && permissionRequests === 2,
+      "cancelled microphone request stayed in permission polling");
+    cancelledVoice.close();
   } finally {
     globalThis.setTimeout = originalTimeout;
   }

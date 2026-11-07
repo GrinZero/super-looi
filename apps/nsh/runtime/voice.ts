@@ -171,13 +171,15 @@ export class VoiceRuntime {
     if (this.state.phase === "standby") return;
     const permission = this.options.audio.status().permission;
     if (permission !== "granted") {
-      const result = permission === "undetermined" && this.state.phase === "permission"
-        ? "undetermined"
-        : this.options.audio.requestPermission();
+      const result = ["undetermined", "cancelled"].includes(permission) && this.state.phase !== "permission"
+        ? this.options.audio.requestPermission()
+        : permission;
       if (result !== "granted") {
         if (result !== "undetermined") {
           this.options.audio.stop();
-          this.publish({ phase: "error", error: "麦克风权限不可用，请在系统设置中开启" });
+          this.publish({ phase: "error", error: result === "cancelled"
+            ? "麦克风权限请求已取消，请重新开启语音唤醒"
+            : "麦克风权限不可用，请在系统设置中开启" });
           return;
         }
         this.publish({ phase: "permission", error: "请允许麦克风权限" });
