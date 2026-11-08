@@ -19,7 +19,7 @@
 - [x] Step 2：读取 `conversation.item.input_audio_transcription.delta`，在 `completed` 无文本时使用该轮最新识别结果
 - [x] Step 3：运行时协议与观测测试、NSH 语音测试及类型检查通过；iPhone 16e 已重启为追踪开启的修复版
 - [x] Step 4：真实语音 Trace 已包含用户文本与回复文本；发现豆包的 `delta` 返回整段更新，拼接会重复
-- [ ] Step 5：改为覆盖最新识别结果后，复核下一次真实语音的最终文字
+- [x] Step 5：iPhone 16e 真实会话 `5d07f54f169c44c89764f58408762ac6` 中 `voice.session.input.userTranscripts` 与用户轮次输出均包含“现在几点了？”，无重复拼接
 
 ### Langfuse v4 与多厂商 Realtime 接入（2026-11-08）
 

@@ -4,9 +4,9 @@
 
 - [ ] 试听 `assets/voice/looi-warm-mechanical-reference.wav` 后确定声线；在豆包音色设计或声音复刻中生成专属 Speaker ID，并替换 NSH 全双工会话的默认音色。当前 `DOUBAO_API_KEY` 请求 Seed Audio 1.0 返回 `403 resource not granted`。
 
-## Langfuse 本地语音追踪（2026-11-08）
+## iOS 模拟器语音回灌（2026-11-08）
 
-- [ ] 在 iPhone 16e 的豆包 ASR 最新识别结果覆盖版中再次进行语音对话，核对 Langfuse 中 `voice.session.input.userTranscripts` 与各 `realtime.user_turn.output` 无重复。真实 Trace 已确认用户和助手文字都写入；前一版把整段更新拼接，产生重复字词。
+- [ ] iPhone 16e 的第二轮 ASR 转写包含 LOOI 上一轮播报；核对模拟器播放回灌与实时语音回声消除，避免把助手语音当作用户输入。
 
 ## NSH 自动语音唤醒 → 豆包 Realtime 对话（2026-11-07 规划）
 
