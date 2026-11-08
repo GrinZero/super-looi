@@ -5,7 +5,7 @@
 - [x] Step 1：核对 `origin/main`、本地 66 个提交及未提交文件，确定以现有历史构建串联 PR
 - [x] Step 2：全仓 `pnpm typecheck`、`pnpm test`（NSH 24/24）与 `pnpm build` 通过；独立 review 指出的未确认取消状态错误已修复并由异步语音回归用例覆盖，生成的 Python 缓存已忽略
 - [x] Step 3：按历史主题建立五个分支；运行时代码与原生底座控制已提交为 `88622fa`，文档和资源另成提交
-- [ ] Step 4：推送分支、创建串联 PR，核对各 PR 的基准与差异
+- [x] Step 4：推送七个分支并创建 GitHub PR #7–#13；按 NSH 兼容、移动运行时、界面与唤醒、Realtime 遥测、双语与底座、运行时收尾、文档资源依次串联
 
 ### Android LIVE 实体音量键控制（2026-11-09）
 
