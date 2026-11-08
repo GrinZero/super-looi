@@ -4,6 +4,8 @@ import {
   BodySupervisor,
   MOVE_PAYLOADS,
   HEAD_PAYLOADS,
+  headDegreesToPayload,
+  createInitTimeHex,
   SimulatedBleTransport,
   CrossPlatformBleTransport,
   type NativeBleAdapter,
@@ -16,6 +18,29 @@ import {
 } from "@super-looi/contracts";
 
 describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
+  it("does not report a connection when stopped before any dock connects", async () => {
+    const transport = new SimulatedBleTransport();
+    const supervisor = new BodySupervisor(transport);
+
+    await supervisor.stop();
+    assert.equal(supervisor.getState(), "disconnected");
+
+    await supervisor.connect();
+    assert.equal(supervisor.getState(), "connected_unarmed");
+    await supervisor.disconnect();
+    await supervisor.stop();
+    assert.equal(supervisor.getState(), "disconnected");
+
+    await supervisor.connect();
+    transport.emitNotification("dockNotify", "05");
+    transport.connected = false;
+    await supervisor.stop();
+    assert.equal(supervisor.getState(), "disconnected");
+    assert.equal(supervisor.getIsDocked(), false);
+    await supervisor.connect();
+    assert.equal(supervisor.getState(), "connected_unarmed");
+  });
+
   it("rebinds unexpected-disconnect safety after an explicit reconnect", async () => {
     const transport = new SimulatedBleTransport();
     const supervisor = new BodySupervisor(transport);
@@ -108,33 +133,84 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     await assert.rejects(()=>throwing.disconnect(), /sync native refusal/);
     await throwing.disconnect();assert.equal(attempts,2);throwing.dispose();
   });
-  it("executes correct handshake sequence upon connect and registers dock notifications", async () => {
+  it("subscribes to FED9 before the device-tested three writes and neutral drive", async () => {
     const transport = new SimulatedBleTransport();
+    const operations: string[] = [];
+    const write = transport.write.bind(transport);
+    transport.write = async (...args) => {
+      operations.push(`write:${args[0]}:${args[1]}`);
+      await write(...args);
+    };
+    const startNotifications = transport.startNotifications.bind(transport);
+    transport.startNotifications = async (...args) => {
+      operations.push(`notify:${args[0]}`);
+      await startNotifications(...args);
+    };
     const supervisor = new BodySupervisor(transport);
 
-    await supervisor.connect(new Date("2026-06-24T00:55:42Z"));
+    const initDate = new Date("2026-06-24T00:55:42Z");
+    const timeHex = createInitTimeHex(initDate);
+    await supervisor.connect(initDate);
 
     assert.equal(transport.connected, true);
     assert.equal(transport.notificationListeners.has("dockNotify"), true);
+    assert.deepEqual(operations, [
+      "notify:dockNotify",
+      "write:handshakeControl:03",
+      `write:handshakeData:${timeHex}`,
+      "write:handshakeControl:8101",
+      "write:drive:0000",
+    ]);
 
-    // Verify 3-step handshake
-    assert.equal(transport.writtenCommands.length, 3);
+    assert.equal(transport.writtenCommands.length, 4);
     assert.deepEqual(transport.writtenCommands[0], {
       characteristic: "handshakeControl",
       payload: "03",
       options: { response: true, expectedBytes: 1 },
     });
-    assert.equal(transport.writtenCommands[1].characteristic, "handshakeData");
-    assert.equal(transport.writtenCommands[1].options?.expectedBytes, 20);
+    assert.deepEqual(transport.writtenCommands[1], {
+      characteristic: "handshakeData",
+      payload: timeHex,
+      options: { response: true, expectedBytes: 20 },
+    });
     assert.deepEqual(transport.writtenCommands[2], {
       characteristic: "handshakeControl",
       payload: "8101",
       options: { response: true, expectedBytes: 2 },
     });
+    assert.deepEqual(transport.writtenCommands[3], {
+      characteristic: "drive",
+      payload: "0000",
+      options: { response: false, expectedBytes: 2 },
+    });
 
     // Unarmed because not yet docked
     assert.equal(supervisor.getState(), "connected_unarmed");
     assert.equal(supervisor.getIsDocked(), false);
+  });
+
+  it("does not accept body actions before activation completes", async () => {
+    const transport = new SimulatedBleTransport();
+    const write = transport.write.bind(transport);
+    let releaseHandshake!: () => void;
+    transport.write = async (...args) => {
+      if (args[0] === "handshakeData") {
+        await new Promise<void>((resolve) => { releaseHandshake = resolve; });
+      }
+      await write(...args);
+    };
+    const supervisor = new BodySupervisor(transport);
+    const connecting = supervisor.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await assert.rejects(() => supervisor.acquireLease({ holder: "wheel", primitive: "forward", durationMs: 100 }), /activation/);
+    await assert.rejects(() => supervisor.setHead("up"), /activation/);
+    await assert.rejects(() => supervisor.setLight(true), /activation/);
+    releaseHandshake();
+    await connecting;
+    assert.deepEqual(transport.writtenCommands.map(({ characteristic, payload }) => characteristic), [
+      "handshakeControl", "handshakeData", "handshakeControl", "drive",
+    ]);
   });
 
   it("retries handshake upon transient GATT errors and succeeds", async () => {
@@ -184,21 +260,39 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     assert.equal(supervisor.getIsDocked(), false);
   });
 
-  it("requires docked state before arming movements and arming triggers ready state", async () => {
+  it("allows movement after connection without requiring the phone to be docked", async () => {
     const transport = new SimulatedBleTransport();
     const supervisor = new BodySupervisor(transport);
     await supervisor.connect();
 
-    await assert.rejects(
-      async () => {
-        await supervisor.acquireLease({ holder: "test", primitive: "forward", durationMs: 500 });
-      },
-      /LOOI is not docked/
-    );
+    const lease = await supervisor.acquireLease({ holder: "test", primitive: "forward", durationMs: 500 });
+    await supervisor.executePrimitive(lease);
+    assert.equal(transport.writtenCommands.at(-1)?.payload, MOVE_PAYLOADS.forward);
+    await supervisor.stop();
+    assert.equal(supervisor.getState(), "connected_unarmed");
 
     transport.emitNotification("dockNotify", "05");
     assert.equal(supervisor.getIsDocked(), true);
     assert.equal(supervisor.getState(), "ready");
+  });
+
+  it("keeps one drive command active while its lease is renewed", async () => {
+    const transport = new SimulatedBleTransport();
+    const supervisor = new BodySupervisor(transport);
+    await supervisor.connect();
+
+    const lease = await supervisor.acquireLease({ holder: "wheel", primitive: "forward", durationMs: 60 });
+    await supervisor.executePrimitive(lease);
+    supervisor.renewLease(lease, 400);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    assert.equal(supervisor.getState(), "observing");
+    assert.ok(transport.writtenCommands.filter((command) => command.characteristic === "drive" && command.payload === MOVE_PAYLOADS.forward).length >= 3);
+    await supervisor.stop();
+    assert.equal(transport.writtenCommands.at(-1)?.payload, MOVE_PAYLOADS.stop);
+    const stoppedAt = transport.writtenCommands.length;
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.ok(transport.writtenCommands.slice(stoppedAt).every((command) => command.payload === MOVE_PAYLOADS.stop));
   });
 
   it("enforces single active lease mutex", async () => {
@@ -273,6 +367,13 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     assert.equal(supervisor.getIsDocked(), false);
     assert.equal(supervisor.getState(), "connected_unarmed");
     assert.equal(supervisor.getActiveLease(), null);
+
+    const nextPulse = await supervisor.executePulse(
+      { holder: "after_undock", primitive: "forward", durationMs: 50 },
+      0,
+    );
+    assert.ok(nextPulse.stop_command_at);
+    assert.equal(supervisor.getState(), "connected_unarmed");
   });
 
   it("tracks sensor suppression window during motion and accepts external TTS windows", async () => {
@@ -386,10 +487,11 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
       deviceName: "卧室的 LOOI",
     });
 
-    // Light works while connected_unarmed, but head requires docked
+    // Both light and head controls work after connection, before docking.
     await supervisor.setLight(true);
     assert.equal(supervisor.getLightOn(), true);
-    await assert.rejects(() => supervisor.setHead("up"), /LOOI is not docked/);
+    await supervisor.setHead("up");
+    assert.equal(supervisor.getHeadPose(), "up");
 
     transport.simulateDock(true);
     assert.equal(supervisor.getState(), "ready");
@@ -407,5 +509,14 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     assert.equal(supervisor.getHeadPose(), "down");
     assert.equal(supervisor.getHeadDegrees(), 25);
     assert.equal(transport.writtenCommands.at(-1)?.payload, HEAD_PAYLOADS.down);
+
+    assert.equal(headDegreesToPayload(85), HEAD_PAYLOADS.up);
+    assert.equal(headDegreesToPayload(55), HEAD_PAYLOADS.center);
+    assert.equal(headDegreesToPayload(25), HEAD_PAYLOADS.down);
+    assert.notEqual(headDegreesToPayload(41), headDegreesToPayload(41.5));
+    await supervisor.setHeadDegrees(41.5);
+    assert.equal(supervisor.getHeadPose(), "custom");
+    assert.equal(supervisor.getHeadDegrees(), 41.5);
+    assert.equal(transport.writtenCommands.at(-1)?.payload, headDegreesToPayload(41.5));
   });
 });

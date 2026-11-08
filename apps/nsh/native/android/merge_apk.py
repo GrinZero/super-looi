@@ -27,7 +27,7 @@ def application_name(manifest):
                 return strings[u32(attr, 16)]
 
 
-def merge(original, dex, out, application, backup, permissions=()):
+def merge(original, dex, out, application, backup, orientation, permissions=()):
     # Android's ZIP implementation accepts ZIP32 through 4 GiB. Python's default
     # switches its central directory to ZIP64 at 2 GiB, breaking large debug APKs.
     zipfile.ZIP64_LIMIT = 0xFFFFFFFF
@@ -70,7 +70,7 @@ def merge(original, dex, out, application, backup, permissions=()):
                 continue
             with src.open(item) as reader, dst.open(item, "w") as writer:
                 shutil.copyfileobj(reader, writer, 1024 * 1024)
-        dst.writestr("AndroidManifest.xml", patch(manifest, application, backup, permissions), compress_type=zipfile.ZIP_DEFLATED)
+        dst.writestr("AndroidManifest.xml", patch(manifest, application, backup, orientation, permissions), compress_type=zipfile.ZIP_DEFLATED)
         dst.write(dex, dex_name, compress_type=zipfile.ZIP_DEFLATED)
         for name in native_libs:
             library = Path(cache) / "android/jniLibs" / name.removeprefix("lib/")
@@ -81,5 +81,5 @@ def merge(original, dex, out, application, backup, permissions=()):
 
 
 if __name__ == "__main__":
-    original, dex, out, application, backup, *permissions = sys.argv[1:]
-    merge(original, dex, out, application, backup == "true", permissions)
+    original, dex, out, application, backup, orientation, *permissions = sys.argv[1:]
+    merge(original, dex, out, application, backup == "true", orientation, permissions)

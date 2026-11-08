@@ -24,8 +24,11 @@ class SocketFixture implements VoiceSocket {
 
 export async function verifyWakeRuntime() {
   const originalTimeout = globalThis.setTimeout;
+  const originalNow = Date.now;
+  const clockStart = originalNow();
+  Date.now = () => clockStart + Math.floor((originalNow() - clockStart) * (12000 / 180));
   globalThis.setTimeout = ((handler: Parameters<typeof setTimeout>[0], delay?: number, ...args: unknown[]) =>
-    originalTimeout(handler, delay === 12000 ? 180 : delay, ...args)) as typeof setTimeout;
+    originalTimeout(handler, delay && delay >= 6000 && delay <= 12000 ? Math.round(delay * 180 / 12000) : delay, ...args)) as typeof setTimeout;
   try {
     let state = "idle", mode = "idle", permission = "granted", ready = true;
     let wakeWord = "", muted = false, playback = 0, starts = 0, stops = 0, cues = 0;
@@ -47,7 +50,7 @@ export async function verifyWakeRuntime() {
         return { state, permission, error: "", queuedPlaybackMs: playback ? 10 : 0, captureMode: mode, wakeWord: detected, kwsReady: ready };
       },
     };
-    const saved = new Map([["voice", JSON.stringify({ apiKey: "test-key", wakeEnabled: true })]]);
+    const saved = new Map([["voice", JSON.stringify({ apiKey: "test-key" })]]);
     const sockets: SocketFixture[] = [];
     const voice = new VoiceRuntime({
       vault: { get: (key) => saved.get(key) ?? "", set: (key, value) => { saved.set(key, value); }, remove: (key) => { saved.delete(key); } },
@@ -55,6 +58,7 @@ export async function verifyWakeRuntime() {
       connect: async () => { const socket = new SocketFixture(); sockets.push(socket); return socket; },
       onState: () => {}, requestTask: async () => "done", cancelTask: () => {},
     });
+    check(voice.snapshot().wakeEnabled === true, "saved config without wakeEnabled did not default to true");
     await voice.enterStandby();
     check(voice.snapshot().phase === "standby" && starts === 1, "local wake did not start");
     wakeWord = "Hey_LOOI";
@@ -91,25 +95,35 @@ export async function verifyWakeRuntime() {
     const second = sockets[1];
     second.push({ type: "session.created" });
     await wait(35);
-    second.push({ type: "response.function_call_arguments.done", response_id: "old", call_id: "end-1", name: "end_conversation", arguments: "{}" });
-    await wait(25);
-    const farewellReply = second.writes.find((item) => item.type === "conversation.item.create") as
-      | { items?: Array<{ content?: Array<{ text?: string }> }> }
-      | undefined;
-    check(farewellReply?.items?.[0]?.content?.[0]?.text === "{}",
-      "farewell tool reply should leave the response to the model");
-    second.push({ type: "response.done", response_id: "old" });
-    await wait(25);
-    check(voice.snapshot().phase === "listening", "tool call response was mistaken for farewell");
-    second.push({ type: "response.done", response_id: "farewell" });
+    check(!JSON.stringify(second.writes[0]).includes("end_conversation"),
+      "model still received a conversation-ending tool");
+    second.push({ type: "response.output_audio.started", response_id: "r2" });
+    second.push({ type: "response.output_audio.delta", response_id: "r2", delta: "AAAAAA==" });
+    second.push({ type: "response.output_audio.done", response_id: "r2", status_code: "20000002" });
+    await wait(40);
+    playback = 0;
+    await wait(40);
+    check(voice.snapshot().phase === "listening", "provider exit hint ended conversation after playback");
+    await wait(210);
+    check(voice.snapshot().phase === "standby", "second conversation did not end after 12 seconds of silence");
+
+    wakeWord = "Hey_LOOI";
+    await wait(85);
+    const third = sockets[2];
+    third.push({ type: "session.created" });
     await wait(35);
-    check(voice.snapshot().phase === "standby", "silent farewell did not end session");
+    third.push({ type: "conversation.item.input_audio_transcription.started" });
+    third.push({ type: "input_audio_buffer.committed" });
+    await wait(50);
+    third.push({ type: "conversation.item.input_audio_transcription.completed" });
+    await wait(155);
+    check(voice.snapshot().phase === "standby", "late transcription completion restarted the silence window");
 
     voice.stop();
     ready = false;
     await voice.enterStandby();
-    check(voice.snapshot().phase === "error" && state === "idle" && stops > 0,
-      "unavailable KWS was shown as listening");
+    check(voice.snapshot().phase === "error" && voice.snapshot().error === "" && state === "idle" && stops > 0,
+      "unavailable KWS was shown as listening or leaked model error");
     voice.close();
 
     let completeAppend!: () => void;
@@ -168,12 +182,20 @@ export async function verifyWakeRuntime() {
       onState: () => {}, requestTask: async () => "", cancelTask: () => {},
     });
     await cancelledVoice.enterStandby();
+    cancelledVoice.setWakeEnabled(false);
+    check(cancelledVoice.snapshot().phase === "idle" && !cancelledVoice.snapshot().wakeEnabled,
+      "disabling wake during permission polling did not reset state");
+    cancelledVoice.setWakeEnabled(true, { autoStandby: false });
+    check(cancelledVoice.snapshot().phase === "idle" && cancelledVoice.snapshot().wakeEnabled,
+      "deferred wake enable started audio prematurely");
+    await cancelledVoice.enterStandby();
     permission = "cancelled";
     await wait(280);
-    check(cancelledVoice.snapshot().phase === "error" && permissionRequests === 2,
+    check(cancelledVoice.snapshot().phase === "error" && permissionRequests === 3,
       "cancelled microphone request stayed in permission polling");
     cancelledVoice.close();
   } finally {
+    Date.now = originalNow;
     globalThis.setTimeout = originalTimeout;
   }
 }

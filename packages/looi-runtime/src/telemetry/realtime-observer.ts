@@ -197,7 +197,6 @@ export function observeVoiceSocket(socket: Socket, options: {
             tools++;
           }
           break;
-        case "audio_done": if (normalized.userQueryExit) finishResponse(false, normalized.statusCode); break;
         case "response_cancelled": finishResponse(true); break;
         case "response_done": finishResponse(); break;
       }

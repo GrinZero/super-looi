@@ -1,4 +1,4 @@
-import { t, translateMessage, formatDate } from "../i18n";
+import { t } from "../i18n";
 import { signal, Text, View, Scroll, windowSize } from "nsh";
 import type { createAppStore } from "../store";
 import { ActionButton, TextField } from "./Controls";
@@ -14,27 +14,6 @@ export function VoiceSpaceView(props: {
     ["connecting", "listening", "speaking"].includes(
       props.store.voiceState().phase,
     );
-
-  const phaseDescription = () => {
-    switch (props.store.voiceState().phase) {
-      case "connecting":
-        return t("connectingLive");
-      case "listening":
-        return props.store.voiceState().muted ? t("muted") : t("listening");
-      case "speaking":
-        return t("speaking");
-      case "permission":
-        return t("waitingForMicrophoneAccess");
-      case "error":
-        return t("connectionError");
-      case "standby":
-        return windowSize().width < 600
-          ? t("standbyListeningForHeyLooi")
-          : t("listeningForWakeWordsLocally");
-      default:
-        return t("standbyMicrophoneOff");
-    }
-  };
 
   const saveVoiceKey = () => {
     const raw = voiceKey().trim();
@@ -182,23 +161,13 @@ export function VoiceSpaceView(props: {
         </If>
       </View>
 
-      <View class="rounded-xl border border-border bg-muted px-3 py-2 gap-1.5">
-        <Text class="text-muted-foreground text-xs">{t("currentState")}</Text>
-        <Text class="text-foreground text-xs font-semibold">
-          {phaseDescription()}
-        </Text>
-      </View>
-
       <ActionButton
         label={props.store.voiceState().wakeEnabled ? t("disableHeyLooiWakeup") : t("enableHeyLooiWakeup")}
         testID="wake-toggle"
         kind="quiet"
         compact={true}
-        disabled={!props.store.voiceConfigured()}
         onPress={() => props.store.setWakeEnabled(!props.store.voiceState().wakeEnabled)}
       />
-      <Text class="text-muted-foreground text-xs">
-        {t("wakeWordsAreDetectedLocallyWhileThe")}</Text>
 
       <ActionButton
         label={active() ? t("endLiveVoice") : t("startLiveVoice")}

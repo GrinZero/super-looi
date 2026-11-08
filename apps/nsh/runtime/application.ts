@@ -158,6 +158,8 @@ export class MobileRuntime {
   private llmOAuthManualPrompt?: {
     resolve: (value: string) => void;
     reject: (error: Error) => void;
+    providerId: string;
+    authorizationUrl: string;
   };
   readonly uiSessionId = `ui_${randomUUID()}`;
 
@@ -386,6 +388,10 @@ export class MobileRuntime {
     return this.body.disconnect();
   }
 
+  async forgetSavedDock(): Promise<BodyStatusSnapshot> {
+    return this.body.forgetSavedDock();
+  }
+
   setSimulatedDock(docked: boolean): BodyStatusSnapshot {
     return this.body.setSimulatedDock(docked);
   }
@@ -399,6 +405,14 @@ export class MobileRuntime {
 
   async stopBody(): Promise<BodyStatusSnapshot> {
     return this.body.stop("user_stop");
+  }
+
+  async startBodyDrive(action: "forward" | "backward" | "turn_left" | "turn_right"): Promise<BodyStatusSnapshot> {
+    return this.body.startDrive(action);
+  }
+
+  renewBodyDrive(): boolean {
+    return this.body.renewDrive();
   }
 
   configuration(): { baseUrl: string; model: string; hasKey: boolean } {
@@ -734,7 +748,7 @@ export class MobileRuntime {
         name: "control_looi_body",
         label: "控制底座动作",
         description:
-          "Control LOOI dock head pitch (head_up/head_center/head_down), bounded wheel pulse movement (forward/backward/turn_left/turn_right), fill light (light_on/light_off), or stop. Requires isDocked=true for head/wheel motion.",
+          "Control LOOI dock head pitch (head_up/head_center/head_down), bounded wheel pulse movement (forward/backward/turn_left/turn_right), fill light (light_on/light_off), or stop. A BLE connection is required; docked status does not gate control.",
         parameters: obj({
           action: oneOf([
             "head_up",
@@ -1467,6 +1481,7 @@ export class MobileRuntime {
 
     const abort = new AbortController();
     this.llmOAuthAbort = abort;
+    let authorizationUrl = "";
 
     try {
       await this.modelsRegistry.login(
@@ -1491,6 +1506,7 @@ export class MobileRuntime {
                 expiresInSeconds: ev.expiresInSeconds,
               });
             } else if (ev.type === "auth_url" && ev.url) {
+              authorizationUrl = ev.url;
               onEvent({
                 kind: "auth_url",
                 url: ev.url,
@@ -1519,7 +1535,7 @@ export class MobileRuntime {
                 placeholder: p.placeholder ?? "",
               });
               return await new Promise<string>((resolve, reject) => {
-                this.llmOAuthManualPrompt = { resolve, reject };
+                this.llmOAuthManualPrompt = { resolve, reject, providerId, authorizationUrl };
                 const onAbort = () => {
                   if (this.llmOAuthManualPrompt) {
                     this.llmOAuthManualPrompt = undefined;
@@ -1588,6 +1604,27 @@ export class MobileRuntime {
   submitProviderOAuthCallback(callbackUrl: string): void {
     const prompt = this.llmOAuthManualPrompt;
     if (!prompt) throw new Error("@looi:runtimeNoSigninIsAwaitingACallback");
+    if (prompt.providerId === "openai") {
+      let callback: URL;
+      try {
+        callback = new URL(callbackUrl.trim());
+      } catch {
+        throw new Error("@looi:runtimePasteFullChatgptCallbackUrl");
+      }
+      const authorization = new URL(prompt.authorizationUrl);
+      if (
+        callback.origin !== "http://127.0.0.1:1455" ||
+        callback.pathname !== "/auth/callback" ||
+        callback.searchParams.has("error") ||
+        !callback.searchParams.get("code") ||
+        !callback.searchParams.get("client_id")
+      ) {
+        throw new Error("@looi:runtimePasteFullChatgptCallbackUrl");
+      }
+      if (callback.searchParams.get("state") !== authorization.searchParams.get("state")) {
+        throw new Error("@looi:runtimeChatgptCallbackDoesNotMatchSignin");
+      }
+    }
     this.llmOAuthManualPrompt = undefined;
     prompt.resolve(callbackUrl.trim());
   }

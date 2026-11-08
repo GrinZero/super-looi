@@ -8,6 +8,7 @@ export const INTERNAL_CHARACTERISTICS = Object.freeze({
   drive: "0000fed0-0000-1000-8000-00805f9b34fb",
   head: "0000fed1-0000-1000-8000-00805f9b34fb",
   light: "0000fed2-0000-1000-8000-00805f9b34fb",
+  sensorNotify: "0000fed5-0000-1000-8000-00805f9b34fb",
   dockNotify: "0000fed9-0000-1000-8000-00805f9b34fb",
   handshakeControl: "0000feda-0000-1000-8000-00805f9b34fb",
   handshakeData: "0000fef0-0000-1000-8000-00805f9b34fb",
@@ -24,6 +25,8 @@ export const MOVE_PAYLOADS = Object.freeze({
   stop: "0000",
 } as const);
 
+export const MOVE_HEARTBEAT_MS = 30;
+
 export type MovePayloadKey = keyof typeof MOVE_PAYLOADS;
 
 export const HEAD_PAYLOADS = Object.freeze({
@@ -33,6 +36,18 @@ export const HEAD_PAYLOADS = Object.freeze({
 } as const);
 
 export type HeadPayloadKey = keyof typeof HEAD_PAYLOADS;
+
+export const HEAD_MIN_DEGREES = 25;
+export const HEAD_MAX_DEGREES = 85;
+
+/** Preserve the three known device payloads while interpolating all angles between them. */
+export function headDegreesToPayload(degrees: number): string {
+  const angle = Math.max(HEAD_MIN_DEGREES, Math.min(HEAD_MAX_DEGREES, degrees));
+  const byte = angle >= 55
+    ? Math.round((HEAD_MAX_DEGREES - angle) * 0x87 / 30)
+    : 0x87 + Math.round((55 - angle) * (0xff - 0x87) / 30);
+  return byte.toString(16).padStart(2, "0");
+}
 
 export const LIGHT_PAYLOADS = Object.freeze({
   on: "01",

@@ -1,4 +1,5 @@
 {
+  "orientation": "landscape",
   "android": {
     "application": "com.superlooi.nsh.SuperLooiApplication",
     "allowBackup": false,

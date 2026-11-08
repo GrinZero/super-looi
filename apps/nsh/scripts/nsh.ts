@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { parseEnv } from "node:util";
-import { nativePluginEnvironment } from "./native-plugins.mjs";
+import { nativePluginEnvironment, patchIosApp } from "./native-plugins.mjs";
 import { buildRuntime } from "./build-runtime.js";
 import { pickBuildVariables } from "./build-env.mjs";
 import { prepareSherpaKws } from "./prepare-sherpa-kws.mjs";
@@ -57,10 +57,16 @@ if (!binary) {
   if (!valid(binary)) throw new Error("NSH CLI version verification failed");
 }
 const [command = "check", ...args] = process.argv.slice(2);
+const option = (name: string) => {
+  const index = args.indexOf(name);
+  return index < 0
+    ? args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1)
+    : args[index + 1];
+};
 // Generated business code must be fresh even for a clean checkout's direct run.
 if (command !== "--help" && command !== "--version") await buildRuntime({ release: command === "package" || command.startsWith("release-"), debugTelemetry: command === "run" });
 const buildVariables = pickBuildVariables(config);
-const target = args[args.indexOf("--target") + 1];
+const target = option("--target");
 if (command === "build" || command === "package" || target === "android" || target === "ios" || target === "ios-simulator" || command.endsWith("-android") || command.endsWith("-ios"))
   await prepareSherpaKws(target === "android" || command.endsWith("-android") ? "android" : target === "ios" || target === "ios-simulator" || command.endsWith("-ios") ? "ios" : "all");
 const nativeEnvironment = nativePluginEnvironment(buildVariables, {
@@ -68,11 +74,14 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
   iosReleaseSimulator: command === "package" && target === "ios-simulator",
   iosSimulator:
     command.endsWith("-ios") || target === "ios" || target === "ios-simulator",
+  iosDevelopment:
+    command !== "package" &&
+    (command.endsWith("-ios") || target === "ios" || target === "ios-simulator"),
 });
 const uiTarget = command.endsWith("-android") ? "android" : "ios";
 const standardUiSteps =
   [
-    'await app.waitFor("连接", {timeout:15000})',
+    'await app.waitFor("connection-settings", {timeout:15000})',
     'await app.press("compose")',
     'await app.waitFor("发送")',
     'await app.press("compose")',
@@ -82,7 +91,7 @@ const standardUiSteps =
     'if (hadSubscription) await app.waitFor("gpt-6.1-sol")',
     'if (app.texts().includes("使用 ChatGPT 订阅登录")) { await app.press("oauth-start-btn"); await app.waitFor("系统浏览器登录授权"); }',
     'await app.press("back-to-face")',
-    'await app.waitFor("连接")',
+    'await app.waitFor("connection-settings")',
     'await app.press("connection-settings")',
     'await app.waitFor("OpenAI / ChatGPT")',
     'await app.press("nav-settings")',
@@ -98,13 +107,13 @@ const standardUiSteps =
     'await app.waitFor("已吸合就绪")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings-body-light.png`))})`,
     'await app.press("back-to-face")',
-    'await app.waitFor("连接")',
+    'await app.waitFor("connection-settings")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-face-light.png`))})`,
     'await app.press("connection-settings")',
     'await app.waitFor("OpenAI / ChatGPT")',
     'if (app.texts().includes("使用 ChatGPT 订阅登录")) { await app.press("oauth-start-btn"); await app.waitFor("系统浏览器登录授权"); }',
     'await app.press("back-to-face")',
-    'await app.waitFor("连接")',
+    'await app.waitFor("connection-settings")',
     'await app.press("connection-settings")',
     'await app.waitFor("OpenAI / ChatGPT")',
     'await app.press("nav-settings")',
@@ -132,7 +141,7 @@ const standardUiSteps =
     'await app.waitFor("任务与审计记录")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-settings-tasks.png`))})`,
     'await app.press("back-to-face")',
-    'await app.waitFor("连接")',
+    'await app.waitFor("connection-settings")',
     `await app.screenshot(${JSON.stringify(resolve(repo, `docs/artifacts/nsh-node-compat/${uiTarget}-face.png`))})`,
   ].join("\n") + "\n";
 const bilingualUiSteps = [
@@ -266,4 +275,13 @@ const result = scripted
       stdio: "inherit",
     });
 if (result.error) throw result.error;
+if (
+  result.status === 0 && command === "package" && target === "ios" &&
+  !args.some((arg) => arg === "--sign" || arg.startsWith("--sign="))
+) {
+  const out = option("--out") ?? option("-o") ?? ".nsh/out";
+  const name = option("--name") ??
+    JSON.parse(readFileSync(resolve(app, "nsh.json"), "utf8")).name;
+  patchIosApp(resolve(app, out, `${name}.app`));
+}
 process.exitCode = result.status ?? 1;

@@ -97,6 +97,24 @@ pub(super) fn disconnect() {
     });
 }
 
+pub(super) fn subscribe(generation: u64, characteristic_uuid: &str) -> Result<(), String> {
+    let ok = with_java(|env, class| {
+        let uuid = env.new_string(characteristic_uuid)?;
+        env.call_static_method(
+            class,
+            "subscribe",
+            "(JLjava/lang/String;)Z",
+            &[JValue::Long(generation as jlong), JValue::Object(&uuid)],
+        )?
+        .z()
+    })?;
+    if ok {
+        Ok(())
+    } else {
+        Err("底座通知订阅失败".into())
+    }
+}
+
 pub(super) fn write(
     generation: u64,
     characteristic_uuid: &str,
@@ -123,6 +141,22 @@ pub(super) fn write(
         Ok(())
     } else {
         Err("蓝牙特征值写入失败".into())
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_superlooi_nsh_LooiBleBridge_onScanError(
+    _: JNIEnv<'_>,
+    _: JClass<'_>,
+    error_code: jint,
+) {
+    let Some(shared) = active_shared() else { return };
+    if let Ok(mut state) = shared.lock() {
+        if state.state == "scanning" {
+            state.state = "error";
+            let generation = state.generation;
+            state.on_error(generation, &format!("蓝牙扫描失败（错误码 {error_code}）"));
+        }
     }
 }
 
@@ -212,5 +246,22 @@ pub extern "system" fn Java_com_superlooi_nsh_LooiBleBridge_onWriteAck(
     };
     if let Ok(mut state) = shared.lock() {
         state.on_write_ack(generation as u64, &uuid);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_superlooi_nsh_LooiBleBridge_onNotifyAck(
+    mut env: JNIEnv<'_>,
+    _: JClass<'_>,
+    generation: jlong,
+    uuid: JString<'_>,
+) {
+    let Some(shared) = active_shared() else { return };
+    let Ok(uuid) = env.get_string(&uuid).map(String::from) else {
+        let _ = env.exception_clear();
+        return;
+    };
+    if let Ok(mut state) = shared.lock() {
+        state.on_notify_ack(generation as u64, &uuid);
     }
 }

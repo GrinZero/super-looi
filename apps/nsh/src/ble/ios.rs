@@ -56,7 +56,7 @@ define_class!(
                 let Some(mgr) = borrow.as_mut() else { return };
                 if state == 5 {
                     // CBManagerStatePoweredOn == 5
-                    if mgr.want_scan {
+                    if mgr.want_scan || mgr.pending_connect_id.is_some() {
                         unsafe {
                             let _: () = msg_send![
                                 &mgr.central,
@@ -151,6 +151,9 @@ define_class!(
                         mgr.pending_connect_id = None;
                         mgr.active_peripheral = Some(retained_peripheral.clone());
                         unsafe {
+                            if !mgr.want_scan {
+                                let _: () = msg_send![&mgr.central, stopScan];
+                            }
                             let _: () = msg_send![&retained_peripheral, setDelegate: &*mgr.delegate];
                             let _: () = msg_send![
                                 &mgr.central,
@@ -287,20 +290,14 @@ define_class!(
                         let uuid_ns: Retained<NSString> = msg_send![&uuid_obj, UUIDString];
                         let uuid_str = uuid_ns.to_string();
                         if let Some(key) = characteristic_key_from_uuid(&uuid_str) {
-                            if key == "dockNotify" || key == "handshakeData" {
-                                let _: () = msg_send![
-                                    peripheral,
-                                    setNotifyValue: Bool::YES,
-                                    forCharacteristic: &*ch
-                                ];
-                            }
                             mgr.characteristics.insert(key.to_owned(), ch);
                         }
                     }
                 }
                 if !mgr.did_report_connected
                     && mgr.characteristics.contains_key("handshakeControl")
-                    && mgr.characteristics.contains_key("handshakeData")
+                    && mgr.characteristics.contains_key("sensorNotify")
+                    && mgr.characteristics.contains_key("dockNotify")
                     && mgr.characteristics.contains_key("drive")
                 {
                     mgr.did_report_connected = true;
@@ -312,6 +309,37 @@ define_class!(
                 if let Ok(mut shared) = self.ivars().shared.lock() {
                     shared.on_connected(generation, &dev_id, &dev_name);
                 }
+            }
+        }
+
+        #[unsafe(method(peripheral:didUpdateNotificationStateForCharacteristic:error:))]
+        fn did_update_notification_state(
+            &self,
+            peripheral: &AnyObject,
+            characteristic: &AnyObject,
+            error: Option<&AnyObject>,
+        ) {
+            let Some(generation) = BLE_MANAGER.with(|slot| {
+                let borrow = slot.borrow();
+                let mgr = borrow.as_ref()?;
+                mgr.active_peripheral
+                    .as_ref()
+                    .is_some_and(|active| ptr::eq(&**active, peripheral))
+                    .then_some(mgr.generation)
+            }) else { return };
+            if error.is_some() {
+                if let Ok(mut shared) = self.ivars().shared.lock() {
+                    shared.on_error(generation, "底座通知订阅失败");
+                }
+                return;
+            }
+            let uuid_str = unsafe {
+                let uuid_obj: Retained<AnyObject> = msg_send![characteristic, UUID];
+                let uuid_ns: Retained<NSString> = msg_send![&uuid_obj, UUIDString];
+                uuid_ns.to_string()
+            };
+            if let Ok(mut shared) = self.ivars().shared.lock() {
+                shared.on_notify_ack(generation, &uuid_str);
             }
         }
 
@@ -548,7 +576,7 @@ pub(super) fn stop_scan() {
                 mgr.want_scan = false;
                 unsafe {
                     let state: isize = msg_send![&mgr.central, state];
-                    if state == 5 {
+                    if state == 5 && mgr.pending_connect_id.is_none() {
                         let _: () = msg_send![&mgr.central, stopScan];
                     }
                 }
@@ -617,6 +645,9 @@ pub(super) fn disconnect() {
                 mgr.want_scan = false;
                 mgr.did_report_connected = false;
                 mgr.characteristics.clear();
+                unsafe {
+                    let _: () = msg_send![&mgr.central, stopScan];
+                }
                 if let Some(peripheral) = mgr.active_peripheral.take() {
                     unsafe {
                         let _: () =
@@ -676,6 +707,37 @@ pub(super) fn write(
                         }
                     }
                 }
+            }
+            Ok(())
+        })
+    })?
+}
+
+pub(super) fn subscribe(generation: u64, characteristic_uuid: &str) -> Result<(), String> {
+    let Some(key) = characteristic_key_from_uuid(characteristic_uuid) else {
+        return Err("Unknown characteristic UUID".into());
+    };
+    on_main(|_mtm| {
+        BLE_MANAGER.with(|slot| {
+            let borrow = slot.borrow();
+            let Some(mgr) = borrow.as_ref() else {
+                return Err("CoreBluetooth manager not initialized".into());
+            };
+            if mgr.generation != generation {
+                return Err("Stale BLE generation".into());
+            }
+            let Some(peripheral) = mgr.active_peripheral.as_ref() else {
+                return Err("No active BLE peripheral".into());
+            };
+            let Some(ch) = mgr.characteristics.get(key) else {
+                return Err(format!("Characteristic {key} not discovered on peripheral"));
+            };
+            unsafe {
+                let _: () = msg_send![
+                    &**peripheral,
+                    setNotifyValue: Bool::YES,
+                    forCharacteristic: &**ch
+                ];
             }
             Ok(())
         })

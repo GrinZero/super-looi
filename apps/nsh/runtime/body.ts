@@ -1,4 +1,4 @@
-import type { BodyStopRequest, BodySupervisorState, SelfEventWindow } from "@super-looi/contracts";
+import type { BodyActionLease, BodyStopRequest, BodySupervisorState, SelfEventWindow } from "@super-looi/contracts";
 import {
   BodySupervisor,
   CrossPlatformBleTransport,
@@ -28,7 +28,7 @@ export interface BodyStatusSnapshot {
   connected: boolean;
   isDocked: boolean;
   lightOn: boolean;
-  headPose: HeadPayloadKey;
+  headPose: HeadPayloadKey | "custom";
   headDegrees: number;
   deviceId: string | null;
   deviceName: string;
@@ -45,6 +45,7 @@ export type BodyControlAction =
   | "head_up"
   | "head_center"
   | "head_down"
+  | "head_set"
   | "forward"
   | "backward"
   | "turn_left"
@@ -56,6 +57,7 @@ export type BodyControlAction =
 export interface BodyControlInput {
   action: BodyControlAction;
   durationMs?: number;
+  headDegrees?: number;
 }
 
 export interface BodyActionReceipt {
@@ -79,6 +81,7 @@ export interface NativeBlePort {
   scannedDevices(): Array<{ id: string; name: string; rssi: number }>;
   connect(deviceId: string): void;
   disconnect(): void;
+  subscribe(characteristic: string): void;
   write(characteristic: string, hexPayload: string, withResponse: boolean): void;
   drainEvents(): Array<{ kind: string; characteristic: string; payload: string }>;
   status(): {
@@ -99,6 +102,21 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
   private readonly lastNotification = new Map<CharacteristicKey, string>();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private connectedFlag = false;
+  private scanGeneration = 0;
+  private activeScanGeneration: number | null = null;
+  private connectionGeneration = 0;
+  private pendingWrite: {
+    characteristic: CharacteristicKey;
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  private pendingSubscription: {
+    characteristic: CharacteristicKey;
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
 
   constructor(private readonly port: NativeBlePort) {}
 
@@ -123,26 +141,54 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     }
   }
 
-  public async scanCandidates(_serviceUuid: string, timeoutMs = 1200): Promise<LooiDeviceCandidate[]> {
+  public async scanCandidates(
+    _serviceUuid: string,
+    timeoutMs = 8000,
+    concurrentConnection = false,
+  ): Promise<LooiDeviceCandidate[]> {
+    const generation = ++this.scanGeneration;
     await this.ensurePermission();
+    if (generation !== this.scanGeneration) return [];
     this.port.startScan();
+    this.activeScanGeneration = generation;
     try {
-      await new Promise((resolve) => setTimeout(resolve, Math.max(100, timeoutMs)));
+      const deadline = Date.now() + Math.max(100, timeoutMs);
+      while (Date.now() < deadline && generation === this.scanGeneration) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(100, deadline - Date.now())));
+      }
+      if (generation !== this.scanGeneration) return [];
+      const nativeStatus = this.port.status();
+      if (!concurrentConnection && nativeStatus.state === "error") {
+        throw new Error(nativeStatus.error || "蓝牙扫描失败");
+      }
       return this.port.scannedDevices().map((d) => ({
         id: d.id,
         name: d.name || "LOOI 桌面底座",
         rssi: typeof d.rssi === "number" ? d.rssi : null,
       }));
     } finally {
+      if (this.activeScanGeneration === generation) {
+        this.activeScanGeneration = null;
+        this.port.stopScan();
+      }
+    }
+  }
+
+  public cancelScan(): void {
+    ++this.scanGeneration;
+    if (this.activeScanGeneration !== null) {
+      this.activeScanGeneration = null;
       this.port.stopScan();
     }
   }
 
   public async scanAndConnect(serviceUuid: string, target?: LooiConnectTarget): Promise<void> {
+    const generation = ++this.connectionGeneration;
     await this.ensurePermission();
+    if (generation !== this.connectionGeneration) throw new Error("BLE connection cancelled");
     let deviceId = target?.deviceId?.trim() ?? "";
     if (!deviceId) {
-      const found = await this.scanCandidates(serviceUuid, 1200);
+      const found = await this.scanCandidates(serviceUuid, 8000);
       found.sort((a, b) => (b.rssi ?? -100) - (a.rssi ?? -100));
       deviceId = found[0]?.id ?? "";
     }
@@ -150,11 +196,13 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
       throw new Error("附近未发现可用的 LOOI 底座");
     }
 
+    if (generation !== this.connectionGeneration) throw new Error("BLE connection cancelled");
     this.port.connect(deviceId);
     this.startPolling();
 
-    const deadline = Date.now() + 4500;
+    const deadline = Date.now() + 12000;
     while (Date.now() < deadline) {
+      if (generation !== this.connectionGeneration) throw new Error("BLE connection cancelled");
       this.pumpEvents();
       const st = this.port.status();
       if (this.connectedFlag || st.state === "connected") {
@@ -174,6 +222,9 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
   }
 
   public async disconnect(): Promise<void> {
+    ++this.connectionGeneration;
+    this.finishPendingWrite(new Error("BLE transport disconnected"));
+    this.finishPendingSubscription(new Error("BLE transport disconnected"));
     this.connectedFlag = false;
     this.lastNotification.clear();
     this.stopPolling();
@@ -185,8 +236,20 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     charKey: CharacteristicKey,
     hexPayload: string,
   ): Promise<void> {
-    this.port.write(charKey, hexPayload, true);
     this.pumpEvents();
+    if (this.pendingWrite) throw new Error("底座写入仍在进行");
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.finishPendingWrite(new Error(`底座写入超时：${charKey}`));
+      }, 3000);
+      this.pendingWrite = { characteristic: charKey, resolve, reject, timer };
+      try {
+        this.port.write(charKey, hexPayload, true);
+        this.pumpEvents();
+      } catch (error) {
+        this.finishPendingWrite(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   public async writeCharacteristicWithoutResponse(
@@ -201,16 +264,32 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     charKey: CharacteristicKey,
     onData: (hexPayload: string) => void,
   ): Promise<() => void> {
+    if (this.pendingSubscription) throw new Error("底座通知订阅仍在进行");
     let set = this.notificationListeners.get(charKey);
     if (!set) {
       set = new Set();
       this.notificationListeners.set(charKey, set);
     }
     set.add(onData);
-    this.startPolling();
-    const cached = this.lastNotification.get(charKey);
-    if (cached !== undefined) {
-      onData(cached);
+    try {
+      const cached = this.lastNotification.get(charKey);
+      if (cached !== undefined) onData(cached);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.finishPendingSubscription(new Error(`底座通知订阅超时：${charKey}`));
+        }, 3000);
+        this.pendingSubscription = { characteristic: charKey, resolve, reject, timer };
+        try {
+          this.port.subscribe(charKey);
+          this.pumpEvents();
+        } catch (error) {
+          this.finishPendingSubscription(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+      this.startPolling();
+    } catch (error) {
+      set.delete(onData);
+      throw error;
     }
     return () => {
       set?.delete(onData);
@@ -225,6 +304,8 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
   }
 
   public dispose(): void {
+    this.finishPendingWrite(new Error("BLE transport disposed"));
+    this.finishPendingSubscription(new Error("BLE transport disposed"));
     this.stopPolling();
     this.lastNotification.clear();
     this.notificationListeners.clear();
@@ -237,6 +318,8 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
       if (ev.kind === "connected") {
         this.connectedFlag = true;
       } else if (ev.kind === "disconnected") {
+        this.finishPendingWrite(new Error(ev.payload || "BLE transport disconnected"));
+        this.finishPendingSubscription(new Error(ev.payload || "BLE transport disconnected"));
         const wasConnected = this.connectedFlag;
         this.connectedFlag = false;
         this.lastNotification.clear();
@@ -255,8 +338,34 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
             cb(ev.payload);
           }
         }
+      } else if (ev.kind === "write_ack" && ev.characteristic === this.pendingWrite?.characteristic) {
+        this.finishPendingWrite();
+      } else if (ev.kind === "notify_ack" && ev.characteristic === this.pendingSubscription?.characteristic) {
+        this.finishPendingSubscription();
+      } else if (ev.kind === "error") {
+        const error = new Error(ev.payload || "BLE operation failed");
+        this.finishPendingWrite(error);
+        this.finishPendingSubscription(error);
       }
     }
+  }
+
+  private finishPendingWrite(error?: Error): void {
+    const pending = this.pendingWrite;
+    if (!pending) return;
+    this.pendingWrite = null;
+    clearTimeout(pending.timer);
+    if (error) pending.reject(error);
+    else pending.resolve();
+  }
+
+  private finishPendingSubscription(error?: Error): void {
+    const pending = this.pendingSubscription;
+    if (!pending) return;
+    this.pendingSubscription = null;
+    clearTimeout(pending.timer);
+    if (error) pending.reject(error);
+    else pending.resolve();
   }
 
   private startPolling(): void {
@@ -295,9 +404,14 @@ export class BodyRuntime {
   private scanning = false;
   private scanCompleted = false;
   private connecting = false;
+  private scanRequest = 0;
+  private connectionRequest = 0;
+  private activeConnect: Promise<void> | null = null;
+  private activeDisconnect: Promise<void> | null = null;
   private connectedDeviceId: string | null = null;
   private connectedDeviceName = "LOOI 桌面底座";
   private lastError: string | null = null;
+  private heldDrive: BodyActionLease | null = null;
   private readonly selfEventListeners = new Set<(window: SelfEventWindow) => void>();
 
   constructor(options: { vault: Vault; nativePort?: NativeBlePort | null }) {
@@ -496,28 +610,35 @@ export class BodyRuntime {
     return this.status();
   }
 
-  public async scan(timeoutMs = 1200): Promise<BodyStatusSnapshot> {
+  public async scan(timeoutMs = 8000): Promise<BodyStatusSnapshot> {
     if (this.config.mode === "disabled") {
       return this.status();
     }
+    const request = ++this.scanRequest;
     this.lastError = null;
     this.scanning = true;
     this.scanCompleted = false;
-    this.candidates = [];
     try {
       if (this.config.mode === "simulation") {
-        this.candidates = [...DEFAULT_SIM_CANDIDATES];
-        this.scanCompleted = true;
+        if (request === this.scanRequest) {
+          this.candidates = [...DEFAULT_SIM_CANDIDATES];
+          this.scanCompleted = true;
+        }
       } else if (!this.nativeAdapter) {
-        this.lastError = "当前环境不支持蓝牙扫描，可切换至模拟体验";
+        if (request === this.scanRequest) this.lastError = "当前环境不支持蓝牙扫描，可切换至模拟体验";
       } else {
-        this.candidates = await this.nativeAdapter.scanCandidates("", timeoutMs);
-        this.scanCompleted = true;
+        const candidates = await this.nativeAdapter.scanCandidates("", timeoutMs, this.connecting);
+        if (request === this.scanRequest) {
+          this.candidates = candidates;
+          this.scanCompleted = true;
+        }
       }
     } catch (error) {
-      this.lastError = error instanceof Error ? error.message : String(error);
+      if (request === this.scanRequest) {
+        this.lastError = error instanceof Error ? error.message : String(error);
+      }
     } finally {
-      this.scanning = false;
+      if (request === this.scanRequest) this.scanning = false;
     }
     return this.status();
   }
@@ -545,55 +666,98 @@ export class BodyRuntime {
       this.config.savedDeviceName ||
       "LOOI 桌面底座";
 
-    if (this.config.mode === "real_ble" && !this.nativeAdapter) {
-      this.lastError = "当前设备蓝牙不可用，可切换至模拟体验";
-      return this.status();
-    }
-
+    const request = ++this.connectionRequest;
+    const previous = this.activeConnect;
+    const pendingDisconnect = this.activeDisconnect;
     this.connecting = true;
-    try {
-      const snap = this.supervisor.getSnapshot();
-      if (snap.state !== "disconnected" && snap.state !== "fault") {
-        await this.supervisor.disconnect();
+    ++this.scanRequest;
+    this.scanning = false;
+    this.nativeAdapter?.cancelScan();
+    const task = (async () => {
+      try {
+        await pendingDisconnect;
+        if (previous) {
+          await this.supervisor.disconnect();
+          await previous;
+        }
+        if (request !== this.connectionRequest) return;
+        if (this.config.mode === "real_ble" && !this.nativeAdapter) {
+          this.lastError = "当前设备蓝牙不可用，可切换至模拟体验";
+          return;
+        }
+        const snap = this.supervisor.getSnapshot();
+        if (snap.state !== "disconnected" && snap.state !== "fault") {
+          await this.supervisor.disconnect();
+        }
+        if (request !== this.connectionRequest) return;
+        await this.supervisor.connect(new Date(), 2, {
+          deviceId: resolvedId || undefined,
+          deviceName: resolvedName,
+        });
+        if (request !== this.connectionRequest) return;
+        if (this.config.mode === "real_ble") {
+          const nativeStatus = this.nativePort?.status();
+          this.connectedDeviceId =
+            nativeStatus?.deviceId || resolvedId || "looi-dock";
+          this.connectedDeviceName =
+            nativeStatus?.deviceName || resolvedName || "LOOI 桌面底座";
+          this.config.savedDeviceId = this.connectedDeviceId;
+          this.config.savedDeviceName = this.connectedDeviceName;
+          this.saveVault();
+        } else {
+          this.connectedDeviceId = resolvedId || DEFAULT_SIM_CANDIDATES[0].id;
+          this.connectedDeviceName =
+            resolvedName || DEFAULT_SIM_CANDIDATES[0].name;
+        }
+        if (this.config.mode === "simulation" && !this.supervisor.getIsDocked()) {
+          this.simTransport?.simulateDock(true);
+        }
+      } catch (error) {
+        if (request === this.connectionRequest) {
+          this.lastError = error instanceof Error ? error.message : String(error);
+        }
+      } finally {
+        if (request === this.connectionRequest) this.connecting = false;
       }
-      await this.supervisor.connect(new Date(), 2, {
-        deviceId: resolvedId || undefined,
-        deviceName: resolvedName,
-      });
-      if (this.config.mode === "real_ble") {
-        const nativeStatus = this.nativePort?.status();
-        this.connectedDeviceId =
-          nativeStatus?.deviceId || resolvedId || "looi-dock";
-        this.connectedDeviceName =
-          nativeStatus?.deviceName || resolvedName || "LOOI 桌面底座";
-        this.config.savedDeviceId = this.connectedDeviceId;
-        this.config.savedDeviceName = this.connectedDeviceName;
-        this.saveVault();
-      } else {
-        this.connectedDeviceId = resolvedId || DEFAULT_SIM_CANDIDATES[0].id;
-        this.connectedDeviceName =
-          resolvedName || DEFAULT_SIM_CANDIDATES[0].name;
-      }
-      if (this.config.mode === "simulation" && !this.supervisor.getIsDocked()) {
-        this.simTransport?.simulateDock(true);
-      }
-    } catch (error) {
-      this.lastError = error instanceof Error ? error.message : String(error);
-    } finally {
-      this.connecting = false;
-    }
+    })();
+    this.activeConnect = task;
+    await task;
+    if (this.activeConnect === task) this.activeConnect = null;
     return this.status();
   }
 
   public async disconnect(): Promise<BodyStatusSnapshot> {
+    this.heldDrive = null;
+    const request = ++this.connectionRequest;
     this.lastError = null;
-    try {
-      await this.supervisor.disconnect();
-    } catch {
-      // Ignore disconnect errors during teardown
-    }
-    this.connectedDeviceId = null;
+    const previous = this.activeConnect;
+    const pendingDisconnect = this.activeDisconnect;
+    const task = (async () => {
+      try {
+        await pendingDisconnect;
+        await this.supervisor.disconnect();
+        await previous;
+      } catch {
+        // Ignore disconnect errors during teardown
+      }
+      if (request === this.connectionRequest) {
+        this.connectedDeviceId = null;
+        this.connecting = false;
+      }
+    })();
+    this.activeDisconnect = task;
+    await task;
+    if (this.activeDisconnect === task) this.activeDisconnect = null;
     return this.status();
+  }
+
+  public async forgetSavedDock(): Promise<BodyStatusSnapshot> {
+    const disconnecting = this.disconnect();
+    this.config.savedDeviceId = "";
+    this.config.savedDeviceName = "LOOI 桌面底座";
+    this.connectedDeviceName = "LOOI 桌面底座";
+    this.saveVault();
+    return disconnecting;
   }
 
   public setSimulatedDock(docked: boolean): BodyStatusSnapshot {
@@ -604,8 +768,32 @@ export class BodyRuntime {
   }
 
   public async stop(reason: BodyStopRequest["reason"] = "user_stop"): Promise<BodyStatusSnapshot> {
+    this.heldDrive = null;
     await this.supervisor.stop(reason);
     return this.status();
+  }
+
+  public async startDrive(action: "forward" | "backward" | "turn_left" | "turn_right"): Promise<BodyStatusSnapshot> {
+    const lease = await this.supervisor.acquireLease({ holder: "user_panel", primitive: action, durationMs: 1500 });
+    this.heldDrive = lease;
+    try {
+      await this.supervisor.executePrimitive(lease);
+      return this.status();
+    } catch (error) {
+      this.heldDrive = null;
+      throw error;
+    }
+  }
+
+  public renewDrive(): boolean {
+    if (!this.heldDrive) return false;
+    try {
+      this.supervisor.renewLease(this.heldDrive, 1500);
+      return true;
+    } catch {
+      this.heldDrive = null;
+      return false;
+    }
   }
 
   public async control(
@@ -679,25 +867,25 @@ export class BodyRuntime {
         };
       }
 
-      if (!this.supervisor.getIsDocked()) {
+      if (action === "head_up" || action === "head_center" || action === "head_down") {
+        const pose: HeadPayloadKey =
+          action === "head_up" ? "up" : action === "head_down" ? "down" : "center";
+        await this.supervisor.setHead(pose);
         return {
           action,
-          status: "rejected",
+          status: "verified",
           simulation,
-          isDocked: false,
+          isDocked: this.supervisor.getIsDocked(),
           headDegrees: this.supervisor.getHeadDegrees(),
           lightOn: this.supervisor.getLightOn(),
           durationMs: null,
           stopCommandAt: null,
           recordedAt,
-          reason: "请先将手机放上底座",
         };
       }
 
-      if (action === "head_up" || action === "head_center" || action === "head_down") {
-        const pose: HeadPayloadKey =
-          action === "head_up" ? "up" : action === "head_down" ? "down" : "center";
-        await this.supervisor.setHead(pose);
+      if (action === "head_set") {
+        await this.supervisor.setHeadDegrees(input.headDegrees!);
         return {
           action,
           status: "verified",
@@ -736,7 +924,7 @@ export class BodyRuntime {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.lastError = message;
+      if (message !== "Pulse preempted by stop: user_stop") this.lastError = message;
       return {
         action,
         status: "failed",

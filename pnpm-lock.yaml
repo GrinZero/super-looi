@@ -38,6 +38,9 @@ importers:
       '@super-looi/home-assistant':
         specifier: workspace:*
         version: link:../../packages/home-assistant
+      '@super-looi/looi-driver':
+        specifier: workspace:*
+        version: link:../../packages/looi-driver
       '@super-looi/runtime':
         specifier: workspace:*
         version: link:../../packages/looi-runtime

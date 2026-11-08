@@ -60,3 +60,44 @@ fn real_app_task_and_home_panels() -> Result<(), String> {
     app.wait_for_within("Standing by", Duration::from_secs(5))?;
     Ok(())
 }
+
+#[test]
+fn wake_guide_stays_hidden_after_first_press_and_relaunch() -> Result<(), String> {
+    let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let storage = MemoryStorage::new([]);
+    let start = || -> Result<Headless, String> {
+        let sets = vec![nsh_base::registry(), nsh_app_nsh::registry()];
+        let bundle = compile_tsx(Path::new(env!("CARGO_MANIFEST_DIR")).join("App.tsx"), &sets)?;
+        let mut config =
+            EngineConfig::new(bundle.with_app_id(Some("com.superlooi.wake-guide-test")));
+        config.ui_sets = sets;
+        config.data_dir = Some(temp.path().to_owned());
+        config.storage = Some(storage.clone());
+        Headless::start(config).map_err(|e| e.to_string())
+    };
+
+    let mut app = start()?;
+    app.wait_for("wake-guide")?;
+    app.wait_until("voice ready", Duration::from_secs(10), |screen| {
+        screen.enabled("voice-toggle") == Ok(true)
+    })?;
+    app.press("wake-guide")?;
+    app.wait_for("back-to-face")?;
+    app.press("back-to-face")?;
+    app.wait_for_gone("wake-guide", Duration::from_secs(5))?;
+    assert_eq!(
+        storage
+            .entries()
+            .get("wake-guide-dismissed")
+            .map(String::as_str),
+        Some("true")
+    );
+    drop(app);
+
+    let mut relaunched = start()?;
+    relaunched.wait_until("voice ready", Duration::from_secs(10), |screen| {
+        screen.enabled("voice-toggle") == Ok(true)
+    })?;
+    relaunched.wait_for_gone("wake-guide", Duration::from_secs(5))?;
+    Ok(())
+}

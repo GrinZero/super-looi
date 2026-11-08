@@ -3,9 +3,9 @@ import { test } from "node:test";
 import { Buffer } from "node:buffer";
 import { createDoubaoDuplexV3Protocol, createOpenAiRealtimeProtocol } from "../src/voice/realtime-protocol.js";
 
-const tool = { type: "function" as const, name: "end_conversation", description: "end", parameters: { type: "object" } };
+const tool = { type: "function" as const, name: "run_agent_task", description: "task", parameters: { type: "object" } };
 
-test("Doubao preserves its native wire format and maps farewell status", () => {
+test("Doubao preserves its native wire format without model-controlled conversation exit", () => {
   const protocol = createDoubaoDuplexV3Protocol({ instructions: "hello" });
   assert.equal(protocol.connectTarget("key").headers["X-Api-Key"], "key");
   const handshake = protocol.createHandshakeMessages([tool])[0] as any;
@@ -13,11 +13,18 @@ test("Doubao preserves its native wire format and maps farewell status", () => {
   assert.equal(handshake.session.audio.input.format.rate, 16000);
   assert.equal(handshake.session.audio.output.voice, "zh_female_vv_jupiter_bigtts");
   assert.equal((protocol.createHandshakeMessages([tool], { voiceId: "S_LooiWarm" })[0] as any).session.audio.output.voice, "S_LooiWarm");
-  assert.equal(handshake.extension.dialog.extra.enable_user_query_exit, true);
+  assert.equal(handshake.extension.dialog, undefined);
   assert.equal((protocol.encodeToolReply("call", { ok: true })[0] as any).items[0].content[0].text, '{"ok":true}');
+  assert.deepEqual(
+    protocol.encodeProactiveSpeech({ spokenText: "书房台灯已打开。", instructions: "hello\n[回执] 台灯已开" }),
+    [
+      { type: "session.update", session: { instructions: "hello\n[回执] 台灯已开" } },
+      { type: "speech_text_buffer.commit", text: "书房台灯已打开。" },
+    ],
+  );
   assert.deepEqual(protocol.encodeMute(true), { type: "input_audio_mute.commit" });
   assert.equal(protocol.parseServerEvent({ type: "response.output_audio.done", status_code: "20000002" }).kind, "audio_done");
-  assert.equal((protocol.parseServerEvent({ type: "response.output_audio.done", status_code: "20000002" }) as any).userQueryExit, true);
+  assert.equal((protocol.parseServerEvent({ type: "response.output_audio.done", status_code: "20000002" }) as any).userQueryExit, undefined);
   assert.deepEqual(protocol.parseServerEvent({ type: "conversation.item.input_audio_transcription.delta", delta: "开灯" }),
     { kind: "user_transcription_update", text: "开灯", itemId: undefined });
   assert.equal(protocol.parseServerEvent({ type: "conversation.item.input_audio_transcription.started" }).kind, "user_transcription_started");
@@ -44,6 +51,11 @@ test("OpenAI GA handshake, resampling, normalized events and interruption", () =
     { type: "conversation.item.create", item: { type: "function_call_output", call_id: "call", output: '{"ok":true}' } },
     { type: "response.create" },
   ]);
+  const proactive = protocol.encodeProactiveSpeech({ spokenText: "Task complete.", instructions: "updated" });
+  assert.equal(proactive.length, 3);
+  assert.deepEqual(proactive[0], { type: "session.update", session: { type: "realtime", instructions: "updated" } });
+  assert.equal((proactive[1] as any).type, "conversation.item.create");
+  assert.deepEqual(proactive[2], { type: "response.create" });
   assert.deepEqual(protocol.parseServerEvent({ type: "response.output_audio.delta", response_id: "r", item_id: "i", content_index: 0, delta: "AAAA" }),
     { kind: "audio_delta", responseId: "r", itemId: "i", contentIndex: 0, pcmBase64: "AAAA" });
   assert.deepEqual(protocol.parseServerEvent({ type: "response.output_audio_transcript.done", response_id: "r", transcript: "你好" }),

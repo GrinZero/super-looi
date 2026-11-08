@@ -83,8 +83,7 @@ export function ManagementShell(props: {
           <If
             when={
               space === "body" &&
-              props.store.bodyStatus().connected &&
-              props.store.bodyStatus().isDocked
+              props.store.bodyStatus().connected
             }
           >
             <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-verified" />
@@ -270,7 +269,7 @@ export function ManagementShell(props: {
           </Scroll>
           <Button
             testID="body-scan-btn"
-            disabled={props.store.bodyStatus().scanning || props.store.bodyStatus().connecting}
+            disabled={props.store.bodyStatus().scanning}
             onPress={() => void props.store.scanBodyDevices()}
             class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-40"
           >

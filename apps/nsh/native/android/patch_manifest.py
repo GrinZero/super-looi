@@ -9,6 +9,7 @@ NO_INDEX = 0xFFFFFFFF
 ANDROID = "http://schemas.android.com/apk/res/android"
 NAME_ID = 0x01010003
 BACKUP_ID = 0x01010280
+SCREEN_ORIENTATION_ID = 0x0101001E
 
 
 def u16(data, offset):
@@ -70,7 +71,7 @@ def extend_pool(pool, strings, values):
     return bytes(result)
 
 
-def patch(data, application, allow_backup=False, permissions=()):
+def patch(data, application, allow_backup=False, orientation="landscape", permissions=()):
     if len(data) < 8 or u16(data, 0) != 3 or u16(data, 2) != 8 or u32(data, 4) != len(data):
         raise ValueError("Invalid Android binary manifest")
     chunks = []
@@ -84,14 +85,25 @@ def patch(data, application, allow_backup=False, permissions=()):
     pool_index = next(i for i, chunk in enumerate(chunks) if u16(chunk, 0) == 1)
     strings = parse_strings(chunks[pool_index])
     permissions = tuple(dict.fromkeys(permissions))
-    if any(value not in ("android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS") for value in permissions):
+    supported_permissions = (
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+    )
+    if any(value not in supported_permissions for value in permissions):
         raise ValueError("Unsupported app plugin permission")
-    chunks[pool_index] = extend_pool(chunks[pool_index], strings, [ANDROID, "name", "allowBackup", "usesCleartextTraffic", application] + (["uses-permission", *permissions] if permissions else []))
-    indices = {value: strings.index(value) for value in [ANDROID, "name", "allowBackup", "usesCleartextTraffic", application]}
+    if orientation != "landscape":
+        raise ValueError("Unsupported app orientation")
+    chunks[pool_index] = extend_pool(chunks[pool_index], strings, [ANDROID, "name", "allowBackup", "usesCleartextTraffic", "screenOrientation", application] + (["uses-permission", *permissions] if permissions else []))
+    indices = {value: strings.index(value) for value in [ANDROID, "name", "allowBackup", "usesCleartextTraffic", "screenOrientation", application]}
     resource_index = next(i for i, chunk in enumerate(chunks) if u16(chunk, 0) == 0x180)
     resources = list(struct.unpack("<" + "I" * ((len(chunks[resource_index]) - 8) // 4), chunks[resource_index][8:]))
-    resources.extend([0] * (max(indices["name"], indices["allowBackup"], indices["usesCleartextTraffic"]) + 1 - len(resources)))
-    for name, resource in [("name", NAME_ID), ("allowBackup", BACKUP_ID), ("usesCleartextTraffic", 0x010104ec)]:
+    resources.extend([0] * (max(indices["name"], indices["allowBackup"], indices["usesCleartextTraffic"], indices["screenOrientation"]) + 1 - len(resources)))
+    for name, resource in [("name", NAME_ID), ("allowBackup", BACKUP_ID), ("usesCleartextTraffic", 0x010104ec), ("screenOrientation", SCREEN_ORIENTATION_ID)]:
         index = indices[name]
         if resources[index] not in (0, resource):
             raise ValueError("Conflicting manifest resource ID")
@@ -131,6 +143,19 @@ def patch(data, application, allow_backup=False, permissions=()):
         chunks[index] = bytes(updated)
     if not found:
         raise ValueError("Manifest has no application")
+    for index, chunk in enumerate(chunks):
+        if u16(chunk, 0) != 0x102 or strings[u32(chunk, 20)] != "activity":
+            continue
+        start, count = 16 + u16(chunk, 24), u16(chunk, 28)
+        attrs = [chunk[start + i * 20:start + (i + 1) * 20] for i in range(count)]
+        attrs = [attr for attr in attrs if not (u32(attr, 0) == indices[ANDROID] and u32(attr, 4) == indices["screenOrientation"])]
+        attrs.append(struct.pack("<IIIHBBI", indices[ANDROID], indices["screenOrientation"], NO_INDEX, 8, 0, 0x10, 0))
+        attrs.sort(key=lambda attr: resources[u32(attr, 4)] if u32(attr, 4) < len(resources) and resources[u32(attr, 4)] else NO_INDEX)
+        updated = bytearray(chunk[:start])
+        struct.pack_into("<H", updated, 28, len(attrs))
+        updated.extend(b"".join(attrs) + chunk[start + count * 20:])
+        struct.pack_into("<I", updated, 4, len(updated))
+        chunks[index] = bytes(updated)
     existing_permissions = set()
     for chunk in chunks:
         if u16(chunk, 0) != 0x102 or strings[u32(chunk, 20)] != "uses-permission":

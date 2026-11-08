@@ -30,10 +30,6 @@ function run(command, args, options = {}) {
     );
   return result.stdout;
 }
-function owned(path) {
-  return resolve(path).startsWith(join(app, ".nsh") + "/");
-}
-
 /** App-local SDK overlay registers a pre-sign plugin without editing NSH,
  * the installed SDK, or Expo prebuild outputs. */
 export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
@@ -41,6 +37,16 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
   if (env.JAVA_HOME)
     env.PATH = join(env.JAVA_HOME, "bin") + delimiter + env.PATH;
   if (targets.iosSimulator) {
+    env.PATH = bin + delimiter + env.PATH;
+    if (targets.iosDevelopment) {
+      // NSH rewrites the development host plist on every run, but signs it
+      // only when its binary changed. Force signing so the plist is patched.
+      for (const path of [
+        ".nsh/ios/NshDev.app/_CodeSignature",
+        ".nsh/test/ios/ios/NshDev.app/_CodeSignature",
+      ])
+        rmSync(join(app, path), { recursive: true, force: true });
+    }
     const applicationIdentifier = targets.iosReleaseSimulator
       ? config.iosSimulator.releaseApplicationIdentifier
       : config.iosSimulator.applicationIdentifier;
@@ -129,6 +135,32 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
   };
 }
 
+export function patchIosApp(target) {
+  if (config.orientation !== "landscape")
+    throw new Error("Unsupported app orientation");
+  const plist = join(target, "Info.plist");
+  const orientations = [
+    "UIInterfaceOrientationLandscapeLeft",
+    "UIInterfaceOrientationLandscapeRight",
+  ];
+  for (const key of [
+    "UISupportedInterfaceOrientations",
+    "UISupportedInterfaceOrientations~ipad",
+  ])
+    run("plutil", [
+      "-replace", key, "-json", JSON.stringify(orientations), plist,
+    ]);
+  run("plutil", ["-replace", "UIRequiresFullScreen", "-bool", "YES", plist]);
+}
+
+export function signIos(args) {
+  const target = args.at(-1);
+  if (target?.endsWith(".app") && existsSync(join(target, "Info.plist")))
+    patchIosApp(target);
+  const result = spawnSync("/usr/bin/codesign", args, { stdio: "inherit" });
+  process.exitCode = result.status ?? 1;
+}
+
 export function signAndroid(args) {
   const sdk = process.env.NSH_REAL_ANDROID_SDK;
   if (!sdk) throw new Error("Native plugin requires the original Android SDK");
@@ -137,7 +169,7 @@ export function signAndroid(args) {
     .at(-1);
   const tools = join(sdk, "build-tools", version),
     target = args.at(-1);
-  if (args[0] === "sign" && target && owned(target))
+  if (args[0] === "sign" && target?.endsWith(".apk") && existsSync(target))
     applyAndroidPlugin(resolve(target), sdk, tools);
   const result = spawnSync(join(tools, "apksigner"), args, {
     stdio: "inherit",
@@ -201,6 +233,7 @@ function applyAndroidPlugin(apk, sdk, tools) {
       merged,
       config.android.application,
       String(config.android.allowBackup),
+      config.orientation,
       ...(config.android.permissions ?? []),
     ]);
     run(join(tools, "zipalign"), ["-P", "16", "-f", "4", merged, apk]);

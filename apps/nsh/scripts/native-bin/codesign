@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+import { signIos } from "../native-plugins.mjs";
+signIos(process.argv.slice(2));

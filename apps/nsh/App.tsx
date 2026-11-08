@@ -1,10 +1,11 @@
 import { t } from "./i18n";
-import { effect, mount, signal, Text, View } from "nsh";
+import { Canvas, effect, host, mount, signal, Text, View, token } from "nsh";
 import { Button, Input } from "nsh/base";
 import { createAppStore } from "./store";
 import {
   ActionButton,
   LightToast,
+  LiveVoiceButton,
   Panel,
   ResponsePreview,
   TextField,
@@ -13,8 +14,71 @@ import {
 import { RobotFace } from "./ui/RobotFace";
 import { ManagementShell } from "./ui/ManagementShell";
 
+function HomeHeaderIcon(props: { kind: "chat" | "settings"; active?: boolean }) {
+  return (
+    <Canvas
+      class="w-6 h-6"
+      draw={(cx, size) => {
+        cx.clearRect(0, 0, size.width, size.height);
+        cx.save();
+        cx.scale(size.width / 24, size.height / 24);
+        cx.strokeStyle = token(props.active ? "stage-pill-fg" : "stage-muted");
+        cx.lineWidth = 1.8;
+        cx.lineCap = "round";
+        cx.lineJoin = "round";
+
+        if (props.kind === "chat") {
+          cx.beginPath();
+          cx.moveTo(7, 4.5);
+          cx.lineTo(17, 4.5);
+          cx.quadraticCurveTo(20.5, 4.5, 20.5, 8);
+          cx.lineTo(20.5, 14.5);
+          cx.quadraticCurveTo(20.5, 18, 17, 18);
+          cx.lineTo(10, 18);
+          cx.lineTo(5, 21);
+          cx.lineTo(5, 17.5);
+          cx.quadraticCurveTo(3.5, 16.5, 3.5, 14.5);
+          cx.lineTo(3.5, 8);
+          cx.quadraticCurveTo(3.5, 4.5, 7, 4.5);
+          cx.closePath();
+          cx.stroke();
+          cx.beginPath();
+          cx.moveTo(8, 10);
+          cx.lineTo(16, 10);
+          cx.moveTo(8, 13.5);
+          cx.lineTo(13.5, 13.5);
+          cx.stroke();
+        } else {
+          cx.beginPath();
+          for (let tooth = 0; tooth < 8; tooth++) {
+            for (let edge = 0; edge < 4; edge++) {
+              const angle = ((tooth * 4 + edge) * Math.PI) / 16 - Math.PI / 2;
+              const radius = edge === 1 || edge === 2 ? 10 : 7.7;
+              const x = 12 + Math.cos(angle) * radius;
+              const y = 12 + Math.sin(angle) * radius;
+              if (tooth === 0 && edge === 0) cx.moveTo(x, y);
+              else cx.lineTo(x, y);
+            }
+          }
+          cx.closePath();
+          cx.stroke();
+          cx.beginPath();
+          cx.arc(12, 12, 3, 0, Math.PI * 2);
+          cx.stroke();
+        }
+        cx.restore();
+      }}
+    />
+  );
+}
+
 function App() {
   const store = createAppStore();
+  const missingCutout = signal({ left: 0, right: 0 });
+  host.on<{ left: number; right: number }>("super-looi/display-cutout", (insets) => {
+    if (missingCutout().left !== insets.left || missingCutout().right !== insets.right)
+      missingCutout.set(insets);
+  });
   const compose = signal(false),
     draft = signal("");
   const questionAnswers = signal<Record<string, string>>({});
@@ -22,14 +86,6 @@ function App() {
 
   const voiceActive = () =>
     ["connecting", "listening", "speaking"].includes(store.voiceState().phase);
-
-  const voicePillLabel = () => {
-    const phase = store.voiceState().phase;
-    if (phase === "speaking") return t("interrupt");
-    if (phase === "connecting") return t("connecting");
-    if (phase === "listening") return t("live");
-    return t("startLive");
-  };
 
   const responseText = () =>
     ["listening", "speaking"].includes(store.voiceState().phase) &&
@@ -112,6 +168,7 @@ function App() {
           ? "flex-1 bg-stage-bg"
           : "flex-1 bg-background"
       }
+      style={{ paddingLeft: missingCutout().left, paddingRight: missingCutout().right }}
     >
       <If
         when={store.activeSpace() === "face"}
@@ -151,71 +208,38 @@ function App() {
                 </View>
 
                 <View class="flex-row items-center gap-2">
-                  <Button
-                    testID="voice-toggle"
+                  <LiveVoiceButton
+                    phase={store.voiceState().phase}
+                    muted={store.voiceState().muted}
+                    audioLevel={store.voiceAudioLevel()}
                     accessibilityLabel={
-                      voiceActive()
-                        ? t("endOrInterruptTheLiveConversation")
-                        : t("startProviderVoice", { provider: store.voiceProviderLabel() })
+                      store.voiceState().phase === "speaking"
+                        ? t("interruptPlayback")
+                        : voiceActive()
+                          ? t("endLiveVoice")
+                          : t("startProviderVoice", { provider: store.voiceProviderLabel() })
                     }
                     disabled={!store.ready()}
                     onPress={toggleLiveVoice}
-                    class={
-                      voiceActive()
-                        ? "rounded-full border border-verified bg-live-active-bg px-3.5 flex-row items-center gap-1.5 active:opacity-75 disabled:opacity-40"
-                        : "rounded-full border border-stage-pill-border bg-stage-pill-bg px-3.5 flex-row items-center gap-1.5 active:opacity-75 disabled:opacity-40"
-                    }
-                    style={{ minHeight: 44 }}
-                  >
-                    <View
-                      class={
-                        voiceActive()
-                          ? "w-1.5 h-1.5 rounded-full bg-verified"
-                          : "w-1.5 h-1.5 rounded-full bg-eye-core"
-                      }
-                    />
-                    <Text
-                      class={
-                        voiceActive()
-                          ? "text-verified text-xs font-semibold"
-                          : "text-stage-pill-fg text-xs font-semibold"
-                      }
-                      style={{ letterSpacing: 0.6 }}
-                    >
-                      {voicePillLabel()}
-                    </Text>
-                  </Button>
+                  />
 
                   <Button
                     testID="compose"
                     accessibilityLabel={t("sendAMessageToLooi")}
+                    selected={compose()}
                     onPress={() => compose.set(!compose())}
-                    class="rounded-full border border-stage-pill-border bg-stage-pill-bg px-3.5 items-center justify-center active:opacity-75"
-                    style={{ minHeight: 44 }}
+                    class="w-11 h-11 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
                   >
-                    <Text
-                      class={
-                        compose()
-                          ? "text-stage-pill-fg text-xs font-semibold"
-                          : "text-stage-muted text-xs font-medium"
-                      }
-                      style={{ letterSpacing: 1 }}
-                    >
-                      {t("chat")}</Text>
+                    <HomeHeaderIcon kind="chat" active={compose()} />
                   </Button>
 
                   <Button
                     testID="connection-settings"
                     accessibilityLabel={t("openConnectionsAndSettings")}
                     onPress={() => store.openSpace("models")}
-                    class="rounded-full border border-stage-pill-border bg-stage-pill-bg px-3.5 items-center justify-center active:opacity-75"
-                    style={{ minHeight: 44 }}
+                    class="w-11 h-11 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
                   >
-                    <Text
-                      class="text-stage-muted text-xs font-medium"
-                      style={{ letterSpacing: 1 }}
-                    >
-                      {t("connect")}</Text>
+                    <HomeHeaderIcon kind="settings" />
                   </Button>
                 </View>
               </View>
@@ -276,8 +300,8 @@ function App() {
                   <If
                     when={
                       !compose() &&
-                      (store.voiceState().phase === "standby" ||
-                        (store.voiceState().phase === "idle" && !store.wakeGuideDismissed()))
+                      !store.wakeGuideDismissed() &&
+                      !voiceActive()
                     }
                   >
                     <WakeGuideBar active={store.voiceState().phase === "standby"} onPress={toggleLiveVoice} />

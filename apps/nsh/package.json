@@ -10,7 +10,7 @@
     "test": "pnpm test:voice-runtime && pnpm test:model-list && pnpm test:build-env && pnpm build:probe && node --import tsx scripts/nsh.ts test",
     "test:build-env": "node --import tsx --test tests/build-env.node.ts",
     "test:model-list": "node --import tsx --test tests/model-list.node.ts",
-    "test:voice-runtime": "node --import tsx -e 'Promise.all([import(\"./tests/voice-runtime-cases.ts\"), import(\"./tests/voice-wake-cases.ts\"), import(\"./tests/voice-openai-cases.ts\"), import(\"./tests/body-runtime-cases.ts\")]).then(async ([voice, wake, openai, body]) => { await voice.verifyVoiceRuntime(); await wake.verifyWakeRuntime(); await openai.verifyOpenAiVoiceRuntime(); await openai.verifyVoiceTraceFinalization(); await body.verifyBodyRuntime(); })'",
+    "test:voice-runtime": "node --import tsx -e 'Promise.all([import(\"./tests/voice-runtime-cases.ts\"), import(\"./tests/voice-wake-cases.ts\"), import(\"./tests/voice-openai-cases.ts\"), import(\"./tests/voice-async-task-cases.ts\"), import(\"./tests/body-runtime-cases.ts\")]).then(async ([voice, wake, openai, asyncTask, body]) => { await voice.verifyVoiceRuntime(); await wake.verifyWakeRuntime(); await openai.verifyOpenAiVoiceRuntime(); await openai.verifyVoiceTraceFinalization(); await asyncTask.verifyAsyncVoiceTasks(); await body.verifyBodyRuntime(); })'",
     "test:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-ios",
     "test:android": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-android",
     "ios": "node --import tsx scripts/nsh.ts run --target ios",

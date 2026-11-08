@@ -19,7 +19,7 @@ export type NormalizedRealtimeEvent =
   | { kind: "response_started"; responseId: string }
   | { kind: "audio_started"; responseId: string; itemId?: string; contentIndex?: number }
   | { kind: "audio_delta"; responseId: string; pcmBase64: string; itemId?: string; contentIndex?: number }
-  | { kind: "audio_done"; responseId: string; itemId?: string; contentIndex?: number; statusCode?: string; userQueryExit?: boolean }
+  | { kind: "audio_done"; responseId: string; itemId?: string; contentIndex?: number; statusCode?: string }
   | { kind: "text_delta"; responseId: string; delta: string }
   | { kind: "text_done"; responseId: string; text: string }
   | { kind: "tool_calls"; responseId: string; calls: Array<{ callId: string; name: string; argumentsJson: string }> }
@@ -27,6 +27,11 @@ export type NormalizedRealtimeEvent =
   | { kind: "response_done"; responseId: string; usage?: Record<string, number> }
   | { kind: "error"; message: string; code?: string; clientEventId?: string }
   | { kind: "ignored"; rawType: string };
+
+export type RealtimeProactiveSpeech = {
+  spokenText: string;
+  instructions?: string;
+};
 
 export interface RealtimeProtocolAdapter {
   readonly providerId: RealtimeProviderId;
@@ -36,6 +41,7 @@ export interface RealtimeProtocolAdapter {
   connectTarget(apiKey: string): { url: string; headers: Record<string, string> };
   createHandshakeMessages(tools: VoiceToolSchema[], options?: { voiceId?: string; instructions?: string }): Record<string, unknown>[];
   encodeInstructionsUpdate(instructions: string): Record<string, unknown>;
+  encodeProactiveSpeech(speech: RealtimeProactiveSpeech): Record<string, unknown>[];
   encodeAudioAppend(pcm16k: Uint8Array): Record<string, unknown>;
   encodeMute(muted: boolean): Record<string, unknown> | null;
   encodeToolReply(callId: string, output: unknown): Record<string, unknown>[];
@@ -76,10 +82,20 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
       extension: {
         tts: { extra: { max_length_to_filter_parenthesis: 100 } },
         asr: { extra: { end_smooth_window_ms: 2500, enable_custom_vad: true } },
-        dialog: { extra: { enable_user_query_exit: true } },
       },
     }],
     encodeInstructionsUpdate: (instructions) => ({ type: "session.update", session: { instructions } }),
+    encodeProactiveSpeech: ({ spokenText, instructions }) => {
+      const frames: Record<string, unknown>[] = [];
+      if (instructions !== undefined) {
+        frames.push({ type: "session.update", session: { instructions } });
+      }
+      const clean = spokenText.trim();
+      if (clean) {
+        frames.push({ type: "speech_text_buffer.commit", text: clean });
+      }
+      return frames;
+    },
     encodeAudioAppend: (pcm) => ({ type: "input_audio_buffer.append", audio: Buffer.from(pcm).toString("base64") }),
     encodeMute: (muted) => ({ type: muted ? "input_audio_mute.commit" : "input_audio_unmute.commit" }),
     encodeToolReply: (callId, output) => [{ type: "conversation.item.create", items: [{ call_id: callId, role: "tool", content: [{ type: "input_text", text: reply(output) }] }] }],
@@ -92,7 +108,7 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
         case "response.created": return { kind: "response_started", responseId: id };
         case "response.output_audio.started": return { kind: "audio_started", responseId: id };
         case "response.output_audio.delta": return { kind: "audio_delta", responseId: id, pcmBase64: string(event.delta) };
-        case "response.output_audio.done": return { kind: "audio_done", responseId: id, statusCode: String(event.status_code ?? ""), userQueryExit: String(event.status_code ?? "") === "20000002" };
+        case "response.output_audio.done": return { kind: "audio_done", responseId: id, statusCode: String(event.status_code ?? "") };
         case "response.output_text.delta": return { kind: "text_delta", responseId: id, delta: string(event.delta) };
         case "response.output_text.done": return { kind: "text_done", responseId: id, text: string(event.text) };
         case "input_audio_buffer.speech_started": return { kind: "user_speech_started" };
@@ -148,6 +164,32 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
       },
     }],
     encodeInstructionsUpdate: (instructions) => ({ type: "session.update", session: { type: "realtime", instructions } }),
+    encodeProactiveSpeech: ({ spokenText, instructions }) => {
+      const frames: Record<string, unknown>[] = [];
+      if (instructions !== undefined) {
+        frames.push({ type: "session.update", session: { type: "realtime", instructions } });
+      }
+      const clean = spokenText.trim();
+      if (clean) {
+        frames.push(
+          {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: `[Background Task Update] Deliver this update naturally and concisely to the user in the current conversation language: ${clean}`,
+                },
+              ],
+            },
+          },
+          { type: "response.create" },
+        );
+      }
+      return frames;
+    },
     encodeAudioAppend: (pcm) => ({ type: "input_audio_buffer.append", audio: Buffer.from(resamplePcm16To24k(pcm)).toString("base64") }),
     encodeMute: (muted) => muted ? { type: "input_audio_buffer.clear" } : null,
     encodeToolReply: (callId, output) => [

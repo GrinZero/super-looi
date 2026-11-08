@@ -16,7 +16,7 @@ const VALID_BODY_ACTIONS = new Set([
 export function createControlLooiBody(
   context: Pick<
     VoiceToolContext,
-    "current" | "controlBody" | "reply" | "taskFinished" | "fail"
+    "active" | "controlBody" | "reply" | "taskFinished" | "fail"
   >,
 ) {
   let runs = 0;
@@ -53,7 +53,6 @@ export function createControlLooiBody(
     execute(
       item: Record<string, unknown>,
       callId: string,
-      generation: number,
       _responseId: string,
     ): void {
       runs++;
@@ -81,14 +80,14 @@ export function createControlLooiBody(
               : undefined;
           output = await context.controlBody(action, durationMs);
         } catch {
-          output = { error: "底座动作未完成，请确认手机已吸合在底座上。" };
+          output = { error: "底座动作未完成，请确认底座已连接。" };
         }
-        if (!context.current(generation)) return;
-        await context.reply(callId, output, generation);
+        if (!context.active()) return;
+        await context.reply(callId, output);
         runs--;
-        context.taskFinished(generation);
+        context.taskFinished();
       })().catch(() => {
-        if (context.current(generation)) context.fail("@looi:voiceTaskReplyFailed");
+        if (context.active()) context.fail("@looi:voiceTaskReplyFailed");
       });
     },
   };
