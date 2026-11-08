@@ -7,20 +7,26 @@ import {
   createVoiceProtocol,
   type RealtimeProtocolAdapter,
 } from "./protocol.js";
-import type { VoiceRuntimeOptions, VoiceState } from "./types.js";
+import type {
+  VoiceProactiveNotice,
+  VoiceRuntimeOptions,
+  VoiceState,
+} from "./types.js";
 
 const STANDBY_POLL_MS = 60;
 const PERMISSION_POLL_MS = 250;
 
 /**
  * Foreground voice supervisor: coordinates microphone permission, local KWS
- * standby polling, and at most one disposable LiveVoiceSession at a time.
+ * standby polling, at most one disposable LiveVoiceSession at a time, and
+ * cross-session background task receipts / `WHEN_IDLE` notice delivery.
  */
 export class VoiceRuntime {
   private readonly credentials: VoiceCredentialStore;
   private readonly protocol: RealtimeProtocolAdapter;
   private state: VoiceState;
   private session?: LiveVoiceSession;
+  private latestContextNote = "";
   private standbyTimer?: ReturnType<typeof setTimeout>;
   private standbyGeneration = 0;
   private closed = false;
@@ -66,7 +72,6 @@ export class VoiceRuntime {
 
   configure(value: string): void {
     if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
-    // Validate first before stopping any running standby/session.
     const next = this.credentials.setApiKey(this.protocol.providerId, value);
     this.stop();
     this.options.tracer?.registerSecret(next);
@@ -101,6 +106,25 @@ export class VoiceRuntime {
 
   snapshot(): VoiceState {
     return { ...this.state };
+  }
+
+  /**
+   * Queues a proactive notice (`WHEN_IDLE`) if a live conversation is active;
+   * always persists `notice.contextNote` so subsequent sessions retain the receipt.
+   */
+  enqueueNotice(notice: VoiceProactiveNotice): void {
+    if (this.closed) return;
+    if (notice.contextNote) {
+      this.latestContextNote = notice.contextNote.trim();
+    }
+    this.session?.enqueueNotice(notice);
+  }
+
+  /** Updates background context note for future turns or active session instructions. */
+  setContextNote(note: string, syncActiveSession = false): void {
+    if (this.closed) return;
+    this.latestContextNote = note.trim();
+    this.session?.updateContextNote(this.latestContextNote, syncActiveSession);
   }
 
   async enterStandby(): Promise<void> {
@@ -191,12 +215,14 @@ export class VoiceRuntime {
       apiKey,
       voiceId: selectedVoiceId,
       initialLanguage,
+      initialContextNote: this.latestContextNote,
       fromWakeWord: options.fromWakeWord === true,
       protocol: this.protocol,
       audio: this.options.audio,
       connect: this.options.connect,
       tracer: this.options.tracer,
       requestTask: this.options.requestTask,
+      taskBridge: this.options.taskBridge,
       controlBody: this.options.controlBody,
       onStatePatch: (patch) => {
         if (this.session === session) this.publish(patch);
@@ -232,7 +258,7 @@ export class VoiceRuntime {
       this.options.audio.clearPlayback();
       this.options.onAudioLevel?.(0);
     }
-    this.options.cancelTask();
+    this.options.cancelTask?.();
     if (this.state.wakeEnabled && !this.closed) {
       void this.enterStandby();
     } else {
@@ -248,7 +274,7 @@ export class VoiceRuntime {
     active?.dispose("immediate");
     this.options.audio.stop();
     this.options.onAudioLevel?.(0);
-    this.options.cancelTask();
+    this.options.cancelTask?.();
     this.publish({ phase: "idle", muted: false, error: "" });
   }
 

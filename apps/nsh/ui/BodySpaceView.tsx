@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { Text, View, Scroll, windowSize } from "nsh";
+import { cleanup, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { createAppStore } from "../store";
 import { SwitchRow, VerticalPitchSlider } from "./Controls";
@@ -45,19 +45,126 @@ export function BodySpaceView(props: {
   const status = () => props.store.bodyStatus();
   const config = () => props.store.bodyConfiguration();
   const isSimulation = () => status().mode === "simulation";
-  const canControlMotion = () => status().connected && status().isDocked && !status().connecting;
+  const canControlMotion = () => status().connected && !status().connecting;
   const canControlLight = () => status().connected && !status().connecting;
   const connectionBusy = () => status().scanning || status().connecting;
+  const headDraft = signal<number | null>(null);
+  type HeadRequest = number | "head_up" | "head_center" | "head_down";
+  let requestedHead: HeadRequest | null = null;
+  let headWrite: Promise<void> | null = null;
+  let headRevision = 0;
+  type WheelDirection = "forward" | "backward" | "turn_left" | "turn_right";
+  let pressedDirection: WheelDirection | null = null;
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
+  let holdHeartbeat: ReturnType<typeof setInterval> | null = null;
+  let holdGeneration = 0;
+  let holdStarted = false;
+  let suppressTap: WheelDirection | null = null;
+  let tapQueue: Promise<void> = Promise.resolve();
+  let tapQueueGeneration = 0;
+
+  const endWheelPress = (direction?: WheelDirection, stopHeld = true) => {
+    if (direction && pressedDirection !== direction) return;
+    if (holdTimer) clearTimeout(holdTimer);
+    if (holdHeartbeat) clearInterval(holdHeartbeat);
+    holdTimer = null;
+    holdHeartbeat = null;
+    ++holdGeneration;
+    pressedDirection = null;
+    if (holdStarted) {
+      holdStarted = false;
+      if (stopHeld) void props.store.stopBody();
+    }
+  };
+
+  const startWheelPress = (direction: WheelDirection) => {
+    endWheelPress();
+    if (!canControlMotion()) return;
+    pressedDirection = direction;
+    suppressTap = null;
+    const generation = holdGeneration;
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      if (generation !== holdGeneration || pressedDirection !== direction) return;
+      holdStarted = true;
+      suppressTap = direction;
+      ++tapQueueGeneration;
+      void (async () => {
+        await tapQueue;
+        if (generation !== holdGeneration || pressedDirection !== direction) return;
+        const started = await props.store.startBodyDrive(direction);
+        if (generation !== holdGeneration || pressedDirection !== direction) {
+          if (started) void props.store.stopBody();
+          return;
+        }
+        if (!started) {
+          endWheelPress(direction);
+          return;
+        }
+        holdHeartbeat = setInterval(() => {
+          if (!props.store.renewBodyDrive()) endWheelPress(direction);
+        }, 500);
+      })();
+    }, 450);
+  };
+
+  const tapWheel = (direction: WheelDirection) => {
+    if (suppressTap === direction) {
+      suppressTap = null;
+      return;
+    }
+    if (!canControlMotion()) return;
+    const generation = tapQueueGeneration;
+    tapQueue = tapQueue.then(async () => {
+      if (generation === tapQueueGeneration && canControlMotion()) {
+        await props.store.controlBody(direction, direction.startsWith("turn_") ? 140 : 180);
+      }
+    });
+  };
+
+  cleanup(() => {
+    ++tapQueueGeneration;
+    endWheelPress();
+  });
+
+  const flushHead = (): Promise<void> => {
+    if (headWrite) return headWrite;
+    headWrite = (async () => {
+      while (requestedHead !== null) {
+        const request = requestedHead;
+        requestedHead = null;
+        if (typeof request === "number") {
+          await props.store.controlBody("head_set", undefined, request);
+        } else {
+          await props.store.controlBody(request);
+        }
+      }
+    })().finally(() => {
+      headWrite = null;
+      if (requestedHead !== null) void flushHead();
+    });
+    return headWrite;
+  };
+
+  const requestHead = (degrees: number) => {
+    ++headRevision;
+    headDraft.set(degrees);
+    requestedHead = degrees;
+    return flushHead();
+  };
+
+  const setHeadPreset = (action: "head_up" | "head_center" | "head_down") => {
+    const revision = ++headRevision;
+    requestedHead = action;
+    headDraft.set(action === "head_up" ? 85 : action === "head_down" ? 25 : 55);
+    void flushHead().finally(() => {
+      if (revision === headRevision) headDraft.set(null);
+    });
+  };
 
   const otherCandidates = () => {
     const currentId = status().deviceId;
     return status().candidates.filter((c) => !status().connected || c.id !== currentId);
-  };
-
-  const mapDegreesToHeadAction = (deg: number) => {
-    if (deg >= 70) return "head_up" as const;
-    if (deg <= 40) return "head_down" as const;
-    return "head_center" as const;
   };
 
   const renderStatusPill = () => {
@@ -200,17 +307,16 @@ export function BodySpaceView(props: {
                     <SignalBars rssi={c().rssi} />
                     <Button
                       testID={`body-connect-${c().id}`}
-                      disabled={connectionBusy()}
                       onPress={() =>
                         void props.store.connectBodyDevice({
                           deviceId: c().id,
                           deviceName: c().name,
                         })
                       }
-                      class="min-h-11 px-3.5 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-40"
+                      class="min-h-11 px-3.5 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
                     >
                       <Text class="text-foreground text-xs font-medium">
-                        {status().connecting ? t("connectingDock") : t("connectDockBtn")}
+                        {t("connectDockBtn")}
                       </Text>
                     </Button>
                   </View>
@@ -222,14 +328,14 @@ export function BodySpaceView(props: {
       </View>
 
       {/* Bottom Connection Action */}
-      <If when={status().connected || config().savedDeviceId}>
+      <If when={status().connected || status().connecting || config().savedDeviceId}>
       <View class="border-t border-border pt-1 items-center justify-center">
         <If
-          when={status().connected}
+          when={status().connected || status().connecting}
           else={
             <Button
               testID="body-connect-primary-btn"
-              disabled={connectionBusy()}
+              disabled={status().connecting}
               onPress={() => void props.store.connectBodyDevice()}
               class="min-h-11 w-full rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
             >
@@ -241,9 +347,8 @@ export function BodySpaceView(props: {
         >
           <Button
             testID="body-disconnect-btn"
-            disabled={status().connecting}
             onPress={() => void props.store.disconnectBody()}
-            class="min-h-11 w-full rounded-xl items-center justify-center active:bg-muted disabled:opacity-40"
+            class="min-h-11 w-full rounded-xl items-center justify-center active:bg-muted"
           >
             <Text class="text-muted-foreground text-sm font-medium">
               {t("disconnectDockBtn")}
@@ -251,6 +356,17 @@ export function BodySpaceView(props: {
           </Button>
         </If>
       </View>
+      </If>
+      <If when={!isSimulation() && !!config().savedDeviceId}>
+        <Button
+          testID="body-forget-saved-btn"
+          onPress={() => void props.store.forgetSavedDock()}
+          class="min-h-11 w-full border-t border-border items-center justify-center rounded-xl active:bg-muted"
+        >
+          <Text class="text-muted-foreground text-xs font-medium">
+            {t("forgetSavedDock")}
+          </Text>
+        </Button>
       </If>
     </View>
   );
@@ -278,7 +394,9 @@ export function BodySpaceView(props: {
               testID="body-wheel-forward"
               accessibilityLabel={t("wheelForward")}
               disabled={!canControlMotion()}
-              onPress={() => void props.store.controlBody("forward", 800)}
+              onPressDown={() => startWheelPress("forward")}
+              onPressUp={() => endWheelPress("forward")}
+              onPress={() => tapWheel("forward")}
               class={wheelDirectionClass("forward", "top-1")}
             >
               <Text class={wheelChevronTextClass("forward")}>⌃</Text>
@@ -289,7 +407,9 @@ export function BodySpaceView(props: {
               testID="body-wheel-backward"
               accessibilityLabel={t("wheelBackward")}
               disabled={!canControlMotion()}
-              onPress={() => void props.store.controlBody("backward", 800)}
+              onPressDown={() => startWheelPress("backward")}
+              onPressUp={() => endWheelPress("backward")}
+              onPress={() => tapWheel("backward")}
               class={wheelDirectionClass("backward", "bottom-1")}
             >
               <Text class={wheelChevronTextClass("backward")}>⌄</Text>
@@ -300,7 +420,9 @@ export function BodySpaceView(props: {
               testID="body-wheel-left"
               accessibilityLabel={t("wheelLeft")}
               disabled={!canControlMotion()}
-              onPress={() => void props.store.controlBody("turn_left", 600)}
+              onPressDown={() => startWheelPress("turn_left")}
+              onPressUp={() => endWheelPress("turn_left")}
+              onPress={() => tapWheel("turn_left")}
               class={wheelDirectionClass("turn_left", "left-1")}
             >
               <Text class={wheelChevronTextClass("turn_left")}>‹</Text>
@@ -311,7 +433,9 @@ export function BodySpaceView(props: {
               testID="body-wheel-right"
               accessibilityLabel={t("wheelRight")}
               disabled={!canControlMotion()}
-              onPress={() => void props.store.controlBody("turn_right", 600)}
+              onPressDown={() => startWheelPress("turn_right")}
+              onPressUp={() => endWheelPress("turn_right")}
+              onPress={() => tapWheel("turn_right")}
               class={wheelDirectionClass("turn_right", "right-1")}
             >
               <Text class={wheelChevronTextClass("turn_right")}>›</Text>
@@ -322,7 +446,11 @@ export function BodySpaceView(props: {
               testID="body-wheel-stop"
               accessibilityLabel={t("wheelStop")}
               disabled={!status().connected}
-              onPress={() => void props.store.stopBody()}
+              onPress={() => {
+                ++tapQueueGeneration;
+                endWheelPress(undefined, false);
+                void props.store.stopBody();
+              }}
               class="w-14 h-14 rounded-full border border-border bg-secondary items-center justify-center active:opacity-75 disabled:opacity-40"
             >
               <View class="w-3.5 h-3.5 rounded-xs bg-foreground" />
@@ -330,9 +458,14 @@ export function BodySpaceView(props: {
           </View>
         </View>
 
-        <Text class="text-muted-foreground text-xs font-medium text-center">
-          {t("directionalWheel")}
-        </Text>
+        <View class="items-center gap-0.5">
+          <Text class="text-muted-foreground text-xs font-medium text-center">
+            {t("directionalWheel")}
+          </Text>
+          <Text class="text-muted-foreground text-xs text-center">
+            {t("wheelGestureHint")}
+          </Text>
+        </View>
       </View>
 
       {/* Right Inner Column: Vertical Head Slider + Bottom Fill Light Pill */}
@@ -342,7 +475,7 @@ export function BodySpaceView(props: {
           <Button
             testID="body-head-up"
             disabled={!canControlMotion()}
-            onPress={() => void props.store.controlBody("head_up")}
+            onPress={() => setHeadPreset("head_up")}
             class="min-h-11 flex-row items-center justify-between active:opacity-75 disabled:opacity-40"
           >
             <Text
@@ -361,14 +494,14 @@ export function BodySpaceView(props: {
               testID="body-head-center"
               disabled={!canControlMotion()}
               accessibilityLabel={t("headCenter")}
-              onPress={() => void props.store.controlBody("head_center")}
+              onPress={() => setHeadPreset("head_center")}
               class="min-h-11 justify-center active:opacity-75 disabled:opacity-40"
             >
               <Text
                 testID="body-head-degrees"
                 class="text-foreground text-3xl font-bold"
               >
-                {`${status().headDegrees}°`}
+                {`${Math.round((headDraft() ?? status().headDegrees) * 10) / 10}°`}
               </Text>
             </Button>
 
@@ -377,19 +510,26 @@ export function BodySpaceView(props: {
               accessibilityLabel={t("headPitchSlider")}
               min={25}
               max={85}
-              step={30}
-              value={status().headDegrees}
+              step={0}
+              value={headDraft() ?? status().headDegrees}
               disabled={!canControlMotion()}
-              onChange={(deg) =>
-                void props.store.controlBody(mapDegreesToHeadAction(deg))
-              }
+              onChange={(deg) => {
+                void requestHead(deg);
+              }}
+              onChangeEnd={(deg) => {
+                const finished = requestHead(deg);
+                const revision = headRevision;
+                void finished.finally(() => {
+                  if (revision === headRevision) headDraft.set(null);
+                });
+              }}
             />
           </View>
 
           <Button
             testID="body-head-down"
             disabled={!canControlMotion()}
-            onPress={() => void props.store.controlBody("head_down")}
+            onPress={() => setHeadPreset("head_down")}
             class="min-h-11 flex-row items-center justify-between active:opacity-75 disabled:opacity-40"
           >
             <Text

@@ -123,6 +123,7 @@ export async function verifyVoiceRuntime() {
     },
     cancelTask: () => {},
   });
+  check(voice.snapshot().wakeEnabled === true, "wake-up did not default to enabled");
   let rejected = false;
   try {
     await voice.start();
@@ -130,6 +131,7 @@ export async function verifyVoiceRuntime() {
     rejected = true;
   }
   check(rejected && starts === 0, "missing key opened microphone");
+  voice.setWakeEnabled(false);
   voice.configure("TEST_ONLY_VOICE");
   voice.configureVoiceId("S_LooiWarm");
   check(
@@ -157,12 +159,11 @@ export async function verifyVoiceRuntime() {
   const tools = writes[0]?.session?.tools;
   check(
     Array.isArray(tools) &&
-      tools.length === 2 &&
+      tools.length === 1 &&
       tools[0]?.name === "run_agent_task" &&
       tools[0]?.parameters?.properties?.prompt?.type === "string" &&
       tools[0]?.parameters?.required?.includes("prompt") &&
-      tools[1]?.name === "end_conversation" &&
-      tools[1]?.parameters?.additionalProperties === false,
+      tools[0]?.parameters?.additionalProperties === false,
     "voice tool schemas were not sent with the session",
   );
   event({ type: "session.created" });
@@ -334,6 +335,7 @@ export async function verifyVoiceRuntime() {
     !corrupt.configuration().hasKey && corrupt.snapshot().phase === "error",
     "corrupt voice config did not remain repairable",
   );
+  corrupt.setWakeEnabled(false);
   corrupt.configure("TEST_ONLY_VOICE");
   corrupt.close();
 

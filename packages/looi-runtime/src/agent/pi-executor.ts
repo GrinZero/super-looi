@@ -591,7 +591,7 @@ export class PiAgentExecutor implements AgentExecutor {
     const bashTool: AgentTool<typeof bashParams> = {
       name: "bash",
       label: "Run Shell Command",
-      description: "Execute a foreground shell command in the workspace.",
+      description: "Execute a foreground shell command in the workspace. On NSH mobile, only echo, pwd, ls, cat, cd, mkdir, rm, cp, mv, head, tail, wc, grep, rg, find, fd, env, true, and false are available; date, Python, Node, and other system commands are unavailable. Use dedicated tools for device capabilities.",
       parameters: bashParams,
       executionMode: "sequential",
       execute: async (toolCallId, params, signal) => {

@@ -47,8 +47,8 @@ class AndroidPluginTest(unittest.TestCase):
             previous_cache = os.environ.get("LOOI_SHERPA_CACHE_DIR")
             os.environ["LOOI_SHERPA_CACHE_DIR"] = str(sherpa)
             try:
-                merge(original, dex, first, application, False)
-                merge(first, dex, second, application, False)
+                merge(original, dex, first, application, False, "landscape")
+                merge(first, dex, second, application, False, "landscape")
             finally:
                 if previous_cache is None:
                     os.environ.pop("LOOI_SHERPA_CACHE_DIR", None)
@@ -57,10 +57,11 @@ class AndroidPluginTest(unittest.TestCase):
             def tree(path):
                 return subprocess.check_output([str(tools / "aapt2"), "dump", "xmltree", "--file", "AndroidManifest.xml", str(path)], text=True)
             def unchanged(text):
-                return "\n".join(line for line in text.splitlines() if "allowBackup" not in line and "usesCleartextTraffic" not in line and application not in line)
+                return "\n".join(line for line in text.splitlines() if "allowBackup" not in line and "usesCleartextTraffic" not in line and "screenOrientation" not in line and application not in line)
             self.assertEqual(unchanged(tree(original)), unchanged(tree(second)))
             self.assertIn(application, tree(second))
             self.assertIn("allowBackup", tree(second))
+            self.assertIn("screenOrientation(0x0101001e)=0", tree(second))
             cleartext = next(line for line in tree(second).splitlines() if "usesCleartextTraffic" in line)
             self.assertRegex(cleartext, r"(?:false|0x0)(?:\s|$)")
             self.assertEqual(tree(first), tree(second))
@@ -83,12 +84,13 @@ class AndroidPluginTest(unittest.TestCase):
             no_mic = root / "no-mic.apk"
             subprocess.run([str(tools / "aapt2"), "link", "-o", str(no_mic), "-I", str(jar), "--manifest", str(manifest), str(compiled)], check=True, capture_output=True)
             added, repeated = root / "added.apk", root / "repeated.apk"
-            merge(no_mic, dex, added, application, False, ("android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS"))
-            merge(added, dex, repeated, application, False, ("android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS"))
+            permissions = json.loads((Path(__file__).parents[1] / "plugins.json").read_text())["android"]["permissions"]
+            merge(no_mic, dex, added, application, False, "landscape", permissions)
+            merge(added, dex, repeated, application, False, "landscape", permissions)
             permission_tree = tree(repeated)
             self.assertIn("android.permission.INTERNET", permission_tree)
-            self.assertEqual(len([line for line in permission_tree.splitlines() if "android.permission.RECORD_AUDIO" in line]), 1)
-            self.assertEqual(len([line for line in permission_tree.splitlines() if "android.permission.MODIFY_AUDIO_SETTINGS" in line]), 1)
+            for permission in permissions:
+                self.assertEqual(len([line for line in permission_tree.splitlines() if f'"{permission}"' in line]), 1, permission)
             self.assertEqual(tree(added), permission_tree)
 
 

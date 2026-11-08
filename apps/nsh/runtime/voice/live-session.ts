@@ -4,19 +4,28 @@ import {
   type ConversationLanguage,
 } from "../../../../packages/looi-runtime/src/agent/conversation-language.js";
 import { observeVoiceSocket } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
-import type { LangfuseTracer, TraceContext } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type {
+  LangfuseTracer,
+  TraceContext,
+} from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import { VoiceAudioPipeline } from "./audio-pipeline.js";
 import { voiceInstructions } from "./prompts.js";
 import type { RealtimeProtocolAdapter } from "./protocol.js";
 import { createVoiceTools, type VoiceTools } from "./tools/index.js";
-import type { VoiceAudioPort, VoiceSocket, VoiceState } from "./types.js";
+import type {
+  VoiceAudioPort,
+  VoiceProactiveNotice,
+  VoiceSocket,
+  VoiceState,
+  VoiceTaskBridge,
+} from "./types.js";
 
 const CONNECT_DEADLINE_MS = 15_000;
 const CANCEL_ACK_DEADLINE_MS = 4_000;
 const IDLE_SLEEP_MS = 12_000;
-const AWAITING_REPLY_MS = 12_000;
 const TICK_INTERVAL_MS = 20;
 const MAX_PENDING_WRITES = 8;
+const MAX_NOTICE_QUEUE = 8;
 const MAX_FRAME_CHARS = 65_536;
 const MAX_INBOUND_CHARS = 1_000_000;
 
@@ -24,33 +33,40 @@ export interface LiveVoiceSessionOptions {
   apiKey: string;
   voiceId: string;
   initialLanguage: ConversationLanguage;
+  initialContextNote?: string;
   fromWakeWord: boolean;
   protocol: RealtimeProtocolAdapter;
   audio: VoiceAudioPort;
   connect: (url: string, options: { headers: Record<string, string> }) => Promise<VoiceSocket>;
   tracer?: LangfuseTracer;
-  requestTask: (prompt: string, traceContext?: TraceContext) => Promise<string>;
+  requestTask?: (prompt: string, traceContext?: TraceContext) => Promise<string>;
+  taskBridge?: VoiceTaskBridge;
   controlBody?: (action: string, durationMs?: number) => Promise<unknown>;
-  onStatePatch: (patch: Partial<Pick<VoiceState, "phase" | "muted" | "transcript" | "error">>) => void;
+  onStatePatch: (
+    patch: Partial<Pick<VoiceState, "phase" | "muted" | "transcript" | "error">>,
+  ) => void;
   onAudioLevel?: (level: number) => void;
   onSessionComplete: () => void;
   onSessionError: (errorMessage: string) => void;
 }
 
 /**
- * Owns the complete lifecycle of one foreground Realtime WebSocket session.
- * Disposing the instance permanently neutralizes any late network/tool callbacks
- * without leaking mutable state into subsequent sessions.
+ * Owns the complete lifecycle of one foreground Realtime WebSocket session,
+ * including turn gating and `WHEN_IDLE` proactive background-task announcements.
  */
 export class LiveVoiceSession {
   private readonly audioPipeline = new VoiceAudioPipeline();
   private readonly tools: VoiceTools;
+  private readonly noticeQueue: VoiceProactiveNotice[] = [];
+  private readonly seenNoticeIds = new Set<string>();
   private conversationLanguage: ConversationLanguage;
   private continuingLanguage = false;
+  private contextNote: string;
   private phase: "connecting" | "listening" | "speaking" = "connecting";
   private muted = false;
   private transcript = "";
   private turnActivity: "waiting_user" | "user_speaking" | "awaiting_reply" = "waiting_user";
+  private silenceSince = 0;
 
   private socket?: VoiceSocket;
   private tickTimer?: ReturnType<typeof setTimeout>;
@@ -61,35 +77,33 @@ export class LiveVoiceSession {
   private writes = 0;
   private writeQueue: Promise<void> = Promise.resolve();
   private audioWriting = false;
+  private dispatchingNotice = false;
 
   private discardOutput = false;
   private responseId = "";
   private cancelledResponses = new Set<string>();
   private responseInProgress = false;
   private cancelEventId = "";
-  private exitAfterPlayback = false;
   private audioStartedResponseId = "";
   private outputStreamDone = false;
   private disposed = false;
 
   constructor(private readonly options: LiveVoiceSessionOptions) {
     this.conversationLanguage = options.initialLanguage;
+    this.contextNote = (options.initialContextNote ?? "").trim();
     this.tools = createVoiceTools(
       {
         send: (value) => this.send(value),
         active: () => !this.disposed,
         requestTask: options.requestTask,
+        taskBridge: options.taskBridge,
         controlBody: options.controlBody,
         toolTraceContext: (callId) => this.socket?.getToolTraceContext?.(callId),
-        beginFarewell: () => {
-          this.outputStreamDone = false;
-          this.pauseTurnTimers();
-        },
-        endSession: () => {
-          if (!this.disposed) this.options.onSessionComplete();
-        },
         taskFinished: () => {
-          if (!this.disposed && this.turnActivity === "awaiting_reply") {
+          if (this.disposed) return;
+          if (this.turnActivity !== "user_speaking") {
+            this.turnActivity = "awaiting_reply";
+            this.silenceSince = Date.now();
             this.startAwaitingTimer();
           }
         },
@@ -101,6 +115,35 @@ export class LiveVoiceSession {
 
   get isDisposed(): boolean {
     return this.disposed;
+  }
+
+  enqueueNotice(notice: VoiceProactiveNotice): void {
+    if (this.disposed || !notice.spokenText.trim()) return;
+    if (this.seenNoticeIds.has(notice.id)) return;
+    if (this.seenNoticeIds.size >= 128) {
+      const oldest = this.seenNoticeIds.values().next().value;
+      if (oldest !== undefined) this.seenNoticeIds.delete(oldest);
+    }
+    this.seenNoticeIds.add(notice.id);
+    if (this.noticeQueue.length >= MAX_NOTICE_QUEUE) {
+      this.noticeQueue.shift();
+    }
+    this.noticeQueue.push(notice);
+    this.flushNoticeIfIdle();
+  }
+
+  updateContextNote(note: string, syncImmediately = false): void {
+    if (this.disposed) return;
+    const next = note.trim();
+    if (next === this.contextNote) return;
+    this.contextNote = next;
+    if (syncImmediately && this.socket && this.phase !== "connecting") {
+      void this.send(
+        this.options.protocol.encodeInstructionsUpdate(this.renderInstructions()),
+      ).catch(() => {
+        this.fail("@looi:runtimeVoiceNetworkSendFailed");
+      });
+    }
   }
 
   async open(): Promise<void> {
@@ -230,6 +273,8 @@ export class LiveVoiceSession {
     this.socket = undefined;
 
     this.clearTimers();
+    this.noticeQueue.length = 0;
+    this.seenNoticeIds.clear();
     this.tools.reset();
     this.audioPipeline.clearCapture();
     this.audioPipeline.clearOutput(this.options.audio);
@@ -248,10 +293,66 @@ export class LiveVoiceSession {
   }
 
   private renderInstructions(): string {
-    return voiceInstructions(this.conversationLanguage, this.continuingLanguage);
+    const base = voiceInstructions(this.conversationLanguage, this.continuingLanguage);
+    return this.contextNote ? `${base}\n\n${this.contextNote}` : base;
   }
 
-  private publish(patch: Partial<Pick<VoiceState, "phase" | "muted" | "transcript" | "error">>): void {
+  private canDispatchNotice(): boolean {
+    return (
+      !this.disposed &&
+      Boolean(this.socket) &&
+      !this.dispatchingNotice &&
+      this.phase === "listening" &&
+      this.turnActivity === "waiting_user" &&
+      !this.responseInProgress &&
+      !this.discardOutput &&
+      !this.tools.busy &&
+      this.audioPipeline.isDrained(this.options.audio)
+    );
+  }
+
+  private flushNoticeIfIdle(): boolean {
+    if (!this.canDispatchNotice() || this.noticeQueue.length === 0) {
+      return false;
+    }
+    const notice = this.noticeQueue.shift()!;
+    if (notice.contextNote) {
+      this.contextNote = notice.contextNote.trim();
+    }
+    const frames = this.options.protocol.encodeProactiveSpeech({
+      spokenText: notice.spokenText,
+      instructions: notice.contextNote ? this.renderInstructions() : undefined,
+    });
+    if (frames.length === 0) return false;
+
+    this.dispatchingNotice = true;
+    this.pauseTurnTimers();
+    this.turnActivity = "awaiting_reply";
+    this.silenceSince = Date.now();
+    this.startAwaitingTimer();
+
+    if (this.options.protocol.providerId === "doubao") {
+      this.transcript = notice.spokenText.slice(-4096);
+      this.publish({ transcript: this.transcript });
+    }
+
+    void (async () => {
+      for (const frame of frames) {
+        await this.send(frame);
+      }
+    })()
+      .catch(() => {
+        this.fail("@looi:runtimeVoiceNetworkSendFailed");
+      })
+      .finally(() => {
+        if (!this.disposed) this.dispatchingNotice = false;
+      });
+    return true;
+  }
+
+  private publish(
+    patch: Partial<Pick<VoiceState, "phase" | "muted" | "transcript" | "error">>,
+  ): void {
     if (this.disposed) return;
     this.options.onStatePatch(patch);
   }
@@ -355,10 +456,13 @@ export class LiveVoiceSession {
           this.options.audio.setCaptureMode("conversation");
           this.options.audio.playReadyCue();
           this.turnActivity = "waiting_user";
+          this.silenceSince = Date.now();
           this.phase = "listening";
           this.muted = false;
           this.publish({ phase: "listening", muted: false });
-          this.startIdleTimer();
+          if (!this.flushNoticeIfIdle()) {
+            this.startIdleTimer();
+          }
           this.tick();
         } else if (normalized.kind === "response_started") {
           this.responseInProgress = true;
@@ -382,8 +486,6 @@ export class LiveVoiceSession {
           }
         } else if (normalized.kind === "audio_done") {
           this.outputStreamDone = true;
-          if (normalized.userQueryExit) this.exitAfterPlayback = true;
-          this.tools.onAudioDone();
         } else if (normalized.kind === "text_delta") {
           this.transcript = (this.transcript + normalized.delta).slice(-4096);
           this.publish({ transcript: this.transcript });
@@ -412,6 +514,7 @@ export class LiveVoiceSession {
             this.interrupt("server_vad");
           }
         } else if (normalized.kind === "user_speech_stopped") {
+          if (this.turnActivity === "user_speaking") this.silenceSince = Date.now();
           this.turnActivity = "awaiting_reply";
           this.pauseTurnTimers();
           this.startAwaitingTimer();
@@ -420,13 +523,17 @@ export class LiveVoiceSession {
           normalized.kind === "response_done"
         ) {
           if (normalized.kind === "response_done") this.responseInProgress = false;
-          if (normalized.kind === "response_done" && this.tools.onResponseDone(responseId)) {
-            continue;
+          if (normalized.kind === "user_transcription_failed" && this.turnActivity === "user_speaking") {
+            this.silenceSince = Date.now();
           }
           if (this.phase !== "speaking" && !this.tools.busy) {
             this.resumeWaiting();
           }
         } else if (normalized.kind === "tool_calls") {
+          if (this.turnActivity === "waiting_user") {
+            this.turnActivity = "awaiting_reply";
+          }
+          this.pauseTurnTimers();
           for (const call of normalized.calls) {
             this.tools.handle(
               {
@@ -459,7 +566,6 @@ export class LiveVoiceSession {
     this.pauseTurnTimers();
     this.outputStreamDone = false;
     this.audioStartedResponseId = responseId;
-    this.tools.onAudioStarted(responseId);
     this.phase = "speaking";
     this.publish({ phase: "speaking" });
   }
@@ -489,15 +595,6 @@ export class LiveVoiceSession {
       }
 
       if (
-        (this.tools.closingAfterFarewell && this.tools.farewellComplete && drained) ||
-        (this.exitAfterPlayback && drained)
-      ) {
-        this.options.onSessionComplete();
-        return;
-      }
-
-      if (
-        !this.tools.closingAfterFarewell &&
         this.phase === "speaking" &&
         this.outputStreamDone &&
         drained
@@ -506,6 +603,7 @@ export class LiveVoiceSession {
         this.responseId = "";
         this.phase = "listening";
         this.publish({ phase: "listening" });
+        this.silenceSince = Date.now();
         this.resumeWaiting();
       }
 
@@ -525,10 +623,15 @@ export class LiveVoiceSession {
   private startIdleTimer(): void {
     this.pauseTurnTimers();
     this.idleTimer = setTimeout(() => {
-      if (!this.disposed && this.turnActivity === "waiting_user" && !this.tools.busy) {
+      if (
+        !this.disposed &&
+        this.turnActivity === "waiting_user" &&
+        !this.tools.busy &&
+        this.noticeQueue.length === 0
+      ) {
         this.options.onSessionComplete();
       }
-    }, IDLE_SLEEP_MS);
+    }, this.remainingSilenceMs());
   }
 
   private startAwaitingTimer(): void {
@@ -540,13 +643,18 @@ export class LiveVoiceSession {
         !this.tools.busy &&
         this.phase === "listening"
       ) {
-        this.resumeWaiting();
+        this.options.onSessionComplete();
       }
-    }, AWAITING_REPLY_MS);
+    }, this.remainingSilenceMs());
+  }
+
+  private remainingSilenceMs(): number {
+    return Math.max(0, IDLE_SLEEP_MS - (Date.now() - this.silenceSince));
   }
 
   private resumeWaiting(): void {
     this.turnActivity = "waiting_user";
+    if (this.flushNoticeIfIdle()) return;
     this.startIdleTimer();
   }
 

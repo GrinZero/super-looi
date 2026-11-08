@@ -1,6 +1,9 @@
 import type { Vault } from "../application.js";
 import type { RealtimeProtocolAdapter } from "./protocol.js";
-import type { LangfuseTracer, TraceContext } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type {
+  LangfuseTracer,
+  TraceContext,
+} from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
 
 export interface VoiceAudioPort {
   requestPermission(): string;
@@ -50,6 +53,42 @@ export interface VoiceState {
   error: string;
 }
 
+export interface VoiceProactiveNotice {
+  id: string;
+  spokenText: string;
+  contextNote?: string;
+}
+
+export type VoiceTaskSubmissionResult =
+  | { status: "completed"; taskId: string; answer: string }
+  | { status: "running_in_background"; taskId: string; latestSummary: string }
+  | {
+      status: "waiting_user_confirmation";
+      taskId: string;
+      interactionKind: "approval" | "question";
+      latestSummary: string;
+    }
+  | { status: "busy"; taskId: string; latestSummary: string }
+  | { status: "failed"; taskId?: string; error: string };
+
+export interface VoiceTaskStatusSnapshot {
+  taskId: string;
+  prompt: string;
+  state: "running" | "waiting_user" | "completed" | "failed" | "cancelled";
+  latestSummary: string;
+  answer?: string;
+  error?: string;
+}
+
+export interface VoiceTaskBridge {
+  submit(
+    prompt: string,
+    traceContext?: TraceContext,
+  ): Promise<VoiceTaskSubmissionResult>;
+  inspect(taskId?: string): VoiceTaskStatusSnapshot | null;
+  cancel(taskId?: string): Promise<{ cancelled: boolean; taskId?: string }>;
+}
+
 export interface VoiceRuntimeOptions {
   vault: Vault;
   defaultLanguage?: () => "zh-CN" | "en-US";
@@ -60,9 +99,12 @@ export interface VoiceRuntimeOptions {
   ) => Promise<VoiceSocket>;
   onState: (state: VoiceState) => void;
   onAudioLevel?: (level: number) => void;
-  requestTask: (prompt: string, traceContext?: TraceContext) => Promise<string>;
+  /** Legacy synchronous task callback retained for backward compatibility. */
+  requestTask?: (prompt: string, traceContext?: TraceContext) => Promise<string>;
+  /** Detached task bridge supporting fast-path inline completion & async promotion. */
+  taskBridge?: VoiceTaskBridge;
   controlBody?: (action: string, durationMs?: number) => Promise<unknown>;
-  cancelTask: () => void;
+  cancelTask?: () => void;
   protocol?: RealtimeProtocolAdapter;
   tracer?: LangfuseTracer;
 }

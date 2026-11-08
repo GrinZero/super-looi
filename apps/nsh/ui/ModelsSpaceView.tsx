@@ -183,6 +183,17 @@ export function ModelsSpaceView(props: {
     props.store.notify("@looi:codeCopiedBrowserVerificationPageRequested");
   };
 
+  const copyOAuthLoginUrl = async () => {
+    const url = props.store.oauth().url;
+    if (!url) return;
+    try {
+      await Clipboard.writeText(url);
+      props.store.notify("@looi:signinLinkCopied");
+    } catch {
+      props.store.notify("@looi:couldNotCopySigninLink");
+    }
+  };
+
   const renderLeftCard = () => (
     <View class="rounded-2xl border border-border bg-card p-4 gap-3.5">
       <View class="flex-row items-center justify-between gap-2 pb-0.5">
@@ -504,12 +515,24 @@ export function ModelsSpaceView(props: {
                     <Text class="text-foreground text-xs font-semibold">
                       {t("browserAuthorization")}</Text>
                     <If when={props.store.oauth().url}>
-                      <ActionButton
-                        label={t("openSigninPage")}
-                        compact={true}
-                        kind="primary"
-                        onPress={() => openUrl(props.store.oauth().url).catch(() => {})}
-                      />
+                      <View class="flex-row gap-2">
+                        <View class="flex-1 min-w-0">
+                          <ActionButton
+                            label={t("openSigninPage")}
+                            compact={true}
+                            kind="primary"
+                            onPress={() =>
+                              openUrl(props.store.oauth().url).catch(() => {})
+                            }
+                          />
+                        </View>
+                        <ActionButton
+                          label={t("copyLink")}
+                          testID="oauth-copy-login-url"
+                          compact={true}
+                          onPress={copyOAuthLoginUrl}
+                        />
+                      </View>
                     </If>
                     <TextField
                       label={t("ifTheBrowserDidNotRedirectPaste")}
@@ -518,17 +541,23 @@ export function ModelsSpaceView(props: {
                       onChange={(v) => oauthCallbackUrl.set(v)}
                       placeholder="http://127.0.0.1:1455/auth/callback?code=..."
                     />
+                    <If when={!oauthCallbackUrl() && props.store.oauth().error}>
+                      <Text role="alert" class="text-destructive text-xs">
+                        {props.store.oauth().error}
+                      </Text>
+                    </If>
                     <View class="flex-row gap-2">
                       <ActionButton
                         label={t("submitCallbackUrl")}
                         kind="primary"
                         compact={true}
                         disabled={!oauthCallbackUrl().trim()}
-                        onPress={() =>
+                        onPress={() => {
                           props.store.submitProviderOAuthCallback(
                             oauthCallbackUrl().trim(),
-                          )
-                        }
+                          );
+                          oauthCallbackUrl.set("");
+                        }}
                       />
                       <ActionButton
                         label={t("cancelAuthorization")}

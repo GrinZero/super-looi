@@ -12,6 +12,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.DisplayCutout;
+import android.view.View;
+import android.view.ViewTreeObserver;
+import android.view.WindowInsets;
+import android.widget.FrameLayout;
 import java.lang.ref.WeakReference;
 
 /** App-owned lifecycle, secure-vault and explicit audio permission hooks. */
@@ -24,11 +29,15 @@ public final class SuperLooiApplication extends Application {
     private static AudioManager manager;
     private static AudioFocusRequest focusRequest;
     private static int previousMode;
+    private static int previousVolumeStream = AudioManager.USE_DEFAULT_STREAM_TYPE;
+    private static WeakReference<Activity> voiceVolumeActivity = new WeakReference<>(null);
     private static boolean ownsAudio;
     private static long audioGeneration;
     private static volatile boolean interrupted = true;
     private static volatile boolean permissionPending;
     private static volatile boolean permissionCancelled;
+    private static View cutoutView;
+    private static ViewTreeObserver.OnGlobalLayoutListener cutoutListener;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -41,23 +50,79 @@ public final class SuperLooiApplication extends Application {
         MiotLoginDialog.registerVm();
         LooiBleBridge.registerVm();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
-            public void onActivityResumed(Activity value) { activity = new WeakReference<>(value); }
+            public void onActivityResumed(Activity value) {
+                activity = new WeakReference<>(value);
+                observeDisplayCutout(value);
+            }
             public void onActivityPaused(Activity value) {
+                stopObservingDisplayCutout();
                 MiotLoginDialog.background(value);
                 LooiBleBridge.background();
                 if (activity.get() == value) {
+                    synchronized (SuperLooiApplication.class) { restoreVolumeControlStream(value); }
                     activity.clear();
                     // The native worker observes this even when JS is suspended.
                     interrupted = true;
                     focus = "lost";
                 }
             }
-            public void onActivityDestroyed(Activity value) { MiotLoginDialog.background(value); LooiBleBridge.background(); if (activity.get() == value) activity.clear(); }
+            public void onActivityDestroyed(Activity value) { stopObservingDisplayCutout(); MiotLoginDialog.background(value); LooiBleBridge.background(); if (activity.get() == value) activity.clear(); }
             public void onActivityCreated(Activity value, Bundle state) {}
             public void onActivityStarted(Activity value) {}
             public void onActivityStopped(Activity value) {}
             public void onActivitySaveInstanceState(Activity value, Bundle state) {}
         });
+    }
+
+    private static void observeDisplayCutout(Activity owner) {
+        stopObservingDisplayCutout();
+        FrameLayout content = owner.findViewById(android.R.id.content);
+        if (content == null || content.getChildCount() == 0) return;
+        View view = content.getChildAt(0);
+        if (!"com.longbridge.nsh.NshView".equals(view.getClass().getName())) return;
+        cutoutView = view;
+        cutoutListener = () -> {
+            WindowInsets insets = view.getRootWindowInsets();
+            if (insets == null) return;
+            DisplayCutout cutout = insets.getDisplayCutout();
+            float left = 0, right = 0;
+            if (cutout != null) {
+                // NSH uses getInsets(), which reports zero on this phone with its bar hidden.
+                int reportedLeft, reportedRight;
+                if (Build.VERSION.SDK_INT >= 30) {
+                    android.graphics.Insets reported = insets.getInsets(
+                            WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                    reportedLeft = reported.left;
+                    reportedRight = reported.right;
+                } else {
+                    reportedLeft = insets.getSystemWindowInsetLeft();
+                    reportedRight = insets.getSystemWindowInsetRight();
+                }
+                float density = view.getResources().getDisplayMetrics().density;
+                left = Math.max(0, cutout.getSafeInsetLeft() - reportedLeft) / density;
+                right = Math.max(0, cutout.getSafeInsetRight() - reportedRight) / density;
+            }
+            java.util.HashMap<String, Float> payload = new java.util.HashMap<>();
+            payload.put("left", left);
+            payload.put("right", right);
+            try {
+                view.getClass().getMethod("send", String.class, Object.class)
+                        .invoke(view, "super-looi/display-cutout", payload);
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException("Cannot send display cutout insets", error);
+            }
+        };
+        view.getViewTreeObserver().addOnGlobalLayoutListener(cutoutListener);
+        view.post(cutoutListener::onGlobalLayout);
+    }
+
+    private static void stopObservingDisplayCutout() {
+        if (cutoutView != null && cutoutListener != null) {
+            ViewTreeObserver observer = cutoutView.getViewTreeObserver();
+            if (observer.isAlive()) observer.removeOnGlobalLayoutListener(cutoutListener);
+        }
+        cutoutView = null;
+        cutoutListener = null;
     }
 
     static Activity foregroundActivity() { return activity.get(); }
@@ -138,6 +203,17 @@ public final class SuperLooiApplication extends Application {
         }
         ownsAudio = true;
         if (capture) manager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        final Activity owner = activity.get();
+        if (owner != null) owner.runOnUiThread(() -> {
+            synchronized (SuperLooiApplication.class) {
+                if (generation != audioGeneration || !ownsAudio || activity.get() != owner) return;
+                if (voiceVolumeActivity.get() != owner) {
+                    previousVolumeStream = owner.getVolumeControlStream();
+                    voiceVolumeActivity = new WeakReference<>(owner);
+                }
+                owner.setVolumeControlStream(attributes.getVolumeControlStream());
+            }
+        });
         focus = "granted";
         return true;
         } catch (RuntimeException error) { endVoiceAudio(); return false; }
@@ -145,18 +221,31 @@ public final class SuperLooiApplication extends Application {
 
     public static synchronized void endVoiceAudio() {
         ++audioGeneration;
+        final long generation = audioGeneration;
         interrupted = true;
         focus = "lost";
         final AudioManager oldManager = manager;
         final AudioFocusRequest oldRequest = focusRequest;
         final boolean owned = ownsAudio;
         ownsAudio = false; focusRequest = null; manager = null;
+        final Activity volumeOwner = voiceVolumeActivity.get();
+        if (volumeOwner != null) volumeOwner.runOnUiThread(() -> {
+            synchronized (SuperLooiApplication.class) {
+                if (generation == audioGeneration && !ownsAudio) restoreVolumeControlStream(volumeOwner);
+            }
+        });
         if (oldManager != null && owned) {
             try { if (oldManager.getMode() == AudioManager.MODE_IN_COMMUNICATION) oldManager.setMode(previousMode); }
             catch (RuntimeException ignored) {}
             try { if (Build.VERSION.SDK_INT >= 26 && oldRequest != null) oldManager.abandonAudioFocusRequest(oldRequest); }
             catch (RuntimeException ignored) {}
         }
+    }
+
+    private static void restoreVolumeControlStream(Activity owner) {
+        if (voiceVolumeActivity.get() != owner) return;
+        owner.setVolumeControlStream(previousVolumeStream);
+        voiceVolumeActivity.clear();
     }
 
     public static String voiceAudioFocus() { return interrupted || activity.get() == null ? "lost" : focus; }

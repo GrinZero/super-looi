@@ -16,6 +16,7 @@ import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -32,10 +33,12 @@ import java.util.UUID;
 public final class LooiBleBridge {
     static native void registerVm();
     private static native void onDeviceFound(String id, String name, int rssi);
+    private static native void onScanError(int errorCode);
     private static native void onConnected(long generation, String id, String name);
     private static native void onDisconnected(long generation, String reason);
     private static native void onNotification(long generation, String uuid, byte[] bytes);
     private static native void onWriteAck(long generation, String uuid);
+    private static native void onNotifyAck(long generation, String uuid);
 
     private static final UUID LOOI_SERVICE = UUID.fromString("000000ff-0000-1000-8000-00805f9b34fb");
     private static final UUID DRIVE_CHAR = UUID.fromString("0000fed0-0000-1000-8000-00805f9b34fb");
@@ -49,6 +52,10 @@ public final class LooiBleBridge {
     private static final Map<String, BluetoothGattCharacteristic> characteristics = new HashMap<>();
 
     private static final ScanCallback SCAN_CALLBACK = new ScanCallback() {
+        @Override public void onScanFailed(int errorCode) {
+            onScanError(errorCode);
+        }
+
         @Override public void onScanResult(int callbackType, ScanResult result) {
             if (result == null || result.getDevice() == null) return;
             final BluetoothDevice device = result.getDevice();
@@ -79,7 +86,8 @@ public final class LooiBleBridge {
         if (Build.VERSION.SDK_INT >= 31) {
             return new String[]{
                 "android.permission.BLUETOOTH_SCAN",
-                "android.permission.BLUETOOTH_CONNECT"
+                "android.permission.BLUETOOTH_CONNECT",
+                Manifest.permission.ACCESS_FINE_LOCATION
             };
         }
         return new String[]{Manifest.permission.ACCESS_FINE_LOCATION};
@@ -147,7 +155,10 @@ public final class LooiBleBridge {
         activeScanner = bt.getBluetoothLeScanner();
         if (activeScanner == null) return false;
         try {
-            activeScanner.startScan(SCAN_CALLBACK);
+            final ScanSettings settings = new ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build();
+            activeScanner.startScan(null, settings, SCAN_CALLBACK);
             return true;
         } catch (RuntimeException error) {
             activeScanner = null;
@@ -163,7 +174,6 @@ public final class LooiBleBridge {
     }
 
     public static synchronized boolean connect(final long generation, final String deviceId) {
-        stopScan();
         disconnect();
         final Activity owner = SuperLooiApplication.foregroundActivity();
         final BluetoothAdapter bt = adapter();
@@ -190,6 +200,7 @@ public final class LooiBleBridge {
                 @Override public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                     if (status != BluetoothGatt.GATT_SUCCESS) {
                         onDisconnected(generation, "蓝牙服务发现失败");
+                        gatt.disconnect();
                         return;
                     }
                     synchronized (LooiBleBridge.class) {
@@ -199,20 +210,27 @@ public final class LooiBleBridge {
                             for (BluetoothGattCharacteristic ch : svc.getCharacteristics()) {
                                 final String uuid = ch.getUuid().toString().toLowerCase(Locale.ROOT);
                                 characteristics.put(uuid, ch);
-                                if (DOCK_NOTIFY_CHAR.equals(ch.getUuid())) {
-                                    gatt.setCharacteristicNotification(ch, true);
-                                    final BluetoothGattDescriptor cccd = ch.getDescriptor(CCCD_UUID);
-                                    if (cccd != null) {
-                                        cccd.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                                        gatt.writeDescriptor(cccd);
-                                    }
-                                }
                             }
                         }
                     }
+                    reportConnected(gatt);
+                }
+
+                @Override public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+                    if (CCCD_UUID.equals(descriptor.getUuid())) {
+                        if (status == BluetoothGatt.GATT_SUCCESS) {
+                            onNotifyAck(generation, descriptor.getCharacteristic().getUuid().toString());
+                        }
+                        else {
+                            onDisconnected(generation, "底座通知订阅失败");
+                            gatt.disconnect();
+                        }
+                    }
+                }
+
+                private void reportConnected(BluetoothGatt gatt) {
                     final String devName = gatt.getDevice() != null && gatt.getDevice().getName() != null
-                        ? gatt.getDevice().getName()
-                        : "LOOI 桌面底座";
+                        ? gatt.getDevice().getName() : "LOOI 桌面底座";
                     onConnected(generation, deviceId, devName);
                 }
 
@@ -279,5 +297,15 @@ public final class LooiBleBridge {
         } catch (RuntimeException error) {
             return false;
         }
+    }
+
+    public static synchronized boolean subscribe(long generation, String uuid) {
+        if (activeGatt == null || generation != activeGeneration) return false;
+        final BluetoothGattCharacteristic ch = characteristics.get(uuid.toLowerCase(Locale.ROOT));
+        if (ch == null || !activeGatt.setCharacteristicNotification(ch, true)) return false;
+        final BluetoothGattDescriptor cccd = ch.getDescriptor(CCCD_UUID);
+        if (cccd == null) return false;
+        cccd.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+        return activeGatt.writeDescriptor(cccd);
     }
 }

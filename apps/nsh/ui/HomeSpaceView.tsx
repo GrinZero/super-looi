@@ -1,9 +1,8 @@
 import { t, translateMessage, formatDate } from "../i18n";
 import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
-import { Select } from "nsh/base";
 import type { HomeConfiguration } from "../generated/looi-runtime.js";
 import type { createAppStore } from "../store";
-import { ActionButton, TextField } from "./Controls";
+import { ActionButton, SelectField, TextField } from "./Controls";
 
 type HomeModeTab = "direct_miot" | "external_ha" | "simulation";
 
@@ -13,13 +12,16 @@ export function HomeSpaceView(props: {
 }) {
   const activeModeTab = (): HomeModeTab =>
     typeof props.modeTab === "function" ? props.modeTab() : props.modeTab;
-  const regions = [
-    { value: "cn", get title() { return t("mainlandChina"); } },
-    { value: "de", get title() { return t("europe"); } },
-    { value: "i2", get title() { return t("india"); } },
-    { value: "ru", get title() { return t("russia"); } },
-    { value: "sg", get title() { return t("singapore"); } },
-    { value: "us", get title() { return t("unitedStates"); } },
+  const regions = (): Array<{
+    value: HomeConfiguration["region"];
+    title: string;
+  }> => [
+    { value: "cn", title: t("mainlandChina") },
+    { value: "de", title: t("europe") },
+    { value: "i2", title: t("india") },
+    { value: "ru", title: t("russia") },
+    { value: "sg", title: t("singapore") },
+    { value: "us", title: t("unitedStates") },
   ];
 
   const region = signal<HomeConfiguration["region"]>("cn");
@@ -151,30 +153,14 @@ export function HomeSpaceView(props: {
           <Text class="text-muted-foreground text-xs">
             {t("chooseYourXiaomiHomeRegionAfterSigning")}</Text>
 
-          <View class="gap-2">
-            <Text class="text-muted-foreground text-sm">{t("xiaomiHomeRegion")}</Text>
-            <Select
-              testID="home-miot-region"
-              accessibilityLabel={t("xiaomiHomeRegion")}
-              items={regions}
-              value={region()}
-              disabled={working() || props.store.busy()}
-              onChange={(event) => {
-                if (regions.some((item) => item.value === event.value)) {
-                  region.set(event.value as HomeConfiguration["region"]);
-                }
-              }}
-              popupClass="bg-card rounded-xl border border-border"
-              itemClass="min-h-12 px-4 text-foreground selected:bg-muted"
-              trigger={
-                <View class="min-h-12 justify-center rounded-xl border border-input bg-background px-4">
-                  <Text class="text-foreground text-base">
-                    {regions.find((item) => item.value === region())?.title}
-                  </Text>
-                </View>
-              }
-            />
-          </View>
+          <SelectField
+            label={t("xiaomiHomeRegion")}
+            testID="home-miot-region"
+            items={regions()}
+            value={region()}
+            disabled={working() || props.store.busy()}
+            onChange={(next) => region.set(next)}
+          />
 
           <View class="flex-row flex-wrap gap-2 pt-1">
             <ActionButton

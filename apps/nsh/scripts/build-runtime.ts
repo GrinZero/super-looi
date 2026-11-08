@@ -16,7 +16,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
       resolveDir: root,
       contents: `
     import {installNshNativeCompat} from "../../packages/nsh-node-compat/src/native-host.ts";
-    export {VoiceRuntime} from "./runtime/voice.ts";
+    export {VoiceRuntime, VoiceTaskCoordinator} from "./runtime/voice.ts";
     export {MiotLoginFlow} from "./runtime/miot-login.ts";
     export {RobotFaceController} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
     export async function openRuntime(host,vault) {
@@ -66,9 +66,21 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     resolve(root, "generated/looi-runtime.d.ts"),
     `
 export interface VoiceState {phase:"idle"|"standby"|"permission"|"connecting"|"listening"|"speaking"|"error";muted:boolean;wakeEnabled:boolean;transcript:string;error:string}
+export interface VoiceProactiveNotice {id:string;spokenText:string;contextNote?:string}
+export type VoiceTaskSubmissionResult = {status:"completed";taskId:string;answer:string}|{status:"running_in_background";taskId:string;latestSummary:string}|{status:"waiting_user_confirmation";taskId:string;interactionKind:"approval"|"question";latestSummary:string}|{status:"busy";taskId:string;latestSummary:string}|{status:"failed";taskId?:string;error:string};
+export interface VoiceTaskStatusSnapshot {taskId:string;prompt:string;state:"running"|"waiting_user"|"completed"|"failed"|"cancelled";latestSummary:string;answer?:string;error?:string}
+export interface VoiceTaskBridge {submit(prompt:string,traceContext?:TraceContext):Promise<VoiceTaskSubmissionResult>;inspect(taskId?:string):VoiceTaskStatusSnapshot|null;cancel(taskId?:string):Promise<{cancelled:boolean;taskId?:string}>}
+export class VoiceTaskCoordinator implements VoiceTaskBridge {
+ constructor(options:{fastPathMs?:number;defaultLanguage?:()=>"zh-CN"|"en-US";runTask:(prompt:string,hooks:{onStep:(event:NativeStep)=>void},traceContext?:TraceContext)=>Promise<{answer:string;taskId?:string}>;cancelRunningTask:()=>Promise<boolean>;onNotice?:(notice:VoiceProactiveNotice)=>void;onContextNote?:(note:string)=>void});
+ readonly hasActiveTask:boolean;
+ submit(prompt:string,traceContext?:TraceContext):Promise<VoiceTaskSubmissionResult>;
+ inspect(taskId?:string):VoiceTaskStatusSnapshot|null;
+ cancel(taskId?:string):Promise<{cancelled:boolean;taskId?:string}>;
+ markExternallyCancelled():void;
+}
 export class VoiceRuntime {
- constructor(options:{defaultLanguage?:()=>"zh-CN"|"en-US";vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;stop():void;setCaptureMode(mode:string):void;playReadyCue():void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number;captureMode:string;wakeWord:string;kwsReady:boolean}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;onAudioLevel?:(level:number)=>void;requestTask:(prompt:string,traceContext?:TraceContext)=>Promise<string>;controlBody?:(action:string,durationMs?:number)=>Promise<unknown>;cancelTask:()=>void;tracer?:unknown});
- configuration():{hasKey:boolean;providerId:string;providerLabel:string;voiceId:string};refreshCredentials():{hasKey:boolean;providerId:string;providerLabel:string;voiceId:string};configure(value:string):void;configureVoiceId(value:string):void;setWakeEnabled(enabled:boolean,options?:{autoStandby?:boolean}):void;snapshot():VoiceState;enterStandby():Promise<void>;start(options?:{fromWakeWord?:boolean}):Promise<void>;endSession():void;mute(value:boolean):void;interrupt():void;stop():void;close():void;
+ constructor(options:{defaultLanguage?:()=>"zh-CN"|"en-US";vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;stop():void;setCaptureMode(mode:string):void;playReadyCue():void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number;captureMode:string;wakeWord:string;kwsReady:boolean}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;onAudioLevel?:(level:number)=>void;requestTask?:(prompt:string,traceContext?:TraceContext)=>Promise<string>;taskBridge?:VoiceTaskBridge;controlBody?:(action:string,durationMs?:number)=>Promise<unknown>;cancelTask?:()=>void;tracer?:unknown});
+ configuration():{hasKey:boolean;providerId:string;providerLabel:string;voiceId:string};refreshCredentials(autoStandby?:boolean):{hasKey:boolean;providerId:string;providerLabel:string;voiceId:string};configure(value:string):void;configureVoiceId(value:string):void;setWakeEnabled(enabled:boolean,options?:{autoStandby?:boolean}):void;snapshot():VoiceState;enqueueNotice(notice:VoiceProactiveNotice):void;setContextNote(note:string,syncActiveSession?:boolean):void;enterStandby():Promise<void>;start(options?:{fromWakeWord?:boolean}):Promise<void>;endSession():void;mute(value:boolean):void;interrupt():void;stop():void;close():void;
 }
 export type TraceContext = {traceId:string;parentSpanId?:string;traceName:string;sessionId?:string};
 export interface UiAction {event_id:string;ui_session_id:string;kind:"tap"|"gesture"|"voice_command";captured_at:string;expires_at:string}
@@ -81,10 +93,10 @@ export interface HomeConnection {mode:string;simulation:boolean;configured:boole
 export type BodyConnectionMode = "disabled" | "real_ble" | "simulation";
 export interface BodyConfiguration {mode:BodyConnectionMode;savedDeviceId:string;savedDeviceName:string;autoConnect:boolean}
 export interface BodyCandidate {id:string;name:string;rssi:number|null}
-export interface BodyStatusSnapshot {mode:BodyConnectionMode;simulation:boolean;permission:"granted"|"denied"|"undetermined"|"unavailable";supervisorState:string;connected:boolean;isDocked:boolean;lightOn:boolean;headPose:"up"|"center"|"down";headDegrees:number;deviceId:string|null;deviceName:string;autoConnect:boolean;scanning:boolean;scanCompleted:boolean;connecting:boolean;candidates:BodyCandidate[];lastVerifiedAt:string|null;error:string|null}
-export type BodyControlAction = "head_up" | "head_center" | "head_down" | "forward" | "backward" | "turn_left" | "turn_right" | "light_on" | "light_off" | "stop";
+export interface BodyStatusSnapshot {mode:BodyConnectionMode;simulation:boolean;permission:"granted"|"denied"|"undetermined"|"unavailable";supervisorState:string;connected:boolean;isDocked:boolean;lightOn:boolean;headPose:"up"|"center"|"down"|"custom";headDegrees:number;deviceId:string|null;deviceName:string;autoConnect:boolean;scanning:boolean;scanCompleted:boolean;connecting:boolean;candidates:BodyCandidate[];lastVerifiedAt:string|null;error:string|null}
+export type BodyControlAction = "head_up" | "head_center" | "head_down" | "head_set" | "forward" | "backward" | "turn_left" | "turn_right" | "light_on" | "light_off" | "stop";
 export interface BodyActionReceipt {action:BodyControlAction;status:"verified"|"rejected"|"failed";simulation:boolean;isDocked:boolean;headDegrees:number;lightOn:boolean;durationMs:number|null;stopCommandAt:string|null;recordedAt:string;reason?:string}
-export interface NativeBlePort {permission():string;requestPermission():string;startScan():void;stopScan():void;scannedDevices():Array<{id:string;name:string;rssi:number}>;connect(deviceId:string):void;disconnect():void;write(characteristic:string,hexPayload:string,withResponse:boolean):void;drainEvents():Array<{kind:string;characteristic:string;payload:string}>;status():{state:string;permission:string;deviceId:string;deviceName:string;error:string}}
+export interface NativeBlePort {permission():string;requestPermission():string;startScan():void;stopScan():void;scannedDevices():Array<{id:string;name:string;rssi:number}>;connect(deviceId:string):void;disconnect():void;subscribe(characteristic:string):void;write(characteristic:string,hexPayload:string,withResponse:boolean):void;drainEvents():Array<{kind:string;characteristic:string;payload:string}>;status():{state:string;permission:string;deviceId:string;deviceName:string;error:string}}
 export class MiotLoginFlow {
  constructor(options:{runtime:NativeRuntime;browser:()=>{open(authorization:string,redirect:string):void;status():string;takeCallback():string;cancel():void};active:()=>boolean;onRunning:(value:boolean)=>void});
  start(region:HomeConfiguration["region"],action:UiAction):Promise<HomeConnection>;
@@ -120,9 +132,12 @@ export interface NativeRuntime {
  scanBodyDevices(timeoutMs?:number):Promise<BodyStatusSnapshot>;
  connectBodyDevice(target?:{deviceId?:string;deviceName?:string}):Promise<BodyStatusSnapshot>;
  disconnectBody():Promise<BodyStatusSnapshot>;
+ forgetSavedDock():Promise<BodyStatusSnapshot>;
  setSimulatedDock(docked:boolean):BodyStatusSnapshot;
- controlBody(input:{action:BodyControlAction;durationMs?:number},holder?:string):Promise<BodyActionReceipt>;
+ controlBody(input:{action:BodyControlAction;durationMs?:number;headDegrees?:number},holder?:string):Promise<BodyActionReceipt>;
  stopBody():Promise<BodyStatusSnapshot>;
+ startBodyDrive(action:"forward"|"backward"|"turn_left"|"turn_right"):Promise<BodyStatusSnapshot>;
+ renewBodyDrive():boolean;
  readonly uiSessionId:string;
  configuration():{baseUrl:string;model:string;hasKey:boolean};
  recoveryCount():number;

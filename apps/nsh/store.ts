@@ -21,6 +21,7 @@ import {
 import { connect } from "websocket";
 import {
   VoiceRuntime,
+  VoiceTaskCoordinator,
   MiotLoginFlow,
   type VoiceState,
   openRuntime,
@@ -326,27 +327,10 @@ export function createAppStore() {
   const voiceId = signal("");
   const voiceTask = signal("");
   let voice: VoiceRuntime | undefined;
-  let pendingVoice:
-    | {
-        resolve: (value: string) => void;
-        reject: (error: Error) => void;
-        timer: ReturnType<typeof setTimeout>;
-        traceContext?: TraceContext;
-      }
-    | undefined;
-  let voiceExecuting = false;
-  const cancelVoiceTask = () => {
-    if (pendingVoice) {
-      clearTimeout(pendingVoice.timer);
-      pendingVoice.reject(new Error("@looi:runtimeVoiceTaskCancelled"));
-      pendingVoice = undefined;
-    }
+  let voiceTaskCoordinator: VoiceTaskCoordinator | undefined;
+  const stopVoiceSessionMotion = () => {
     voiceTask.set("");
     void runtime?.stopBody().catch(() => {});
-    if (voiceExecuting) {
-      void runtime?.cancel().catch(() => {});
-      voiceExecuting = false;
-    }
   };
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
@@ -375,6 +359,7 @@ export function createAppStore() {
     instructions: "",
     error: "",
   });
+  let oauthAttempt = 0;
 
   const homeConfiguration = signal<HomeConfiguration>({
     mode: "disabled",
@@ -386,6 +371,12 @@ export function createAppStore() {
   const homeConnection = signal<HomeConnection | undefined>(undefined);
   const homeDevices = signal<Record<string, unknown>>({});
   const homeLoggingIn = signal(false);
+  const canAutoStandby = () =>
+    ready() &&
+    lifecycle() === "active" &&
+    (activeSpace() === "face" || activeSpace() === "voice") &&
+    !homeLoggingIn() &&
+    !oauthFlow().running;
   let homeLogin: MiotLoginFlow | undefined;
   const bodyConfiguration = signal<BodyConfiguration>({
     mode: "real_ble",
@@ -407,15 +398,17 @@ export function createAppStore() {
     deviceName: "LOOI 桌面底座",
     autoConnect: true,
     scanning: false,
+    scanCompleted: false,
+    connecting: false,
     candidates: [],
     lastVerifiedAt: null,
     error: null,
   });
   const bodyActiveCommand = signal<BodyControlAction | null>(null);
+  let bodyDriveOperation = 0;
+  let bodyConnectionOperation = 0;
   const recoveryCount = signal(0);
   const tasks = signal<NativeTaskPage>({ total: 0, offset: 0, items: [] });
-    scanCompleted: false,
-    connecting: false,
   const task = signal<NativeTask | undefined>(undefined);
   const interaction = signal<
     (NonNullable<NativeStep["interaction"]> & { taskId: string }) | undefined
@@ -445,6 +438,7 @@ export function createAppStore() {
     status.set("@looi:runtimeCouldNotCompleteTheRequest");
   };
   const stop = async () => {
+    voiceTaskCoordinator?.markExternallyCancelled();
     interaction.set(undefined);
     void runtime?.stopBody().catch(() => {});
     try {
@@ -459,18 +453,17 @@ export function createAppStore() {
     const next =
       lifecycle() !== "active"
         ? "sleeping"
-        : busy()
-          ? "thinking"
-          : voiceState().phase === "speaking"
-            ? "speaking"
-            : voiceState().phase === "listening"
-              ? "listening"
-              : voiceState().phase === "connecting"
-                ? "curious"
+        : voiceState().phase === "speaking"
+          ? "speaking"
+          : voiceState().phase === "listening"
+            ? "listening"
+            : voiceState().phase === "connecting"
+              ? "curious"
+              : busy()
+                ? "thinking"
                 : "neutral";
     if (lifecycle() !== "active") {
       homeLogin?.cancel();
-      runtime?.cancelProviderOAuth();
       void runtime?.stopBody().catch(() => {});
       if (voiceState().phase !== "idle") voice?.stop();
       if (driver.getState().expression !== "sleeping") {
@@ -483,8 +476,10 @@ export function createAppStore() {
   });
   effect(() => {
     if (!ready() || !voice) return;
-    if (lifecycle() !== "active" || homeLoggingIn()) {
+    if (lifecycle() !== "active" || homeLoggingIn() || oauthFlow().running) {
       if (voiceState().phase !== "idle") voice.stop();
+    } else if (activeSpace() !== "face" && activeSpace() !== "voice") {
+      if (voiceState().phase === "standby" || voiceState().phase === "permission") voice.stop();
     } else if (voiceState().wakeEnabled && voiceState().phase === "idle") {
       void voice.enterStandby();
     }
@@ -559,6 +554,81 @@ export function createAppStore() {
       } catch {}
       bodyConfiguration.set(opened.bodyConfiguration());
       bodyStatus.set(opened.bodyStatus());
+      voiceTaskCoordinator = new VoiceTaskCoordinator({
+        defaultLanguage: effectiveLocale,
+        runTask: async (prompt, hooks, traceContext) => {
+          if (!alive || !runtime || busy() || !prompt.trim()) {
+            throw new Error("@looi:runtimeATaskIsRunningTryAgainLater");
+          }
+          api.dismissWakeGuide();
+          busy.set(true);
+          message.set("");
+          status.set("@looi:runtimeAgentIsThinking");
+          try {
+            const result = await runtime.run(
+              prompt,
+              action(),
+              (event) => {
+                if (!alive) return;
+                status.set(event.summary);
+                if (event.interaction && event.taskId) {
+                  interaction.set({ ...event.interaction, taskId: event.taskId });
+                }
+                hooks.onStep(event);
+              },
+              {
+                agentOnly: true,
+                mode: "voice",
+                approvalMode: taskApprovalMode(),
+                traceContext,
+                defaultLanguage: effectiveLocale(),
+              },
+            );
+            if (alive) {
+              message.set(result.answer);
+              status.set(
+                result.runtimeExited
+                  ? "@looi:runtimeStandingBy"
+                  : "@looi:runtimeTaskResultUnverified",
+              );
+            }
+            return { answer: result.answer, taskId: result.taskId };
+          } catch (error) {
+            if (alive) {
+              const text = error instanceof Error ? error.message : String(error);
+              message.set(text);
+              status.set("@looi:runtimeCouldNotCompleteTheRequest");
+            }
+            throw error;
+          } finally {
+            if (alive) {
+              busy.set(false);
+              interaction.set(undefined);
+              recoveryCount.set(runtime.recoveryCount());
+              bodyStatus.set(runtime.bodyStatus());
+            }
+          }
+        },
+        cancelRunningTask: async () => {
+          interaction.set(undefined);
+          void runtime?.stopBody().catch(() => {});
+          const stopped = await runtime?.cancel();
+          if (alive) {
+            status.set(
+              stopped?.confirmed
+                ? "@looi:runtimeTaskStopped"
+                : "@looi:runtimeStopResultUnverified",
+            );
+          }
+          return Boolean(stopped?.confirmed);
+        },
+        onNotice: (notice) => {
+          if (alive) voice?.enqueueNotice(notice);
+        },
+        onContextNote: (note) => {
+          if (alive) voice?.setContextNote(note);
+        },
+      });
       voice = new VoiceRuntime({
         vault,
         defaultLanguage: effectiveLocale,
@@ -585,20 +655,8 @@ export function createAppStore() {
             face.set(driver.getState());
           }
         },
-        requestTask: async (prompt, traceContext) => {
-          if (!alive || voiceExecuting || busy()) {
-            throw new Error("@looi:runtimeATaskIsRunningTryAgainLater");
-          }
-          voiceExecuting = true;
-          try {
-            const success = await api.send(prompt, true, traceContext);
-            if (!success) throw new Error("@looi:runtimeTaskIncomplete");
-            return message();
-          } finally {
-            voiceExecuting = false;
-          }
-        },
-        cancelTask: cancelVoiceTask,
+        taskBridge: voiceTaskCoordinator,
+        cancelTask: stopVoiceSessionMotion,
         controlBody: async (actionName, durationMs) => {
           if (!alive || !runtime) {
             throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
@@ -658,6 +716,7 @@ export function createAppStore() {
   cleanup(() => {
     alive = false;
     if (toastTimer) clearTimeout(toastTimer);
+    voiceTaskCoordinator?.markExternallyCancelled();
     homeLogin?.cancel();
     runtime?.cancelProviderOAuth();
     voice?.close();
@@ -736,7 +795,7 @@ export function createAppStore() {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
       const snap = await runtime.saveProviderApiKey(input, action());
       llmSnapshot.set(snap);
-      voiceConfigured.set(voice?.refreshCredentials().hasKey ?? false);
+      voiceConfigured.set(voice?.refreshCredentials(canAutoStandby()).hasKey ?? false);
       if (input.providerId !== "custom") {
         await api.refreshProviderModels(input.providerId);
       }
@@ -770,7 +829,7 @@ export function createAppStore() {
           action(),
         );
         llmSnapshot.set(snap);
-        voiceConfigured.set(voice?.refreshCredentials().hasKey ?? false);
+        voiceConfigured.set(voice?.refreshCredentials(canAutoStandby()).hasKey ?? false);
         configuration.set(runtime.configuration());
         notify("@looi:runtimeProviderCredentialsRemoved");
       } catch (error) {
@@ -782,6 +841,7 @@ export function createAppStore() {
         fail(new Error("@looi:runtimeLocalStorageIsNotReady"));
         return;
       }
+      const attempt = ++oauthAttempt;
       oauthFlow.set({
         running: true,
         providerId,
@@ -796,7 +856,7 @@ export function createAppStore() {
           providerId,
           action(),
           (ev: LlmOAuthUiEvent) => {
-            if (!alive) return;
+            if (!alive || attempt !== oauthAttempt) return;
             const current = oauthFlow();
             if (ev.kind === "device_code") {
               oauthFlow.set({
@@ -841,7 +901,7 @@ export function createAppStore() {
             }
           },
         );
-        if (!alive) return;
+        if (!alive || attempt !== oauthAttempt) return;
         llmSnapshot.set(snap);
         configuration.set(runtime.configuration());
         oauthFlow.set({
@@ -856,7 +916,7 @@ export function createAppStore() {
         status.set("@looi:runtimeStandingBy");
         notify("@looi:runtimeAccountAuthorized");
       } catch (error) {
-        if (!alive) return;
+        if (!alive || attempt !== oauthAttempt) return;
         const text = error instanceof Error ? error.message : String(error);
         const isCancelled = text === "@looi:runtimeSigninCancelled" || text.includes("abort");
         if (isCancelled) {
@@ -880,10 +940,18 @@ export function createAppStore() {
       }
     },
     submitProviderOAuthCallback(callbackUrl: string) {
-      if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
-      runtime.submitProviderOAuthCallback(callbackUrl);
+      try {
+        if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
+        runtime.submitProviderOAuthCallback(callbackUrl);
+        oauthFlow.set({ ...oauthFlow(), error: "" });
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        oauthFlow.set({ ...oauthFlow(), error: text });
+        notify(text);
+      }
     },
     cancelProviderOAuth() {
+      ++oauthAttempt;
       try {
         runtime?.cancelProviderOAuth();
       } catch {}
@@ -924,7 +992,7 @@ export function createAppStore() {
       }
       try {
         voice.setWakeEnabled(enabled, {
-          autoStandby: ready() && lifecycle() === "active" && !homeLoggingIn(),
+          autoStandby: canAutoStandby(),
         });
       }
       catch (error) { fail(error); }
@@ -947,24 +1015,11 @@ export function createAppStore() {
       voiceId.set(voice.configuration().voiceId);
     },
     async confirmVoiceTask(allowed: boolean): Promise<void> {
-      const pending = pendingVoice,
-        prompt = voiceTask();
-      if (!pending) return;
-      clearTimeout(pending.timer);
-      pendingVoice = undefined;
+      const prompt = voiceTask();
+      if (!prompt) return;
       voiceTask.set("");
-      if (!allowed) {
-        pending.reject(new Error("@looi:runtimeDeclinedByUser"));
-        return;
-      }
-      voiceExecuting = true;
-      try {
-        const success = await api.send(prompt, true, pending.traceContext);
-        if (success) pending.resolve(message());
-        else pending.reject(new Error("@looi:runtimeTaskIncomplete"));
-      } finally {
-        voiceExecuting = false;
-      }
+      if (!allowed) return;
+      await api.send(prompt, true);
     },
     ready: () => ready(),
     busy: () => busy(),
@@ -1080,6 +1135,9 @@ export function createAppStore() {
             deviceId: merged.savedDeviceId || defaultCandidates[0].id,
             deviceName: merged.savedDeviceName || defaultCandidates[0].name,
             autoConnect: merged.autoConnect,
+            scanning: false,
+            scanCompleted: true,
+            connecting: false,
             candidates: defaultCandidates,
             error: null,
           }));
@@ -1091,15 +1149,15 @@ export function createAppStore() {
             connected: false,
             isDocked: false,
             autoConnect: merged.autoConnect,
+            scanning: false,
+            scanCompleted: false,
+            connecting: false,
             candidates: [],
             error: null,
           }));
         }
         return;
       }
-            scanning: false,
-            scanCompleted: true,
-            connecting: false,
       try {
         const snap = await runtime.configureBody(next, action());
         if (alive) {
@@ -1110,15 +1168,14 @@ export function createAppStore() {
         if (alive) fail(error);
       }
     },
-    async scanBodyDevices(durationMs = 1500) {
-            scanning: false,
-            scanCompleted: false,
-            connecting: false,
+    async scanBodyDevices(durationMs = 8000) {
+      if (bodyStatus().scanning || runtime?.bodyStatus().scanning) return;
       if (!runtime) {
         if (bodyStatus().mode === "simulation") {
           bodyStatus.update((prev) => ({
             ...prev,
             scanning: false,
+            scanCompleted: true,
             candidates: [
               { id: "sim-looi-dock-01", name: "LOOI 桌面底座", rssi: -42 },
               { id: "sim-looi-bedroom-02", name: "卧室的 LOOI", rssi: -65 },
@@ -1129,21 +1186,22 @@ export function createAppStore() {
       }
       bodyStatus.update((prev) => ({ ...prev, scanning: true, error: null }));
       try {
-        const snap = await runtime.scanBodyDevices(durationMs);
+        await runtime.scanBodyDevices(durationMs);
         if (alive) {
-      if (bodyStatus().scanning || bodyStatus().connecting || runtime?.bodyStatus().connecting) return;
-          bodyStatus.set(snap);
-          if (snap.error) notify(snap.error);
+          const current = runtime.bodyStatus();
+          bodyStatus.set(current);
+          if (current.error) notify(current.error);
         }
       } catch (error) {
         if (alive) {
-            scanCompleted: true,
           bodyStatus.set(runtime.bodyStatus());
           fail(error);
         }
       }
     },
     async connectBodyDevice(target?: { deviceId?: string; deviceName?: string }) {
+      if (!target?.deviceId && bodyStatus().connecting) return;
+      const operation = ++bodyConnectionOperation;
       if (!runtime) {
         if (bodyStatus().mode === "simulation") {
           const nextId = target?.deviceId || bodyStatus().deviceId || "sim-looi-dock-01";
@@ -1158,49 +1216,82 @@ export function createAppStore() {
             connected: true,
             isDocked: true,
             supervisorState: "ready",
+            connecting: false,
             deviceId: nextId,
             deviceName: nextName,
             error: null,
-      if (bodyStatus().connecting || bodyStatus().scanning || runtime?.bodyStatus().connecting) return;
           }));
         }
         return;
       }
+      bodyStatus.update((prev) => ({ ...prev, connecting: true, error: null }));
       try {
-        const snap = await runtime.connectBodyDevice(target);
-        if (alive) {
+        await runtime.connectBodyDevice(target);
+        if (alive && operation === bodyConnectionOperation) {
           bodyConfiguration.set(runtime.bodyConfiguration());
-          bodyStatus.set(snap);
-          if (snap.error) notify(snap.error);
+          const current = runtime.bodyStatus();
+          bodyStatus.set(current);
+          if (current.error) notify(current.error);
         }
       } catch (error) {
-        if (alive) fail(error);
+        if (alive && operation === bodyConnectionOperation) {
+          bodyStatus.set(runtime.bodyStatus());
+          fail(error);
+        }
       }
-            connecting: false,
     },
     async disconnectBody() {
+      const operation = ++bodyConnectionOperation;
       if (!runtime) {
         bodyActiveCommand.set(null);
         bodyStatus.update((prev) => ({
           ...prev,
           connected: false,
-      bodyStatus.update((prev) => ({ ...prev, connecting: true, error: null }));
           isDocked: false,
           supervisorState: "disconnected",
         }));
         return;
       }
       try {
-        const snap = await runtime.disconnectBody();
-        if (alive) {
+        await runtime.disconnectBody();
+        if (alive && operation === bodyConnectionOperation) {
           bodyActiveCommand.set(null);
-          bodyStatus.set(snap);
+          bodyStatus.set(runtime.bodyStatus());
         }
       } catch (error) {
-        if (alive) {
+        if (alive && operation === bodyConnectionOperation) fail(error);
+      }
+    },
+    async forgetSavedDock() {
+      const operation = ++bodyConnectionOperation;
+      if (!runtime) {
+        bodyActiveCommand.set(null);
+        bodyConfiguration.update((prev) => ({
+          ...prev,
+          savedDeviceId: "",
+          savedDeviceName: "LOOI 桌面底座",
+        }));
+        bodyStatus.update((prev) => ({
+          ...prev,
+          connected: false,
+          isDocked: false,
+          connecting: false,
+          supervisorState: "disconnected",
+          deviceId: null,
+          deviceName: "LOOI 桌面底座",
+          error: null,
+        }));
+        return;
+      }
+      try {
+        await runtime.forgetSavedDock();
+        if (alive && operation === bodyConnectionOperation) {
+          bodyActiveCommand.set(null);
+          bodyConfiguration.set(runtime.bodyConfiguration());
           bodyStatus.set(runtime.bodyStatus());
-          fail(error);
         }
+      } catch (error) {
+        if (alive && operation === bodyConnectionOperation) fail(error);
       }
     },
     setSimulatedDock(docked: boolean) {
@@ -1219,8 +1310,16 @@ export function createAppStore() {
         if (alive) fail(error);
       }
     },
-    async controlBody(actionName: BodyControlAction, durationMs?: number) {
+    async controlBody(actionName: BodyControlAction, durationMs?: number, headDegrees?: number) {
       if (!runtime) {
+        if (actionName === "head_set" && headDegrees !== undefined) {
+          bodyStatus.update((prev) => ({
+            ...prev,
+            headPose: headDegrees === 85 ? "up" : headDegrees === 55 ? "center" : headDegrees === 25 ? "down" : "custom",
+            headDegrees,
+          }));
+          return;
+        }
         if (
           actionName === "head_up" ||
           actionName === "head_center" ||
@@ -1258,11 +1357,12 @@ export function createAppStore() {
         const receipt = await runtime.controlBody({
           action: actionName,
           ...(durationMs !== undefined ? { durationMs } : {}),
+          ...(headDegrees !== undefined ? { headDegrees } : {}),
         });
         if (alive) {
           bodyStatus.set(runtime.bodyStatus());
           if (receipt.status !== "verified" && receipt.reason) {
-            notify(receipt.reason);
+            if (receipt.reason !== "Pulse preempted by stop: user_stop") notify(receipt.reason);
           }
         }
       } catch (error) {
@@ -1274,12 +1374,41 @@ export function createAppStore() {
       }
     },
     async stopBody() {
-      if (!runtime) return;
+      ++bodyDriveOperation;
       bodyActiveCommand.set(null);
+      if (!runtime) return;
       try {
         const snap = await runtime.stopBody();
         if (alive) bodyStatus.set(snap);
       } catch {}
+    },
+    async startBodyDrive(action: "forward" | "backward" | "turn_left" | "turn_right") {
+      if (!runtime) return false;
+      const operation = ++bodyDriveOperation;
+      bodyActiveCommand.set(action);
+      try {
+        const snap = await runtime.startBodyDrive(action);
+        if (operation !== bodyDriveOperation) {
+          if (bodyActiveCommand() === null) await runtime.stopBody();
+          return false;
+        }
+        if (alive) bodyStatus.set(snap);
+        return true;
+      } catch (error) {
+        if (operation === bodyDriveOperation) {
+          if (alive) fail(error);
+          bodyActiveCommand.set(null);
+        }
+        return false;
+      }
+    },
+    renewBodyDrive() {
+      const renewed = runtime?.renewBodyDrive() ?? false;
+      if (!renewed) {
+        bodyActiveCommand.set(null);
+        if (alive && runtime) bodyStatus.set(runtime.bodyStatus());
+      }
+      return renewed;
     },
     tasks: () => tasks(),
     task: () => task(),

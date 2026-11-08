@@ -525,6 +525,7 @@ export function VerticalPitchSlider(props: {
   accessibilityLabel: string;
   testID?: string;
   onChange: (value: number) => void;
+  onChangeEnd?: (value: number) => void;
 }) {
   return (
     <Slider
@@ -539,6 +540,11 @@ export function VerticalPitchSlider(props: {
       onChange={(ev) => {
         if (typeof ev.value === "number") {
           props.onChange(ev.value);
+        }
+      }}
+      onChangeEnd={(ev) => {
+        if (typeof ev.value === "number") {
+          props.onChangeEnd?.(ev.value);
         }
       }}
       class="w-11 h-20 items-center justify-center disabled:opacity-40"

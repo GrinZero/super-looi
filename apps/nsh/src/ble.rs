@@ -152,7 +152,9 @@ impl BleState {
 
     /// Returns `true` if a hardware-level immediate `0000` stop write to `drive` (`fed0`) is required.
     pub fn on_notification(&mut self, generation: u64, uuid_or_key: &str, hex: &str) -> bool {
-        if generation != self.generation || self.state != "connected" {
+        if generation != self.generation
+            || (self.state != "connected" && self.state != "connecting")
+        {
             return false;
         }
         let Some(char_key) = characteristic_key_from_uuid(uuid_or_key) else {
@@ -176,6 +178,15 @@ impl BleState {
         }
     }
 
+    pub fn on_notify_ack(&mut self, generation: u64, uuid_or_key: &str) {
+        if generation != self.generation || self.state != "connected" {
+            return;
+        }
+        if let Some(char_key) = characteristic_key_from_uuid(uuid_or_key) {
+            self.push_event("notify_ack", char_key, "");
+        }
+    }
+
     pub fn on_error(&mut self, generation: u64, message: &str) {
         if generation != self.generation {
             return;
@@ -195,6 +206,7 @@ pub(super) fn characteristic_uuid(key: &str) -> Option<&'static str> {
         "drive" => Some("0000fed0-0000-1000-8000-00805f9b34fb"),
         "head" => Some("0000fed1-0000-1000-8000-00805f9b34fb"),
         "light" => Some("0000fed2-0000-1000-8000-00805f9b34fb"),
+        "sensorNotify" => Some("0000fed5-0000-1000-8000-00805f9b34fb"),
         "dockNotify" => Some("0000fed9-0000-1000-8000-00805f9b34fb"),
         "handshakeControl" => Some("0000feda-0000-1000-8000-00805f9b34fb"),
         "handshakeData" => Some("0000fef0-0000-1000-8000-00805f9b34fb"),
@@ -213,6 +225,7 @@ pub(super) fn characteristic_key_from_uuid(uuid_or_key: &str) -> Option<&'static
         "drive" | "fed0" | "0000fed0-0000-1000-8000-00805f9b34fb" => Some("drive"),
         "head" | "fed1" | "0000fed1-0000-1000-8000-00805f9b34fb" => Some("head"),
         "light" | "fed2" | "0000fed2-0000-1000-8000-00805f9b34fb" => Some("light"),
+        "sensornotify" | "fed5" | "0000fed5-0000-1000-8000-00805f9b34fb" => Some("sensorNotify"),
         "docknotify" | "fed9" | "0000fed9-0000-1000-8000-00805f9b34fb" => Some("dockNotify"),
         "handshakecontrol" | "feda" | "0000feda-0000-1000-8000-00805f9b34fb" => {
             Some("handshakeControl")
@@ -351,6 +364,20 @@ impl LooiBle {
         platform::disconnect();
     }
 
+    /// Enable notifications and wait for the platform's subscription acknowledgement.
+    pub fn subscribe(&mut self, characteristic: String) -> Result<(), String> {
+        let uuid = characteristic_uuid(&characteristic)
+            .ok_or_else(|| format!("Unsupported LOOI characteristic: {characteristic}"))?;
+        let generation = {
+            let state = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+            if state.state != "connected" {
+                return Err("BLE transport is not connected".into());
+            }
+            state.generation
+        };
+        platform::subscribe(generation, uuid)
+    }
+
     /// Write a hex-encoded payload to a named LOOI GATT characteristic.
     pub fn write(
         &mut self,
@@ -415,6 +442,9 @@ mod platform {
         Err("Native BLE requires iOS or Android".into())
     }
     pub fn disconnect() {}
+    pub fn subscribe(_generation: u64, _characteristic_uuid: &str) -> Result<(), String> {
+        Err("Native BLE requires iOS or Android".into())
+    }
     pub fn write(
         _generation: u64,
         _characteristic_uuid: &str,
@@ -458,6 +488,9 @@ mod tests {
         assert!(!state.on_connected(0, "old-id", "Old LOOI"));
         assert_eq!(state.state, "connecting");
 
+        // The first dock notification can arrive before CCCD subscription reports connected.
+        assert!(!state.on_notification(1, "FED9", "05"));
+
         // Current generation connects
         assert!(state.on_connected(1, "looi-01", "LOOI 桌面底座"));
         assert_eq!(state.state, "connected");
@@ -471,11 +504,13 @@ mod tests {
         assert_eq!(state.emergency_stop_count, 1);
 
         let drained: Vec<_> = state.events.drain(..).collect();
-        assert_eq!(drained.len(), 3);
-        assert_eq!(drained[0].kind, "connected");
-        assert_eq!(drained[1].characteristic, "dockNotify");
-        assert_eq!(drained[1].payload, "05");
+        assert_eq!(drained.len(), 4);
+        assert_eq!(drained[0].characteristic, "dockNotify");
+        assert_eq!(drained[0].payload, "05");
+        assert_eq!(drained[1].kind, "connected");
         assert_eq!(drained[2].characteristic, "dockNotify");
-        assert_eq!(drained[2].payload, "06");
+        assert_eq!(drained[2].payload, "05");
+        assert_eq!(drained[3].characteristic, "dockNotify");
+        assert_eq!(drained[3].payload, "06");
     }
 }

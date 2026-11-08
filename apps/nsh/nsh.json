@@ -1,10 +1,12 @@
 {
   "name": "Super LOOI",
   "id": "com.superlooi.app",
+  "icon": "../../assets/brand/super-looi-app-icon.png",
   "version": "1.0.0",
   "build": 1,
   "rust": ".",
   "capabilities": {
+    "statusBar": true,
     "clipboard": true,
     "fs": {
       "read": [
@@ -46,5 +48,8 @@
     "speech": true
   },
   "theme": "theme.json",
-  "appearance": "system"
+  "appearance": "system",
+  "statusBar": {
+    "hidden": true
+  }
 }

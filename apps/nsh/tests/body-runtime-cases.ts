@@ -63,6 +63,14 @@ export async function verifyBodyRuntime() {
     "head_up control did not update headPose",
   );
 
+  const customHeadReceipt = await simRuntime.control({ action: "head_set", headDegrees: 41.5 });
+  check(
+    customHeadReceipt.status === "verified" &&
+      customHeadReceipt.headDegrees === 41.5 &&
+      simRuntime.status().headPose === "custom",
+    "head_set did not retain the requested angle",
+  );
+
   const lightOnReceipt = await simRuntime.control({ action: "light_on" });
   check(
     lightOnReceipt.status === "verified" &&
@@ -77,18 +85,27 @@ export async function verifyBodyRuntime() {
   });
   check(moveReceipt.status === "verified", "forward failed while docked");
 
+  await simRuntime.startDrive("forward");
+  check(simRuntime.status().supervisorState === "observing", "held drive did not start");
+  simRuntime.renewDrive();
+  await simRuntime.stop();
+  check(simRuntime.status().supervisorState === "ready", "held drive did not stop on release");
+  check(simRuntime.renewDrive() === false, "stopped drive still accepted a heartbeat");
+
   const undockedStatus = simRuntime.setSimulatedDock(false);
   check(
     !undockedStatus.isDocked,
     "setSimulatedDock(false) did not undock",
   );
 
-  const rejectedMove = await simRuntime.control({ action: "forward" });
+  const undockedMove = await simRuntime.control({ action: "forward", durationMs: 80 });
   check(
-    rejectedMove.status === "rejected" &&
-      Boolean(rejectedMove.reason?.includes("放上底座")),
-    "undocked body allowed wheel motion",
+    undockedMove.status === "verified" && !undockedMove.isDocked,
+    "connected undocked body did not allow wheel motion",
   );
+  const undockedHead = await simRuntime.control({ action: "head_up" });
+  check(undockedHead.status === "verified" && !undockedHead.isDocked,
+    "connected undocked body did not allow head control");
 
   simRuntime.setSimulatedDock(true);
   check(
@@ -107,9 +124,13 @@ export async function verifyBodyRuntime() {
     characteristic: string;
     hexPayload: string;
   }> = [];
+  let writesAwaitingAck = 0;
+  let maxWritesAwaitingAck = 0;
   let nativeConnectedId = "";
+  let pendingConnectId = "";
   let nativePermission = "denied";
   let scanStartedWithPermission = false;
+  let scanStartCount = 0;
   const mockNativeBle: NativeBlePort = {
     permission: () => nativePermission,
     requestPermission: () => {
@@ -117,25 +138,30 @@ export async function verifyBodyRuntime() {
       setTimeout(() => { nativePermission = "granted"; }, 20);
       return nativePermission;
     },
-    startScan: () => { scanStartedWithPermission = nativePermission === "granted"; },
+    startScan: () => {
+      ++scanStartCount;
+      scanStartedWithPermission = nativePermission === "granted";
+    },
     stopScan: () => {},
     scannedDevices: () => [
       { id: "ble-dock-99", name: "LOOI-Robot-99", rssi: -46 },
+      { id: "ble-stuck", name: "LOOI-Stuck", rssi: -62 },
     ],
     connect: (deviceId: string) => {
+      if (deviceId === "ble-stuck") {
+        pendingConnectId = deviceId;
+        return;
+      }
+      pendingConnectId = "";
       nativeConnectedId = deviceId;
       nativeEvents.push({
         kind: "connected",
         characteristic: "",
         payload: "",
       });
-      nativeEvents.push({
-        kind: "notification",
-        characteristic: "dockNotify",
-        payload: "05",
-      });
     },
     disconnect: () => {
+      pendingConnectId = "";
       if (nativeConnectedId) {
         nativeEvents.push({
           kind: "disconnected",
@@ -145,12 +171,29 @@ export async function verifyBodyRuntime() {
         nativeConnectedId = "";
       }
     },
-    write: (characteristic: string, hexPayload: string) => {
+    subscribe: (characteristic: string) => {
+      setTimeout(() => {
+        if (characteristic === "dockNotify") {
+          nativeEvents.push({ kind: "notification", characteristic, payload: "05" });
+          nativeEvents.push({ kind: "notification", characteristic, payload: "110100" });
+        }
+        nativeEvents.push({ kind: "notify_ack", characteristic, payload: "" });
+      }, 20);
+    },
+    write: (characteristic: string, hexPayload: string, withResponse: boolean) => {
       writtenCharacteristics.push({ characteristic, hexPayload });
+      if (withResponse) {
+        writesAwaitingAck += 1;
+        maxWritesAwaitingAck = Math.max(maxWritesAwaitingAck, writesAwaitingAck);
+        setTimeout(() => {
+          writesAwaitingAck -= 1;
+          nativeEvents.push({ kind: "write_ack", characteristic, payload: "" });
+        }, 20);
+      }
     },
     drainEvents: () => nativeEvents.splice(0, nativeEvents.length),
     status: () => ({
-      state: nativeConnectedId ? "connected" : "disconnected",
+      state: nativeConnectedId ? "connected" : pendingConnectId ? "connecting" : "disconnected",
       permission: "granted",
       deviceId: nativeConnectedId,
       deviceName: nativeConnectedId ? "LOOI-Robot-99" : "",
@@ -184,7 +227,8 @@ export async function verifyBodyRuntime() {
     bleConnected.connected &&
       bleConnected.isDocked &&
       !bleConnected.connecting &&
-      bleConnected.deviceName === "LOOI-Robot-99",
+      bleConnected.deviceName === "LOOI-Robot-99" &&
+      maxWritesAwaitingAck === 1,
     "real_ble connect did not complete handshake and dock",
   );
 
@@ -212,6 +256,80 @@ export async function verifyBodyRuntime() {
   check(
     !bleRuntime.status().isDocked,
     "dockNotify=06 notification did not transition BodyRuntime to undocked",
+  );
+
+  const stuckConnection = bleRuntime.connect({
+    deviceId: "ble-stuck",
+    deviceName: "LOOI-Stuck",
+  });
+  await settle(10);
+  const nearbyScan = bleRuntime.scan(100);
+  check(
+    bleRuntime.status().connecting && bleRuntime.status().scanning,
+    "scanning could not start while a dock connection was pending",
+  );
+  const nearbyResult = await nearbyScan;
+  check(
+    nearbyResult.candidates.some((c) => c.id === "ble-dock-99"),
+    "concurrent scan did not find a replacement dock",
+  );
+  const replacement = await bleRuntime.connect({
+    deviceId: "ble-dock-99",
+    deviceName: "LOOI-Robot-99",
+  });
+  await stuckConnection;
+  check(
+    replacement.connected &&
+      replacement.deviceId === "ble-dock-99" &&
+      bleRuntime.configuration().savedDeviceId === "ble-dock-99" &&
+      !bleRuntime.status().connecting,
+    "replacement dock connection was overwritten by the cancelled attempt",
+  );
+
+  nativePermission = "denied";
+  const scansBeforePermission = scanStartCount;
+  const waitingForPermission = bleRuntime.scan(100);
+  const connectDuringPermission = bleRuntime.connect({ deviceId: "ble-dock-99" });
+  await Promise.all([waitingForPermission, connectDuringPermission]);
+  check(
+    scanStartCount === scansBeforePermission && bleRuntime.status().connected,
+    "cancelled scan started after permission and interrupted the replacement connection",
+  );
+
+  const disconnecting = bleRuntime.disconnect();
+  const reconnecting = bleRuntime.connect({ deviceId: "ble-dock-99" });
+  await Promise.all([disconnecting, reconnecting]);
+  check(
+    bleRuntime.status().connected &&
+      bleRuntime.status().deviceId === "ble-dock-99" &&
+      !bleRuntime.status().connecting,
+    "late disconnect completion cleared the new dock connection",
+  );
+
+  const forgotten = await bleRuntime.forgetSavedDock();
+  check(
+    !forgotten.connected &&
+      forgotten.deviceId === null &&
+      forgotten.deviceName === "LOOI 桌面底座" &&
+      bleRuntime.configuration().savedDeviceId === "" &&
+      JSON.parse(slots.get("body") || "{}").savedDeviceId === "" &&
+      !nativeConnectedId,
+    "forgetSavedDock did not disconnect and remove the persisted dock",
+  );
+  const restartedRuntime = new BodyRuntime({ vault });
+  restartedRuntime.attachNativeBle(mockNativeBle);
+  await settle(40);
+  check(
+    !restartedRuntime.status().connected && !nativeConnectedId,
+    "forgotten dock reconnected on restart",
+  );
+  restartedRuntime.attachNativeBle(null);
+  restartedRuntime.close();
+  await bleRuntime.connect({ deviceId: "ble-dock-99", deviceName: "LOOI-Robot-99" });
+  check(
+    bleRuntime.configuration().savedDeviceId === "ble-dock-99" &&
+      bleRuntime.status().connected,
+    "dock could not be saved again after reconnecting",
   );
 
   // Switch bleRuntime (with attached nativePort) to simulation mode and verify no cross-mode state pollution

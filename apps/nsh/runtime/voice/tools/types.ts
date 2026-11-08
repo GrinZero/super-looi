@@ -1,4 +1,5 @@
 import type { TraceContext } from "../../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { VoiceTaskBridge } from "../types.js";
 
 export type VoiceToolSchema = {
   type: "function";
@@ -22,11 +23,10 @@ export interface VoiceToolDefinition {
 export interface VoiceToolHost {
   send(value: unknown): Promise<void>;
   active(): boolean;
-  requestTask(prompt: string, traceContext?: TraceContext): Promise<string>;
+  requestTask?(prompt: string, traceContext?: TraceContext): Promise<string>;
+  taskBridge?: VoiceTaskBridge;
   controlBody?(action: string, durationMs?: number): Promise<unknown>;
   toolTraceContext?(callId: string): TraceContext | undefined;
-  beginFarewell(): void;
-  endSession(): void;
   taskFinished(): void;
   fail(message: string): void;
 }

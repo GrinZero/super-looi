@@ -12,6 +12,7 @@ build/
 *.tsbuildinfo
 .turbo/
 coverage/
+__pycache__/
 
 # Mobile signing
 *.jks
