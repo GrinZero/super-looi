@@ -1,5 +1,57 @@
 # Super-LOOI 重构与演进进度
 
+### Langfuse 语音会话消息与 LLM 调用可见性（2026-11-08）
+
+- [x] Step 1：核对截图对应的 Langfuse 会话，确认用户转写和两次 `llm.chat` 已入库；定位 Session 页只呈现 AI 消息的输入输出结构问题
+- [x] Step 2：在 `realtime.response` 记录按轮次排序的 `role/content` 输入与输出；晚到 ASR 归位后导出并保留模型回复完成时间；失败的 `llm.chat` 写入错误原因
+- [x] Step 3：运行相关测试和类型检查，验证本地 Langfuse 展示效果，完成独立 review 与提交
+  - [x] 8 项遥测测试、运行时类型检查、NSH 语音集成测试、类型检查和构建通过
+  - [x] 本地 Langfuse Session 页已显示两轮用户消息与助手回复；LLM 失败原因已通过 Observations v2 API 回读
+  - [x] 独立复审发现并修复 ASR 失败时待导出响应未释放；iPhone 16e 模拟器已连接新构建
+
+### LOOI 原创暖机械音复刻参考（2026-11-08）
+
+- [x] Step 1：确定偏中性、机灵温暖且有明确电子质感的声线；核对豆包复刻参考音频规格
+- [x] Step 2：合成单人中文底稿，通过降调、72 Hz 环形调制和轻微镶边效果制作持续机械质感，导出复刻参考 WAV
+- [x] Step 3：检查音频为 14.52 秒、24 kHz 单声道 PCM、峰值 -4.5 dB，无长静音；提供试听文件
+
+### NSH 豆包自定义输出音色（2026-11-08）
+
+- [x] Step 1：让豆包协议握手接收可选 Speaker ID，保留现有默认音色
+- [x] Step 2：在 VoiceRuntime 持久保存 Speaker ID，并在语音设置中支持填写和恢复默认
+- [x] Step 3：协议与语音运行时测试、NSH 类型检查及 19/19 全量测试通过；iOS 模拟器截图核对布局，独立 review 指出的空输入、连接时序和错误提示问题已修复
+
+### NSH 本地 Langfuse 无对话记录修复（2026-11-08）
+
+- [x] Step 1：从 Langfuse v2 API 确认只有探针、没有用户对话观测；核对 iPhone 16e 的运行配置
+- [x] Step 2：为 NSH 增加 `localhost:3000` 的 HTTP POST 权限，导出失败时输出一次错误日志
+- [x] Step 3：iPhone 16e 中的诊断 Span 通过 5 秒定时导出写入 Langfuse；移除临时探针并重启 NSH
+- [x] Step 4：iPhone 16e 实际语音会话写入 `voice.session`、3 个 `realtime.user_turn` 与 2 个 `realtime.response`；发现用户转写文本未写入，转入下项修复
+
+### 豆包用户话语写入 Langfuse（2026-11-08）
+
+- [x] Step 1：查到真实 Trace 中 3 个用户轮次有音频时长、无文本；核对豆包 Seeduplex ASR 事件字段
+- [x] Step 2：读取 `conversation.item.input_audio_transcription.delta`，在 `completed` 无文本时使用该轮最新识别结果
+- [x] Step 3：运行时协议与观测测试、NSH 语音测试及类型检查通过；iPhone 16e 已重启为追踪开启的修复版
+- [x] Step 4：真实语音 Trace 已包含用户文本与回复文本；发现豆包的 `delta` 返回整段更新，拼接会重复
+- [x] Step 5：iPhone 16e 真实会话 `5d07f54f169c44c89764f58408762ac6` 中 `voice.session.input.userTranscripts` 与用户轮次输出均包含“现在几点了？”，无重复拼接
+
+### Langfuse v4 与多厂商 Realtime 接入（2026-11-08）
+
+- [x] Step 1：建立 Realtime 协议适配器并迁移语音运行时
+  - [x] 豆包与 OpenAI GA 握手、事件、工具回执和打断
+  - [x] 凭据隔离、热更新、字幕与音频播放归属
+- [x] Step 2：接入 Langfuse OTLP 追踪与 Voice → Agent 上下文
+  - [x] 本地 Compose、构建配置与密钥隔离
+  - [x] Voice Socket、Agent StreamFn 和工具观测
+- [x] Step 3：验证、独立 review、文档与分阶段提交
+  - [x] 全仓 `pnpm typecheck`、`pnpm test`、`pnpm build` 通过；协议、语音运行时、OTLP、跨层 Trace 与构建密钥隔离测试通过
+  - [x] Langfuse v4 Compose 六个服务启动；OTLP 写入后 Observations v2 可读回观测
+  - [x] 独立 review 的构建密钥、Compose 密钥长度、打断竞态、静音轮次、握手时长、凭据脱敏及晚到 ASR 问题已修复并复审通过
+  - [x] 从 Pi 归一化的首条 system message 提取 System Prompt 与工具定义；运行时 75 项测试和全仓类型检查通过
+  - [x] 更新架构图与源码快照，分阶段提交核心实现和集成改动
+
+
 ### 模型配置按账号加载可用模型（2026-11-08）
 
 - [x] Step 1：定位右侧静态列表与订阅授权后的数据流
@@ -1117,3 +1169,18 @@
 - [x] Step 3：执行原场景及相关回归，独立 review 并记录结果
   - [x] iOS 模拟器重启修复版后保持「待机 · 听 Hey LOOI」；用户对 Mac 麦克风口述 Hey LOOI 后进入「LIVE 连接中」
   - [x] `pnpm --filter @super-looi/nsh test:wake:ios`、`test:voice-runtime`、`cargo fmt --check` 通过；独立 review 未发现代码问题
+
+### NSH 中英双语接入调研（2026-11-08）
+
+- [x] Step 1：核对 NSH 运行时、当前文案与对话语言链路
+  - [x] 确认应用为 NSH TSX + Rust，现有文案分布于 UI、store、runtime 与 Agent
+  - [x] 核实系统语言、Intl 能力与手动语言偏好可用的现有接口
+- [x] Step 2：核对最新社区方案与豆包／OpenAI 中英语音能力
+  - [x] 对照官方发布记录、文档和本项目构建链比较候选框架；Paraglide v3 已有 esbuild 插件
+  - [x] 豆包默认 Vivi 音色返回英文文本与 507,094 字节音频；英文 Jenny 音色在当前模型下零音频帧
+- [x] Step 3：沉淀带来源的调研报告与后续接入建议
+  - [x] 给出依赖的用途与复杂性成本、语言状态和提示词的职责边界
+  - [x] 列明可执行的实施顺序与验收场景，记录未解决项到 todo.md
+- [x] Step 4：独立复审、文档校验并提交本轮产物
+  - [x] 修正独立复审指出的 Paraglide 构建边界：现有 esbuild 不处理 NSH 界面 TSX
+  - [x] 后续实施清单经独立复审，文档无空白错误，英文音频时长和文件可解码性已核对

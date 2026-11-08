@@ -23,3 +23,16 @@ export function loadBuildVariables() {
     existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {},
   );
 }
+export function loadRuntimeVariables({ release = false, debugTelemetry = false } = {}) {
+  const file = resolve(import.meta.dirname, "../../../.env");
+  const values = { ...(existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {}), ...process.env };
+  const telemetry = debugTelemetry && values.LOOI_DEBUG_TELEMETRY === "1" && !release;
+  return {
+    VOICE_PROVIDER: values.VOICE_PROVIDER || "doubao",
+    VOICE_BASE_URL: values.VOICE_BASE_URL || "",
+    VOICE_MODEL: values.VOICE_MODEL || "",
+    LANGFUSE_BASE_URL: telemetry ? values.LANGFUSE_BASE_URL || "" : "",
+    LANGFUSE_PUBLIC_KEY: telemetry ? values.LANGFUSE_PUBLIC_KEY || "" : "",
+    LANGFUSE_SECRET_KEY: telemetry ? values.LANGFUSE_SECRET_KEY || "" : "",
+  };
+}

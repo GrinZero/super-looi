@@ -1,7 +1,9 @@
 import { Buffer } from "node:buffer";
-import { createSessionMessage, voiceEndpoint } from "./protocol.js";
+import { randomUUID } from "node:crypto";
+import { createVoiceProtocol, type RealtimeProtocolAdapter } from "./protocol.js";
 import { createVoiceTools, type VoiceTools } from "./tools/index.js";
 import type { VoiceRuntimeOptions, VoiceSocket, VoiceState } from "./types.js";
+import { observeVoiceSocket } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 
 function pcm16Rms(pcm: Uint8Array): number {
   const samples = Math.floor(pcm.byteLength / 2);
@@ -33,6 +35,7 @@ export class VoiceRuntime {
   private idleTimer?: ReturnType<typeof setTimeout>;
   private awaitingTimer?: ReturnType<typeof setTimeout>;
   private readonly tools: VoiceTools;
+  private readonly protocol: RealtimeProtocolAdapter;
   private writes = 0;
   private writeQueue: Promise<void> = Promise.resolve();
   private audioWriting = false;
@@ -40,17 +43,27 @@ export class VoiceRuntime {
   private responseId = "";
   private cancelledResponses = new Set<string>();
   private frames: Uint8Array[] = [];
-  private outputFrames: Uint8Array[] = [];
+  private outputFrames: Array<{ pcm: Uint8Array; itemId?: string; contentIndex?: number }> = [];
+  private playback: Array<{ itemId?: string; contentIndex?: number; durationMs: number }> = [];
+  private playedByItem = new Map<string, number>();
+  private currentAudioItem?: { itemId: string; contentIndex: number };
   private outputBytes = 0;
-  private key = "";
+  private apiKeys: Record<string, string> = {};
+  private voiceId = "";
+  private responseInProgress = false;
+  private cancelEventId = "";
+  private exitAfterPlayback = false;
+  private audioStartedResponseId = "";
   private closed = false;
   private turnActivity: "waiting_user" | "user_speaking" | "awaiting_reply" = "waiting_user";
   private outputStreamDone = false;
   constructor(private readonly options: VoiceRuntimeOptions) {
+    this.protocol = options.protocol ?? createVoiceProtocol({ providerId: process.env.VOICE_PROVIDER, baseUrl: process.env.VOICE_BASE_URL, model: process.env.VOICE_MODEL });
     this.tools = createVoiceTools({
       send: (value, generation) => this.send(value, generation),
       current: (generation) => this.current(generation),
       requestTask: options.requestTask,
+      toolTraceContext: (callId) => this.socket?.getToolTraceContext?.(callId),
       beginFarewell: () => {
         this.outputStreamDone = false;
         this.pauseIdleTimer();
@@ -60,12 +73,14 @@ export class VoiceRuntime {
         if (this.turnActivity === "awaiting_reply") this.startAwaitingTimer(generation);
       },
       fail: (message) => this.fail(message),
-    });
+    }, this.protocol);
     try {
       const saved = options.vault.get("voice");
       if (saved) {
         const config = JSON.parse(saved);
-        this.key = this.validate(config.apiKey);
+        if (config.apiKeys && typeof config.apiKeys === "object") this.apiKeys = { ...config.apiKeys };
+        if (typeof config.apiKey === "string" && config.apiKey.trim()) this.apiKeys.doubao ??= config.apiKey.trim();
+        if (typeof config.voiceId === "string") this.voiceId = config.voiceId.trim();
         this.state.wakeEnabled = config.wakeEnabled === true;
       }
     } catch {
@@ -76,8 +91,31 @@ export class VoiceRuntime {
       };
     }
   }
-  configuration() {
-    return { hasKey: Boolean(this.key) };
+  configuration(): { hasKey: boolean; providerId: string; providerLabel: string; voiceId: string } {
+    return { hasKey: Boolean(this.resolveApiKey()), providerId: this.protocol.providerId, providerLabel: this.protocol.providerId === "doubao" ? "豆包" : this.protocol.providerId === "openai" ? "OpenAI" : this.protocol.providerId, voiceId: this.protocol.providerId === "doubao" ? this.voiceId : "" };
+  }
+  private resolveApiKey(): string {
+    const own = this.apiKeys[this.protocol.providerId];
+    if (own) return own;
+    if (this.protocol.providerId === "doubao") return "";
+    try {
+      const model = JSON.parse(this.options.vault.get("model") || "{}");
+      const credential = model.credentials?.[this.protocol.providerId];
+      return credential?.type === "api_key" && typeof credential.key === "string" ? credential.key : "";
+    } catch { return ""; }
+  }
+  private saveVault(): void {
+    this.options.vault.set("voice", JSON.stringify({
+      ...(this.apiKeys.doubao ? { apiKey: this.apiKeys.doubao } : {}),
+      apiKeys: this.apiKeys, wakeEnabled: this.state.wakeEnabled,
+      ...(this.voiceId ? { voiceId: this.voiceId } : {}),
+    }));
+  }
+  refreshCredentials(): { hasKey: boolean; providerId: string; providerLabel: string; voiceId: string } {
+    const configuration = this.configuration();
+    if (!configuration.hasKey && !["idle", "error"].includes(this.state.phase)) this.stop();
+    else if (configuration.hasKey && this.state.wakeEnabled && ["idle", "error"].includes(this.state.phase)) void this.enterStandby();
+    return configuration;
   }
   private validate(value: unknown): string {
     if (
@@ -93,15 +131,24 @@ export class VoiceRuntime {
     if (this.closed) throw new Error("语音已关闭");
     const next = this.validate(value);
     this.stop();
-    this.options.vault.set("voice", JSON.stringify({ apiKey: next, wakeEnabled: this.state.wakeEnabled }));
-    this.key = next;
+    this.apiKeys[this.protocol.providerId] = next;
+    this.options.tracer?.registerSecret(next);
+    this.saveVault();
     if (this.state.wakeEnabled) void this.enterStandby();
+  }
+  configureVoiceId(value: string): void {
+    if (this.closed) throw new Error("语音已关闭");
+    if (this.protocol.providerId !== "doubao") throw new Error("当前语音服务不支持豆包音色 ID");
+    const next = value.trim();
+    if (next && !/^[A-Za-z0-9_-]{1,256}$/.test(next)) throw new Error("请输入有效的豆包音色 ID");
+    this.voiceId = next;
+    this.saveVault();
   }
   setWakeEnabled(enabled: boolean): void {
     if (this.closed) return;
-    if (enabled && !this.key) throw new Error("请先配置豆包语音 API Key");
-    this.options.vault.set("voice", JSON.stringify({ apiKey: this.key, wakeEnabled: enabled }));
+    if (enabled && !this.resolveApiKey()) throw new Error(`请先配置${this.configuration().providerLabel}语音 API Key`);
     this.publish({ wakeEnabled: enabled });
+    this.saveVault();
     if (enabled && ["idle", "error", "permission"].includes(this.state.phase))
       void this.enterStandby();
     if (!enabled && this.state.phase === "standby") this.stop();
@@ -117,7 +164,7 @@ export class VoiceRuntime {
     return !this.closed && generation === this.generation;
   }
   async enterStandby(): Promise<void> {
-    if (this.closed || !this.key || !this.state.wakeEnabled) return;
+    if (this.closed || !this.resolveApiKey() || !this.state.wakeEnabled) return;
     if (this.state.phase === "standby") return;
     const permission = this.options.audio.status().permission;
     if (permission !== "granted") {
@@ -170,7 +217,9 @@ export class VoiceRuntime {
   async start(options: { fromWakeWord?: boolean } = {}): Promise<void> {
     if (this.closed) throw new Error("语音已关闭");
     if (!["idle", "standby", "error", "permission"].includes(this.state.phase)) return;
-    if (!this.key) throw new Error("请先配置豆包语音 API Key");
+    const key = this.resolveApiKey();
+    if (!key) throw new Error(`请先配置${this.configuration().providerLabel}语音 API Key`);
+    const selectedVoiceId = this.voiceId;
     const fromStandby = this.state.phase === "standby";
     if (this.standbyTimer) clearTimeout(this.standbyTimer);
     this.standbyTimer = undefined;
@@ -186,21 +235,25 @@ export class VoiceRuntime {
       }
     }
     const generation = this.generation;
+    const connectStartedAt = Date.now();
+    this.options.tracer?.registerSecret(key);
     this.publish({ phase: "connecting", error: "", transcript: "" });
     this.deadline = setTimeout(() => {
       if (this.current(generation)) this.fail("语音连接超时，请重试");
     }, 15000);
     try {
-      const socket = await this.options.connect(voiceEndpoint, {
-        headers: { "X-Api-Key": this.key },
-      });
+      const target = this.protocol.connectTarget(key);
+      const rawSocket = await this.options.connect(target.url, { headers: target.headers });
       if (!this.current(generation)) {
-        void socket.close().catch(() => {});
+        void rawSocket.close().catch(() => {});
         return;
       }
+      const socket = this.options.tracer?.enabled ? observeVoiceSocket(rawSocket, {
+        tracer: this.options.tracer, protocol: this.protocol, sessionId: randomUUID(), fromWakeWord: options.fromWakeWord === true, connectStartedAt,
+      }) : rawSocket;
       this.socket = socket;
-      await this.send(createSessionMessage(this.tools.schemas), generation);
-      void this.read(socket, generation);
+      for (const message of this.protocol.createHandshakeMessages(this.tools.schemas, { voiceId: selectedVoiceId })) await this.send(message, generation);
+      void this.read(socket, generation, selectedVoiceId);
     } catch {
       if (this.current(generation))
         this.fail("语音连接失败，请检查 Key、服务权限或网络");
@@ -229,7 +282,7 @@ export class VoiceRuntime {
       if (this.current(generation)) this.writes--;
     }
   }
-  private async read(socket: VoiceSocket, generation: number) {
+  private async read(socket: VoiceSocket, generation: number, selectedVoiceId: string) {
     try {
       while (this.current(generation)) {
         const raw = await socket.read();
@@ -243,30 +296,35 @@ export class VoiceRuntime {
         const event = JSON.parse(raw);
         if (!event || typeof event !== "object")
           throw new Error("Invalid voice frame");
-        const responseId = String(
-          event.response_id ?? event.response?.id ?? "",
-        );
-        const cancelAck =
-          event.type === "response.canceled" ||
-          event.type === "response.cancelled" ||
-          (event.type === "response.done" &&
-            event.response?.status === "cancelled");
-        if (this.discardOutput && cancelAck) {
+        const normalized = this.protocol.parseServerEvent(event);
+        const responseId = "responseId" in normalized ? normalized.responseId : "";
+        const cancelAck = normalized.kind === "response_cancelled";
+        if (cancelAck && (this.discardOutput || (responseId && this.cancelledResponses.has(responseId)))) {
           if (this.deadline) clearTimeout(this.deadline);
           this.deadline = undefined;
           this.discardOutput = false;
           this.responseId = "";
+          this.responseInProgress = false;
+          if (responseId) this.cancelledResponses.delete(responseId);
           continue;
         }
-        if (String(event.type).startsWith("response.")) {
+        if (normalized.kind === "response_done") this.responseInProgress = false;
+        if (normalized.kind === "response_done" && responseId && this.cancelledResponses.delete(responseId)) continue;
+        if (normalized.kind === "error" && normalized.clientEventId && normalized.clientEventId === this.cancelEventId) {
+          this.cancelEventId = "";
+          this.discardOutput = false;
+          continue;
+        }
+        if (this.discardOutput && String(event.type).startsWith("response.")) continue;
+        if (responseId) {
           if (
             this.discardOutput ||
             (responseId && this.cancelledResponses.has(responseId))
           )
             continue;
-          if (responseId) this.responseId = responseId;
+          this.responseId = responseId;
         }
-        if (event.type === "session.created") {
+        if (normalized.kind === "session_ready") {
           if (this.state.phase !== "connecting") continue;
           if (this.deadline) clearTimeout(this.deadline);
           this.deadline = undefined;
@@ -276,22 +334,30 @@ export class VoiceRuntime {
           this.publish({ phase: "listening", muted: false });
           this.startIdleTimer(generation);
           this.tick(generation);
-        } else if (event.type === "response.output_audio.started") {
+        } else if (normalized.kind === "response_started") {
+          this.responseInProgress = true;
+        } else if (normalized.kind === "audio_started") {
+          if (normalized.itemId) this.currentAudioItem = { itemId: normalized.itemId, contentIndex: normalized.contentIndex ?? 0 };
           this.pauseIdleTimer();
           this.outputStreamDone = false;
+          this.audioStartedResponseId = responseId;
           this.tools.onAudioStarted(responseId);
           this.publish({ phase: "speaking" });
-        } else if (
-          event.type === "response.output_audio.delta" &&
-          !this.discardOutput
-        ) {
+        } else if (normalized.kind === "audio_delta" && !this.discardOutput) {
+          if (normalized.itemId) this.currentAudioItem = { itemId: normalized.itemId, contentIndex: normalized.contentIndex ?? 0 };
+          if (this.audioStartedResponseId !== responseId || this.state.phase !== "speaking") {
+            this.pauseIdleTimer();
+            this.outputStreamDone = false;
+            this.audioStartedResponseId = responseId;
+            this.tools.onAudioStarted(responseId);
+            this.publish({ phase: "speaking" });
+          }
           if (
-            typeof event.delta !== "string" ||
-            event.delta.length > 320000 ||
-            !/^[A-Za-z0-9+/]*={0,2}$/.test(event.delta)
+            normalized.pcmBase64.length > 320000 ||
+            !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized.pcmBase64)
           )
             throw new Error("Invalid PCM");
-          const pcm = Buffer.from(event.delta, "base64");
+          const pcm = Buffer.from(normalized.pcmBase64, "base64");
           if (pcm.length % 2) throw new Error("Invalid PCM length");
           // Keep control events responsive even while native playback is full.
           // At most 30 seconds of mono PCM waits here, plus the native 4.5s.
@@ -306,44 +372,49 @@ export class VoiceRuntime {
             continue;
           }
           for (let offset = 0; offset < pcm.length; offset += 4800)
-            this.outputFrames.push(pcm.subarray(offset, offset + 4800));
+            this.outputFrames.push({ pcm: pcm.subarray(offset, offset + 4800), itemId: normalized.itemId, contentIndex: normalized.contentIndex });
           this.outputBytes += pcm.length;
-        } else if (event.type === "response.output_audio.done") {
+        } else if (normalized.kind === "audio_done") {
           this.outputStreamDone = true;
+          if (normalized.userQueryExit) this.exitAfterPlayback = true;
           this.tools.onAudioDone();
         }
-        else if (event.type === "response.output_text.delta")
+        else if (normalized.kind === "text_delta")
           this.publish({
             transcript: (
-              this.state.transcript + String(event.delta ?? "")
+              this.state.transcript + normalized.delta
             ).slice(-4096),
           });
-        else if (event.type === "response.output_text.done")
+        else if (normalized.kind === "text_done")
           this.publish({
-            transcript: String(event.text ?? this.state.transcript).slice(
+            transcript: String(normalized.text ?? this.state.transcript).slice(
               -4096,
             ),
           });
-        else if (event.type === "conversation.item.input_audio_transcription.started" || event.type === "conversation.item.input_audio_transcription.delta" || event.type === "input_audio_buffer.speech_started") {
+        else if (normalized.kind === "user_speech_started" || normalized.kind === "user_transcription_started") {
           this.turnActivity = "user_speaking";
           this.pauseIdleTimer();
           if (this.state.phase === "speaking" || this.outputFrames.length || this.responseId)
-            this.interrupt();
-        } else if (event.type === "input_audio_buffer.committed" || event.type === "conversation.item.input_audio_transcription.completed" || event.type === "input_audio_buffer.speech_stopped") {
+            this.interrupt("server_vad");
+        } else if (normalized.kind === "user_speech_stopped") {
           this.turnActivity = "awaiting_reply";
           this.pauseIdleTimer();
           this.startAwaitingTimer(generation);
-        } else if (event.type === "conversation.item.input_audio_transcription.failed" || event.type === "response.done") {
-          if (event.type === "response.done" && this.tools.onResponseDone(responseId)) continue;
+        } else if (normalized.kind === "user_transcription_failed" || normalized.kind === "response_done") {
+          if (normalized.kind === "response_done") this.responseInProgress = false;
+          if (normalized.kind === "response_done" && this.tools.onResponseDone(responseId)) continue;
           if (this.state.phase !== "speaking" && !this.tools.busy) this.resumeWaiting(generation);
         }
-        else if (event.type === "response.function_call_arguments.done") {
-          for (const item of Array.isArray(event.items)
-            ? event.items.slice(0, 8)
-            : [event])
-            this.tools.handle(item, generation, this.responseId);
-        } else if (event.type === "error" || event.type === "session.error")
+        else if (normalized.kind === "tool_calls") {
+          for (const call of normalized.calls)
+            this.tools.handle({ call_id: call.callId, name: call.name, arguments: call.argumentsJson }, generation, this.responseId);
+        } else if (normalized.kind === "error") {
+          if (this.protocol.providerId === "doubao" && selectedVoiceId && this.state.phase === "connecting" && /speaker|voice[_ -]?(?:id|type)|音色/i.test(normalized.message)) {
+            this.fail("豆包音色 ID 无法使用，请检查 ID 与当前项目的音色权限");
+            return;
+          }
           throw new Error("Provider error");
+        }
       }
     } catch {
       if (this.current(generation))
@@ -355,18 +426,20 @@ export class VoiceRuntime {
     try {
       if (this.options.audio.status().state !== "running")
         throw new Error("Native audio interrupted");
+      this.syncPlayback();
       let peakLevel = 0;
       for (let count = 0; count < 5 && this.outputFrames.length; count++) {
         const frame = this.outputFrames[0];
         if (
-          this.options.audio.status().queuedPlaybackMs + frame.length / 48 >
+          this.options.audio.status().queuedPlaybackMs + frame.pcm.length / 48 >
           4500
         )
           break;
         this.outputFrames.shift();
-        this.outputBytes -= frame.length;
-        peakLevel = Math.max(peakLevel, pcm16Rms(frame));
-        this.options.audio.enqueue(frame, 24000);
+        this.outputBytes -= frame.pcm.length;
+        peakLevel = Math.max(peakLevel, pcm16Rms(frame.pcm));
+        this.options.audio.enqueue(frame.pcm, 24000);
+        this.playback.push({ itemId: frame.itemId, contentIndex: frame.contentIndex, durationMs: frame.pcm.length / 48 });
       }
       for (const packet of this.options.audio.drainCapture()) {
         if (packet.sampleRate !== 16000 || packet.pcm.length !== 640)
@@ -380,15 +453,7 @@ export class VoiceRuntime {
         this.frames.splice(0, this.frames.length - 25);
       if (!this.state.muted && !this.audioWriting) {
         this.audioWriting = true;
-        void this.send(
-          {
-            type: "input_audio_buffer.append",
-            audio: Buffer.from(
-              this.frames.shift() ?? new Uint8Array(640),
-            ).toString("base64"),
-          },
-          generation,
-        )
+        void this.send(this.protocol.encodeAudioAppend(this.frames.shift() ?? new Uint8Array(640)), generation)
           .catch(() => {
             if (this.current(generation)) this.fail("语音网络发送失败");
           })
@@ -397,7 +462,7 @@ export class VoiceRuntime {
           });
       }
       const drained = this.outputFrames.length === 0 && this.options.audio.status().queuedPlaybackMs <= 0;
-      if (this.tools.closingAfterFarewell && this.tools.farewellComplete && drained) {
+      if ((this.tools.closingAfterFarewell && this.tools.farewellComplete && drained) || (this.exitAfterPlayback && drained)) {
         this.endSession();
         return;
       }
@@ -418,25 +483,43 @@ export class VoiceRuntime {
     this.frames = [];
     this.publish({ muted: value });
     const generation = this.generation;
-    void this.send(
-      { type: value ? "input_audio_mute.commit" : "input_audio_unmute.commit" },
-      generation,
-    ).catch(() => {
+    const frame = this.protocol.encodeMute(value);
+    if (frame) void this.send(frame, generation).catch(() => {
       if (this.current(generation)) this.fail("语音静音状态同步失败");
     });
   }
-  interrupt() {
+  private syncPlayback() {
+    let played = Math.max(0, this.playback.reduce((sum, item) => sum + item.durationMs, 0) - this.options.audio.status().queuedPlaybackMs);
+    while (played > 0 && this.playback.length) {
+      const frame = this.playback[0];
+      const amount = Math.min(frame.durationMs, played);
+      if (frame.itemId) {
+        const key = `${frame.itemId}:${frame.contentIndex ?? 0}`;
+        this.playedByItem.set(key, (this.playedByItem.get(key) ?? 0) + amount);
+      }
+      frame.durationMs -= amount;
+      played -= amount;
+      if (frame.durationMs <= 0) this.playback.shift();
+    }
+  }
+  interrupt(trigger: "manual" | "server_vad" = "manual") {
     if (!["listening", "speaking"].includes(this.state.phase)) return;
     if (this.discardOutput) return;
     if (
       this.state.phase !== "speaking" &&
       this.options.audio.status().queuedPlaybackMs <= 0 &&
-      this.outputBytes === 0
+      this.outputBytes === 0 &&
+      !this.responseInProgress
     ) {
       this.publish({ transcript: "" });
       return;
     }
-    this.discardOutput = true;
+    this.syncPlayback();
+    const playback = this.currentAudioItem ? { ...this.currentAudioItem, playedMs: this.playedByItem.get(`${this.currentAudioItem.itemId}:${this.currentAudioItem.contentIndex}`) ?? 0 } : undefined;
+    const cancelEventId = trigger === "manual" && this.responseInProgress && this.protocol.providerId !== "doubao" ? `cancel_${randomUUID()}` : undefined;
+    const frames = this.protocol.encodeInterrupt({ trigger, responseId: this.responseId, responseInProgress: this.responseInProgress, cancelEventId, playback });
+    this.discardOutput = this.protocol.providerId === "doubao" || Boolean(cancelEventId);
+    this.cancelEventId = cancelEventId ?? "";
     if (this.responseId) this.cancelledResponses.add(this.responseId);
     if (this.cancelledResponses.size > 128) {
       this.fail("请重新开启语音");
@@ -444,16 +527,19 @@ export class VoiceRuntime {
     }
     this.outputFrames = [];
     this.outputBytes = 0;
+    this.playback = [];
+    this.playedByItem.clear();
+    this.currentAudioItem = undefined;
     this.options.audio.clearPlayback();
     this.options.onAudioLevel?.(0);
     this.publish({ phase: "listening", transcript: "" });
     const generation = this.generation;
     // No-ID frames are unsafe until the peer acknowledges cancellation. If
     // this protocol variant lacks an ack, close instead of replaying old speech.
-    this.deadline = setTimeout(() => {
+    if (this.discardOutput) this.deadline = setTimeout(() => {
       if (this.current(generation)) this.fail("语音已打断，请再次开启继续");
     }, 4000);
-    void this.send({ type: "response.cancel" }, generation).catch(() => {
+    for (const frame of frames) void this.send(frame, generation).catch(() => {
       if (this.current(generation)) this.fail("语音中断同步失败");
     });
   }
@@ -492,12 +578,18 @@ export class VoiceRuntime {
   endSession() {
     const socket = this.socket;
     const pendingWrites = this.writeQueue;
+    socket?.finalizeSession?.("end_session");
     this.socket = undefined;
     ++this.generation;
     this.clearTimers();
     this.frames = [];
     this.outputFrames = [];
     this.outputBytes = 0;
+    this.playback = [];
+    this.playedByItem.clear();
+    this.currentAudioItem = undefined;
+    this.responseInProgress = false;
+    this.exitAfterPlayback = false;
     this.tools.reset();
     this.audioWriting = false;
     this.discardOutput = false;
@@ -510,8 +602,9 @@ export class VoiceRuntime {
     this.options.onAudioLevel?.(0);
     this.options.cancelTask();
     if (socket) {
+      const closeMessage = this.protocol.encodeSessionClose();
       void pendingWrites
-        .then(() => socket.write(JSON.stringify({ type: "session.close" })))
+        .then(() => closeMessage ? socket.write(JSON.stringify(closeMessage)) : undefined)
         .catch(() => {})
         .finally(() => void socket.close().catch(() => {}));
     }
@@ -527,12 +620,18 @@ export class VoiceRuntime {
     ++this.generation;
     this.clearTimers();
     const socket = this.socket;
+    socket?.finalizeSession?.("stop");
     this.socket = undefined;
     this.options.audio.stop();
     this.options.onAudioLevel?.(0);
     this.frames = [];
     this.outputFrames = [];
     this.outputBytes = 0;
+    this.playback = [];
+    this.playedByItem.clear();
+    this.currentAudioItem = undefined;
+    this.responseInProgress = false;
+    this.exitAfterPlayback = false;
     this.tools.reset();
     this.outputStreamDone = false;
     this.audioWriting = false;

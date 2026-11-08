@@ -1,4 +1,6 @@
 import type { Vault } from "../application.js";
+import type { RealtimeProtocolAdapter } from "./protocol.js";
+import type { LangfuseTracer, TraceContext } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
 
 export interface VoiceAudioPort {
   requestPermission(): string;
@@ -29,6 +31,8 @@ export interface VoiceSocket {
   read(): Promise<string | Uint8Array | null>;
   write(value: string): Promise<void>;
   close(): Promise<void>;
+  finalizeSession?(reason?: string): void;
+  getToolTraceContext?(callId: string): TraceContext | undefined;
 }
 
 export interface VoiceState {
@@ -55,6 +59,8 @@ export interface VoiceRuntimeOptions {
   ) => Promise<VoiceSocket>;
   onState: (state: VoiceState) => void;
   onAudioLevel?: (level: number) => void;
-  requestTask: (prompt: string) => Promise<string>;
+  requestTask: (prompt: string, traceContext?: TraceContext) => Promise<string>;
   cancelTask: () => void;
+  protocol?: RealtimeProtocolAdapter;
+  tracer?: LangfuseTracer;
 }

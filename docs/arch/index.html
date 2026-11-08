@@ -172,7 +172,7 @@
         <div class="search-status" id="search-status" role="status"></div>
         <div class="diagram-scroll" tabindex="0" aria-label="架构图，可横向滚动">
           <svg class="diagram" id="diagram" viewBox="0 0 1040 800" xmlns="http://www.w3.org/2000/svg" aria-labelledby="diagram-title diagram-description">
-            <title id="diagram-title">Super-LOOI 项目架构</title><desc id="diagram-description">选择模块查看相关源码。语音分支由本地 KWS 唤醒、沿用原生音频流连接豆包 Realtime；任务与家居分支共用本机业务入口。</desc>
+            <title id="diagram-title">Super-LOOI 项目架构</title><desc id="diagram-description">选择模块查看相关源码。语音分支由本地 KWS 唤醒，经协议适配层连接豆包或 OpenAI Realtime；语音与 Agent 共用 Langfuse 追踪上下文。</desc>
             <defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="m1 1 5 3-5 3" fill="none" stroke="#b8b1a4" stroke-width="1.2"/></marker><marker id="arrow-active" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="m1 1 5 3-5 3" fill="none" stroke="#b85b3d" stroke-width="1.2"/></marker></defs>
             <circle class="boundary-dot" cx="34" cy="35" r="3"/><text class="boundary-title local" x="46" y="40">手机本地 · NSH 0.4.0 + QuickJS</text>
             <text class="boundary-title" x="790" y="40">外部服务</text>

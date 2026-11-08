@@ -5,7 +5,8 @@ globalThis.LOOI_ARCH = {
   views: [
     { id: "all", label: "架构总览", description: "手机本地运行 Agent，直接连接模型、语音与家居服务。", nodes: [] },
     { id: "agent", label: "任务执行", description: "文字从界面进入共享任务入口，Pi 执行工具并将结果写回界面。", nodes: ["app", "store", "runtime", "agent", "models", "compat", "native", "contracts"] },
-    { id: "voice", label: "语音唤醒", description: "Rust 本地 KWS 待机，命中后复用音频流连接豆包；VoiceRuntime 管理多轮对话与自动休眠。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native"] },
+    { id: "voice", label: "语音唤醒", description: "Rust 本地 KWS 待机，命中后复用音频流连接豆包或 OpenAI Realtime；VoiceRuntime 管理多轮与自动休眠。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native"] },
+    { id: "telemetry", label: "可观测性", description: "Voice Socket、Agent Loop 与 LLM StreamFn 共用 TraceContext；本地 Langfuse v4 接收 OTLP 观测。", nodes: ["voice", "store", "runtime", "agent", "doubao"] },
     { id: "home", label: "家居控制", description: "管理界面与 Agent 家居工具共用 HomeRuntime，经网关访问 HA 或 MIoT。", nodes: ["app", "store", "runtime", "agent", "home", "gateway", "services", "contracts"] },
   ],
   nodes: [
@@ -20,19 +21,21 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "runtime", x: 280, y: 86, title: "MobileRuntime", symbol: "layers", category: "TypeScript · 本机业务", detail: "会话 / 任务 / 模型 / 家居工具", path: "apps/nsh/runtime/application.ts",
-      description: "本机业务入口，维护任务与会话，创建 Pi 执行器、模型目录和 HomeRuntime。任务保存在 SQLite 中，家居能力通过 additionalTools 注入。",
+      description: "本机业务入口，维护任务与会话，创建共享 LangfuseTracer、Pi 执行器、模型目录和 HomeRuntime。任务保存在 SQLite 中，家居能力通过 additionalTools 注入。",
       files: [
         { path: "apps/nsh/runtime/application.ts", entry: "export class MobileRuntime", anchors: [{ label: "运行时入口", match: "export class MobileRuntime" }, { label: "创建执行器", match: "private createExecutorForSelection(" }, { label: "家居工具", match: "private homeTools()" }] },
         { path: "packages/looi-runtime/src/agent/task-store.ts", entry: "export class AgentTaskStore" },
         { path: "packages/looi-runtime/src/storage/sqlite.ts", entry: "export class SqliteRuntimeStore" },
+        { path: "packages/looi-runtime/src/telemetry/langfuse.ts", entry: "export function createLangfuseTracer", anchors: [{ label: "OTLP 客户端", match: "export function createLangfuseTracer(" }, { label: "关闭刷新", match: "async shutdown()" }] },
       ],
     },
     {
       id: "agent", x: 535, y: 86, title: "Pi Agent Loop", symbol: "spark", category: "TypeScript · 任务执行", detail: "模型推理 / 文件 / Shell / 问答", path: "packages/looi-runtime/src/agent/pi-executor.ts",
-      description: "PiAgentExecutor 封装 pi-agent-core 的 Agent。执行读写文件、Shell、用户问答及家居工具，把步骤事件和最终结果交回 MobileRuntime。",
+      description: "PiAgentExecutor 封装 pi-agent-core 的 Agent。执行读写文件、Shell、用户问答及家居工具，StreamFn 与工具调用生成 Langfuse 观测。",
       files: [
         { path: "packages/looi-runtime/src/agent/pi-executor.ts", entry: "export class PiAgentExecutor", anchors: [{ label: "执行器入口", match: "export class PiAgentExecutor" }, { label: "创建 Agent", match: "new Agent(" }] },
         { path: "packages/looi-runtime/src/agent/executor.ts", entry: "export interface AgentExecutor" },
+        { path: "packages/looi-runtime/src/telemetry/llm-observer.ts", entry: "export function wrapStreamFnWithLangfuse" },
       ],
     },
     {
@@ -52,7 +55,7 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "voice", x: 280, y: 274, title: "VoiceRuntime", symbol: "wave", category: "TypeScript · 语音编排", detail: "待机唤醒 / 多轮 / 休眠", path: "apps/nsh/runtime/voice/runtime.ts",
-      description: "轮询本地唤醒结果，命中后建立豆包 Duplex 会话；提示音后上行 PCM。回复播完再继续聆听，空闲 12 秒回本地待机。两个工具各自包含 schema 与执行函数，共享分发位于 tools/index.ts。",
+      description: "轮询本地唤醒结果，命中后经协议适配器建立豆包或 OpenAI Realtime 会话。Socket 观测器折叠音频帧并将语音工具 TraceContext 传给 Agent。回复播完继续聆听，空闲 12 秒回本地待机。",
       files: [
         { path: "apps/nsh/runtime/voice.ts", entry: "export { VoiceRuntime }" },
         { path: "apps/nsh/runtime/voice/runtime.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音入口", match: "export class VoiceRuntime" }, { label: "本地待机", match: "async enterStandby()" }, { label: "建立会话", match: "async start(" }, { label: "休眠收尾", match: "endSession()" }] },
@@ -61,6 +64,8 @@ globalThis.LOOI_ARCH = {
         { path: "apps/nsh/runtime/voice/tools/end-conversation.ts", entry: "export function createEndConversation" },
         { path: "apps/nsh/runtime/voice/prompts.ts", entry: "export const voicePrompts" },
         { path: "apps/nsh/runtime/voice/protocol.ts", entry: "export function createSessionMessage" },
+        { path: "packages/looi-runtime/src/voice/realtime-protocol.ts", entry: "export interface RealtimeProtocolAdapter", anchors: [{ label: "协议契约", match: "export interface RealtimeProtocolAdapter" }, { label: "豆包适配", match: "export function createDoubaoDuplexV3Protocol" }, { label: "OpenAI 适配", match: "export function createOpenAiRealtimeProtocol" }] },
+        { path: "packages/looi-runtime/src/telemetry/realtime-observer.ts", entry: "export function observeVoiceSocket" },
         { path: "apps/nsh/runtime/voice/types.ts", entry: "export interface VoiceAudioPort" },
         { path: "apps/nsh/ui/VoiceSpaceView.tsx", entry: "export function VoiceSpaceView" },
       ],
@@ -77,14 +82,16 @@ globalThis.LOOI_ARCH = {
       ],
     },
     {
-      id: "doubao", x: 790, y: 274, title: "豆包 Realtime", symbol: "wave", category: "外部服务 · WebSocket", detail: "Duplex V3 / 流式语音 / 转写", path: "apps/nsh/runtime/voice/protocol.ts", external: true,
-      description: "豆包 Duplex V3 的 WebSocket 地址与会话配置位于 protocol.ts，对话提示词位于 prompts.ts，工具 schema 与执行分别位于 tools/ 下的两个工具文件；VoiceRuntime 接收事件并处理音频。",
+      id: "doubao", x: 790, y: 274, title: "Realtime 服务", symbol: "wave", category: "外部服务 · WebSocket", detail: "豆包 / OpenAI / 兼容服务", path: "packages/looi-runtime/src/voice/realtime-protocol.ts", external: true,
+      description: "协议适配器封装豆包 Duplex V3 与 OpenAI Realtime GA 的握手、音频、工具回传和事件归一化；本地 Langfuse v4 接收同一会话的 OTLP 追踪。",
       files: [
         { path: "apps/nsh/runtime/voice/protocol.ts", entry: "export const voiceEndpoint", anchors: [{ label: "服务地址", match: "export const voiceEndpoint" }, { label: "会话配置", match: "export function createSessionMessage" }] },
         { path: "apps/nsh/runtime/voice/prompts.ts", entry: "export const voicePrompts" },
         { path: "apps/nsh/runtime/voice/tools/run-agent-task.ts", entry: "export function createRunAgentTask" },
         { path: "apps/nsh/runtime/voice/tools/end-conversation.ts", entry: "export function createEndConversation" },
         { path: "apps/nsh/runtime/voice/runtime.ts", entry: "async start(", anchors: [{ label: "连接会话", match: "async start(" }, { label: "接收事件", match: "private async read(" }] },
+        { path: "packages/looi-runtime/src/voice/realtime-protocol.ts", entry: "export interface RealtimeProtocolAdapter" },
+        { path: "docker-compose.langfuse.yml", entry: "langfuse-web:" },
       ],
     },
     {

@@ -1,7 +1,7 @@
 import type { VoiceToolContext, VoiceToolSchema } from "./types.js";
 
 export function createRunAgentTask(
-  context: Pick<VoiceToolContext, "current" | "requestTask" | "reply" | "taskFinished" | "fail">,
+  context: Pick<VoiceToolContext, "current" | "requestTask" | "toolTraceContext" | "reply" | "taskFinished" | "fail">,
 ) {
   let runs = 0;
 
@@ -38,7 +38,7 @@ export function createRunAgentTask(
             !args.prompt.trim() ||
             args.prompt.length > 4000
           ) throw new Error();
-          output = { answer: await context.requestTask(args.prompt) };
+          output = { answer: await context.requestTask(args.prompt, context.toolTraceContext?.(callId)) };
         } catch {
           output = { error: "任务未获确认或未完成，不得声称成功。" };
         }

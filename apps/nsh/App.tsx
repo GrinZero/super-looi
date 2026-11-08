@@ -155,7 +155,7 @@ function App() {
                     accessibilityLabel={
                       voiceActive()
                         ? "结束或打断实时对话"
-                        : "开启豆包实时语音对话"
+                        : `开启${store.voiceProviderLabel()}实时语音对话`
                     }
                     disabled={!store.ready()}
                     onPress={toggleLiveVoice}

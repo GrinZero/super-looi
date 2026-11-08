@@ -33,6 +33,8 @@ import {
 import { AgentTaskStore, type TaskPersistence } from "./task-store.js";
 import type { PersonalMemoryStore } from "./personal-memory.js";
 import { assertFreshUiAction } from "../productivity/authorization.js";
+import type { LangfuseTracer, Observation } from "../telemetry/langfuse.js";
+import { wrapStreamFnWithLangfuse } from "../telemetry/llm-observer.js";
 
 const HIGH_RISK_COMMAND = [
   /rm\s+-rf/i,
@@ -74,6 +76,7 @@ async function awaitWithin(
 }
 
 export interface PiExecutorConfig {
+  tracer?: LangfuseTracer;
   taskPersistence?: TaskPersistence;
   memoryStore?: PersonalMemoryStore;
   stateDirectory?: string;
@@ -751,6 +754,14 @@ export class PiAgentExecutor implements AgentExecutor {
     worker: Worker,
   ): Promise<AgentRunResult> {
     const start = Date.now();
+    const trace = this.config.tracer?.start("agent.run", "agent", options.traceContext ?? { traceId: "", traceName: "agent.run", sessionId: task.sessionId }, {
+      "langfuse.observation.input": prompt,
+      "langfuse.observation.metadata.taskId": task.id,
+      "langfuse.observation.metadata.mode": options.mode ?? "text",
+    });
+    const toolTraces = new Map<string, Observation>();
+    let tracedAnswer: string | undefined;
+    let traceError = false;
     let toolCallsCount = 0;
     let step = 0;
     const executions: AgentCommandEvidence[] = [];
@@ -818,7 +829,7 @@ export class PiAgentExecutor implements AgentExecutor {
         },
         sessionId: task.sessionId,
         toolExecution: "sequential",
-        streamFn,
+        streamFn: this.config.tracer?.enabled ? wrapStreamFnWithLangfuse(streamFn, { tracer: this.config.tracer, getTraceContext: () => trace?.context }) : streamFn,
         beforeToolCall: async (
           { toolCall, args },
           signal,
@@ -934,6 +945,7 @@ export class PiAgentExecutor implements AgentExecutor {
           }
           emit({ step, phase: "thinking", summary: "Pi Agent 正在思考…" });
         } else if (event.type === "tool_execution_start") {
+          if (trace && this.config.tracer) toolTraces.set(event.toolCallId, this.config.tracer.start(`agent.tool.${event.toolName}`, "tool", trace.context, { "langfuse.observation.input": event.args }));
           toolCallsCount++;
           if (toolCallsCount > (this.config.maxToolCalls ?? 32)) {
             task.error = "Agent tool budget exceeded";
@@ -947,6 +959,8 @@ export class PiAgentExecutor implements AgentExecutor {
             summary: `Pi · ${event.toolName}`,
           });
         } else if (event.type === "tool_execution_end") {
+          toolTraces.get(event.toolCallId)?.end({ "langfuse.observation.output": event.result, ...(event.isError ? { "langfuse.observation.level": "ERROR" } : {}), ...(event.durationMs !== undefined ? { "langfuse.observation.metadata.durationMs": event.durationMs } : {}) });
+          toolTraces.delete(event.toolCallId);
           emit({
             step,
             phase: "tool_end",
@@ -980,6 +994,7 @@ export class PiAgentExecutor implements AgentExecutor {
       const finalResponse = lastAssistant
         ? contentText(lastAssistant.content).trim()
         : "";
+      tracedAnswer = finalResponse;
 
       if (
         stopReason === "error" ||
@@ -1016,6 +1031,7 @@ export class PiAgentExecutor implements AgentExecutor {
       this.update(task);
       return output;
     } catch (error) {
+      traceError = true;
       const message = this.sanitize(
         error instanceof Error ? error.message : "Pi agent execution failed",
       );
@@ -1029,6 +1045,8 @@ export class PiAgentExecutor implements AgentExecutor {
       emit({ step, phase: "error", summary: task.error });
       throw new AgentExecutionError(task.error, task.id);
     } finally {
+      for (const span of toolTraces.values()) span.end({ "langfuse.observation.level": "ERROR" });
+      trace?.end({ "langfuse.observation.output": tracedAnswer ?? "", "langfuse.observation.metadata.toolCallsCount": toolCallsCount, ...(traceError ? { "langfuse.observation.level": "ERROR" } : {}) });
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener("abort", abort);
       worker.pending?.settle(
@@ -1204,7 +1222,10 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   close(): Promise<void> {
-    return (this.closing ??= this.closeWorkers());
+    return (this.closing ??= (async () => {
+      try { await this.closeWorkers(); }
+      finally { await this.config.tracer?.flush(); }
+    })());
   }
 
   private async closeWorkers(): Promise<void> {

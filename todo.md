@@ -1,5 +1,20 @@
 # 当前待办
 
+## 中英双语接入
+
+接入依据见 [NSH 中英双语接入调研](docs/nsh-multilingual-integration-research.md)，执行步骤见 [实施计划](docs/plans/nsh-bilingual-integration-plan.md)。
+
+- [ ] 接入 `zh-CN`／`en-US` 本地词条、系统语言与手动覆盖，迁移 UI、状态、错误和无障碍文案；随后统一文字 Agent 与 Realtime 的按输入语言回复规则。
+- [ ] 豆包英文专用音色 `en_female_jenny_uranus_bigtts` 在当前 `1.2.6.1` 模型与凭证下返回英文文本但零音频帧；如需提供英文专用音色，先核实适用的 S2S 音色 ID 并取得有声输出。
+
+## LOOI 专属机械音色
+
+- [ ] 试听 `assets/voice/looi-warm-mechanical-reference.wav` 后确定声线；在豆包音色设计或声音复刻中生成专属 Speaker ID，填入 NSH「语音 → 豆包输出音色」。当前 `DOUBAO_API_KEY` 请求 Seed Audio 1.0 返回 `403 resource not granted`。
+
+## iOS 模拟器语音回灌（2026-11-08）
+
+- [ ] iPhone 16e 的第二轮 ASR 转写包含 LOOI 上一轮播报；核对模拟器播放回灌与实时语音回声消除，避免把助手语音当作用户输入。
+
 ## NSH 自动语音唤醒 → 豆包 Realtime 对话（2026-11-07 规划）
 
 调研与实施方案见 [开源社区调研](docs/voice-wake-realtime-community-research.md) 与 [NSH 语音唤醒实施方案](docs/plans/nsh-voice-wake-realtime-plan.md)。
@@ -11,6 +26,8 @@
   - [x] 首屏和语音管理空间：唤醒开关、状态文案与前后台/米家登录生命周期联动。
   - [ ] 用真实麦克风分别说出 Hey LOOI、嘿露伊、你好露伊，记录唤醒准确率和误唤醒情况；iOS 模拟器已验证 Hey LOOI 口述命中并进入 LIVE 连接，其余口令和真机仍待测。
   - [ ] 用真实豆包 Duplex 凭证验证唤醒后的多轮播报、长句不误休眠、道别工具和 12 秒回待机。
+  - [ ] 用真实豆包凭证复核明确结束语回待机：协议适配器已启用 `enable_user_query_exit`，将 `status_code="20000002"` 映射为播报排空后 `session.close`，模拟回归已通过；真网回读尚待验证。该端点实测拒绝 `response.create`（`45000000: unknown event name`）。
+  - [ ] 用真实 OpenAI Realtime 凭证验证多轮、打断播放进度、工具续说与 Langfuse 中的完整 Voice → Agent Trace；当前已覆盖协议、运行时和追踪集成测试。
   - [x] Android API 34 模拟器首次麦克风授权、KWS 加载、单流切换与提示音探针通过；三 ABI APK 已构建并通过 16 KB 对齐验证。
 - [ ] **后续备选优化：零等待连说增强（视首版实机体验按需启用）**
   - [ ] **备选 B1（冷启动有界 FIFO + 加速节拍追赶）**：唤醒词命中瞬间将词尾后的首句语音缓存在本地有界 FIFO（上限 3 秒），收到 `session.created` 后将豆包发送节拍器从 `20ms` 临时提速至 `11ms`（约 1.8x）排空积压帧后恢复 `20ms` 实时步进，支持 `"Hey LOOI 打开台灯"` 无需停顿连说。

@@ -25,6 +25,16 @@
             "GET",
             "POST"
           ]
+        },
+        {
+          "host": "localhost",
+          "schemes": [
+            "http"
+          ],
+          "port": 3000,
+          "methods": [
+            "POST"
+          ]
         }
       ]
     },
