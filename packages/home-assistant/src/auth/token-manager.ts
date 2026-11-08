@@ -5,6 +5,8 @@ export interface CredentialStore {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   delete(key: string): Promise<void>;
+  /** Roll back only this attempted value, even after the host invalidates its generation. */
+  restoreIfUnchanged?(key: string, attemptedValue: string, previousValue: string | null): Promise<boolean>;
 }
 
 export interface MiotCredentialScope { region: MiotRegion; clientId: string; redirectUri: string }
@@ -91,12 +93,19 @@ export class MiotTokenManager {
 
   private async persist(credentials: MiotCredentials, generation: number, isCurrent: () => boolean = () => true): Promise<void> {
     const previousCurrent = this.current;
+    const serialized = JSON.stringify(credentials);
     let previousValue: string | null = null;
     const valid = () => generation === this.generation && isCurrent();
     const restore = async () => {
       try {
+        if (this.options.store.restoreIfUnchanged) {
+          const restored = await this.options.store.restoreIfUnchanged(this.key, serialized, previousValue);
+          if (!restored) this.current = null;
+          return restored;
+        }
         if (previousValue === null) await this.options.store.delete(this.key);
         else await this.options.store.set(this.key, previousValue);
+        return true;
       } catch { this.current = null; throw new Error("miot_credential_store_failed"); }
     };
     await this.enqueue(async () => {
@@ -104,7 +113,7 @@ export class MiotTokenManager {
       try { previousValue = await this.options.store.get(this.key); }
       catch { throw new Error("miot_credential_store_failed"); }
       if (!valid()) throw new Error("miot_session_changed");
-      try { await this.options.store.set(this.key, JSON.stringify(credentials)); }
+      try { await this.options.store.set(this.key, serialized); }
       catch { throw new Error("miot_credential_store_failed"); }
       if (!valid()) { await restore(); throw new Error("miot_session_changed"); }
       this.current = credentials;
@@ -116,8 +125,8 @@ export class MiotTokenManager {
         this.current = null;
         await this.enqueue(async () => {
           if (restoringGeneration !== this.generation) return;
-          await restore();
-          if (restoringGeneration === this.generation) this.current = previousCurrent;
+          const restored = await restore();
+          if (restored && restoringGeneration === this.generation) this.current = previousCurrent;
         });
       }
       throw new Error("miot_session_changed");

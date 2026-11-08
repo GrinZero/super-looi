@@ -9,6 +9,50 @@ const crypto = { randomUUID: () => uuid, async sha1(value: string) { return crea
 const callback = (state: string, code = "test-code") => `${redirectUri}?${new URLSearchParams({ code, state })}`;
 const token = { access_token: "private-access", refresh_token: "private-refresh", expires_in: 100 };
 
+it("rechecks a native login guard across exchange, storage read/write and commit rollback", async () => {
+  for (const boundary of ["request", "read", "write"] as const) {
+    for (const invalidation of ["cancelled", "expired", "throws"] as const) {
+      const store = new PrivateStore();
+      let now = 0, invalid = false, armed = false;
+      const hold = deferred<void>(), started = deferred<void>();
+      const pause = async () => { started.resolve(); await hold.promise; };
+      const client = new MiotOAuthClient({ redirectUri, store, crypto, now: () => now,
+        fetch: (async () => { if (boundary === "request") await pause(); return jsonResponse(token); }) as typeof fetch });
+      await client.tokens.install(createMiotCredentials(scope, `ha.${uuid}`, { accessToken: "original", refreshToken: "r", expiresIn: 3600 }, 0));
+      const get = store.get.bind(store), set = store.set.bind(store);
+      store.get = async (key) => { const result = await get(key); if (armed && boundary === "read") { armed = false; await pause(); } return result; };
+      store.set = async (key, value) => { await set(key, value); if (armed && boundary === "write") { armed = false; await pause(); } };
+      const session = await client.beginAuthSession();
+      client.tryInterceptCallbackUrl(callback(session.state));
+      armed = true;
+      const exchange = client.completeAuthWithCode("test-code", () => {
+        if (invalid && invalidation === "throws") throw new Error("disposed native browser");
+        return !invalid || invalidation === "expired";
+      });
+      await started.promise;
+      invalid = true;
+      if (invalidation === "expired") now = session.expiresAt;
+      hold.resolve();
+      await assert.rejects(exchange, /miot_session_changed/, `${boundary}/${invalidation}`);
+      assert.equal(await client.tokens.getAccessToken(), "original");
+      assert.equal(JSON.parse([...store.values.values()][0]).accessToken, "original");
+    }
+  }
+});
+
+it("accepts a consumed native callback with its window closed and preserves a committed account after cancellation", async () => {
+  const store = new PrivateStore();
+  const client = new MiotOAuthClient({ redirectUri, store, crypto, now: () => 0,
+    fetch: (async () => jsonResponse(token)) as typeof fetch });
+  const session = await client.beginAuthSession();
+  client.tryInterceptCallbackUrl(callback(session.state));
+  let state = "consumed";
+  await client.completeAuthWithCode("test-code", () => state === "consumed");
+  state = "cancelled"; client.cancelAuthSession();
+  assert.equal(await client.tokens.getAccessToken(), token.access_token);
+  await assert.rejects(client.completeAuthWithCode("test-code", () => true), /miot_invalid_auth_code/);
+});
+
 it("uses independent secure random sessions with the default WebCrypto provider", async () => {
   const client = new MiotOAuthClient({ store: new PrivateStore(), redirectUri });
   const first = await client.beginAuthSession();

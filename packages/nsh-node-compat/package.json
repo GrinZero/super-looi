@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./native-host": "./dist/native-host.js",
     ".": "./dist/index.js",
     "./bundler": "./dist/bundler.js",
     "./shims/*": "./dist/shims/*.js",

@@ -1,0 +1,67 @@
+{
+  "sourceReference": "40a592c",
+  "scope": "Final conversation implementation; separate from retained 73a667c snapshot",
+  "bundleSha256": "3863e712bb74d8e44d840ce6a98f9e151a2f34ec7b390851641aac03f9307022",
+  "iosBundleSha256": "3863e712bb74d8e44d840ce6a98f9e151a2f34ec7b390851641aac03f9307022",
+  "samePlatformBundle": true,
+  "androidApkSha256": "a5a52a5878eb8d1a5fd9e4ec584088d632deb79f3c0e88ffce9a080ad4ec14e8",
+  "iosSimulatorIdentity": {
+    "application-identifier": "SUPERLOOI.com.superlooi.app",
+    "keychain-access-groups": [
+      "SUPERLOOI.com.superlooi.app"
+    ]
+  },
+  "androidLibraries": [
+    "lib/arm64-v8a/libnsh.so",
+    "lib/armeabi-v7a/libnsh.so"
+  ],
+  "androidTestAssets": [],
+  "nativeSuites": {
+    "ios": {
+      "passed": true,
+      "durationSeconds": 14.7
+    },
+    "android": {
+      "passed": true,
+      "durationSeconds": 39.0
+    },
+    "suiteCount": 10,
+    "includesPersistedConversation": true,
+    "nativeCredentialCrud": "probe slot only"
+  },
+  "finalColdLaunch": {
+    "ios": true,
+    "android": true,
+    "developmentServerRequired": false
+  },
+  "androidConfiguration": {
+    "priorUnknownConfigurationWasOverwrittenInEarlierSnapshot": true,
+    "originalBackupAvailable": false,
+    "userAuthorizedEnvRestore": true,
+    "restoredThroughProductUi": true,
+    "coldRestartValuesMatchEnvWithoutDisclosure": true,
+    "secureKeyPresentAfterColdRestart": true
+  },
+  "iosConfiguration": "Unchanged test-only invalid configuration; no real credentials written",
+  "physicalDevicesValidated": false,
+  "signing": {
+    "ios": "ad-hoc simulator only",
+    "android": "Android Debug certificate; not store signing"
+  },
+  "limits": [
+    "No physical media/BLE/home hardware testing",
+    "32-bit ABI compiled but not executed",
+    "No AAB/store signing/API36 validation",
+    "Host network interfaces were not disabled during local memory tests"
+  ],
+  "androidProductionConversation": {
+    "twoRealModelTurnsPassed": true,
+    "previousAssistantReplyRetained": true,
+    "noToolsRequested": true,
+    "outputAndCredentialsNotDisclosed": true
+  },
+  "credentialLiteralAudit": {
+    "androidProductContainsConfiguredApiKey": false,
+    "iosProductContainsConfiguredApiKey": false
+  }
+}

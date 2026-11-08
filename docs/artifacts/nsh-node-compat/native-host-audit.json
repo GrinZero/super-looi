@@ -1,0 +1,88 @@
+{
+  "nshVersion": "0.4.0",
+  "nshCommit": "e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3",
+  "quickjsVersion": "0.14.1",
+  "piVersion": "1.5.0",
+  "namespace": "super-looi/native",
+  "fixture": "apps/nsh/scripts/build-compat-probe.ts",
+  "suites": [
+    "node-shims",
+    "budgets",
+    "pi-agent-core",
+    "pi-ai",
+    "pi-durable",
+    "codemode",
+    "pi-coding-agent",
+    "pi-sdk",
+    "looi-runtime",
+    "mobile-runtime"
+  ],
+  "headless": {
+    "passed": true,
+    "hardening": true,
+    "heapMiB": 256,
+    "privateDataDirectory": true
+  },
+  "iosSimulator": {
+    "passed": true,
+    "device": "iPhone 16e",
+    "runtime": "iOS 26.3",
+    "nativeClass": true
+  },
+  "android": {
+    "verified": true,
+    "device": "Codex_SuperLooi_NSH_API34",
+    "runtime": "Android 14 / API 34",
+    "executedAbi": "arm64-v8a",
+    "nativeClass": true,
+    "releaseApkCompiledAbis": [
+      "arm64-v8a",
+      "armeabi-v7a"
+    ],
+    "signing": "debug key (not store release)",
+    "releaseApkArtifactStage": "Final conversation app; cold launch and persistent secure configuration verified on API34 ARM64; see release-audit.json"
+  },
+  "businessUiMediaMigrated": false,
+  "migrationAllowed": false,
+  "note": "Ten fixture-based compatibility suites pass on both native simulators. Separate native fetch live MobileRuntime probes pass on both; Android product Release also passes real two-turn conversation. Full business/media/BLE migration and store distribution remain pending.",
+  "businessCore": {
+    "portablePackage": "@super-looi/runtime",
+    "behavioralContracts": 48,
+    "sqliteMemoryTaskReopen": true,
+    "freshUiApprovalEnforced": true,
+    "oldBackupDeletionAndSuppressionReplay": true,
+    "iosAndAndroidSimulator": true,
+    "physicalMediaBleVisionVerified": false
+  },
+  "secureCredentials": {
+    "iosKeychainCrud": true,
+    "androidKeystoreCrud": true,
+    "testSlotOnly": true,
+    "androidPluginManifestDexRegression": true
+  },
+  "ui": {
+    "iosSimulatorFaceSettingsOfflineMemory": true,
+    "androidSystemUiAutomationOfflineMemory": true,
+    "androidFixedNshDriverDialogInputSupported": false,
+    "realMobileModelNetworkVerified": false,
+    "liveVoiceAvailable": false,
+    "bodyConnected": false
+  },
+  "sourceReference": "40a592c",
+  "nativeModelNetwork": {
+    "iosMobileRuntime": true,
+    "androidMobileRuntime": true,
+    "androidReleaseTwoTurnConversation": true,
+    "usesProductionNativeFetch": true,
+    "actualCodingSdk": {
+      "ios": true,
+      "android": true,
+      "tools": "write then read same sandbox file, matched call IDs and receipts",
+      "session": "JSONL tool receipts and final answer reopened",
+      "network": "NSH native fetch",
+      "credentials": "in-memory only; no production vault writes",
+      "fixture": "packages/nsh-node-compat/test/native-sdk-live.ts"
+    }
+  },
+  "releaseAudit": "release-audit.json"
+}

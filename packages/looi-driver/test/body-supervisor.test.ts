@@ -16,6 +16,98 @@ import {
 } from "@super-looi/contracts";
 
 describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
+  it("rebinds unexpected-disconnect safety after an explicit reconnect", async () => {
+    const transport = new SimulatedBleTransport();
+    const supervisor = new BodySupervisor(transport);
+    await supervisor.connect();
+    transport.emitNotification("dockNotify", "05");
+    await supervisor.disconnect();
+    await supervisor.connect();
+    transport.emitNotification("dockNotify", "05");
+    assert.equal(supervisor.getState(), "ready");
+    transport.emitUnexpectedDisconnect();
+    assert.equal(supervisor.getState(), "disconnected");
+    assert.equal(supervisor.getIsDocked(), false);
+    assert.equal(supervisor.getActiveLease(), null);
+  });
+
+  it("cleans up late native subscriptions and ignores their callbacks after reconnect", async () => {
+    let connected = true, removed = 0, received = 0;
+    let emit!: (value: string) => void;
+    let finish!: (unsubscribe: () => void) => void;
+    const adapter: NativeBleAdapter = {
+      scanAndConnect: async () => { connected = true; },
+      disconnect: async () => { connected = false; },
+      isConnected: () => connected,
+      writeCharacteristicWithResponse: async () => {},
+      writeCharacteristicWithoutResponse: async () => {},
+      monitorCharacteristic: async (_, listener) => { emit = listener; return new Promise(resolve => { finish = resolve; }); },
+      onDisconnected: () => () => {},
+    };
+    const transport = new CrossPlatformBleTransport(adapter);
+    const registering = transport.startNotifications("dockNotify", () => { received++; });
+    await transport.disconnect();
+    await transport.connect();
+    finish(() => { removed++; });
+    await registering;
+    emit("05");
+    assert.equal(removed, 1);
+    assert.equal(received, 0);
+    transport.dispose();
+    await assert.rejects(() => transport.connect(), /disposed/);
+    await assert.rejects(() => transport.write("drive", "0000"), /disconnected/);
+    assert.equal(transport.isConnected(), false);
+  });
+
+  it("invalidates failed registrations and rejects subscriptions throughout disconnect", async () => {
+    let connected = true, received = 0;
+    let emit!: (value: string) => void, finishDisconnect!: () => void;
+    const adapter: NativeBleAdapter = {
+      scanAndConnect: async () => { connected = true; },
+      disconnect: async () => { await new Promise<void>(resolve => { finishDisconnect = resolve; }); connected = false; },
+      isConnected: () => connected,
+      writeCharacteristicWithResponse: async () => {},
+      writeCharacteristicWithoutResponse: async () => {},
+      monitorCharacteristic: async (_, listener) => { emit = listener; throw new Error("registration failed"); },
+      onDisconnected: () => () => {},
+    };
+    const transport = new CrossPlatformBleTransport(adapter);
+    await assert.rejects(() => transport.startNotifications("dockNotify", () => { received++; }), /registration failed/);
+    emit("05"); assert.equal(received, 0);
+    const disconnecting = transport.disconnect();
+    await assert.rejects(() => transport.startNotifications("dockNotify", () => { received++; }), /disconnected/);
+    await assert.rejects(() => transport.write("drive", "1100"), /disconnected/);
+    finishDisconnect(); await disconnecting;
+    await transport.connect(); emit("05"); assert.equal(received, 0);
+    transport.dispose();
+  });
+
+  it("invalidates late connects on unexpected loss and coalesces concurrent disconnects", async () => {
+    let connected=false, disconnectCalls=0;
+    let lost!:()=>void, finishConnect!:()=>void, finishDisconnect!:()=>void;
+    const adapter:NativeBleAdapter={
+      scanAndConnect:async()=>{await new Promise<void>(resolve=>{finishConnect=resolve;});connected=true;},
+      disconnect:async()=>{disconnectCalls++;connected=false;},isConnected:()=>connected,
+      writeCharacteristicWithResponse:async()=>{},writeCharacteristicWithoutResponse:async()=>{},
+      monitorCharacteristic:async()=>()=>{},onDisconnected:listener=>{lost=listener;return()=>{};},
+    };
+    const transport=new CrossPlatformBleTransport(adapter);
+    const opening=transport.connect();lost();finishConnect();
+    await assert.rejects(()=>opening,/cancelled/);
+    assert.equal(transport.isConnected(),false);
+    transport.dispose();
+    const other=new CrossPlatformBleTransport({...adapter,scanAndConnect:async()=>{connected=true;},disconnect:async()=>{disconnectCalls++;await new Promise<void>(resolve=>{finishDisconnect=resolve;});connected=false;}});
+    await other.connect();
+    const before=disconnectCalls;
+    const first=other.disconnect(),second=other.disconnect();
+    await assert.rejects(()=>other.connect(),/transition/);
+    assert.equal(disconnectCalls,before+1);
+    finishDisconnect();await Promise.all([first,second]);other.dispose();
+    let attempts=0;
+    const throwing = new CrossPlatformBleTransport({...adapter,disconnect:()=>{if(++attempts===1)throw new Error("sync native refusal");return Promise.resolve();}});
+    await assert.rejects(()=>throwing.disconnect(), /sync native refusal/);
+    await throwing.disconnect();assert.equal(attempts,2);throwing.dispose();
+  });
   it("executes correct handshake sequence upon connect and registers dock notifications", async () => {
     const transport = new SimulatedBleTransport();
     const supervisor = new BodySupervisor(transport);
@@ -131,7 +223,7 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     assert.equal(supervisor.getState(), "ready");
   });
 
-  it("executes bounded pulse (executePulse) and returns valid MotionObservation evidence", async () => {
+  it("executes bounded pulse without inventing physical stability evidence", async () => {
     const transport = new SimulatedBleTransport();
     const supervisor = new BodySupervisor(transport);
     await supervisor.connect();
@@ -144,9 +236,9 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
 
     const observation = await pulsePromise;
     assert.ok(observation.stop_command_at);
-    assert.ok(observation.verified_motion_end_at);
-    assert.ok(observation.stable_capture_at);
-    assert.ok(observation.stability_evidence_ids.length > 0);
+    assert.equal(observation.verified_motion_end_at, null);
+    assert.equal(observation.stable_capture_at, null);
+    assert.deepEqual(observation.stability_evidence_ids, []);
 
     // Stop command payload (0000) must have been written
     const lastCommand = transport.writtenCommands[transport.writtenCommands.length - 1];

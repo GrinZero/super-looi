@@ -139,6 +139,10 @@ pub struct Handles {
     >,
 }
 impl Handles {
+    pub fn close_all(&mut self) {
+        self.files.clear();
+        self.watches.clear();
+    }
     pub fn new(root: std::path::PathBuf) -> Self {
         Self {
             next: 0,

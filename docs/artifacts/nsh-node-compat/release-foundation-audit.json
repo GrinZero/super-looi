@@ -1,0 +1,89 @@
+{
+  "sourceReference": "73a667c",
+  "commitTime": "2026-11-07T01:36:54+08:00",
+  "iosBundleWriteTime": "2026-11-07T01:36:12.514468+08:00",
+  "snapshotNote": "Bundle compilation preceded the next conversation-session implementation; both platform bundle hashes match. Native release compilation completed later.",
+  "bundleSha256": "d21bc89f8cfaaf39fcf764527784c1d322f909f06797553ae00ce46c87b66e09",
+  "iosBundleSha256": "d21bc89f8cfaaf39fcf764527784c1d322f909f06797553ae00ce46c87b66e09",
+  "androidApkSha256": "68878eed66eed925468092905ee71fc4d5deb598c5735d23ff49246cb0bffd4a",
+  "iosInfo": {
+    "CFBundleDevelopmentRegion": "en",
+    "CFBundleExecutable": "SuperLOOI",
+    "CFBundleIdentifier": "com.superlooi.app",
+    "CFBundleName": "Super LOOI",
+    "CFBundleDisplayName": "Super LOOI",
+    "CFBundlePackageType": "APPL",
+    "CFBundleShortVersionString": "1.0.0",
+    "CFBundleVersion": "1",
+    "CFBundleSupportedPlatforms": [
+      "iPhoneSimulator"
+    ],
+    "MinimumOSVersion": "15.0",
+    "UIDeviceFamily": [
+      1,
+      2
+    ],
+    "LSRequiresIPhoneOS": true,
+    "UILaunchScreen": {},
+    "UIApplicationSupportsMultipleScenes": false,
+    "CADisableMinimumFrameDurationOnPhone": true,
+    "UIUserInterfaceStyle": "Dark",
+    "UISupportedInterfaceOrientations": [
+      "UIInterfaceOrientationPortrait",
+      "UIInterfaceOrientationLandscapeLeft",
+      "UIInterfaceOrientationLandscapeRight"
+    ],
+    "UISupportedInterfaceOrientations~ipad": [
+      "UIInterfaceOrientationPortrait",
+      "UIInterfaceOrientationPortraitUpsideDown",
+      "UIInterfaceOrientationLandscapeLeft",
+      "UIInterfaceOrientationLandscapeRight"
+    ]
+  },
+  "iosSimulatorIdentity": {
+    "application-identifier": "SUPERLOOI.com.superlooi.app",
+    "keychain-access-groups": [
+      "SUPERLOOI.com.superlooi.app"
+    ]
+  },
+  "androidLibraries": [
+    "lib/arm64-v8a/libnsh.so",
+    "lib/armeabi-v7a/libnsh.so"
+  ],
+  "androidTestAssets": [],
+  "credentialsTest": {
+    "baseUrl": "https://release-test.invalid/v1",
+    "model": "release-test-only-model",
+    "key": "explicit invalid nonsecret test-only value",
+    "iosSaveForceStopReopen": true,
+    "androidSaveForceStopReopen": true,
+    "testConfigurationRetained": true,
+    "androidPreviousConfiguration": {
+      "presentAtInitialColdLaunch": true,
+      "provenance": "unknown; not verified before test save",
+      "overwrittenByTest": true,
+      "backupAvailable": false,
+      "originalValueRecoverable": "not established"
+    }
+  },
+  "memoryTest": {
+    "iosWriteForceStopRecallForget": true,
+    "androidWriteForceStopRecallForget": true,
+    "testNotesForgotten": true
+  },
+  "developmentServerRequired": false,
+  "networkNote": "No NSH development service was listening; tests used native local memory paths with no configured real model. Host/emulator network interfaces were not disabled.",
+  "signing": {
+    "ios": "ad-hoc simulator only",
+    "android": "Android Debug certificate; not store release"
+  },
+  "device": {
+    "ios": "iPhone16e/iOS26.3 simulator",
+    "android": "emulator-5556/Android14/API34/arm64-v8a"
+  },
+  "notValidated": [
+    "physical hardware/media/BLE",
+    "32-bit ABI execution",
+    "store signing/AAB/API36"
+  ]
+}

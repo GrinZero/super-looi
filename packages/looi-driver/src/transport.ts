@@ -53,9 +53,19 @@ export interface NativeBleAdapter {
 export class CrossPlatformBleTransport implements LooiBleTransport {
   private readonly disconnectListeners = new Set<() => void>();
   private adapterUnsubscribeDisconnect?: () => void;
+  private readonly notifications = new Map<CharacteristicKey, () => void>();
+  private readonly notificationTickets = new Map<CharacteristicKey, number>();
+  private nextTicket = 0;
+  private disposed = false;
+  private disconnecting = false;
+  private connecting = false;
+  private connectionGeneration = 0;
+  private disconnectPromise?: Promise<void>;
 
   constructor(private readonly adapter: NativeBleAdapter) {
     this.adapterUnsubscribeDisconnect = this.adapter.onDisconnected(() => {
+      ++this.connectionGeneration;
+      this.clearNotifications();
       for (const listener of this.disconnectListeners) {
         listener();
       }
@@ -63,15 +73,32 @@ export class CrossPlatformBleTransport implements LooiBleTransport {
   }
 
   public isConnected(): boolean {
-    return this.adapter.isConnected();
+    return !this.disposed && !this.disconnecting && this.adapter.isConnected();
   }
 
   public async connect(): Promise<void> {
-    await this.adapter.scanAndConnect(LOOI_SERVICE_UUID);
+    if (this.disposed) throw new Error("BLE transport disposed");
+    if (this.disconnecting || this.connecting) throw new Error("BLE connection transition in progress");
+    const generation = ++this.connectionGeneration;
+    this.connecting = true;
+    try {
+      await this.adapter.scanAndConnect(LOOI_SERVICE_UUID);
+      if (this.disposed || this.disconnecting || generation !== this.connectionGeneration) {
+        await this.adapter.disconnect();
+        throw new Error("BLE connection cancelled");
+      }
+    } finally { this.connecting = false; }
   }
 
   public async disconnect(): Promise<void> {
-    await this.adapter.disconnect();
+    if (this.disconnectPromise) return this.disconnectPromise;
+    ++this.connectionGeneration;
+    this.disconnecting = true;
+    this.clearNotifications();
+    this.disconnectPromise = Promise.resolve().then(() => this.adapter.disconnect()).finally(() => {
+      this.clearNotifications(); this.disconnecting = false; this.disconnectPromise = undefined;
+    });
+    return this.disconnectPromise;
   }
 
   public async write(
@@ -79,6 +106,7 @@ export class CrossPlatformBleTransport implements LooiBleTransport {
     payloadHex: string,
     options: LooiTransportWriteOptions = {}
   ): Promise<void> {
+    if (!this.isConnected()) throw new Error("BLE transport disconnected");
     if (options.response === false) {
       await this.adapter.writeCharacteristicWithoutResponse(characteristic, payloadHex);
     } else {
@@ -90,13 +118,26 @@ export class CrossPlatformBleTransport implements LooiBleTransport {
     characteristic: CharacteristicKey,
     onValue: (event: LooiNotificationEvent) => void
   ): Promise<void> {
-    await this.adapter.monitorCharacteristic(characteristic, (hex) => {
+    if (this.disposed || !this.isConnected()) throw new Error("BLE transport disconnected");
+    const ticket = ++this.nextTicket;
+    this.notificationTickets.set(characteristic, ticket);
+    this.notifications.get(characteristic)?.();
+    this.notifications.delete(characteristic);
+    try {
+    const unsubscribe = await this.adapter.monitorCharacteristic(characteristic, (hex) => {
+      if (this.disposed || !this.isConnected() || this.notificationTickets.get(characteristic) !== ticket) return;
       onValue({
         characteristic,
         hex,
         bytes: hexToBytes(hex),
       });
     });
+    if (this.disposed || !this.isConnected() || this.notificationTickets.get(characteristic) !== ticket) unsubscribe();
+    else this.notifications.set(characteristic, unsubscribe);
+    } catch (error) {
+      if (this.notificationTickets.get(characteristic) === ticket) this.notificationTickets.delete(characteristic);
+      throw error;
+    }
   }
 
   public onDisconnected(callback: () => void): () => void {
@@ -107,8 +148,18 @@ export class CrossPlatformBleTransport implements LooiBleTransport {
   }
 
   public dispose(): void {
+    this.disposed = true;
+    ++this.connectionGeneration;
+    this.clearNotifications();
     this.adapterUnsubscribeDisconnect?.();
     this.disconnectListeners.clear();
+  }
+  private clearNotifications(): void {
+    this.notificationTickets.clear();
+    for (const unsubscribe of this.notifications.values()) {
+      try { unsubscribe(); } catch { /* Finish invalidating every old callback. */ }
+    }
+    this.notifications.clear();
   }
 }
 

@@ -1,0 +1,6 @@
+.nsh/
+target/
+generated/
+
+# Ephemeral live-test entry (contains in-memory test configuration)
+/LiveProbe.tsx

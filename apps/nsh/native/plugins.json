@@ -1,0 +1,14 @@
+{
+  "android": {
+    "application": "com.superlooi.nsh.SuperLooiApplication",
+    "allowBackup": false,
+    "permissions": [
+      "android.permission.RECORD_AUDIO",
+      "android.permission.MODIFY_AUDIO_SETTINGS"
+    ]
+  },
+  "iosSimulator": {
+    "applicationIdentifier": "SUPERLOOI.com.longbridge.nsh.host",
+    "releaseApplicationIdentifier": "SUPERLOOI.com.superlooi.app"
+  }
+}

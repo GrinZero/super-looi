@@ -75,16 +75,23 @@ export class MiotOAuthClient {
     return { intercepted: true, code: codes[0] };
   }
 
-  async completeAuthWithCode(code: string): Promise<void> {
+  async completeAuthWithCode(code: string, isCurrent: () => boolean = () => true): Promise<void> {
     if (!this.session || this.now() >= this.session.expiresAt || !code || this.validatedCode !== code) throw new Error("miot_invalid_auth_code");
     const session = this.session;
     const generation = this.generation;
     this.session = null; this.validatedCode = null;
+    // Read the native session at every commit boundary, including after storage awaits.
+    // A disposed native handle must fail closed without bypassing persist's rollback.
+    const valid = () => {
+      try { return generation === this.generation && this.now() < session.expiresAt && isCurrent(); }
+      catch { return false; }
+    };
+    if (!valid()) throw new Error("miot_session_changed");
     const result = await this.requestToken({ code, device_id: session.deviceId });
-    if (generation !== this.generation) throw new Error("miot_session_changed");
+    if (!valid()) throw new Error("miot_session_changed");
     // install's final guard is the credential commit point. A later cancel ends navigation,
     // while an already committed account remains logged in until explicit logout.
-    await this.tokens.install(createMiotCredentials(this.scope, session.deviceId, result, this.now()), () => generation === this.generation);
+    await this.tokens.install(createMiotCredentials(this.scope, session.deviceId, result, this.now()), valid);
   }
 
   /** Cancel pending navigation/exchange/storage. Use logout to revoke a committed account. */

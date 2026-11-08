@@ -1,46 +1,32 @@
-# Super-LOOI (Presence v0.2)
+# Super-LOOI
 
-> 以手机为感知与交互入口、以 LOOI 为身体、以 DeepSeek Harness 为任务执行内核的个人具身 Agent。
+以手机为交互入口、以 LOOI 为身体的个人 Agent。唯一应用是 `apps/nsh`：NSH 0.4.0 原生宿主、Rust 系统能力与 TSX 界面，QuickJS 内运行 Pi Agent Loop，手机直接连接模型和实时语音服务。
 
-## 架构概览
+## 仓库结构
 
-本项目采用净室重构的 `pnpm` Monorepo 架构，分层清晰，职责严格隔离：
+- `apps/nsh`：iOS / Android 应用、原生音频、安全凭据、米家登录和界面。
+- `packages/looi-runtime`：共享 Agent、任务、领域逻辑与回归测试。
+- `packages/nsh-node-compat`：QuickJS 的 Node API 适配与 Rust 文件、SQLite、Shell 能力。
+- `packages/contracts`：跨模块契约。
+- `packages/looi-driver`：LOOI 协议与身体状态机。
+- `packages/home-assistant`：Home Assistant / MIoT 客户端。
 
-```
-super-looi/
-├── packages/
-│   ├── contracts/    # (@super-looi/contracts) 零依赖 TypeScript 契约与协议规范
-│   └── looi-driver/  # (@super-looi/looi-driver) LOOI BLE 驱动与 BodySupervisor 状态机
-├── apps/
-│   ├── hub/          # (@super-looi/hub) Fastify 服务端、双轨语音、证据账本与生产力调度
-│   └── mobile/       # (@super-looi/mobile) Expo React Native 跨端横屏驻留本体
-├── docs/
-│   ├── design-v2/    # V2 核心设计规范 (PRD、技术架构、48条验收场景、协议草案)
-│   └── golden-reference/ # 验证通过的黄金资产 (字节跳动 OpenSpeech 全双工二进制实现等)
-├── docker-compose.yml# 记忆账本 PostgreSQL + pgvector 服务定义
-└── progress.md       # 全局演进阶段看板与任务检查清单
-```
+## 开发
 
-## 核心设计准则
+使用 pnpm 9，Node.js 24.9+。原生工具链和固定 NSH CLI 配置见 [应用说明](apps/nsh/README.md)。环境变量放在根目录 `.env`。
 
-1. **上下文连续**: 记忆三态流转（Candidate -> Inferred -> Confirmed），区分事实、观察与推断；单次行为必须具备可追溯的证据来源（Evidence Identity）。
-2. **行动可核验**: 物理世界操作以真实设备状态回读为准（`ActionReceipt`）；智能家居必须核验设备回报，生产力任务必须核验实际产物与进程 exit code。
-3. **身体安全第一**: 下位机动作由本地 `BodySupervisor` 强管控。单动作互斥租约（`BodyActionLease`）、有界超时自动停车、脱座 (`06`) 瞬时硬件急停与租约吊销。
-4. **相处可掌控**: 支持一键“隐私暂停”（`PrivacyEpoch` 纪元推进并清空本地短时缓冲）；支持用户随时“纠错”与代际“墓碑删除”（Tombstone），彻底隔绝已删除记忆的迟到写回与复活。
-
-## 快速开始
-
-### 依赖安装与构建
-
-```bash
+```sh
 pnpm install
+pnpm build
 pnpm typecheck
 pnpm test
-pnpm build
+pnpm ios
 ```
 
-### 启动本地记忆与任务账本数据库
+`pnpm mobile` 同样启动 NSH iOS 应用。模型与豆包语音 API Key 在应用的连接设置中保存到系统安全存储。
 
-```bash
-docker compose up -d
-```
+可选的本地 Home Assistant 使用 `docker compose -f docker-compose.home.yml up -d`。
+
+## 旧端归档
+
+Expo / React Native 应用和 Hub 服务已退出工作区。删除前源码及当时未提交的旧端修改保存在 Git 分支 `archive/legacy-hub-and-expo`（`55f77ef`）。历史设计和验收记录位于 `docs/`；当前剩余功能见 [todo.md](todo.md)。

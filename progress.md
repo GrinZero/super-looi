@@ -1,5 +1,81 @@
 # Super-LOOI 重构与演进进度
 
+### Expo / Hub 退役收尾（2026-11-07）
+
+当前产品采用 NSH 最简 Agent Loop。以下历史阶段的旧端保留、Expo 验证与记忆产品迁移要求由本次退役收尾取代；硬件后续事项统一见 todo.md。归档分支 archive/legacy-hub-and-expo（55f77ef）保留旧端及删除前未提交修改。
+
+- [x] Step 1：归档旧端（包含未提交修改），核对共享代码与回归测试
+- [x] Step 2：迁移可复用测试，删除旧应用、依赖与启动配置
+- [x] Step 3：更新 NSH 入口、当前说明与待办，移除过时的 Expo 工作项
+- [x] Step 4：完成 pnpm 构建、类型检查、测试和 iOS UI 验证，独立审查并提交
+  - [x] pnpm build / typecheck / test 通过；共享包 128 项测试、NSH 17 项及 QuickJS 兼容套件通过
+  - [x] iOS 首屏真实交互测试通过，检查 ios-face.png 截图
+  - [x] 独立审查发现并清除旧 RN 视图文件断言，复审通过
+
+### NSH 首屏 UI 1:1 还原与极简 Agent Loop 减法收敛（2026-11-07）
+
+- [x] **Step 1：运行时做减法 — 移除记忆账本耦合，精简为最简 Agent Loop (`apps/nsh/runtime/*`, `apps/nsh/store.ts`)**
+  - [x] 从 `apps/nsh/runtime/application.ts` (`MobileRuntime`) 剥离 `MemoryLedgerService`、`createMemoryClaim`、`memoryTools()`（`recall_memory` / `remember_fact` / `forget_memory`）及 `记住/回忆/忘记` 离线正则拦截，所有对话统一走最简 `PiAgentExecutor` 循环（`read_file`/`read`、`write_file`、`bash`、`ask_user_question` 及可选家居工具）
+  - [x] 精简 `apps/nsh/runtime/voice.ts` 与 `apps/nsh/store.ts`：去除语音系统提示词中的记忆描述，支持从顶栏 `LIVE 对话` 胶囊一键开启/打断/关闭实时语音（及在连接设置中统一保存豆包语音 API Key），保留高危/写入工具的单次审批门禁
+  - [x] 同步更新 `apps/nsh/scripts/build-runtime.ts` 生成声明与相关测试探针（`verify-mobile-runtime.ts`, `native-voice-pipeline.ts`）
+- [x] **Step 2：大脸光学与几何 1:1 还原 (`apps/nsh/ui/RobotFace.tsx`, `apps/nsh/theme.json`)**
+  - [x] 移除 `RobotFace.tsx` 的 `bottomInset` 压缩与上移，对齐 `RobotFaceView.tsx` 全屏居中 `620×340` 比例与视口自适应缩放
+  - [x] 补齐双椭圆深空蓝氛围背光 (`atmosphere`) 与底部地平线流光 (`horizonGlow`)
+  - [x] 修复正圆眼眸光学渲染：移除 `neutral` / `speaking` 状态下的常驻突兀眉弧（仅在 `getEyePosture` 定义的情绪下按角度/位移绘制眉弧），修正径向渐变圆心与半径（消除顶部/两侧死黑蓝圈，还原底部 3D 内阴影月牙边缘、左上高光 `eyeSpecular` 与右下灵动星芒 `eyeSparkle`）
+  - [x] 对齐微笑弧度、视线跟随 (`gaze`) 与声波条渲染
+- [x] **Step 3：首屏纯粹大脸交互 1:1 还原 (`apps/nsh/App.tsx`, `apps/nsh/ui/Controls.tsx`)**
+  - [x] 移除旧首屏左上角粗体 `LOOI` 文字、右上角大号 `任务/连接` 按钮及底部 `家居/LIVE/对话` 按钮栏与状态底栏
+  - [x] 还原原版首屏顶栏 (`cornerRow`)：左上角半透明呼吸状态点 + 状态文案（`陪伴待机` / `实时聆听中` / `Agent 思考中` / `LOOI 说话中`）；右上角精修 `LIVE 对话` 流光胶囊（含状态点与 `LIVE 中`/`打断` 态）、`对话` 胶囊及轻量 `连接` 入口
+  - [x] 还原顶栏下方内联悬浮输入框 (`askBar`)、居中轻提示胶囊 (`LightToastCapsule`)、底部对称 7 阶声波纹 + 声波括号唤醒引导栏 (`wakeGuide`：`说 Hey LOOI 唤醒我 · 轻触开启 LIVE 对话`)、底部玻璃字幕胶囊 (`ConversationSubtitleOverlay`) 与右下角 `停止任务` 胶囊
+  - [x] 将模型配置与豆包语音 API Key 整合进统一的 `连接设置` 弹窗，移除首屏多余二级面板入口（保留组件源码不删除）
+- [x] **Step 4：测试回归、iOS 模拟器实机截图核验与独立子 Agent Review**
+  - [x] 更新 `apps/nsh/App.test.tsx`、`apps/nsh/scripts/nsh.ts`、`apps/nsh/tests/native_compat.rs`、`apps/nsh/tests/native-voice-pipeline.ts` 与 `apps/nsh/native/android-test/com/superlooi/nsh/test/UiProbe.java`
+  - [x] 运行 `pnpm --filter @super-looi/nsh typecheck`、`pnpm --filter @super-looi/nsh test`（17/17 通过）、`pnpm --filter @super-looi/nsh-node-compat test`（20/20 验收套件通过）及共享包测试
+  - [x] 在 iOS 模拟器运行 `pnpm --filter @super-looi/nsh test:ui:ios` 截取 `docs/artifacts/nsh-node-compat/ios-face.png` 与 `ios-settings.png`，对比 `pure-face-minimal-runtime.png` 核验 1:1 还原度
+  - [x] 调用独立子 Agent 进行代码与 UI 审查，修复 4 项审查发现（`store.ts` 表情切换防打断眨眼保护、`RobotFace.tsx` 呼吸动画 `computed` 隔离、`TasksPanel.tsx` 过期文案清理、Android `UiProbe.java` 验收流同步）并更新 `progress.md` / `todo.md` 提交 Git Commit
+
+### NSH 计划续推与版本复验（2026-11-07）
+
+用户确认本轮先完成模拟器软件验收；真机媒体/BLE/底座验收另行保留。
+
+- [x] Step 1：核对既有实现、工作树与未完成门禁；调度 GPT-6.1 Sol 独立核验
+- [x] Step 2：固定 Pi 1.5.0 / NSH 0.4.0 的 QuickJS、engine、iOS、Android 验收矩阵
+  - [x] 四包、Rust 5 项、真实网关与移动适配 SDK 验证；透明 root SDK 36 个构建错误仍单独记录
+  - [x] 双端十套宿主回归与 Release 冷启动、离线记忆/安全凭据重开；两平台业务bytecode一致；Android产品两轮真网对话通过
+- [x] Step 3：补齐本机真实模型网络与任务闭环，修复复验发现
+  - [x] iOS / Android MobileRuntime 使用原生 fetch 完成真实模型任务；内存凭据、临时测试入口清理
+  - [x] 修复模型配置安全存储失败后的旧执行器恢复；新增第十套 QuickJS 回归
+  - [x] 修正 iOS simulator Release Keychain 身份选择
+  - [x] 实际 createAgentSession 双端原生真网：模型write/read、精确回复、JSONL工具回执与最终回复恢复通过
+- [ ] Step 4：推进领域能力迁移，逐项满足删除门禁
+  - [x] 修复底座计时伪证据；主动观察缺少本次有效稳定性证据时停止；324 JS/10 NSH全仓通过，最终24相关测试与QuickJS48契约通过，Sol复审通过
+  - [ ] 家居运行时与设置完整验收
+    - [x] 安全单槽凭据、HA/MIoT/显式模拟模式、generation隔离、请求去重；Node与真QuickJS fixture通过
+    - [x] 主agent接入Agent单次审批、下发前SQLite intent/回执、取消中断与unknown恢复；Sol独立复审通过
+    - [x] 取消预读不写、已派发取消不重试；unknown计入恢复状态并阻止原会话继续
+    - [x] HA/演示设置双端移动UI；iOS脚本与Android系统输入实际点击通过
+    - [ ] MIoT登录入口验收
+      - [x] 原生专用浏览器、回调导航/资源阻断、一次性消费及生命周期；6 Rust登录测试/Android插件测试/NSH16项通过，Sol复审通过
+      - [x] 双端最终原生窗口冒烟复验：真实窗口展示/无效URL拒绝/并发owner拒绝/取消均通过；Android三ABI编译，执行为API34 ARM64
+      - [x] OAuth提交点动态native consumed/expiry/代际guard；异常视为失效，CAS从最新vault仅回滚本次值；13 OAuth与6类真实单槽竞态、Flow/QuickJS通过并独立复审
+      - [x] 产品区域/登录/取消/退出/刷新接线；双端实际选择新加坡、打开官方页并原生取消返回通过，未输入账号；已保存账号UI作用域测试通过
+      - [ ] 本地GET/POST307/子资源回调零请求fixture及完整OAuth fixture验收
+  - [ ] 原生语音与协议接线
+    - [x] PCM16k采集/24k播放、有界队列/背压/静音；7 Rust单测与双端实际cross-check通过
+    - [x] iOS原生后台/中断/路由停止，Android失焦锁存/AAudio确认清空；独立复审通过
+    - [x] 双端模拟器真实原生静音PCM enqueue/clear/stop通过（未使用麦克风）
+    - [x] WebSocket协议与UI确认后共享Agent调用；真QuickJS/双端fixture通过，独立复审通过
+    - [x] 旧连接写失败隔离、旧音频取消屏障、重复工具去重、损坏语音凭据可重配
+    - [x] 双端真实原生WebSocket、合成PCM与response.canceled确认；各247808字节，不采集麦克风/不写产品凭据
+    - [x] 双端合成PCM→真实ASR→一次实际Agent记忆查询→原生语音回复；输出55296/75776字节，独立有界队列保持打断响应
+    - [x] iOS未授权麦克风启动原生拒绝，无权限提示；双端实际采集/AEC效果仍留待硬件验收
+  - [x] 任务详情与新对话双端移动UI验收
+    - [x] 十项分页、unknown优先、只读详情含家居回执、新对话保留任务；QuickJS副本/会话隔离/重开测试通过
+  - [x] 保留每轮独立 task 的持久对话 session；同会话并发与 unknown 结果隔离；Node 11项和QuickJS重启/切换测试通过
+  - [x] BLE纯逻辑迁移前修复：重连断线监听、通知ticket清理、迟到连接/并发断开与同步异常重试；15项测试及独立复审通过
+  - [ ] NSH真实BLE原生桥、MIoT安全登录WebView、旧数据迁入仍待落地
+- [x] Step 5：本阶段独立复审、记录证据并分阶段提交；全仓build/typecheck/test通过（323项JS、10项NSH），完整业务迁移保持未完成
+
 ### NSH Node 兼容层与 Pi 落地（2026-11-06）
 
 - [x] **Step 1：固定依赖与运行时事实**
@@ -10,7 +86,17 @@
   - [x] Deno parser + 能力内置 Shell、异步取消/退出回执、结构/时间/输出预算与不支持参数拒绝
   - [x] JS 垫片、严格 bundler 别名与独立 QuickJS runner，Node 不参与运行被测 bundle
   - [x] Rust 兼容库 aarch64-apple-ios-sim cargo check 通过；移动目标启用 bindgen 解决固定 VM 缺失预生成 bindings
-  - [ ] NSH 原生模块注册/双端 embedding 与发行构建；当前只完成同 VM Ctx 挂载入口
+  - [ ] NSH 双端宿主与发行构建；双端模拟器已通过，签名发行待完成
+    - [x] 构建固定 NSH 0.4.0 / e626a8d CLI，混合模板 check / 首个 headless 交互测试通过
+    - [x] 提取 runtime-neutral Bridge，注册真实 NodeCompat 原生 class；宿主注入 System.data_dir 与 FS grant 校验，JS 不传宿主路径
+    - [x] Shell/std thread + oneshot 可在无 Tokio 的 NSH executor 等待；任务票据单消费、完成未消费与丢弃等待仍约束实际 worker 容量
+    - [x] codemode stop 同步入队，丢弃 wait 不阻断 VM 退出/容量释放；五项 Rust 回归通过
+    - [x] 同一套 node shims / codemode / SDK 在真实 NSH hardened engine + native class、256 MiB embedding 配额执行通过
+    - [x] iOS 模拟器真实 NSH 宿主运行原生 class：文件/SQLite/Shell、codemode、实际 SDK 七工具与会话恢复全部通过
+    - [x] 全部八组兼容套件在 NSH hardened engine（256 MiB）与 iOS 模拟器通过；测试预编译入口压缩后解决开发传输断连
+    - [x] Android API 34 ARM64 模拟器八套原生测试；Release APK 编译 arm64-v8a / armeabi-v7a（debug 签名，非商店发行）
+    - [x] 双端模拟器 Release 无开发服务器冷启动、离线记忆与安全配置重开
+    - [ ] 商店签名 / Android API 36 与 AAB；32位ABI执行
 - [ ] **Step 3：Pi 四包真实 QuickJS 验证**
   - [x] agent-core 真 QuickJS 多轮工具、steer/follow-up 与 abort
   - [x] pi-ai 模型/SSE/UTF-8/工具参数流；Rust HTTPS → QuickJS 上游 SDK 的真实 .env 网关调用通过
@@ -27,9 +113,26 @@
     - [x] 修复固定 stdlib AbortSignal.any 的 Rust opaque callback 引用环，真实 QuickJS GC 退出回归通过
     - [ ] NSH 原生网络对象、图片与默认安全凭据接入后的实际手机端 SDK 验证
 - [ ] **Step 4：业务接入与迁移门禁**
+  - [x] 提取 @super-looi/runtime：Agent/任务/记忆/48 项验收与纯 UI 状态机；Hub/Expo 暂以兼容转发保留路径
+    - [x] 首轮纯逻辑抽取与包构建通过，未触碰四个既有语音修改
+    - [x] 替换 C02/C05/D05/H01–H06 常量通过项，补真实隐私/状态机/墓碑恢复断言；48 项已在独立 QuickJS 通过
+    - [x] SQLite 记忆/任务连接适配，WAL/FULL、原子墓碑日志、关闭重开与旧备份防复活；QuickJS 实际 Pi 工具回读
+    - [x] 双端第九组业务套件；审批/Shell 重定向与动作重放、损坏快照、ContextPack 删除竞态、推断拒绝恢复均补回归并独立复审通过
+    - [x] 全仓 build/typecheck/test 通过（315 项 JS 测试、九套 QuickJS、强杀恢复、NSH hardened engine 与初始交互）；CJS 条件导出兼容 Expo 测试加载器
+    - [ ] 本机 SQLite 记忆/任务与实际 Agent 工具闭环；同源验收进 NSH 双端
   - [ ] 本机 Agent / 领域工具、凭据和任务持久化接线
+    - [x] 原生安全凭据：iOS Keychain / Android Keystore 双端 CRUD；app 自有 entitlement / Application 插件；并发锁与增量 manifest / DEX 回归
+    - [x] 原生插件与 App 基础最终复审通过；长回复/审批内容/干净启动已修；非配合工具退出保持 unknown、close 有界失败并补 Node/QuickJS/双端回归
+    - [ ] 完整 App Agent 多轮任务与恢复管理验收
+    - [x] iOS / Android MobileRuntime 原生 fetch 真网模型单任务完成与关闭（2026-11-07）
+    - [x] App 自有主题 / Button / Input / Dialog 与单 Canvas 圆眼首页、本机 SQLite/Agent 服务和生命周期接线
+    - [x] iOS 横屏真实 UI 离线记住/回忆/忘记闭环、配置弹窗/键盘及截图；初版弹窗溢出已修复
+    - [x] Android 原生 UI 系统自动化通过设置、中文输入及离线记忆闭环；使用独立测试 APK 绕过 NSH test driver Dialog 焦点缺口
+    - [x] 全仓 build/typecheck/test 通过（316 项 JS 测试与九套 QuickJS、强杀/预算/原生集成）；双端九套+凭据CRUD；iOS UI和Android系统UI均通过
+    - [ ] App 真网模型/语音/硬件继续接线与验收
   - [ ] NSH 移动宿主、语音和 UI 迁移验证；满足替代条件再移除 Hub
 - [ ] **Step 5：完整目标验收与交付（持续推进）**
+  - [x] 原生宿主阶段全仓 build/typecheck/test 通过（含 NSH hardened engine 回归、初始化交互及原有 307 项业务测试）；iOS 八套原生测试通过；独立复审修复取消生命周期问题
   - [x] 扩展至八组真 QuickJS 套件（含 codemode 与完整 SDK），SIGKILL / runner deadline 仍通过；全仓 build/typecheck/test（307 项既有 JS 测试）、Cargo test 与独立复审通过；本轮移动 App 与去 Hub 尚未完成
   - [x] 全仓 pnpm build/typecheck/test 通过（307 项原有 JS 测试 + 六组 QuickJS / SIGKILL / deadline）；Cargo test、公开包导出检查、独立子 agent 复审通过
   - [x] docs/nsh-node-compat-implementation.md / todo 记录实际证据和剩余门禁；分阶段提交，不勾选完整迁移
@@ -868,3 +971,14 @@
   - [x] 将证据、推荐、未验证项沉淀 docs / todo
   - [x] 补查 dsh-Go 的 PRoot/Linux 本机路线与可嵌入移动底座
   - [x] 子 agent 独立 review 通过；主 agent 修正 dsh-Go 控制/对话链路图及移动 bundle 验收用词，固定源码引用/代码围栏/空白校验通过并提交
+
+### 模型服务认证与订阅接入调研（2026-11-07）
+
+- [x] Step 1: 核实 ChatGPT 与中国主流模型/聚合平台的官方认证、订阅与 API 边界
+  - [x] 对照 ChatGPT、MiniMax、小米的开源 provider / OAuth 实现
+  - [x] 扩展 Kimi、智谱、Qwen/百炼、DeepSeek、火山、腾讯、硅基流动，比较首批优先级
+- [x] Step 2: 确定首批服务、兼容配置及手机端适配范围
+- [x] Step 3: 沉淀引用证据、待验证项，独立复核并提交调研记录
+
+  - [x] 官方文档与固定开源版本交叉核验；独立复核通过；记录当前 preview、第三方身份及套餐边界
+  - [x] 文档空白检查通过；本轮仅调研，未运行账号登录或付费推理

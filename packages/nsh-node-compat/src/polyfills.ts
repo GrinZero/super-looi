@@ -62,7 +62,7 @@ export function installNodeCompatGlobals() {
   g.Intl.Segmenter ??= NshSegmenter;
   g.TextEncoder ??= Utf8Encoder;
   g.TextDecoder ??= Utf8Decoder;
-  g.process ??= process;
+  g.process = process;
   g.console ??= Object.fromEntries(
     ["log", "info", "warn", "error", "debug", "trace"].map((key) => [
       key,

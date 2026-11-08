@@ -1,0 +1,47 @@
+{
+  "date": "2026-11-07",
+  "provider": "Doubao duplex realtime",
+  "model": "1.2.6.1",
+  "credentialSource": ".env in-memory temporary test entry; no product vault write",
+  "capture": false,
+  "results": {
+    "ios-simulator": {
+      "nativeWebSocket": true,
+      "syntheticPcmBytes": 247808,
+      "cancelAck": true,
+      "cancelEvent": "response.canceled",
+      "nativeOutputEnqueueClearStop": true
+    },
+    "android-emulator": {
+      "nativeWebSocket": true,
+      "syntheticPcmBytes": 247808,
+      "cancelAck": true,
+      "cancelEvent": "response.canceled",
+      "nativeOutputEnqueueClearStop": true
+    }
+  },
+  "limits": [
+    "No microphone capture",
+    "No physical AEC or base verification",
+    "Product UI admission separately fixture/reviewed; live pipeline uses synthetic test action"
+  ],
+  "pipeline": {
+    "input": "generated Tingting speech, 16000Hz PCM16 mono, no microphone",
+    "inputBytes": 142458,
+    "readOnlyTask": true,
+    "uiAdmission": "test-only explicit fixture action; product requires user confirmation",
+    "ios-simulator": {
+      "asr": true,
+      "toolCalls": 1,
+      "agentTaskCompleted": true,
+      "nativeReplyPcmBytes": 55296
+    },
+    "android-emulator": {
+      "asr": true,
+      "toolCalls": 1,
+      "agentTaskCompleted": true,
+      "nativeReplyPcmBytes": 75776
+    },
+    "cleanup": "uniquely named test memory removed; keys only in temporary test entry/in-memory vault"
+  }
+}
