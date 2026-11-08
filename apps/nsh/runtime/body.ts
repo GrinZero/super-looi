@@ -83,6 +83,7 @@ export interface NativeBlePort {
   disconnect(): void;
   subscribe(characteristic: string): void;
   write(characteristic: string, hexPayload: string, withResponse: boolean): void;
+  read(characteristic: string): void;
   drainEvents(): Array<{ kind: string; characteristic: string; payload: string }>;
   status(): {
     state: string;
@@ -114,6 +115,12 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
   private pendingSubscription: {
     characteristic: CharacteristicKey;
     resolve: () => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  private pendingRead: {
+    characteristic: CharacteristicKey;
+    resolve: (hex: string) => void;
     reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
@@ -224,6 +231,7 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
   public async disconnect(): Promise<void> {
     ++this.connectionGeneration;
     this.finishPendingWrite(new Error("BLE transport disconnected"));
+    this.finishPendingRead(new Error("BLE transport disconnected"));
     this.finishPendingSubscription(new Error("BLE transport disconnected"));
     this.connectedFlag = false;
     this.lastNotification.clear();
@@ -258,6 +266,21 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
   ): Promise<void> {
     this.port.write(charKey, hexPayload, false);
     this.pumpEvents();
+  }
+
+  public async readCharacteristic(charKey: CharacteristicKey): Promise<string> {
+    this.pumpEvents();
+    if (this.pendingRead) throw new Error("底座读取仍在进行");
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => this.finishPendingRead(new Error(`底座读取超时：${charKey}`)), 3000);
+      this.pendingRead = { characteristic: charKey, resolve, reject, timer };
+      try {
+        this.port.read(charKey);
+        this.pumpEvents();
+      } catch (error) {
+        this.finishPendingRead(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   public async monitorCharacteristic(
@@ -305,6 +328,7 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
 
   public dispose(): void {
     this.finishPendingWrite(new Error("BLE transport disposed"));
+    this.finishPendingRead(new Error("BLE transport disposed"));
     this.finishPendingSubscription(new Error("BLE transport disposed"));
     this.stopPolling();
     this.lastNotification.clear();
@@ -319,6 +343,7 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
         this.connectedFlag = true;
       } else if (ev.kind === "disconnected") {
         this.finishPendingWrite(new Error(ev.payload || "BLE transport disconnected"));
+        this.finishPendingRead(new Error(ev.payload || "BLE transport disconnected"));
         this.finishPendingSubscription(new Error(ev.payload || "BLE transport disconnected"));
         const wasConnected = this.connectedFlag;
         this.connectedFlag = false;
@@ -340,11 +365,14 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
         }
       } else if (ev.kind === "write_ack" && ev.characteristic === this.pendingWrite?.characteristic) {
         this.finishPendingWrite();
+      } else if (ev.kind === "read_result" && ev.characteristic === this.pendingRead?.characteristic) {
+        this.finishPendingRead(undefined, ev.payload);
       } else if (ev.kind === "notify_ack" && ev.characteristic === this.pendingSubscription?.characteristic) {
         this.finishPendingSubscription();
       } else if (ev.kind === "error") {
         const error = new Error(ev.payload || "BLE operation failed");
         this.finishPendingWrite(error);
+        this.finishPendingRead(error);
         this.finishPendingSubscription(error);
       }
     }
@@ -357,6 +385,15 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     clearTimeout(pending.timer);
     if (error) pending.reject(error);
     else pending.resolve();
+  }
+
+  private finishPendingRead(error?: Error, hex = ""): void {
+    const pending = this.pendingRead;
+    if (!pending) return;
+    this.pendingRead = null;
+    clearTimeout(pending.timer);
+    if (error) pending.reject(error);
+    else pending.resolve(hex);
   }
 
   private finishPendingSubscription(error?: Error): void {

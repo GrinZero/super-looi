@@ -17,7 +17,11 @@ import {
   HEAD_PAYLOADS,
   HEAD_MIN_DEGREES,
   HEAD_MAX_DEGREES,
-  LIGHT_PAYLOADS,
+  DEFAULT_LIGHT_BRIGHTNESS,
+  brightnessToPayload,
+  motionToPayload,
+  parsePowerStatus,
+  type LooiPowerStatus,
   DOCK_STATUS_HEX,
   headDegreesToPayload,
   createInitTimeHex,
@@ -35,6 +39,8 @@ export interface BodySupervisorSnapshot {
   state: BodySupervisorState;
   isDocked: boolean;
   lightOn: boolean;
+  lightBrightness: number;
+  powerStatus: LooiPowerStatus | null;
   headPose: HeadPayloadKey | "custom";
   headDegrees: number;
   activeLease: BodyActionLease | null;
@@ -61,6 +67,8 @@ export class BodySupervisor {
   private state: BodySupervisorState = "disconnected";
   private isDocked = false;
   private lightOn = false;
+  private lightBrightness = 0;
+  private powerStatus: LooiPowerStatus | null = null;
   private headPose: HeadPayloadKey | "custom" = "center";
   private headDegrees = HEAD_POSE_DEGREES.center;
   private lastVerifiedAt: string | null = null;
@@ -68,7 +76,9 @@ export class BodySupervisor {
   private activationComplete = false;
   private drivePayload: string = MOVE_PAYLOADS.stop;
   private driveHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly inFlightDriveHeartbeats = new Set<Promise<void>>();
   private driveHeartbeatErrorReported = false;
+  private gattControlTail: Promise<void> = Promise.resolve();
   private currentSessionEpoch: Id = "";
   private connectionEpoch = 0;
   private currentLeaseEpoch = 0;
@@ -106,6 +116,14 @@ export class BodySupervisor {
     return this.lightOn;
   }
 
+  public getLightBrightness(): number {
+    return this.lightBrightness;
+  }
+
+  public getPowerStatus(): LooiPowerStatus | null {
+    return this.powerStatus ? { ...this.powerStatus } : null;
+  }
+
   public getHeadPose(): HeadPayloadKey | "custom" {
     return this.headPose;
   }
@@ -127,6 +145,8 @@ export class BodySupervisor {
       state: this.state,
       isDocked: this.isDocked,
       lightOn: this.lightOn,
+      lightBrightness: this.lightBrightness,
+      powerStatus: this.getPowerStatus(),
       headPose: this.headPose,
       headDegrees: this.headDegrees,
       activeLease: this.activeLease ? { ...this.activeLease } : null,
@@ -221,6 +241,8 @@ export class BodySupervisor {
     this.activationComplete = false;
     this.isDocked = false;
     this.lightOn = false;
+    this.lightBrightness = 0;
+    this.powerStatus = null;
     this.headPose = "center";
     this.headDegrees = HEAD_POSE_DEGREES.center;
     this.rejectInFlightPulses(new Error("Unexpected BLE transport disconnect"));
@@ -361,6 +383,24 @@ export class BodySupervisor {
     }
   }
 
+  /** Write an arbitrary signed FED0 speed/turn vector under the active motor lease. */
+  public async setMotion(lease: BodyActionLease, speed: number, turn: number): Promise<void> {
+    if (this.activeLease?.lease_id !== lease.lease_id || this.activeLease.lease_epoch !== lease.lease_epoch) {
+      throw new Error("Lease mismatch or lease already expired/revoked.");
+    }
+    if (lease.primitive.startsWith("head")) throw new Error("Motor motion requires a motor lease");
+    const selfWindow = createSelfEventWindow("motor_drive", Math.min(lease.duration_ms + 250, 6000), ["camera", "microphone", "imu"]);
+    this.activeSelfWindows.push(selfWindow);
+    this.events.onSelfEvent?.(selfWindow);
+    try {
+      await this.writeMotion(motionToPayload(speed, turn));
+      this.lastVerifiedAt = new Date().toISOString();
+    } catch (error) {
+      await this.stop("fault");
+      throw error;
+    }
+  }
+
   /**
    * Bounded Pulse Execution:
    * Acquires lease, executes primitive, holds for durationMs, sends 0000 stop,
@@ -466,11 +506,32 @@ export class BodySupervisor {
   }
 
   public async setLight(on: boolean): Promise<void> {
+    await this.setLightBrightness(on ? DEFAULT_LIGHT_BRIGHTNESS : 0);
+  }
+
+  public async setLightBrightness(brightness: number): Promise<void> {
     if (!this.activationComplete) throw new Error("LOOI activation is not complete");
-    const payload = on ? LIGHT_PAYLOADS.on : LIGHT_PAYLOADS.off;
-    await this.transport.write("light", payload, { response: false });
-    this.lightOn = on;
+    const connectionEpoch = this.connectionEpoch;
+    const level = Math.max(0, Math.min(255, Math.round(brightness)));
+    await this.runGattControlOperation(() => this.transport.write("light", brightnessToPayload(level), { response: true }));
+    if (!this.activationComplete || connectionEpoch !== this.connectionEpoch || !this.transport.isConnected()) {
+      throw new Error("BLE connection cancelled");
+    }
+    this.lightBrightness = level;
+    this.lightOn = level > 0;
     this.lastVerifiedAt = new Date().toISOString();
+  }
+
+  /** Read the two-byte FED8 battery and external-power status on demand. */
+  public async readPowerStatus(): Promise<LooiPowerStatus> {
+    if (!this.activationComplete) throw new Error("LOOI activation is not complete");
+    const connectionEpoch = this.connectionEpoch;
+    const status = parsePowerStatus(await this.runGattControlOperation(() => this.transport.read("power")));
+    if (!this.activationComplete || connectionEpoch !== this.connectionEpoch || !this.transport.isConnected()) {
+      throw new Error("BLE connection cancelled");
+    }
+    this.powerStatus = status;
+    return { ...status };
   }
 
   public recordExternalSelfEvent(window: SelfEventWindow): void {
@@ -503,6 +564,8 @@ export class BodySupervisor {
       this.drivePayload = MOVE_PAYLOADS.stop;
       this.isDocked = false;
       this.lightOn = false;
+      this.lightBrightness = 0;
+      this.powerStatus = null;
       this.headPose = "center";
       this.headDegrees = HEAD_POSE_DEGREES.center;
       this.isTearingDown = false;
@@ -531,17 +594,52 @@ export class BodySupervisor {
     await this.transport.write("drive", payload, { response: false });
   }
 
+  /** Give read/acknowledged writes an idle GATT slot between continuous drive frames. */
+  private async runGattControlOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const preceding = this.gattControlTail;
+    let release!: () => void;
+    this.gattControlTail = new Promise<void>((resolve) => { release = resolve; });
+    const connectionEpoch = this.connectionEpoch;
+    await preceding;
+    const hadHeartbeat = this.driveHeartbeatTimer !== null;
+    try {
+      if (!this.activationComplete || connectionEpoch !== this.connectionEpoch) {
+        throw new Error("LOOI activation is not complete");
+      }
+      if (hadHeartbeat) {
+        this.stopDriveHeartbeat();
+        await Promise.allSettled([...this.inFlightDriveHeartbeats]);
+        await new Promise((resolve) => setTimeout(resolve, MOVE_HEARTBEAT_MS * 2));
+      }
+      if (!this.activationComplete || connectionEpoch !== this.connectionEpoch || !this.transport.isConnected()) {
+        throw new Error("BLE connection cancelled");
+      }
+      const result = await operation();
+      if (!this.activationComplete || connectionEpoch !== this.connectionEpoch || !this.transport.isConnected()) {
+        throw new Error("BLE connection cancelled");
+      }
+      return result;
+    } finally {
+      if (hadHeartbeat && this.activationComplete && connectionEpoch === this.connectionEpoch && this.transport.isConnected()) {
+        this.startDriveHeartbeat();
+      }
+      release();
+    }
+  }
+
   private startDriveHeartbeat(): void {
     this.stopDriveHeartbeat();
     const timer = setInterval(() => {
       if (!this.activationComplete || !this.transport.isConnected()) return;
-      void this.transport.write("drive", this.drivePayload, { response: false }).then(() => {
+      const write = this.transport.write("drive", this.drivePayload, { response: false }).then(() => {
         this.driveHeartbeatErrorReported = false;
       }).catch((error: unknown) => {
         if (this.driveHeartbeatErrorReported) return;
         this.driveHeartbeatErrorReported = true;
         this.events.onError?.(error instanceof Error ? error : new Error(String(error)));
       });
+      this.inFlightDriveHeartbeats.add(write);
+      void write.finally(() => this.inFlightDriveHeartbeats.delete(write));
     }, MOVE_HEARTBEAT_MS);
     (timer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
     this.driveHeartbeatTimer = timer;

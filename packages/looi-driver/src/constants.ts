@@ -9,6 +9,7 @@ export const INTERNAL_CHARACTERISTICS = Object.freeze({
   head: "0000fed1-0000-1000-8000-00805f9b34fb",
   light: "0000fed2-0000-1000-8000-00805f9b34fb",
   sensorNotify: "0000fed5-0000-1000-8000-00805f9b34fb",
+  power: "0000fed8-0000-1000-8000-00805f9b34fb",
   dockNotify: "0000fed9-0000-1000-8000-00805f9b34fb",
   handshakeControl: "0000feda-0000-1000-8000-00805f9b34fb",
   handshakeData: "0000fef0-0000-1000-8000-00805f9b34fb",
@@ -18,12 +19,18 @@ export const INTERNAL_CHARACTERISTICS = Object.freeze({
 export type CharacteristicKey = keyof typeof INTERNAL_CHARACTERISTICS;
 
 export const MOVE_PAYLOADS = Object.freeze({
-  forward: "7707",
-  left: "047a",
-  back: "86fc",
-  right: "0082",
+  forward: "7f00",
+  left: "007f",
+  back: "8100",
+  right: "0081",
   stop: "0000",
 } as const);
+
+/** FED0 carries signed speed and turn, each limited to -127..127. */
+export function motionToPayload(speed: number, turn: number): string {
+  const byte = (value: number) => (Math.max(-127, Math.min(127, Math.round(value))) + 256) & 0xff;
+  return bytesToHex([byte(speed), byte(turn)]);
+}
 
 export const MOVE_HEARTBEAT_MS = 30;
 
@@ -49,10 +56,28 @@ export function headDegreesToPayload(degrees: number): string {
   return byte.toString(16).padStart(2, "0");
 }
 
+export const DEFAULT_LIGHT_BRIGHTNESS = 128;
+
 export const LIGHT_PAYLOADS = Object.freeze({
-  on: "01",
+  on: "80",
   off: "00",
 } as const);
+
+/** FED2 accepts 0 (off) through 255 (full brightness). */
+export function brightnessToPayload(brightness: number): string {
+  return Math.max(0, Math.min(255, Math.round(brightness))).toString(16).padStart(2, "0");
+}
+
+export interface LooiPowerStatus {
+  batteryPercent: number;
+  externalPower: boolean;
+}
+
+/** FED8 returns [battery percentage, external power flag]. */
+export function parsePowerStatus(bytes: Uint8Array): LooiPowerStatus {
+  if (bytes.length !== 2) throw new Error(`Expected 2 FED8 bytes, got ${bytes.length}`);
+  return { batteryPercent: bytes[0]!, externalPower: bytes[1] === 1 };
+}
 
 export type LightPayloadKey = keyof typeof LIGHT_PAYLOADS;
 

@@ -36,6 +36,7 @@ export interface LooiBleTransport {
     payloadHex: string,
     options?: LooiTransportWriteOptions
   ): Promise<void>;
+  read(characteristic: CharacteristicKey): Promise<Uint8Array>;
   startNotifications(
     characteristic: CharacteristicKey,
     onValue: (event: LooiNotificationEvent) => void
@@ -53,6 +54,7 @@ export interface NativeBleAdapter {
   isConnected(): boolean;
   writeCharacteristicWithResponse(charKey: CharacteristicKey, hexPayload: string): Promise<void>;
   writeCharacteristicWithoutResponse(charKey: CharacteristicKey, hexPayload: string): Promise<void>;
+  readCharacteristic(charKey: CharacteristicKey): Promise<string>;
   monitorCharacteristic(
     charKey: CharacteristicKey,
     onData: (hexPayload: string) => void
@@ -133,6 +135,11 @@ export class CrossPlatformBleTransport implements LooiBleTransport {
     }
   }
 
+  public async read(characteristic: CharacteristicKey): Promise<Uint8Array> {
+    if (!this.isConnected()) throw new Error("BLE transport disconnected");
+    return hexToBytes(await this.adapter.readCharacteristic(characteristic));
+  }
+
   public async startNotifications(
     characteristic: CharacteristicKey,
     onValue: (event: LooiNotificationEvent) => void
@@ -197,6 +204,7 @@ export class SimulatedBleTransport implements LooiBleTransport {
     options?: LooiTransportWriteOptions;
   }> = [];
   public notificationListeners = new Map<CharacteristicKey, (event: LooiNotificationEvent) => void>();
+  public readValues = new Map<CharacteristicKey, string>([["power", "6400"]]);
   private readonly disconnectListeners = new Set<() => void>();
   private failNextWritesCount = 0;
 
@@ -237,6 +245,13 @@ export class SimulatedBleTransport implements LooiBleTransport {
     }
 
     this.writtenCommands.push({ characteristic, payload: payloadHex, options });
+  }
+
+  public async read(characteristic: CharacteristicKey): Promise<Uint8Array> {
+    if (!this.connected) throw new Error("GATT Error: device not connected");
+    const hex = this.readValues.get(characteristic);
+    if (hex === undefined) throw new Error(`No simulated value for ${characteristic}`);
+    return hexToBytes(hex);
   }
 
   public async startNotifications(

@@ -39,6 +39,7 @@ public final class LooiBleBridge {
     private static native void onNotification(long generation, String uuid, byte[] bytes);
     private static native void onWriteAck(long generation, String uuid);
     private static native void onNotifyAck(long generation, String uuid);
+    private static native void onReadResult(long generation, String uuid, byte[] bytes);
 
     private static final UUID LOOI_SERVICE = UUID.fromString("000000ff-0000-1000-8000-00805f9b34fb");
     private static final UUID DRIVE_CHAR = UUID.fromString("0000fed0-0000-1000-8000-00805f9b34fb");
@@ -248,6 +249,12 @@ public final class LooiBleBridge {
                         onWriteAck(generation, characteristic.getUuid().toString());
                     }
                 }
+
+                @Override public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        onReadResult(generation, characteristic.getUuid().toString(), characteristic.getValue());
+                    }
+                }
             });
             return activeGatt != null;
         } catch (RuntimeException error) {
@@ -307,5 +314,11 @@ public final class LooiBleBridge {
         if (cccd == null) return false;
         cccd.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
         return activeGatt.writeDescriptor(cccd);
+    }
+
+    public static synchronized boolean read(long generation, String uuid) {
+        if (activeGatt == null || generation != activeGeneration) return false;
+        final BluetoothGattCharacteristic ch = characteristics.get(uuid.toLowerCase(Locale.ROOT));
+        return ch != null && activeGatt.readCharacteristic(ch);
     }
 }

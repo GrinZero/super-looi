@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   BodySupervisor,
   MOVE_PAYLOADS,
+  motionToPayload,
+  brightnessToPayload,
+  parsePowerStatus,
   HEAD_PAYLOADS,
   headDegreesToPayload,
   createInitTimeHex,
@@ -66,6 +69,7 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
       isConnected: () => connected,
       writeCharacteristicWithResponse: async () => {},
       writeCharacteristicWithoutResponse: async () => {},
+      readCharacteristic: async () => "6400",
       monitorCharacteristic: async (_, listener) => { emit = listener; return new Promise(resolve => { finish = resolve; }); },
       onDisconnected: () => () => {},
     };
@@ -93,6 +97,7 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
       isConnected: () => connected,
       writeCharacteristicWithResponse: async () => {},
       writeCharacteristicWithoutResponse: async () => {},
+      readCharacteristic: async () => "6400",
       monitorCharacteristic: async (_, listener) => { emit = listener; throw new Error("registration failed"); },
       onDisconnected: () => () => {},
     };
@@ -114,6 +119,7 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
       scanAndConnect:async()=>{await new Promise<void>(resolve=>{finishConnect=resolve;});connected=true;},
       disconnect:async()=>{disconnectCalls++;connected=false;},isConnected:()=>connected,
       writeCharacteristicWithResponse:async()=>{},writeCharacteristicWithoutResponse:async()=>{},
+      readCharacteristic:async()=>"6400",
       monitorCharacteristic:async()=>()=>{},onDisconnected:listener=>{lost=listener;return()=>{};},
     };
     const transport=new CrossPlatformBleTransport(adapter);
@@ -427,6 +433,7 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
       writeCharacteristicWithoutResponse: async (charKey, hexPayload) => {
         written.push({ charKey, hex: hexPayload, withResponse: false });
       },
+      readCharacteristic: async () => "6401",
       monitorCharacteristic: async (charKey, onData) => {
         return () => {};
       },
@@ -518,5 +525,118 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     assert.equal(supervisor.getHeadPose(), "custom");
     assert.equal(supervisor.getHeadDegrees(), 41.5);
     assert.equal(transport.writtenCommands.at(-1)?.payload, headDegreesToPayload(41.5));
+  });
+
+  it("encodes signed motion and four pure-axis directions on FED0", async () => {
+    assert.deepEqual(MOVE_PAYLOADS, {
+      forward: "7f00", left: "007f", back: "8100", right: "0081", stop: "0000",
+    });
+    assert.equal(motionToPayload(48, 32), "3020");
+    assert.equal(motionToPayload(-127, -32), "81e0");
+    const transport = new SimulatedBleTransport();
+    const supervisor = new BodySupervisor(transport);
+    await supervisor.connect();
+    const lease = await supervisor.acquireLease({ holder: "vector", primitive: "forward", durationMs: 500 });
+    await supervisor.setMotion(lease, 48, 32);
+    assert.equal(transport.writtenCommands.at(-1)?.payload, "3020");
+    await supervisor.stop();
+    assert.equal(transport.writtenCommands.at(-1)?.payload, "0000");
+    await assert.rejects(() => supervisor.setMotion(lease, 48, 32), /Lease mismatch/);
+    await supervisor.disconnect();
+
+    const failedTransport = new SimulatedBleTransport();
+    const failedSupervisor = new BodySupervisor(failedTransport);
+    await failedSupervisor.connect();
+    const failedLease = await failedSupervisor.acquireLease({ holder: "vector", primitive: "forward", durationMs: 500 });
+    failedTransport.simulateGattErrorNext(1);
+    await assert.rejects(() => failedSupervisor.setMotion(failedLease, 48, 32), /GATT write failure/);
+    assert.equal(failedSupervisor.getActiveLease(), null);
+    assert.equal(failedTransport.writtenCommands.at(-1)?.payload, "0000");
+    await failedSupervisor.disconnect();
+  });
+
+  it("reads FED8 power and writes FED2 brightness with a default on level", async () => {
+    assert.deepEqual(parsePowerStatus(new Uint8Array([76, 1])), {
+      batteryPercent: 76, externalPower: true,
+    });
+    assert.equal(brightnessToPayload(255), "ff");
+    const transport = new SimulatedBleTransport();
+    transport.readValues.set("power", "4c01");
+    const supervisor = new BodySupervisor(transport);
+    await supervisor.connect();
+    assert.deepEqual(await supervisor.readPowerStatus(), { batteryPercent: 76, externalPower: true });
+    assert.deepEqual(supervisor.getSnapshot().powerStatus, { batteryPercent: 76, externalPower: true });
+    await supervisor.setLightBrightness(255);
+    assert.deepEqual(transport.writtenCommands.at(-1), {
+      characteristic: "light", payload: "ff", options: { response: true },
+    });
+    await supervisor.setLight(false);
+    assert.equal(supervisor.getLightBrightness(), 0);
+    await supervisor.setLight(true);
+    assert.equal(supervisor.getLightBrightness(), 128);
+    assert.equal(transport.writtenCommands.at(-1)?.payload, "80");
+    await supervisor.disconnect();
+    assert.equal(supervisor.getSnapshot().powerStatus, null);
+  });
+
+  it("pauses drive heartbeat while a FED8 GATT read is in flight", async () => {
+    const transport = new SimulatedBleTransport();
+    let finishRead!: () => void;
+    transport.read = async () => {
+      await new Promise<void>((resolve) => { finishRead = resolve; });
+      return new Uint8Array([76, 0]);
+    };
+    const supervisor = new BodySupervisor(transport);
+    await supervisor.connect();
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    const reading = supervisor.readPowerStatus();
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    const driveWritesAtRead = transport.writtenCommands.filter((item) => item.characteristic === "drive").length;
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal(transport.writtenCommands.filter((item) => item.characteristic === "drive").length, driveWritesAtRead);
+    finishRead();
+    await reading;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.ok(transport.writtenCommands.filter((item) => item.characteristic === "drive").length > driveWritesAtRead);
+    await supervisor.disconnect();
+  });
+
+  it("does not send a delayed FED8 read into a newer BLE connection", async () => {
+    const transport = new SimulatedBleTransport();
+    let reads = 0;
+    const read = transport.read.bind(transport);
+    transport.read = async (...args) => { reads++; return read(...args); };
+    const supervisor = new BodySupervisor(transport);
+    await supervisor.connect();
+    const staleRead = supervisor.readPowerStatus();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    transport.emitUnexpectedDisconnect();
+    await supervisor.connect();
+    await assert.rejects(staleRead, /cancelled/);
+    assert.equal(reads, 0);
+    await supervisor.disconnect();
+  });
+
+  it("does not restore power or brightness from a completed operation after disconnect", async () => {
+    const powerTransport = new SimulatedBleTransport();
+    const powerSupervisor = new BodySupervisor(powerTransport);
+    await powerSupervisor.connect();
+    powerTransport.read = async () => {
+      powerTransport.emitUnexpectedDisconnect();
+      return new Uint8Array([76, 1]);
+    };
+    await assert.rejects(() => powerSupervisor.readPowerStatus(), /cancelled/);
+    assert.equal(powerSupervisor.getSnapshot().powerStatus, null);
+
+    const lightTransport = new SimulatedBleTransport();
+    const lightSupervisor = new BodySupervisor(lightTransport);
+    await lightSupervisor.connect();
+    const write = lightTransport.write.bind(lightTransport);
+    lightTransport.write = async (...args) => {
+      await write(...args);
+      if (args[0] === "light") lightTransport.emitUnexpectedDisconnect();
+    };
+    await assert.rejects(() => lightSupervisor.setLightBrightness(128), /cancelled/);
+    assert.equal(lightSupervisor.getLightBrightness(), 0);
   });
 });

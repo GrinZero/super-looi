@@ -369,12 +369,14 @@ define_class!(
             };
 
             let generation = BLE_MANAGER.with(|slot| slot.borrow().as_ref().map(|m| m.generation).unwrap_or(0));
-            let need_stop = self
-                .ivars()
-                .shared
-                .lock()
-                .map(|mut s| s.on_notification(generation, &uuid_str, &hex))
-                .unwrap_or(false);
+            let need_stop = self.ivars().shared.lock().map(|mut s| {
+                if characteristic_key_from_uuid(&uuid_str) == Some("power") {
+                    s.on_read_result(generation, &uuid_str, &hex);
+                    false
+                } else {
+                    s.on_notification(generation, &uuid_str, &hex)
+                }
+            }).unwrap_or(false);
 
             if need_stop {
                 emergency_stop_on_main();
@@ -738,6 +740,25 @@ pub(super) fn subscribe(generation: u64, characteristic_uuid: &str) -> Result<()
                     setNotifyValue: Bool::YES,
                     forCharacteristic: &**ch
                 ];
+            }
+            Ok(())
+        })
+    })?
+}
+
+pub(super) fn read(generation: u64, characteristic_uuid: &str) -> Result<(), String> {
+    let Some(key) = characteristic_key_from_uuid(characteristic_uuid) else {
+        return Err("Unknown characteristic UUID".into());
+    };
+    on_main(|_mtm| {
+        BLE_MANAGER.with(|slot| {
+            let borrow = slot.borrow();
+            let Some(mgr) = borrow.as_ref() else { return Err("CoreBluetooth manager not initialized".into()); };
+            if mgr.generation != generation { return Err("Stale BLE generation".into()); }
+            let Some(peripheral) = mgr.active_peripheral.as_ref() else { return Err("No active BLE peripheral".into()); };
+            let Some(ch) = mgr.characteristics.get(key) else { return Err(format!("Characteristic {key} not discovered on peripheral")); };
+            unsafe {
+                let _: () = msg_send![&**peripheral, readValueForCharacteristic: &**ch];
             }
             Ok(())
         })

@@ -144,6 +144,20 @@ pub(super) fn write(
     }
 }
 
+pub(super) fn read(generation: u64, characteristic_uuid: &str) -> Result<(), String> {
+    let ok = with_java(|env, class| {
+        let uuid = env.new_string(characteristic_uuid)?;
+        env.call_static_method(
+            class,
+            "read",
+            "(JLjava/lang/String;)Z",
+            &[JValue::Long(generation as jlong), JValue::Object(&uuid)],
+        )?
+        .z()
+    })?;
+    if ok { Ok(()) } else { Err("蓝牙特征值读取失败".into()) }
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_superlooi_nsh_LooiBleBridge_onScanError(
     _: JNIEnv<'_>,
@@ -263,5 +277,21 @@ pub extern "system" fn Java_com_superlooi_nsh_LooiBleBridge_onNotifyAck(
     };
     if let Ok(mut state) = shared.lock() {
         state.on_notify_ack(generation as u64, &uuid);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_superlooi_nsh_LooiBleBridge_onReadResult(
+    mut env: JNIEnv<'_>,
+    _: JClass<'_>,
+    generation: jlong,
+    uuid: JString<'_>,
+    bytes: JByteArray<'_>,
+) {
+    let Some(shared) = active_shared() else { return };
+    let Ok(uuid) = env.get_string(&uuid).map(String::from) else { return };
+    let Ok(raw) = env.convert_byte_array(&bytes) else { return };
+    if let Ok(mut state) = shared.lock() {
+        state.on_read_result(generation as u64, &uuid, &encode_hex(&raw));
     }
 }

@@ -1,5 +1,6 @@
 import {
   BodyRuntime,
+  NshNativeBleAdapter,
   type NativeBlePort,
 } from "../runtime/body.js";
 import {
@@ -191,6 +192,9 @@ export async function verifyBodyRuntime() {
         }, 20);
       }
     },
+    read: (characteristic: string) => {
+      nativeEvents.push({ kind: "read_result", characteristic, payload: "4c01" });
+    },
     drainEvents: () => nativeEvents.splice(0, nativeEvents.length),
     status: () => ({
       state: nativeConnectedId ? "connected" : pendingConnectId ? "connecting" : "disconnected",
@@ -200,6 +204,16 @@ export async function verifyBodyRuntime() {
       error: "",
     }),
   };
+
+  const readEvents = [{ kind: "connected", characteristic: "", payload: "" }];
+  const readAdapter = new NshNativeBleAdapter({
+    ...mockNativeBle,
+    status: () => ({ state: "connected", permission: "granted", deviceId: "ble-dock-99", deviceName: "LOOI-Robot-99", error: "" }),
+    read: (characteristic) => { readEvents.push({ kind: "read_result", characteristic, payload: "4c01" }); },
+    drainEvents: () => readEvents.splice(0, readEvents.length),
+  });
+  check(await readAdapter.readCharacteristic("power") === "4c01", "FED8 native read result did not reach the adapter");
+  readAdapter.dispose();
 
   const bleRuntime = new BodyRuntime({
     vault,
@@ -238,8 +252,8 @@ export async function verifyBodyRuntime() {
   });
   check(
     turnReceipt.status === "verified" &&
-      writtenCharacteristics.some((w) => w.hexPayload === "047a"),
-    "real_ble turn_left did not write differential wheel command",
+      writtenCharacteristics.some((w) => w.hexPayload === "007f"),
+    "real_ble turn_left did not write pure turn command",
   );
   check(
     writtenCharacteristics.some((w) => w.hexPayload === "0000"),
