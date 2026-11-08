@@ -1,5 +1,19 @@
-import type { FaceExpression } from "../shell/presence-state.js";
+import {
+  FACE_EXPRESSION_IDS,
+  getFaceExpressionBehavior,
+  isFaceExpression,
+  type FaceExpression,
+  type FaceExpressionBehavior,
+} from "../shell/presence-state.js";
 import type { BodySupervisorState } from "@super-looi/contracts";
+
+export {
+  FACE_EXPRESSION_IDS,
+  getFaceExpressionBehavior,
+  isFaceExpression,
+  type FaceExpression,
+  type FaceExpressionBehavior,
+};
 
 export type BlinkState = "open" | "closing" | "closed" | "opening";
 
@@ -60,20 +74,29 @@ export class RobotFaceController {
   }
 
   public setExpression(expression: FaceExpression): void {
+    const prevBehavior = getFaceExpressionBehavior(this.expression);
+    const behavior = getFaceExpressionBehavior(expression);
     const changed = this.expression !== expression;
     const blinkReset =
-      expression !== "sleeping" &&
+      !behavior.closedRest &&
       (this.blinkState !== "open" || this.blinkProgress !== 0);
     this.expression = expression;
-    if (expression === "sleeping") {
+    if (behavior.closedRest) {
       this.clearBlinkTimers();
       this.blinkState = "closed";
       this.blinkProgress = 1.0;
       this.waveformBars = [0, 0, 0, 0, 0];
-    } else if (blinkReset) {
-      this.clearBlinkTimers();
-      this.blinkState = "open";
-      this.blinkProgress = 0.0;
+    } else {
+      if (prevBehavior.closedRest) {
+        this.waveformBars = [0.05, 0.05, 0.05, 0.05, 0.05];
+      }
+      if (!behavior.allowsBlink || blinkReset) {
+        this.clearBlinkTimers();
+      }
+      if (blinkReset) {
+        this.blinkState = "open";
+        this.blinkProgress = 0.0;
+      }
     }
     if (changed || blinkReset) this.onStateChange?.();
   }
@@ -86,7 +109,7 @@ export class RobotFaceController {
   }
 
   public triggerBlink(): void {
-    if (this.expression === "sleeping") return;
+    if (!getFaceExpressionBehavior(this.expression).allowsBlink) return;
     this.clearBlinkTimers();
     this.blinkState = "closing";
     this.blinkProgress = 0.5;
@@ -118,7 +141,7 @@ export class RobotFaceController {
   private scheduleBlink(callback: () => void, delayMs: number): void {
     const timer = setTimeout(() => {
       this.blinkTimers = this.blinkTimers.filter((entry) => entry !== timer);
-      if (this.expression !== "sleeping") callback();
+      if (getFaceExpressionBehavior(this.expression).allowsBlink) callback();
     }, delayMs);
     this.blinkTimers.push(timer);
   }
@@ -132,8 +155,13 @@ export class RobotFaceController {
    * Resonates waveform bars with microphone or assistant TTS audio RMS level (0.0 to 1.0).
    */
   public updateAudioLevel(rms: number): void {
+    const behavior = getFaceExpressionBehavior(this.expression);
+    if (behavior.closedRest) {
+      this.waveformBars = [0, 0, 0, 0, 0];
+      return;
+    }
     const clampedRms = Math.max(0.0, Math.min(1.0, rms));
-    if (this.expression === "sleeping" || clampedRms <= 0.01) {
+    if (!behavior.allowsAudioResonance || clampedRms <= 0.01) {
       this.waveformBars = [0.05, 0.05, 0.05, 0.05, 0.05];
       return;
     }

@@ -3,15 +3,21 @@ import type {
   UserActionRef,
   BodySupervisorState,
 } from "@super-looi/contracts";
+import {
+  FACE_EXPRESSION_IDS,
+  getFaceExpressionBehavior,
+  isFaceExpression,
+  type FaceExpression,
+  type FaceExpressionBehavior,
+} from "./face-expressions.js";
 
-export type FaceExpression =
-  | "neutral"
-  | "listening"
-  | "thinking"
-  | "speaking"
-  | "curious"
-  | "sleeping"
-  | "alarmed";
+export {
+  FACE_EXPRESSION_IDS,
+  getFaceExpressionBehavior,
+  isFaceExpression,
+  type FaceExpression,
+  type FaceExpressionBehavior,
+};
 
 export type CaptureMode = "off" | "foreground_explicit" | "docked_context";
 

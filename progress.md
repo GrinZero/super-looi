@@ -1410,3 +1410,21 @@
 - [x] Step 4：全量验证、独立子 agent 代码复审与提交
   - [x] `@super-looi/runtime` 79 项测试、`@super-looi/nsh` 类型检查 / 语音与异步测试 / 24 项集成测试与 `build` 全部通过
   - [x] 独立子 agent 首轮审查 6 项并发边界与 3 组清理项全部修复并补齐回归单测，终审复核 PASS 后提交
+
+
+### 72 桌宠表情声明式目录与 Canvas 原语引擎接入（2026-11-09）
+
+- [x] Step 1：扩展 `looi-runtime` 72 表情类型契约与控制器行为守卫
+  - [x] 完成 72 表情视觉图板（全 7 张）与方案文档 `docs/plans/face-72-declarative-primitives-plan.md`
+  - [x] 新增 `packages/looi-runtime/src/shell/face-expressions.ts`，更新 `presence-state.ts`、`robot-face-controller.ts` 与 `build-runtime.ts`
+  - [x] 补齐 `packages/looi-runtime/test/robot-face-and-toast.test.ts` 对 72 态切换、非圆眼防误眨眼与静息态锁定的单测（80 项全过）
+- [x] Step 2：实现主题语义 Token、72 态声明式配方表与 `RobotFace` 正交原语渲染器
+  - [x] 在 `apps/nsh/theme.json` 与 `apps/nsh/DESIGN.md` 增补低饱和 OLED 表情语义色 Token
+  - [x] 实现 `apps/nsh/ui/face-recipes.ts`（覆盖 `#01–#72` 全部五通道几何配方，存量 7 态保持 1:1 参数）
+  - [x] 重构 `apps/nsh/ui/RobotFace.tsx` 接入 `drawRobotFace` 五通道 `Canvas` 原语引擎（零瞳孔挖空、零硬编码色值）
+- [x] Step 3：回归测试与构建验证
+  - [x] 新增 72 表情配方与 `Canvas` 原语栈平衡/Token 守卫/眨眼契约一致性测试（`RobotFace.test.tsx`、`FaceProbe.tsx`）及架构图快照同步（`docs/arch/`）
+  - [x] 通过 `@super-looi/runtime` 80 项单测、`@super-looi/nsh` `typecheck`、26 项全量集成测试与 `build`
+- [x] Step 4：独立子 agent 代码复审与提交
+  - [x] 独立子 agent 完成代码与视觉规范一致性复审，修复安全区 `safeArea()` 居中缩放、`cat_w` 逆时针开弧、`glasses` 鼻梁桥接/`pout_puff` 嘴角折线与静息态 `waveformBars` 守卫，终审 `PASS`
+  - [x] 更新 `progress.md` 并隔离提交本轮变更

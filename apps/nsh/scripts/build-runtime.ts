@@ -18,7 +18,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     import {installNshNativeCompat} from "../../packages/nsh-node-compat/src/native-host.ts";
     export {VoiceRuntime, VoiceTaskCoordinator} from "./runtime/voice.ts";
     export {MiotLoginFlow} from "./runtime/miot-login.ts";
-    export {RobotFaceController} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
+    export {RobotFaceController, FACE_EXPRESSION_IDS, isFaceExpression, getFaceExpressionBehavior} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
     export async function openRuntime(host,vault) {
       const release=installNshNativeCompat(host);
       try {const {MobileRuntime}=await import("./runtime/application.ts");return new MobileRuntime(vault,release);}
@@ -158,9 +158,13 @@ export interface NativeRuntime {
  submitProviderOAuthCallback(callbackUrl:string):void;
  cancelProviderOAuth():void;
 }
-export interface FaceState {expression:"neutral"|"listening"|"thinking"|"speaking"|"curious"|"sleeping"|"alarmed";gaze:{x:number;y:number};blinkProgress:number;waveformBars:number[]}
+export const FACE_EXPRESSION_IDS: readonly ["neutral","listening","thinking","speaking","curious","sleeping","alarmed","wake_spark","aha_eureka","confused","interrupted","wave_bye","happy_squint","laughing","wink","love_eyes","shy_blush","starry_eyed","smug_proud","kitty_playful","touched_warm","kissy","excited_bounce","zen_content","pouty","sad_droop","teary_cry","grumpy_puff","angry_glare","speechless","side_eye","shocked","dizzy_spiral","nervous_sweat","mischievous","relieved_sigh","sleepy_drowsy","yawning","deep_snore","coffee_sip","munching","sipping_straw","music_vibe","focus_glasses","reading_scan","pomodoro_timer","celebrate_party","bored_sigh","coding_terminal","searching_radar","approval_ask","task_verified","task_warning","memory_recall","memory_saved","sync_pulse","privacy_shield","rate_limited","offline_lost","night_watch","dock_snap","undock_float","drive_forward","turn_peek","head_up_sky","head_down_floor","charging_pulse","low_battery","fill_light_glow","home_command","weather_sunny","weather_rain_chill"];
+export type FaceExpression = (typeof FACE_EXPRESSION_IDS)[number];
+export function isFaceExpression(value:unknown):value is FaceExpression;
+export function getFaceExpressionBehavior(expression:FaceExpression):{closedRest:boolean;allowsBlink:boolean;allowsAudioResonance:boolean};
+export interface FaceState {expression:FaceExpression;gaze:{x:number;y:number};blinkProgress:number;waveformBars:number[]}
 export class RobotFaceController {
- constructor(options?:{onStateChange?:()=>void});getState():FaceState;setExpression(value:FaceState["expression"]):void;setGaze(x:number,y:number):void;updateAudioLevel(rms:number):void;triggerBlink():void;dispose():void;
+ constructor(options?:{onStateChange?:()=>void});getState():FaceState;setExpression(value:FaceExpression):void;setGaze(x:number,y:number):void;updateAudioLevel(rms:number):void;triggerBlink():void;dispose():void;
 }
 export function openRuntime(host:{request(raw:string):string;begin(kind:string,raw:string):string;wait(ticket:string):Promise<string>;close():void},vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void}):Promise<NativeRuntime>;
 `,

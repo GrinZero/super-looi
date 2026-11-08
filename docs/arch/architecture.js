@@ -103,11 +103,13 @@ globalThis.LOOI_ARCH = {
       ],
     },
     {
-      id: "face", x: 28, y: 462, title: "表情与陪伴", symbol: "eyes", category: "TypeScript · 界面反馈", detail: "情绪 / 眨眼 / 视线 / 音量响应", path: "packages/looi-runtime/src/ui/robot-face-controller.ts",
-      description: "RobotFaceController 管理表情、眨眼与音频驱动状态，store 将这些状态传给 RobotFace 绘制。它控制屏幕表情，身体动作由独立驱动包定义。",
+      id: "face", x: 28, y: 462, title: "表情与陪伴", symbol: "eyes", category: "TypeScript · 界面反馈", detail: "72 表情 / 配方原语 / 眨眼共鸣", path: "packages/looi-runtime/src/ui/robot-face-controller.ts",
+      description: "face-expressions 定义 72 态表情契约与眨眼/静息行为守卫，RobotFaceController 管理动力学与音频共鸣，RobotFace 按 face-recipes 五通道声明式配方与 Canvas 正交原语绘制。",
       files: [
+        { path: "packages/looi-runtime/src/shell/face-expressions.ts", entry: "export const FACE_EXPRESSION_IDS", anchors: [{ label: "72 态目录", match: "export const FACE_EXPRESSION_IDS" }, { label: "行为守卫", match: "export function getFaceExpressionBehavior(" }] },
         { path: "packages/looi-runtime/src/ui/robot-face-controller.ts", entry: "export class RobotFaceController" },
-        { path: "apps/nsh/ui/RobotFace.tsx", entry: "export function RobotFace" },
+        { path: "apps/nsh/ui/face-recipes.ts", entry: "export const FACE_EXPRESSION_RECIPES" },
+        { path: "apps/nsh/ui/RobotFace.tsx", entry: "export function RobotFace", anchors: [{ label: "组件入口", match: "export function RobotFace(" }, { label: "纯绘制引擎", match: "export function drawRobotFace(" }] },
         { path: "apps/nsh/theme.json", entry: '"light"' },
       ],
     },

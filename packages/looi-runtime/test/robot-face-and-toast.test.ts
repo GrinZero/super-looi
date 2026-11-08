@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  FACE_EXPRESSION_IDS,
+  getFaceExpressionBehavior,
+  isFaceExpression,
   RobotFaceController,
   KeepAwakeController,
 } from "../src/ui/robot-face-controller.js";
@@ -163,7 +166,51 @@ describe("Robot Face Kinematics, Toast Queue, and Theme (Phase 1)", () => {
     assert.equal(face.getState().expression, "alarmed");
     assert.equal(face.getState().blinkProgress, 0.0);
     assert.equal(face.getState().blinkState, "open");
+  });
 
+  it("supports all 72 canonical expressions with blink and closed-rest invariants", async () => {
+    assert.equal(FACE_EXPRESSION_IDS.length, 72);
+    assert.equal(new Set(FACE_EXPRESSION_IDS).size, 72);
+    assert.equal(isFaceExpression("coffee_sip"), true);
+    assert.equal(isFaceExpression("unknown_expression"), false);
 
+    const face = new RobotFaceController();
+    for (const id of FACE_EXPRESSION_IDS) {
+      face.setExpression(id);
+      const behavior = getFaceExpressionBehavior(id);
+      const state = face.getState();
+      assert.equal(state.expression, id);
+      if (behavior.closedRest) {
+        assert.equal(state.blinkState, "closed");
+        assert.equal(state.blinkProgress, 1.0);
+        assert.deepEqual(state.waveformBars, [0, 0, 0, 0, 0]);
+        face.updateAudioLevel(0);
+        assert.deepEqual(face.getState().waveformBars, [0, 0, 0, 0, 0]);
+        face.updateAudioLevel(0.75);
+        assert.deepEqual(face.getState().waveformBars, [0, 0, 0, 0, 0]);
+      } else {
+        assert.equal(state.blinkState, "open");
+        assert.equal(state.blinkProgress, 0.0);
+        assert.deepEqual(state.waveformBars, [0.05, 0.05, 0.05, 0.05, 0.05]);
+      }
+
+      if (!behavior.allowsBlink) {
+        const before = face.getState();
+        face.triggerBlink();
+        assert.deepEqual(face.getState(), before);
+      }
+    }
+
+    // Switching from orb mid-blink into a symbolic/crescent expression cancels pending blink timers.
+    face.setExpression("neutral");
+    face.triggerBlink();
+    assert.equal(face.getState().blinkProgress, 0.5);
+    face.setExpression("love_eyes");
+    assert.equal(face.getState().blinkState, "open");
+    assert.equal(face.getState().blinkProgress, 0.0);
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    assert.equal(face.getState().expression, "love_eyes");
+    assert.equal(face.getState().blinkProgress, 0.0);
+    face.dispose();
   });
 });

@@ -31,6 +31,7 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 | `eye-halo` | `rgba(250,245,235,0.16)` | `rgba(229,214,190,0.14)` | 圆眼外圈柔和 OLED 光晕 |
 | `halo-zero` | `rgba(250,245,235,0)` | `rgba(229,214,190,0)` | 圆眼光晕透明外缘 |
 | `face-stroke` | `#F7F1E6` | `#E2D2B9` | 表情嘴型与条件眉弧 |
+| `face-ivory-*` / `face-amber-*` / `face-sage-*` / `face-rose-*` / `face-mist-*` | 低饱和清朗亮米 / 琥珀 / 鼠尾草绿 / 柔粉 / 冰雾蓝 | 夜间柔和降眩光对应色阶 | 72 表情扩展语义色与平面微符号光晕（见 [`super-looi-72-expressions-design.md`](../../docs/super-looi-72-expressions-design.md)） |
 | `stage-pill-bg` | `rgba(255,250,242,0.08)` | `rgba(255,248,236,0.05)` | 主页外围轻量胶囊底色 |
 | `stage-pill-border` | `rgba(250,245,235,0.16)` | `rgba(229,214,190,0.13)` | 主页外围轻量胶囊边框 |
 | `stage-pill-fg` | `#F7F1E6` | `#EAE0D0` | 主页胶囊主文字色 |
