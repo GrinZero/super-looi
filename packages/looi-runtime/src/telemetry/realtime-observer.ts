@@ -25,16 +25,17 @@ export function observeVoiceSocket(socket: Socket, options: {
   const root = tracer.start("voice.session", "span", { traceId: "", traceName: "voice.session", sessionId: options.sessionId }, {}, started);
   const handshake = tracer.start("realtime.handshake", "span", root.context, { "langfuse.observation.input": { providerId: protocol.providerId, model: protocol.model } }, started);
   let ready = false, closed = false, turns = 0, tools = 0;
-  type Turn = { observation: Observation; frames: number; bytes: number; itemId?: string };
+  type Turn = { observation: Observation; frames: number; bytes: number; transcript: string; itemId?: string };
   let turn: Turn | undefined;
   const pendingTurns: Turn[] = [];
   let response: Observation | undefined, responseStarted = 0, firstAudio = 0, responseFrames = 0, responseBytes = 0, responseText = "";
   const transcripts: string[] = [], assistantTranscripts: string[] = [];
   const toolSpans = new Map<string, Observation>();
   const finishTurn = (target: Turn, transcript?: string) => {
-    if (transcript) transcripts.push(transcript);
+    const text = transcript || target.transcript;
+    if (text) transcripts.push(text);
     target.observation.end({
-      "langfuse.observation.output": transcript || "",
+      "langfuse.observation.output": text,
       "langfuse.observation.metadata.inputFrames": target.frames,
       "langfuse.observation.metadata.inputBytes": target.bytes,
       "langfuse.observation.metadata.audioDurationMs": target.frames * 20,
@@ -56,7 +57,7 @@ export function observeVoiceSocket(socket: Socket, options: {
     const target = index >= 0 ? pendingTurns.splice(index, 1)[0] : pendingTurns.shift() ?? turn;
     if (target === turn) turn = undefined;
     if (target) finishTurn(target, transcript);
-    else transcripts.push(transcript);
+    else if (transcript) transcripts.push(transcript);
   };
   const ensureResponse = () => {
     if (!response) {
@@ -113,10 +114,18 @@ export function observeVoiceSocket(socket: Socket, options: {
           if (!ready) { ready = true; handshake.end({ "langfuse.observation.metadata.handshakeMs": Date.now() - started }); }
           break;
         case "user_speech_started":
-          if (!turn) turn = { observation: tracer.start("realtime.user_turn", "span", root.context), frames: 0, bytes: 0 };
+          if (!turn) turn = { observation: tracer.start("realtime.user_turn", "span", root.context), frames: 0, bytes: 0, transcript: "" };
           break;
+        case "user_transcription_started":
+          if (!turn && !pendingTurns.length) turn = { observation: tracer.start("realtime.user_turn", "span", root.context), frames: 0, bytes: 0, transcript: "" };
+          break;
+        case "user_transcription_update": {
+          const target = (normalized.itemId && pendingTurns.find((item) => item.itemId === normalized.itemId)) || turn || pendingTurns[pendingTurns.length - 1];
+          if (target) target.transcript = normalized.text;
+          break;
+        }
         case "user_speech_stopped":
-          if (normalized.transcript) finishTranscript(normalized.transcript, normalized.itemId);
+          if (normalized.transcriptionFinal || normalized.transcript) finishTranscript(normalized.transcript || "", normalized.itemId);
           else parkTurn(normalized.itemId);
           break;
         case "response_started": parkTurn(); ensureResponse(); break;

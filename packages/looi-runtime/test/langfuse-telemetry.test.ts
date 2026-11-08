@@ -60,7 +60,11 @@ test("voice observer folds audio and finalizes root synchronously", async () => 
   const messages = [
     { type: "session.created", session: { id: "remote" } },
     { type: "input_audio_buffer.speech_started" },
-    { type: "conversation.item.input_audio_transcription.completed", transcript: "开灯" },
+    { type: "input_audio_buffer.committed" },
+    { type: "conversation.item.input_audio_transcription.started" },
+    { type: "conversation.item.input_audio_transcription.delta", delta: "开" },
+    { type: "conversation.item.input_audio_transcription.delta", delta: "开灯" },
+    { type: "conversation.item.input_audio_transcription.completed" },
     { type: "response.created", response_id: "r" },
     ...Array.from({ length: 50 }, () => ({ type: "response.output_audio.delta", response_id: "r", delta: "AAAA" })),
     { type: "response.output_text.done", response_id: "r", text: "好的" },
@@ -82,6 +86,7 @@ test("voice observer folds audio and finalizes root synchronously", async () => 
   assert.ok(Number(attrs(handshake)["langfuse.observation.metadata.handshakeMs"].intValue) >= 120);
   const turn = spans().find((span: any) => span.name === "realtime.user_turn");
   assert.equal(attrs(turn)["langfuse.observation.metadata.inputFrames"].intValue, "100");
+  assert.equal(attrs(turn)["langfuse.observation.output"].stringValue, "开灯");
   const root = spans().find((span: any) => span.name === "voice.session");
   assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.input"].stringValue).userTranscripts, ["开灯"]);
   assert.equal(JSON.parse(attrs(root)["langfuse.observation.output"].stringValue).closeReason, "end_session");

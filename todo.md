@@ -2,7 +2,7 @@
 
 ## Langfuse 本地语音追踪（2026-11-08）
 
-- [ ] 在 iPhone 16e 修正本地 HTTP 权限后再次进行语音对话，核对 Langfuse 中的 `voice.session`、`realtime.user_turn` 与 `realtime.response`。之前那次对话没有写入 Langfuse，语音运行时也未持久化该追踪队列。
+- [ ] 在 iPhone 16e 的豆包 ASR 最新识别结果覆盖版中再次进行语音对话，核对 Langfuse 中 `voice.session.input.userTranscripts` 与各 `realtime.user_turn.output` 无重复。真实 Trace 已确认用户和助手文字都写入；前一版把整段更新拼接，产生重复字词。
 
 ## NSH 自动语音唤醒 → 豆包 Realtime 对话（2026-11-07 规划）
 

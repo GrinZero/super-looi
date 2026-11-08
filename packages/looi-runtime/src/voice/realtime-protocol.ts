@@ -12,7 +12,9 @@ export type RealtimeInterruptContext = {
 export type NormalizedRealtimeEvent =
   | { kind: "session_ready"; sessionId?: string }
   | { kind: "user_speech_started" }
-  | { kind: "user_speech_stopped"; transcript?: string; itemId?: string }
+  | { kind: "user_transcription_started" }
+  | { kind: "user_transcription_update"; text: string; itemId?: string }
+  | { kind: "user_speech_stopped"; transcript?: string; itemId?: string; transcriptionFinal?: boolean }
   | { kind: "user_transcription_failed"; message?: string }
   | { kind: "response_started"; responseId: string }
   | { kind: "audio_started"; responseId: string; itemId?: string; contentIndex?: number }
@@ -91,12 +93,12 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
         case "response.output_audio.done": return { kind: "audio_done", responseId: id, statusCode: String(event.status_code ?? ""), userQueryExit: String(event.status_code ?? "") === "20000002" };
         case "response.output_text.delta": return { kind: "text_delta", responseId: id, delta: string(event.delta) };
         case "response.output_text.done": return { kind: "text_done", responseId: id, text: string(event.text) };
-        case "conversation.item.input_audio_transcription.started":
-        case "conversation.item.input_audio_transcription.delta":
         case "input_audio_buffer.speech_started": return { kind: "user_speech_started" };
+        case "conversation.item.input_audio_transcription.started": return { kind: "user_transcription_started" };
+        case "conversation.item.input_audio_transcription.delta": return { kind: "user_transcription_update", text: string(event.delta), itemId: string(event.item_id) || undefined };
         case "input_audio_buffer.committed":
-        case "input_audio_buffer.speech_stopped":
-        case "conversation.item.input_audio_transcription.completed": return { kind: "user_speech_stopped", transcript: string(event.transcript) || undefined, itemId: string(event.item_id) || undefined };
+        case "input_audio_buffer.speech_stopped": return { kind: "user_speech_stopped", itemId: string(event.item_id) || undefined };
+        case "conversation.item.input_audio_transcription.completed": return { kind: "user_speech_stopped", transcript: string(event.transcript) || undefined, itemId: string(event.item_id) || undefined, transcriptionFinal: true };
         case "conversation.item.input_audio_transcription.failed": return { kind: "user_transcription_failed" };
         case "response.function_call_arguments.done": {
           const items = Array.isArray(event.items) ? event.items.slice(0, 8) : [event];
@@ -174,8 +176,8 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
         case "response.output_text.done": return { kind: "text_done", responseId: id, text: string(event.transcript) || string(event.text) };
         case "input_audio_buffer.speech_started": return { kind: "user_speech_started" };
         case "input_audio_buffer.speech_stopped":
-        case "input_audio_buffer.committed":
-        case "conversation.item.input_audio_transcription.completed": return { kind: "user_speech_stopped", transcript: string(event.transcript) || undefined, itemId: string(event.item_id) || undefined };
+        case "input_audio_buffer.committed": return { kind: "user_speech_stopped", itemId: string(event.item_id) || undefined };
+        case "conversation.item.input_audio_transcription.completed": return { kind: "user_speech_stopped", transcript: string(event.transcript) || undefined, itemId: string(event.item_id) || undefined, transcriptionFinal: true };
         case "conversation.item.input_audio_transcription.failed": return { kind: "user_transcription_failed", message: string(object(event.error).message) };
         case "response.function_call_arguments.done": return { kind: "tool_calls", responseId: id, calls: [{ callId: string(event.call_id), name: string(event.name), argumentsJson: string(event.arguments) }] };
         case "response.done": {

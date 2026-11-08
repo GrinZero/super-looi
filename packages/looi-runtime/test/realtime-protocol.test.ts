@@ -16,6 +16,11 @@ test("Doubao preserves its native wire format and maps farewell status", () => {
   assert.deepEqual(protocol.encodeMute(true), { type: "input_audio_mute.commit" });
   assert.equal(protocol.parseServerEvent({ type: "response.output_audio.done", status_code: "20000002" }).kind, "audio_done");
   assert.equal((protocol.parseServerEvent({ type: "response.output_audio.done", status_code: "20000002" }) as any).userQueryExit, true);
+  assert.deepEqual(protocol.parseServerEvent({ type: "conversation.item.input_audio_transcription.delta", delta: "开灯" }),
+    { kind: "user_transcription_update", text: "开灯", itemId: undefined });
+  assert.equal(protocol.parseServerEvent({ type: "conversation.item.input_audio_transcription.started" }).kind, "user_transcription_started");
+  assert.deepEqual(protocol.parseServerEvent({ type: "conversation.item.input_audio_transcription.completed" }),
+    { kind: "user_speech_stopped", transcript: undefined, itemId: undefined, transcriptionFinal: true });
 });
 
 test("OpenAI GA handshake, resampling, normalized events and interruption", () => {

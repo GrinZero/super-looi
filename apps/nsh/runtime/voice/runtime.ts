@@ -379,7 +379,7 @@ export class VoiceRuntime {
               -4096,
             ),
           });
-        else if (normalized.kind === "user_speech_started") {
+        else if (normalized.kind === "user_speech_started" || normalized.kind === "user_transcription_started") {
           this.turnActivity = "user_speaking";
           this.pauseIdleTimer();
           if (this.state.phase === "speaking" || this.outputFrames.length || this.responseId)

@@ -1,11 +1,25 @@
 # Super-LOOI 重构与演进进度
 
+### LOOI 原创暖机械音复刻参考（2026-11-08）
+
+- [x] Step 1：确定偏中性、机灵温暖且有明确电子质感的声线；核对豆包复刻参考音频规格
+- [ ] Step 2：合成单人中文底稿并制作机械质感，导出复刻参考 WAV
+- [ ] Step 3：检查时长、采样率、声道、峰值和可懂度，提供试听文件
+
 ### NSH 本地 Langfuse 无对话记录修复（2026-11-08）
 
 - [x] Step 1：从 Langfuse v2 API 确认只有探针、没有用户对话观测；核对 iPhone 16e 的运行配置
 - [x] Step 2：为 NSH 增加 `localhost:3000` 的 HTTP POST 权限，导出失败时输出一次错误日志
 - [x] Step 3：iPhone 16e 中的诊断 Span 通过 5 秒定时导出写入 Langfuse；移除临时探针并重启 NSH
-- [ ] Step 4：用户再次语音对话后核对 `voice.session` 和子观测
+- [x] Step 4：iPhone 16e 实际语音会话写入 `voice.session`、3 个 `realtime.user_turn` 与 2 个 `realtime.response`；发现用户转写文本未写入，转入下项修复
+
+### 豆包用户话语写入 Langfuse（2026-11-08）
+
+- [x] Step 1：查到真实 Trace 中 3 个用户轮次有音频时长、无文本；核对豆包 Seeduplex ASR 事件字段
+- [x] Step 2：读取 `conversation.item.input_audio_transcription.delta`，在 `completed` 无文本时使用该轮最新识别结果
+- [x] Step 3：运行时协议与观测测试、NSH 语音测试及类型检查通过；iPhone 16e 已重启为追踪开启的修复版
+- [x] Step 4：真实语音 Trace 已包含用户文本与回复文本；发现豆包的 `delta` 返回整段更新，拼接会重复
+- [ ] Step 5：改为覆盖最新识别结果后，复核下一次真实语音的最终文字
 
 ### Langfuse v4 与多厂商 Realtime 接入（2026-11-08）
 
