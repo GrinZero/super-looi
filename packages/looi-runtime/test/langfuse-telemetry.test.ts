@@ -128,7 +128,7 @@ test("LLM observer emits known costs and omits unknown custom model costs", asyn
     stream.push({ type: "text_delta", contentIndex: 0, delta: "回", partial: message });
     stream.push({ type: "done", reason: "stop", message });
     const wrapped = wrapStreamFnWithLangfuse(() => stream, { tracer, getTraceContext: () => ({ traceId: "a".repeat(32), parentSpanId: "b".repeat(16), traceName: "agent.run", sessionId: "task-1" }) });
-    const result = await wrapped(model, { messages: [] } as any);
+    const result = await wrapped(model, { messages: [{ role: "system", content: "你是助手", toolsAdded: [{ name: "ping", description: "ping", parameters: { type: "object", properties: {} } }], timestamp: 1 }] } as any);
     await result.result();
   };
   await run(true);
@@ -139,6 +139,10 @@ test("LLM observer emits known costs and omits unknown custom model costs", asyn
   assert.ok(attrs(priced)["langfuse.observation.cost_details"]);
   assert.equal(attrs(unknown)["langfuse.observation.cost_details"], undefined);
   assert.equal(attrs(priced)["langfuse.observation.usage_details"].stringValue.includes('"input":2'), true);
+  assert.deepEqual(JSON.parse(attrs(priced)["langfuse.observation.input"].stringValue), {
+    systemPrompt: "你是助手", messages: [{ role: "system", content: "你是助手", toolsAdded: [{ name: "ping", description: "ping", parameters: { type: "object", properties: {} } }], timestamp: 1 }],
+    tools: [{ name: "ping", description: "ping", parameters: { type: "object", properties: {} } }],
+  });
 });
 
 test("voice tool context connects agent, generation and tool observations", async () => {

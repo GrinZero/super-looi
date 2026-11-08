@@ -12,6 +12,7 @@
   - [x] 全仓 `pnpm typecheck`、`pnpm test`、`pnpm build` 通过；协议、语音运行时、OTLP、跨层 Trace 与构建密钥隔离测试通过
   - [x] Langfuse v4 Compose 六个服务启动；OTLP 写入后 Observations v2 可读回观测
   - [x] 独立 review 的构建密钥、Compose 密钥长度、打断竞态、静音轮次、握手时长、凭据脱敏及晚到 ASR 问题已修复并复审通过
+  - [x] 从 Pi 归一化的首条 system message 提取 System Prompt 与工具定义；运行时 75 项测试和全仓类型检查通过
   - [x] 更新架构图与源码快照，分阶段提交核心实现和集成改动
 
 

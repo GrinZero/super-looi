@@ -8,10 +8,11 @@ export function wrapStreamFnWithLangfuse(baseStreamFn: StreamFn, options: {
 }): StreamFn {
   if (!options.tracer.enabled) return baseStreamFn;
   return async (model, context, streamOptions) => {
+    const system = context.messages[0]?.role === "system" ? context.messages[0] : undefined;
     const observation = options.tracer.start("llm.chat", "generation", options.getTraceContext(), {
       "langfuse.observation.model.name": model.id,
       "langfuse.observation.model.parameters": { samplingParams: model.samplingParams, thinkingLevel: streamOptions?.reasoning },
-      "langfuse.observation.input": { messages: context.messages, tools: (streamOptions as { tools?: unknown } | undefined)?.tools },
+      "langfuse.observation.input": { systemPrompt: system?.content, messages: context.messages, tools: system?.toolsAdded },
     });
     let source;
     try { source = await baseStreamFn(model, context, streamOptions); }
