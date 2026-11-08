@@ -45,8 +45,9 @@ export function BodySpaceView(props: {
   const status = () => props.store.bodyStatus();
   const config = () => props.store.bodyConfiguration();
   const isSimulation = () => status().mode === "simulation";
-  const canControlMotion = () => status().connected && status().isDocked;
-  const canControlLight = () => status().connected;
+  const canControlMotion = () => status().connected && status().isDocked && !status().connecting;
+  const canControlLight = () => status().connected && !status().connecting;
+  const connectionBusy = () => status().scanning || status().connecting;
 
   const otherCandidates = () => {
     const currentId = status().deviceId;
@@ -60,6 +61,14 @@ export function BodySpaceView(props: {
   };
 
   const renderStatusPill = () => {
+    if (status().connecting) {
+      return (
+        <View testID="body-status-pill" class="self-start flex-row items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted border border-warning">
+          <View class="w-2 h-2 rounded-full bg-warning" />
+          <Text class="text-warning text-xs font-medium">{t("connectingDock")}</Text>
+        </View>
+      );
+    }
     if (status().connected && status().isDocked) {
       return (
         <View
@@ -150,17 +159,29 @@ export function BodySpaceView(props: {
         />
       </If>
 
+      <If when={!isSimulation() && !connectionBusy() && status().error}>
+        <Text testID="body-connection-error" class="text-warning text-xs">
+          {status().error}
+        </Text>
+      </If>
+
       {/* Other Available Docks Section */}
       <View class="border-t border-border pt-1.5 gap-1">
         <Text class="text-muted-foreground text-xs font-medium">
-          {t("otherAvailableDocks")}
+          {status().connected ? t("otherAvailableDocks") : t("nearbyDocks")}
         </Text>
         <If
           when={otherCandidates().length > 0}
           else={
             <View class="py-1">
               <Text class="text-muted-foreground text-xs">
-                {t("noNearbyDocksFound")}
+                {status().scanning
+                  ? t("scanningNearbyDocks")
+                  : status().scanCompleted
+                    ? t(status().connected ? "noOtherDocksFound" : "noNearbyDocksFound")
+                    : status().error
+                      ? t("retryScanDock")
+                    : t("scanToChooseDock")}
               </Text>
             </View>
           }
@@ -179,16 +200,17 @@ export function BodySpaceView(props: {
                     <SignalBars rssi={c().rssi} />
                     <Button
                       testID={`body-connect-${c().id}`}
+                      disabled={connectionBusy()}
                       onPress={() =>
                         void props.store.connectBodyDevice({
                           deviceId: c().id,
                           deviceName: c().name,
                         })
                       }
-                      class="min-h-11 px-3.5 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+                      class="min-h-11 px-3.5 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-40"
                     >
                       <Text class="text-foreground text-xs font-medium">
-                        {t("connectDockBtn")}
+                        {status().connecting ? t("connectingDock") : t("connectDockBtn")}
                       </Text>
                     </Button>
                   </View>
@@ -200,25 +222,28 @@ export function BodySpaceView(props: {
       </View>
 
       {/* Bottom Connection Action */}
+      <If when={status().connected || config().savedDeviceId}>
       <View class="border-t border-border pt-1 items-center justify-center">
         <If
           when={status().connected}
           else={
             <Button
               testID="body-connect-primary-btn"
+              disabled={connectionBusy()}
               onPress={() => void props.store.connectBodyDevice()}
-              class="min-h-11 w-full rounded-xl bg-primary items-center justify-center active:opacity-75"
+              class="min-h-11 w-full rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
             >
               <Text class="text-primary-foreground text-sm font-semibold">
-                {t("connectDockBtn")}
+                {status().connecting ? t("connectingDock") : t("connectSavedDock")}
               </Text>
             </Button>
           }
         >
           <Button
             testID="body-disconnect-btn"
+            disabled={status().connecting}
             onPress={() => void props.store.disconnectBody()}
-            class="min-h-11 w-full rounded-xl items-center justify-center active:bg-muted"
+            class="min-h-11 w-full rounded-xl items-center justify-center active:bg-muted disabled:opacity-40"
           >
             <Text class="text-muted-foreground text-sm font-medium">
               {t("disconnectDockBtn")}
@@ -226,6 +251,7 @@ export function BodySpaceView(props: {
           </Button>
         </If>
       </View>
+      </If>
     </View>
   );
 

@@ -64,6 +64,7 @@ test("keeps the pure face primary with inline ask bar and Structure 3 management
   expect(app.texts()).toContain("蓝牙底座");
   expect(app.texts()).toContain("模拟体验");
   expect(app.texts()).toContain("扫描附近底座");
+  expect(app.texts()).toContain("扫描后选择要连接的底座");
   expect(app.texts()).toContain("方向轮盘");
   expect(app.texts()).toContain("抬头");
   expect(app.texts()).toContain("低头");

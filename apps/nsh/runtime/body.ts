@@ -34,6 +34,8 @@ export interface BodyStatusSnapshot {
   deviceName: string;
   autoConnect: boolean;
   scanning: boolean;
+  scanCompleted: boolean;
+  connecting: boolean;
   candidates: LooiDeviceCandidate[];
   lastVerifiedAt: string | null;
   error: string | null;
@@ -105,11 +107,24 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     return this.connectedFlag && this.port.status().state === "connected";
   }
 
-  public async scanCandidates(_serviceUuid: string, timeoutMs = 1200): Promise<LooiDeviceCandidate[]> {
-    const perm = this.port.permission();
-    if (perm === "undetermined") {
-      this.port.requestPermission();
+  private async ensurePermission(): Promise<void> {
+    let permission = this.port.permission();
+    if (permission !== "granted") {
+      permission = this.port.requestPermission();
+      while (permission === "undetermined") {
+        permission = this.port.permission();
+        if (permission === "undetermined") {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      if (permission !== "granted") {
+        throw new Error(permission === "denied" ? "body_ble_permission_denied" : "body_ble_unavailable");
+      }
     }
+  }
+
+  public async scanCandidates(_serviceUuid: string, timeoutMs = 1200): Promise<LooiDeviceCandidate[]> {
+    await this.ensurePermission();
     this.port.startScan();
     try {
       await new Promise((resolve) => setTimeout(resolve, Math.max(100, timeoutMs)));
@@ -124,6 +139,7 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
   }
 
   public async scanAndConnect(serviceUuid: string, target?: LooiConnectTarget): Promise<void> {
+    await this.ensurePermission();
     let deviceId = target?.deviceId?.trim() ?? "";
     if (!deviceId) {
       const found = await this.scanCandidates(serviceUuid, 1200);
@@ -277,6 +293,8 @@ export class BodyRuntime {
   private supervisor: BodySupervisor;
   private candidates: LooiDeviceCandidate[] = [];
   private scanning = false;
+  private scanCompleted = false;
+  private connecting = false;
   private connectedDeviceId: string | null = null;
   private connectedDeviceName = "LOOI 桌面底座";
   private lastError: string | null = null;
@@ -400,6 +418,7 @@ export class BodyRuntime {
     const snap = this.supervisor.getSnapshot();
     const connected =
       this.config.mode !== "disabled" &&
+      !this.connecting &&
       snap.state !== "disconnected" &&
       snap.state !== "fault";
     const permission =
@@ -421,9 +440,11 @@ export class BodyRuntime {
       deviceName: this.connectedDeviceName || this.config.savedDeviceName || "LOOI 桌面底座",
       autoConnect: this.config.autoConnect,
       scanning: this.scanning,
+      scanCompleted: this.scanCompleted,
+      connecting: this.connecting,
       candidates: [...this.candidates],
       lastVerifiedAt: snap.lastVerifiedAt,
-      error: this.lastError ?? snap.lastError,
+      error: this.scanning || this.connecting ? null : this.lastError,
     };
   }
 
@@ -452,6 +473,7 @@ export class BodyRuntime {
       this.lastError = null;
       this.candidates =
         this.config.mode === "simulation" ? [...DEFAULT_SIM_CANDIDATES] : [];
+      this.scanCompleted = this.config.mode === "simulation";
       this.supervisor = this.buildSupervisorForMode(this.config.mode);
       if (this.config.mode === "simulation") {
         await this.connect({
@@ -480,23 +502,24 @@ export class BodyRuntime {
     }
     this.lastError = null;
     this.scanning = true;
+    this.scanCompleted = false;
+    this.candidates = [];
     try {
       if (this.config.mode === "simulation") {
         this.candidates = [...DEFAULT_SIM_CANDIDATES];
-        return this.status();
-      }
-      if (!this.nativeAdapter) {
+        this.scanCompleted = true;
+      } else if (!this.nativeAdapter) {
         this.lastError = "当前环境不支持蓝牙扫描，可切换至模拟体验";
-        return this.status();
+      } else {
+        this.candidates = await this.nativeAdapter.scanCandidates("", timeoutMs);
+        this.scanCompleted = true;
       }
-      this.candidates = await this.nativeAdapter.scanCandidates("", timeoutMs);
-      return this.status();
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
-      return this.status();
     } finally {
       this.scanning = false;
     }
+    return this.status();
   }
 
   public async connect(target?: {
@@ -527,12 +550,12 @@ export class BodyRuntime {
       return this.status();
     }
 
-    const snap = this.supervisor.getSnapshot();
-    if (snap.state !== "disconnected" && snap.state !== "fault") {
-      await this.supervisor.disconnect();
-    }
-
+    this.connecting = true;
     try {
+      const snap = this.supervisor.getSnapshot();
+      if (snap.state !== "disconnected" && snap.state !== "fault") {
+        await this.supervisor.disconnect();
+      }
       await this.supervisor.connect(new Date(), 2, {
         deviceId: resolvedId || undefined,
         deviceName: resolvedName,
@@ -554,11 +577,12 @@ export class BodyRuntime {
       if (this.config.mode === "simulation" && !this.supervisor.getIsDocked()) {
         this.simTransport?.simulateDock(true);
       }
-      return this.status();
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
-      return this.status();
+    } finally {
+      this.connecting = false;
     }
+    return this.status();
   }
 
   public async disconnect(): Promise<BodyStatusSnapshot> {

@@ -414,6 +414,8 @@ export function createAppStore() {
   const bodyActiveCommand = signal<BodyControlAction | null>(null);
   const recoveryCount = signal(0);
   const tasks = signal<NativeTaskPage>({ total: 0, offset: 0, items: [] });
+    scanCompleted: false,
+    connecting: false,
   const task = signal<NativeTask | undefined>(undefined);
   const interaction = signal<
     (NonNullable<NativeStep["interaction"]> & { taskId: string }) | undefined
@@ -1095,6 +1097,9 @@ export function createAppStore() {
         }
         return;
       }
+            scanning: false,
+            scanCompleted: true,
+            connecting: false,
       try {
         const snap = await runtime.configureBody(next, action());
         if (alive) {
@@ -1106,6 +1111,9 @@ export function createAppStore() {
       }
     },
     async scanBodyDevices(durationMs = 1500) {
+            scanning: false,
+            scanCompleted: false,
+            connecting: false,
       if (!runtime) {
         if (bodyStatus().mode === "simulation") {
           bodyStatus.update((prev) => ({
@@ -1123,11 +1131,13 @@ export function createAppStore() {
       try {
         const snap = await runtime.scanBodyDevices(durationMs);
         if (alive) {
+      if (bodyStatus().scanning || bodyStatus().connecting || runtime?.bodyStatus().connecting) return;
           bodyStatus.set(snap);
           if (snap.error) notify(snap.error);
         }
       } catch (error) {
         if (alive) {
+            scanCompleted: true,
           bodyStatus.set(runtime.bodyStatus());
           fail(error);
         }
@@ -1151,6 +1161,7 @@ export function createAppStore() {
             deviceId: nextId,
             deviceName: nextName,
             error: null,
+      if (bodyStatus().connecting || bodyStatus().scanning || runtime?.bodyStatus().connecting) return;
           }));
         }
         return;
@@ -1165,6 +1176,7 @@ export function createAppStore() {
       } catch (error) {
         if (alive) fail(error);
       }
+            connecting: false,
     },
     async disconnectBody() {
       if (!runtime) {
@@ -1172,6 +1184,7 @@ export function createAppStore() {
         bodyStatus.update((prev) => ({
           ...prev,
           connected: false,
+      bodyStatus.update((prev) => ({ ...prev, connecting: true, error: null }));
           isDocked: false,
           supervisorState: "disconnected",
         }));
@@ -1184,7 +1197,10 @@ export function createAppStore() {
           bodyStatus.set(snap);
         }
       } catch (error) {
-        if (alive) fail(error);
+        if (alive) {
+          bodyStatus.set(runtime.bodyStatus());
+          fail(error);
+        }
       }
     },
     setSimulatedDock(docked: boolean) {

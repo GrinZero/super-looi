@@ -270,7 +270,7 @@ export function ManagementShell(props: {
           </Scroll>
           <Button
             testID="body-scan-btn"
-            disabled={props.store.bodyStatus().scanning}
+            disabled={props.store.bodyStatus().scanning || props.store.bodyStatus().connecting}
             onPress={() => void props.store.scanBodyDevices()}
             class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-40"
           >

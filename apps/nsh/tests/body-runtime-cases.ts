@@ -108,10 +108,16 @@ export async function verifyBodyRuntime() {
     hexPayload: string;
   }> = [];
   let nativeConnectedId = "";
+  let nativePermission = "denied";
+  let scanStartedWithPermission = false;
   const mockNativeBle: NativeBlePort = {
-    permission: () => "granted",
-    requestPermission: () => "granted",
-    startScan: () => {},
+    permission: () => nativePermission,
+    requestPermission: () => {
+      nativePermission = "undetermined";
+      setTimeout(() => { nativePermission = "granted"; }, 20);
+      return nativePermission;
+    },
+    startScan: () => { scanStartedWithPermission = nativePermission === "granted"; },
     stopScan: () => {},
     scannedDevices: () => [
       { id: "ble-dock-99", name: "LOOI-Robot-99", rssi: -46 },
@@ -166,6 +172,10 @@ export async function verifyBodyRuntime() {
     bleScanned.candidates.some((c) => c.id === "ble-dock-99"),
     "real_ble scan did not drain native candidates",
   );
+  check(
+    !bleScanned.scanning && bleScanned.scanCompleted && scanStartedWithPermission,
+    "real_ble scan did not wait for permission and return an idle completed snapshot",
+  );
   const bleConnected = await bleRuntime.connect({
     deviceId: "ble-dock-99",
     deviceName: "LOOI-Robot-99",
@@ -173,6 +183,7 @@ export async function verifyBodyRuntime() {
   check(
     bleConnected.connected &&
       bleConnected.isDocked &&
+      !bleConnected.connecting &&
       bleConnected.deviceName === "LOOI-Robot-99",
     "real_ble connect did not complete handshake and dock",
   );
