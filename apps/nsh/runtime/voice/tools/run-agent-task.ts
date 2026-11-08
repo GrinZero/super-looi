@@ -1,7 +1,10 @@
 import type { VoiceToolContext, VoiceToolSchema } from "./types.js";
 
 export function createRunAgentTask(
-  context: Pick<VoiceToolContext, "current" | "requestTask" | "toolTraceContext" | "reply" | "taskFinished" | "fail">,
+  context: Pick<
+    VoiceToolContext,
+    "active" | "requestTask" | "toolTraceContext" | "reply" | "taskFinished" | "fail"
+  >,
 ) {
   let runs = 0;
 
@@ -20,9 +23,13 @@ export function createRunAgentTask(
 
   return {
     schema,
-    get busy() { return runs > 0; },
-    reset() { runs = 0; },
-    execute(item: Record<string, unknown>, callId: string, generation: number, _responseId: string): void {
+    get busy() {
+      return runs > 0;
+    },
+    reset() {
+      runs = 0;
+    },
+    execute(item: Record<string, unknown>, callId: string, _responseId: string): void {
       runs++;
       void (async () => {
         let output: unknown;
@@ -31,23 +38,32 @@ export function createRunAgentTask(
             item.name !== schema.name ||
             typeof item.arguments !== "string" ||
             item.arguments.length > 8192
-          ) throw new Error();
+          ) {
+            throw new Error();
+          }
           const args = JSON.parse(item.arguments);
           if (
             typeof args.prompt !== "string" ||
             !args.prompt.trim() ||
             args.prompt.length > 4000
-          ) throw new Error();
-          output = { answer: await context.requestTask(args.prompt, context.toolTraceContext?.(callId)) };
+          ) {
+            throw new Error();
+          }
+          output = {
+            answer: await context.requestTask(
+              args.prompt,
+              context.toolTraceContext?.(callId),
+            ),
+          };
         } catch {
           output = { error: "任务未获确认或未完成，不得声称成功。" };
         }
-        if (!context.current(generation)) return;
-        await context.reply(callId, output, generation);
+        if (!context.active()) return;
+        await context.reply(callId, output);
         runs--;
-        context.taskFinished(generation);
+        context.taskFinished();
       })().catch(() => {
-        if (context.current(generation)) context.fail("@looi:voiceTaskReplyFailed");
+        if (context.active()) context.fail("@looi:voiceTaskReplyFailed");
       });
     },
   };

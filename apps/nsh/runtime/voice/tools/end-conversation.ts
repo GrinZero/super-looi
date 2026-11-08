@@ -1,7 +1,7 @@
 import type { VoiceToolContext, VoiceToolSchema } from "./types.js";
 
 export function createEndConversation(
-  context: Pick<VoiceToolContext, "current" | "reply" | "beginFarewell" | "endSession" | "fail">,
+  context: Pick<VoiceToolContext, "active" | "reply" | "beginFarewell" | "endSession" | "fail">,
 ) {
   let closing = false;
   let streamDone = false;
@@ -23,15 +23,19 @@ export function createEndConversation(
 
   return {
     schema,
-    get closing() { return closing; },
-    get complete() { return streamDone; },
+    get closing() {
+      return closing;
+    },
+    get complete() {
+      return streamDone;
+    },
     reset() {
       if (timer) clearTimeout(timer);
       timer = undefined;
       closing = streamDone = toolSent = responseStarted = false;
       originResponseId = "";
     },
-    execute(_item: Record<string, unknown>, callId: string, generation: number, responseId: string): void {
+    execute(_item: Record<string, unknown>, callId: string, responseId: string): void {
       closing = true;
       streamDone = false;
       toolSent = false;
@@ -39,17 +43,21 @@ export function createEndConversation(
       originResponseId = responseId;
       context.beginFarewell();
       timer = setTimeout(() => {
-        if (context.current(generation)) context.endSession();
+        if (context.active()) context.endSession();
       }, 5000);
-      void context.reply(callId, {}, generation).then(() => {
-        if (context.current(generation)) toolSent = true;
-      }).catch(() => {
-        if (context.current(generation)) context.fail("@looi:voiceFarewellFailed");
-      });
+      void context
+        .reply(callId, {})
+        .then(() => {
+          if (context.active()) toolSent = true;
+        })
+        .catch(() => {
+          if (context.active()) context.fail("@looi:voiceFarewellFailed");
+        });
     },
     onAudioStarted(responseId: string): void {
-      if (closing && toolSent && (!responseId || responseId !== originResponseId))
+      if (closing && toolSent && (!responseId || responseId !== originResponseId)) {
         responseStarted = true;
+      }
     },
     onAudioDone(): void {
       if (closing && toolSent && responseStarted) streamDone = true;
