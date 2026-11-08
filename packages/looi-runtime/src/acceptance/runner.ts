@@ -395,6 +395,7 @@ export class AcceptanceRunner {
       passed: a05Pass,
       details: `Simulated stability fixture; physical stability unverified: ${resA5.honestFallbackMessage || "No message"}`,
     });
+    await supervisorA4.disconnect();
 
     // A06: 原始证据按隐私策略过期 -> 保留摘要但标记已安全删除，不伪造 URI
     const claimA6 = createMemoryClaim({
@@ -1233,9 +1234,8 @@ export class AcceptanceRunner {
   private async runGroupG(): Promise<void> {
     const transport = new SimulatedBleTransport();
     const supervisor = new BodySupervisor(transport);
-    await supervisor.connect(new Date());
 
-    // G01: 未入座状态拒绝执行动作 (安全锁)
+    // G01: 未完成激活握手状态拒绝执行动作 (安全锁)
     let g01Pass = false;
     try {
       await supervisor.acquireLease({
@@ -1244,17 +1244,17 @@ export class AcceptanceRunner {
         durationMs: 200,
       });
     } catch (err) {
-      g01Pass =
-        (err as Error).message.includes("undocked") ||
-        (err as Error).message.includes("docked");
+      g01Pass = (err as Error).message.includes("activation");
     }
     this.results.push({
       id: "G01",
-      name: "未入座状态拒绝移动动作",
+      name: "未完成激活状态拒绝移动动作",
       score: g01Pass ? 2 : 0,
       passed: g01Pass,
-      details: "Acquire lease rejected while undocked",
+      details: "Acquire lease rejected before activation handshake",
     });
+
+    await supervisor.connect(new Date());
 
     // G02: 脉冲运动中脱座瞬时 0000 停车
     transport.emitNotification("dockNotify", "05"); // docked

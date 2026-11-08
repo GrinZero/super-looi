@@ -1399,6 +1399,6 @@
   - [x] 实现 `task-coordinator.ts` 与 `manage-agent-task.ts`，升级 `run-agent-task.ts` 与 `prompts.ts`（2.5s 快路径直返 + 超时自动转后台 + 进度查询/中止）
   - [x] 接入 `apps/nsh/store.ts` 与 `build-runtime.ts`：解耦 `endSession()` 对后台长任务的取消行为，修正语音对话与后台思考并发时的表情优先级，同步更新 `docs/arch/`
   - [x] 新增 `apps/nsh/tests/voice-async-task-cases.ts` 覆盖快慢分流、挂断存活、`WHEN_IDLE` 排队播报与待审批通知
-- [ ] Step 4：全量验证、独立子 agent 代码复审与提交
+- [x] Step 4：全量验证、独立子 agent 代码复审与提交
   - [x] `@super-looi/runtime` 79 项测试、`@super-looi/nsh` 类型检查 / 语音与异步测试 / 24 项集成测试与 `build` 全部通过
-  - [ ] 独立子 agent 复审通过并修正反馈后提交
+  - [x] 独立子 agent 首轮审查 6 项并发边界与 3 组清理项全部修复并补齐回归单测，终审复核 PASS 后提交

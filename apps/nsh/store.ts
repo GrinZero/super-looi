@@ -325,11 +325,9 @@ export function createAppStore() {
   const voiceConfigured = signal(false);
   const voiceProviderId = signal("doubao");
   const voiceId = signal("");
-  const voiceTask = signal("");
   let voice: VoiceRuntime | undefined;
   let voiceTaskCoordinator: VoiceTaskCoordinator | undefined;
   const stopVoiceSessionMotion = () => {
-    voiceTask.set("");
     void runtime?.stopBody().catch(() => {});
   };
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
@@ -438,10 +436,13 @@ export function createAppStore() {
     status.set("@looi:runtimeCouldNotCompleteTheRequest");
   };
   const stop = async () => {
-    voiceTaskCoordinator?.markExternallyCancelled();
     interaction.set(undefined);
     void runtime?.stopBody().catch(() => {});
     try {
+      if (voiceTaskCoordinator?.hasActiveTask) {
+        await voiceTaskCoordinator.cancel();
+        return;
+      }
       const stopped = await runtime?.cancel();
       if (!alive) return;
       status.set(stopped?.confirmed ? "@looi:runtimeTaskStopped" : "@looi:runtimeStopResultUnverified");
@@ -556,6 +557,7 @@ export function createAppStore() {
       bodyStatus.set(opened.bodyStatus());
       voiceTaskCoordinator = new VoiceTaskCoordinator({
         defaultLanguage: effectiveLocale,
+        isExternalBusy: () => busy(),
         runTask: async (prompt, hooks, traceContext) => {
           if (!alive || !runtime || busy() || !prompt.trim()) {
             throw new Error("@looi:runtimeATaskIsRunningTryAgainLater");
@@ -612,15 +614,20 @@ export function createAppStore() {
         cancelRunningTask: async () => {
           interaction.set(undefined);
           void runtime?.stopBody().catch(() => {});
-          const stopped = await runtime?.cancel();
-          if (alive) {
-            status.set(
-              stopped?.confirmed
-                ? "@looi:runtimeTaskStopped"
-                : "@looi:runtimeStopResultUnverified",
-            );
+          try {
+            const stopped = await runtime?.cancel();
+            if (alive) {
+              status.set(
+                stopped?.confirmed
+                  ? "@looi:runtimeTaskStopped"
+                  : "@looi:runtimeStopResultUnverified",
+              );
+            }
+            return Boolean(stopped?.confirmed);
+          } catch (error) {
+            if (alive) fail(error);
+            return false;
           }
-          return Boolean(stopped?.confirmed);
         },
         onNotice: (notice) => {
           if (alive) voice?.enqueueNotice(notice);
@@ -656,7 +663,7 @@ export function createAppStore() {
           }
         },
         taskBridge: voiceTaskCoordinator,
-        cancelTask: stopVoiceSessionMotion,
+        onSessionEnd: stopVoiceSessionMotion,
         controlBody: async (actionName, durationMs) => {
           if (!alive || !runtime) {
             throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
@@ -971,7 +978,6 @@ export function createAppStore() {
     voiceId: () => voiceId(),
     voiceProviderId: () => voiceProviderId(),
     voiceProviderLabel: () => translateMessage(voice?.configuration().providerLabel ?? "@looi:runtimeDoubao"),
-    voiceTask: () => voiceTask(),
     async startVoice() {
       api.dismissWakeGuide();
       try {
@@ -1014,13 +1020,6 @@ export function createAppStore() {
       voice.configureVoiceId(id);
       voiceId.set(voice.configuration().voiceId);
     },
-    async confirmVoiceTask(allowed: boolean): Promise<void> {
-      const prompt = voiceTask();
-      if (!prompt) return;
-      voiceTask.set("");
-      if (!allowed) return;
-      await api.send(prompt, true);
-    },
     ready: () => ready(),
     busy: () => busy(),
     toast: () => translateMessage(toast()),
@@ -1035,17 +1034,15 @@ export function createAppStore() {
     status: () => translateMessage(
       busy()
         ? status()
-        : voiceTask()
-          ? "@looi:runtimeVoiceTaskAwaitingApproval"
-          : voiceState().phase === "connecting"
-            ? "@looi:runtimeConnectingLive"
-            : voiceState().phase === "speaking"
-              ? "@looi:runtimeLooiIsSpeaking"
-              : voiceState().phase === "listening"
-                ? voiceState().muted
-                  ? "@looi:runtimeVoiceMuted"
-                  : "@looi:runtimeListeningLive"
-                : status()),
+        : voiceState().phase === "connecting"
+          ? "@looi:runtimeConnectingLive"
+          : voiceState().phase === "speaking"
+            ? "@looi:runtimeLooiIsSpeaking"
+            : voiceState().phase === "listening"
+              ? voiceState().muted
+                ? "@looi:runtimeVoiceMuted"
+                : "@looi:runtimeListeningLive"
+              : status()),
     message: () => translateMessage(message()),
     face: () => face(),
     configuration: () => configuration(),
@@ -1437,6 +1434,7 @@ export function createAppStore() {
       if (!runtime || busy()) return false;
       try {
         runtime.newConversation(action());
+        voice?.setContextNote("", true);
         message.set("");
         notify("@looi:runtimeNewConversationStarted");
         status.set("@looi:runtimeStandingBy");

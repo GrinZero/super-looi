@@ -62,7 +62,6 @@ apps/nsh/runtime/voice/
     ├── run-agent-task.ts    # 支持快路径直返与 running_in_background 晋升的任务提交工具
     ├── manage-agent-task.ts # 后台任务进度查询（status）与主动中止（cancel）工具
     ├── control-looi-body.ts # 低延迟底座动作控制工具
-    ├── end-conversation.ts  # 道别排空挂断状态工具
     └── types.ts             # 工具上下文契约
 ```
 
@@ -78,7 +77,7 @@ apps/nsh/runtime/voice/
   - 当后台任务产生待审批交互（`interaction`）或最终结束（`completed` / `failed`）时：
     - 更新语音上下文附注（`contextNotes`），确保用户后续追问结果细节时模型有据可查；
     - 生成精简口语通知投入 `VoiceRuntime.enqueueNotice(...)`：
-      - 若当前处于活跃 LIVE 会话：由 `LiveVoiceSession` 的回合门控在安全空闲窗口（`phase === "listening" && turnActivity === "waiting_user" && !responseInProgress && audio.drained && !tools.busy && !tools.closingAfterFarewell`）自动调用 `encodeProactiveSpeech` 开口汇报；
+      - 若当前处于活跃 LIVE 会话：由 `LiveVoiceSession` 的回合门控在安全空闲窗口（`phase === "listening" && turnActivity === "waiting_user" && !responseInProgress && !discardOutput && !tools.busy && audioPipeline.isDrained`）自动调用 `encodeProactiveSpeech` 开口汇报；
       - 若当前已退回 `standby` / `idle`：不主动在无唤醒时外放重连云端，仅保留最新上下文附注供下次唤醒对话备查，同时前台状态栏、任务空间与表情（后台运行且非语音态显示 `"thinking"`）实时反映进度。
 
 ---

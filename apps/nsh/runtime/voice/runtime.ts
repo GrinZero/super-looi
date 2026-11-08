@@ -258,7 +258,7 @@ export class VoiceRuntime {
       this.options.audio.clearPlayback();
       this.options.onAudioLevel?.(0);
     }
-    this.options.cancelTask?.();
+    (this.options.onSessionEnd ?? this.options.cancelTask)?.();
     if (this.state.wakeEnabled && !this.closed) {
       void this.enterStandby();
     } else {
@@ -274,7 +274,7 @@ export class VoiceRuntime {
     active?.dispose("immediate");
     this.options.audio.stop();
     this.options.onAudioLevel?.(0);
-    this.options.cancelTask?.();
+    (this.options.onSessionEnd ?? this.options.cancelTask)?.();
     this.publish({ phase: "idle", muted: false, error: "" });
   }
 

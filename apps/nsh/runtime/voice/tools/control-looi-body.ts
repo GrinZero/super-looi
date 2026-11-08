@@ -50,11 +50,7 @@ export function createControlLooiBody(
     reset() {
       runs = 0;
     },
-    execute(
-      item: Record<string, unknown>,
-      callId: string,
-      _responseId: string,
-    ): void {
+    execute(item: Record<string, unknown>, callId: string): void {
       runs++;
       void (async () => {
         let output: unknown;

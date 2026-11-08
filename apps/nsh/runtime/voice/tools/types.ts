@@ -17,7 +17,7 @@ export interface VoiceToolDefinition {
   readonly schema: VoiceToolSchema;
   readonly busy?: boolean;
   reset(): void;
-  execute(item: Record<string, unknown>, callId: string, responseId: string): void;
+  execute(item: Record<string, unknown>, callId: string): void;
 }
 
 export interface VoiceToolHost {

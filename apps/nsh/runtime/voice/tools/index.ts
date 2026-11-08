@@ -28,7 +28,7 @@ export function createVoiceTools(host: VoiceToolHost, protocol: RealtimeProtocol
     get busy() {
       return definitions.some((definition) => Boolean(definition.busy));
     },
-    handle(item: Record<string, unknown>, responseId: string): void {
+    handle(item: Record<string, unknown>): void {
       const callId = typeof item.call_id === "string" ? item.call_id : "";
       if (!callId || callId.length > 256 || calls.has(callId)) return;
       if (calls.size >= 128) {
@@ -38,7 +38,7 @@ export function createVoiceTools(host: VoiceToolHost, protocol: RealtimeProtocol
       calls.add(callId);
       const definition =
         definitions.find(({ schema }) => schema.name === item.name) ?? task;
-      definition.execute(item, callId, responseId);
+      definition.execute(item, callId);
     },
     reset(): void {
       calls.clear();

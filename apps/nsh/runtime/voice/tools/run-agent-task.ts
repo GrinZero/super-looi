@@ -1,5 +1,13 @@
 import type { VoiceToolContext, VoiceToolSchema } from "./types.js";
 
+const MAX_INLINE_ANSWER_CHARS = 12_000;
+
+function capInlineAnswer(raw: string): string {
+  return raw.length > MAX_INLINE_ANSWER_CHARS
+    ? `${raw.slice(0, MAX_INLINE_ANSWER_CHARS)}…`
+    : raw;
+}
+
 export function createRunAgentTask(
   context: Pick<
     VoiceToolContext,
@@ -35,7 +43,7 @@ export function createRunAgentTask(
     reset() {
       runs = 0;
     },
-    execute(item: Record<string, unknown>, callId: string, _responseId: string): void {
+    execute(item: Record<string, unknown>, callId: string): void {
       runs++;
       void (async () => {
         let output: unknown;
@@ -62,7 +70,7 @@ export function createRunAgentTask(
               output = {
                 status: "completed",
                 taskId: outcome.taskId,
-                answer: outcome.answer,
+                answer: capInlineAnswer(outcome.answer),
               };
             } else if (outcome.status === "running_in_background") {
               output = {
@@ -94,7 +102,7 @@ export function createRunAgentTask(
             }
           } else if (context.requestTask) {
             output = {
-              answer: await context.requestTask(args.prompt, traceContext),
+              answer: capInlineAnswer(await context.requestTask(args.prompt, traceContext)),
             };
           } else {
             throw new Error();

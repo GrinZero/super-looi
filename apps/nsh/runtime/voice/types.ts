@@ -104,6 +104,8 @@ export interface VoiceRuntimeOptions {
   /** Detached task bridge supporting fast-path inline completion & async promotion. */
   taskBridge?: VoiceTaskBridge;
   controlBody?: (action: string, durationMs?: number) => Promise<unknown>;
+  onSessionEnd?: () => void;
+  /** Legacy alias for `onSessionEnd` retained for backward compatibility. */
   cancelTask?: () => void;
   protocol?: RealtimeProtocolAdapter;
   tracer?: LangfuseTracer;

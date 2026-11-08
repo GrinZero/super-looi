@@ -62,6 +62,13 @@ test("OpenAI GA handshake, resampling, normalized events and interruption", () =
     { kind: "text_done", responseId: "r", text: "你好" });
   assert.equal(protocol.parseServerEvent({ type: "response.created", response: { id: "r" } }).kind, "response_started");
   assert.equal(protocol.parseServerEvent({ type: "response.done", response: { id: "r", status: "cancelled" } }).kind, "response_cancelled");
+  assert.deepEqual(
+    protocol.parseServerEvent({
+      type: "response.done",
+      response: { id: "r", status: "failed", status_details: { error: { code: "rate_limit", message: "quota exceeded" } } },
+    }),
+    { kind: "error", message: "quota exceeded", code: "rate_limit", clientEventId: "" },
+  );
   assert.equal((protocol.parseServerEvent({ type: "error", error: { event_id: "cancel-1" } }) as any).clientEventId, "cancel-1");
   const playback = { itemId: "item", contentIndex: 0, playedMs: 120 };
   assert.deepEqual(protocol.encodeInterrupt({ trigger: "server_vad", responseInProgress: true, playback }),

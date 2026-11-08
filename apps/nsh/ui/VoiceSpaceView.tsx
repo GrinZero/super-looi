@@ -44,35 +44,6 @@ export function VoiceSpaceView(props: {
 
   const renderLeftCard = () => (
     <View class="gap-3">
-      <If when={props.store.voiceTask()}>
-        <View class="rounded-2xl border border-warning bg-card p-3.5 gap-2.5">
-          <View class="flex-row items-center gap-2 border-b border-border pb-2">
-            <View class="w-2 h-2 rounded-full bg-warning" />
-            <Text class="text-foreground text-sm font-semibold">
-              {t("voiceTaskAwaitingApproval")}</Text>
-          </View>
-          <View class="rounded-xl bg-background p-2.5" selectable={true}>
-            <Text class="text-foreground font-mono text-sm">
-              {props.store.voiceTask()}
-            </Text>
-          </View>
-          <View class="flex-row justify-end gap-2">
-            <ActionButton
-              label={t("decline")}
-              kind="danger"
-              compact={true}
-              onPress={() => props.store.confirmVoiceTask(false)}
-            />
-            <ActionButton
-              label={t("run")}
-              kind="primary"
-              compact={true}
-              onPress={() => props.store.confirmVoiceTask(true)}
-            />
-          </View>
-        </View>
-      </If>
-
       <View class="rounded-2xl border border-border bg-card p-3.5 gap-3">
         <View class="border-b border-border pb-2">
           <Text class="text-foreground text-sm font-semibold">

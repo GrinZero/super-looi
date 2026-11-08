@@ -59,12 +59,15 @@ export class LiveVoiceSession {
   private readonly tools: VoiceTools;
   private readonly noticeQueue: VoiceProactiveNotice[] = [];
   private readonly seenNoticeIds = new Set<string>();
+  private readonly toolCallResponseIds = new Set<string>();
   private conversationLanguage: ConversationLanguage;
   private continuingLanguage = false;
   private contextNote: string;
   private phase: "connecting" | "listening" | "speaking" = "connecting";
   private muted = false;
   private transcript = "";
+  private transcriptTurnOpen = false;
+  private transcriptResponseId = "";
   private turnActivity: "waiting_user" | "user_speaking" | "awaiting_reply" = "waiting_user";
   private silenceSince = 0;
 
@@ -83,6 +86,7 @@ export class LiveVoiceSession {
   private responseId = "";
   private cancelledResponses = new Set<string>();
   private responseInProgress = false;
+  private serverResponseDone = false;
   private cancelEventId = "";
   private audioStartedResponseId = "";
   private outputStreamDone = false;
@@ -215,7 +219,30 @@ export class LiveVoiceSession {
       !this.responseInProgress
     ) {
       this.transcript = "";
+      this.transcriptTurnOpen = false;
+      this.transcriptResponseId = "";
       this.publish({ transcript: "" });
+      return;
+    }
+
+    // On Doubao, once `response.done` has already arrived (`serverResponseDone`),
+    // the server has no active response left to cancel; clear local buffered audio only.
+    if (this.options.protocol.providerId === "doubao" && this.serverResponseDone) {
+      this.audioPipeline.clearOutput(this.options.audio);
+      this.options.onAudioLevel?.(0);
+      this.outputStreamDone = false;
+      this.serverResponseDone = false;
+      this.responseInProgress = false;
+      this.responseId = "";
+      this.phase = "listening";
+      this.transcript = "";
+      this.transcriptTurnOpen = false;
+      this.transcriptResponseId = "";
+      this.publish({ phase: "listening", transcript: "" });
+      if (this.turnActivity !== "user_speaking") {
+        this.silenceSince = Date.now();
+        this.resumeWaiting();
+      }
       return;
     }
 
@@ -245,8 +272,11 @@ export class LiveVoiceSession {
 
     this.audioPipeline.clearOutput(this.options.audio);
     this.options.onAudioLevel?.(0);
+    this.outputStreamDone = false;
     this.phase = "listening";
     this.transcript = "";
+    this.transcriptTurnOpen = false;
+    this.transcriptResponseId = "";
     this.publish({ phase: "listening", transcript: "" });
 
     if (this.discardOutput) {
@@ -275,6 +305,7 @@ export class LiveVoiceSession {
     this.clearTimers();
     this.noticeQueue.length = 0;
     this.seenNoticeIds.clear();
+    this.toolCallResponseIds.clear();
     this.tools.reset();
     this.audioPipeline.clearCapture();
     this.audioPipeline.clearOutput(this.options.audio);
@@ -331,13 +362,32 @@ export class LiveVoiceSession {
     this.silenceSince = Date.now();
     this.startAwaitingTimer();
 
-    if (this.options.protocol.providerId === "doubao") {
-      this.transcript = notice.spokenText.slice(-4096);
-      this.publish({ transcript: this.transcript });
-    }
-
+    let speechTriggered = false;
     void (async () => {
       for (const frame of frames) {
+        if (
+          this.disposed ||
+          this.turnActivity !== "awaiting_reply" ||
+          this.discardOutput
+        ) {
+          if (!this.disposed && !speechTriggered) {
+            this.noticeQueue.unshift(notice);
+          }
+          return;
+        }
+        const frameType = (frame as { type?: unknown }).type;
+        if (
+          frameType === "speech_text_buffer.commit" ||
+          frameType === "conversation.item.create"
+        ) {
+          speechTriggered = true;
+          if (this.options.protocol.providerId === "doubao") {
+            this.transcript = notice.spokenText.slice(-4096);
+            this.transcriptTurnOpen = false;
+            this.transcriptResponseId = "";
+            this.publish({ transcript: this.transcript });
+          }
+        }
         await this.send(frame);
       }
     })()
@@ -345,7 +395,12 @@ export class LiveVoiceSession {
         this.fail("@looi:runtimeVoiceNetworkSendFailed");
       })
       .finally(() => {
-        if (!this.disposed) this.dispatchingNotice = false;
+        if (!this.disposed) {
+          this.dispatchingNotice = false;
+          if (this.turnActivity === "waiting_user") {
+            this.flushNoticeIfIdle();
+          }
+        }
       });
     return true;
   }
@@ -408,17 +463,19 @@ export class LiveVoiceSession {
         const normalized = this.options.protocol.parseServerEvent(event);
         const responseId = "responseId" in normalized ? normalized.responseId : "";
 
-        if (
-          normalized.kind === "response_cancelled" &&
-          (this.discardOutput || (responseId && this.cancelledResponses.has(responseId)))
-        ) {
-          if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
-          this.deadlineTimer = undefined;
-          this.discardOutput = false;
-          this.responseId = "";
+        if (normalized.kind === "response_cancelled") {
           this.responseInProgress = false;
-          if (responseId) this.cancelledResponses.delete(responseId);
-          continue;
+          this.serverResponseDone = false;
+          if (responseId) this.toolCallResponseIds.delete(responseId);
+          if (this.phase === "speaking") this.outputStreamDone = true;
+          if (this.discardOutput || (responseId && this.cancelledResponses.has(responseId))) {
+            if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
+            this.deadlineTimer = undefined;
+            this.discardOutput = false;
+            this.responseId = "";
+            if (responseId) this.cancelledResponses.delete(responseId);
+            continue;
+          }
         }
         if (normalized.kind === "response_done") {
           this.responseInProgress = false;
@@ -428,6 +485,7 @@ export class LiveVoiceSession {
           responseId &&
           this.cancelledResponses.delete(responseId)
         ) {
+          this.toolCallResponseIds.delete(responseId);
           continue;
         }
         if (
@@ -466,10 +524,15 @@ export class LiveVoiceSession {
           this.tick();
         } else if (normalized.kind === "response_started") {
           this.responseInProgress = true;
+          this.serverResponseDone = false;
         } else if (normalized.kind === "audio_started") {
+          this.responseInProgress = true;
+          this.serverResponseDone = false;
           this.audioPipeline.trackAudioItem(normalized.itemId, normalized.contentIndex);
           this.enterSpeaking(responseId);
         } else if (normalized.kind === "audio_delta" && !this.discardOutput) {
+          this.responseInProgress = true;
+          this.serverResponseDone = false;
           if (this.audioStartedResponseId !== responseId || this.phase !== "speaking") {
             this.enterSpeaking(responseId);
           }
@@ -487,10 +550,20 @@ export class LiveVoiceSession {
         } else if (normalized.kind === "audio_done") {
           this.outputStreamDone = true;
         } else if (normalized.kind === "text_delta") {
+          if (
+            !this.transcriptTurnOpen ||
+            (responseId && this.transcriptResponseId && responseId !== this.transcriptResponseId)
+          ) {
+            this.transcript = "";
+            this.transcriptTurnOpen = true;
+            this.transcriptResponseId = responseId;
+          }
           this.transcript = (this.transcript + normalized.delta).slice(-4096);
           this.publish({ transcript: this.transcript });
         } else if (normalized.kind === "text_done") {
           this.transcript = String(normalized.text ?? this.transcript).slice(-4096);
+          this.transcriptTurnOpen = false;
+          this.transcriptResponseId = responseId;
           this.publish({ transcript: this.transcript });
           const language = replyTextLanguage(this.transcript, this.conversationLanguage);
           if (language !== this.conversationLanguage) {
@@ -518,31 +591,48 @@ export class LiveVoiceSession {
           this.turnActivity = "awaiting_reply";
           this.pauseTurnTimers();
           this.startAwaitingTimer();
-        } else if (
-          normalized.kind === "user_transcription_failed" ||
-          normalized.kind === "response_done"
-        ) {
-          if (normalized.kind === "response_done") this.responseInProgress = false;
-          if (normalized.kind === "user_transcription_failed" && this.turnActivity === "user_speaking") {
+        } else if (normalized.kind === "user_transcription_failed") {
+          if (this.turnActivity === "user_speaking") {
             this.silenceSince = Date.now();
           }
-          if (this.phase !== "speaking" && !this.tools.busy) {
+          if (this.phase !== "speaking" && !this.tools.busy && !this.dispatchingNotice) {
+            this.resumeWaiting();
+          }
+        } else if (normalized.kind === "response_done") {
+          const wasToolCallTurn = Boolean(
+            responseId && this.toolCallResponseIds.delete(responseId),
+          );
+          this.responseInProgress = false;
+          this.serverResponseDone = true;
+          if (this.phase === "speaking") {
+            // Guarantees `tick()` drains back to `listening` even if `audio_done` was omitted.
+            this.outputStreamDone = true;
+          } else if (
+            !this.tools.busy &&
+            !this.dispatchingNotice &&
+            this.turnActivity !== "user_speaking" &&
+            !wasToolCallTurn
+          ) {
             this.resumeWaiting();
           }
         } else if (normalized.kind === "tool_calls") {
+          if (responseId) {
+            if (this.toolCallResponseIds.size >= 128) {
+              const oldest = this.toolCallResponseIds.values().next().value;
+              if (oldest !== undefined) this.toolCallResponseIds.delete(oldest);
+            }
+            this.toolCallResponseIds.add(responseId);
+          }
           if (this.turnActivity === "waiting_user") {
             this.turnActivity = "awaiting_reply";
           }
           this.pauseTurnTimers();
           for (const call of normalized.calls) {
-            this.tools.handle(
-              {
-                call_id: call.callId,
-                name: call.name,
-                arguments: call.argumentsJson,
-              },
-              this.responseId,
-            );
+            this.tools.handle({
+              call_id: call.callId,
+              name: call.name,
+              arguments: call.argumentsJson,
+            });
           }
         } else if (normalized.kind === "error") {
           if (
@@ -600,11 +690,15 @@ export class LiveVoiceSession {
         drained
       ) {
         this.outputStreamDone = false;
+        this.serverResponseDone = false;
+        this.responseInProgress = false;
         this.responseId = "";
         this.phase = "listening";
         this.publish({ phase: "listening" });
         this.silenceSince = Date.now();
-        this.resumeWaiting();
+        if (this.turnActivity !== "user_speaking" && !this.tools.busy) {
+          this.resumeWaiting();
+        }
       }
 
       this.tickTimer = setTimeout(() => this.tick(), TICK_INTERVAL_MS);
@@ -643,6 +737,11 @@ export class LiveVoiceSession {
         !this.tools.busy &&
         this.phase === "listening"
       ) {
+        if (this.noticeQueue.length > 0) {
+          this.silenceSince = Date.now();
+          this.resumeWaiting();
+          return;
+        }
         this.options.onSessionComplete();
       }
     }, this.remainingSilenceMs());

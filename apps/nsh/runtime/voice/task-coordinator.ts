@@ -33,6 +33,8 @@ export interface VoiceTaskRunHooks {
 export interface VoiceTaskCoordinatorOptions {
   fastPathMs?: number;
   defaultLanguage?: () => ConversationLanguage;
+  /** Optional check for foreground non-voice tasks already occupying the runtime. */
+  isExternalBusy?: () => boolean;
   runTask: (
     prompt: string,
     hooks: VoiceTaskRunHooks,
@@ -51,6 +53,8 @@ interface ManagedTaskRecord {
   latestSummary: string;
   promoted: boolean;
   announcedInteractions: Set<string>;
+  cancelPromise?: Promise<boolean>;
+  cancelFastWindow?: (taskId: string) => void;
   answer?: string;
   error?: string;
 }
@@ -80,7 +84,9 @@ export function toSpokenPlainText(raw: string, maxChars = MAX_SPOKEN_SUMMARY_CHA
 }
 
 function formatContextReceipt(record: ManagedTaskRecord, taskId: string): string {
-  const detail = (record.answer ?? record.error ?? record.latestSummary).trim().slice(0, MAX_CONTEXT_RECEIPT_CHARS);
+  const detail = (record.answer ?? record.error ?? record.latestSummary)
+    .trim()
+    .slice(0, MAX_CONTEXT_RECEIPT_CHARS);
   return `[Background Task Receipt (${taskId}, ${record.state})]\nRequest: ${record.prompt.slice(0, 200)}\nOutcome: ${detail}`;
 }
 
@@ -124,6 +130,13 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
         latestSummary: this.currentTask.latestSummary,
       };
     }
+    if (this.options.isExternalBusy?.()) {
+      return {
+        status: "busy",
+        taskId: "foreground_task",
+        latestSummary: "当前已有前台任务正在执行",
+      };
+    }
 
     const record: ManagedTaskRecord = {
       localId: `vtask_${++this.sequence}`,
@@ -143,11 +156,16 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
       if (!settleFastWindow) return;
       const resolve = settleFastWindow;
       settleFastWindow = undefined;
+      record.cancelFastWindow = undefined;
       if (windowTimer) {
         clearTimeout(windowTimer);
         windowTimer = undefined;
       }
       resolve(result);
+    };
+
+    record.cancelFastWindow = (taskId: string) => {
+      closeWindow({ status: "failed", taskId, error: "任务已取消。" });
     };
 
     const fastWindowPromise = new Promise<VoiceTaskSubmissionResult>((resolve) => {
@@ -177,8 +195,6 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
               if (!record.announcedInteractions.has(event.interaction.id)) {
                 record.announcedInteractions.add(event.interaction.id);
                 if (settleFastWindow) {
-                  // Yield the synchronous tool call immediately so the voice model
-                  // asks the user to confirm on screen without stalling.
                   record.promoted = true;
                   closeWindow({
                     status: "waiting_user_confirmation",
@@ -197,8 +213,11 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
         },
         traceContext,
       )
-      .then((outcome) => {
+      .then(async (outcome) => {
         if (outcome.taskId) record.runtimeTaskId = outcome.taskId;
+        if (record.cancelPromise) {
+          await record.cancelPromise;
+        }
         if (this.currentTask === record) this.currentTask = undefined;
         if (record.state === "cancelled") {
           closeWindow({ status: "failed", taskId: this.publicId(record), error: "任务已取消。" });
@@ -221,7 +240,10 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
           this.emitCompletionNotice(record, taskId, receipt);
         }
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
+        if (record.cancelPromise) {
+          await record.cancelPromise;
+        }
         if (this.currentTask === record) this.currentTask = undefined;
         if (record.state === "cancelled") {
           closeWindow({ status: "failed", taskId: this.publicId(record), error: "任务已取消。" });
@@ -275,21 +297,35 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     ) {
       return { cancelled: false, taskId: this.publicId(active) };
     }
-    const confirmed = await this.options.cancelRunningTask();
-    if (confirmed && this.currentTask === active) {
-      active.state = "cancelled";
-      active.latestSummary = "cancelled";
-      this.currentTask = undefined;
+    if (!active.cancelPromise) {
+      active.cancelPromise = this.options
+        .cancelRunningTask()
+        .catch(() => false)
+        .then((confirmed) => {
+          active.cancelPromise = undefined;
+          if (confirmed) {
+            this.applyConfirmedCancel(active);
+          }
+          return confirmed;
+        });
     }
+    const confirmed = await active.cancelPromise;
     return { cancelled: confirmed, taskId: this.publicId(active) };
   }
 
-  /** Marks any in-flight task as externally cancelled (e.g. UI Stop button / app backgrounding). */
+  /** Force-aborts in-memory tracking on store/app teardown (`cleanup()`). */
   markExternallyCancelled(): void {
     if (!this.currentTask) return;
-    this.currentTask.state = "cancelled";
-    this.currentTask.latestSummary = "cancelled";
-    this.currentTask = undefined;
+    this.applyConfirmedCancel(this.currentTask);
+  }
+
+  private applyConfirmedCancel(record: ManagedTaskRecord): void {
+    record.state = "cancelled";
+    record.latestSummary = "cancelled";
+    if (this.currentTask === record) {
+      this.currentTask = undefined;
+    }
+    record.cancelFastWindow?.(this.publicId(record));
   }
 
   private matchTask(taskId?: string): ManagedTaskRecord | undefined {

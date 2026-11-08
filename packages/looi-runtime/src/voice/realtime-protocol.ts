@@ -228,6 +228,15 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
         case "response.done": {
           const response = object(event.response);
           if (response.status === "cancelled") return { kind: "response_cancelled", responseId: id };
+          if (response.status === "failed") {
+            const detailError = object(object(response.status_details).error);
+            return {
+              kind: "error",
+              message: string(detailError.message) || "Response generation failed",
+              code: string(detailError.code),
+              clientEventId: "",
+            };
+          }
           const usage = object(response.usage);
           return { kind: "response_done", responseId: id, usage: Object.fromEntries(Object.entries(usage).filter(([, value]) => typeof value === "number")) as Record<string, number> };
         }

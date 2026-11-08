@@ -70,7 +70,7 @@ globalThis.LOOI_ARCH = {
         { path: "apps/nsh/runtime/voice/tools/manage-agent-task.ts", entry: "export function createManageAgentTask" },
         { path: "apps/nsh/runtime/voice/tools/control-looi-body.ts", entry: "export function createControlLooiBody" },
         { path: "apps/nsh/runtime/voice/prompts.ts", entry: "export const voicePrompts" },
-        { path: "apps/nsh/runtime/voice/protocol.ts", entry: "export function createSessionMessage" },
+        { path: "apps/nsh/runtime/voice/protocol.ts", entry: "export function createVoiceProtocol" },
         { path: "packages/looi-runtime/src/voice/realtime-protocol.ts", entry: "export interface RealtimeProtocolAdapter", anchors: [{ label: "协议契约", match: "export interface RealtimeProtocolAdapter" }, { label: "豆包适配", match: "export function createDoubaoDuplexV3Protocol" }, { label: "OpenAI 适配", match: "export function createOpenAiRealtimeProtocol" }] },
         { path: "packages/looi-runtime/src/telemetry/realtime-observer.ts", entry: "export function observeVoiceSocket" },
         { path: "apps/nsh/runtime/voice/types.ts", entry: "export interface VoiceAudioPort" },
@@ -92,7 +92,7 @@ globalThis.LOOI_ARCH = {
       id: "doubao", x: 790, y: 274, title: "Realtime 服务", symbol: "wave", category: "外部服务 · WebSocket", detail: "豆包 / OpenAI / 兼容服务", path: "packages/looi-runtime/src/voice/realtime-protocol.ts", external: true,
       description: "协议适配器封装豆包 Duplex V3 与 OpenAI Realtime GA 的握手、音频、工具回传、主动播报（speech_text_buffer.commit / response.create）和事件归一化；本地 Langfuse v4 接收同一会话的 OTLP 追踪。",
       files: [
-        { path: "apps/nsh/runtime/voice/protocol.ts", entry: "export const voiceEndpoint", anchors: [{ label: "服务地址", match: "export const voiceEndpoint" }, { label: "会话配置", match: "export function createSessionMessage" }] },
+        { path: "apps/nsh/runtime/voice/protocol.ts", entry: "export function createVoiceProtocol" },
         { path: "apps/nsh/runtime/voice/prompts.ts", entry: "export const voicePrompts" },
         { path: "apps/nsh/runtime/voice/tools/run-agent-task.ts", entry: "export function createRunAgentTask" },
         { path: "apps/nsh/runtime/voice/tools/manage-agent-task.ts", entry: "export function createManageAgentTask" },
