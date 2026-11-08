@@ -141,7 +141,7 @@ export function BodySpaceView(props: {
         when={isSimulation()}
         else={
           <SwitchRow
-            label={t("autoReconnectNearby")}
+            label={t("connectSavedOnLaunch")}
             testID="body-auto-reconnect-switch"
             checked={config().autoConnect}
             onChange={(next) =>
