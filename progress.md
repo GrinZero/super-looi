@@ -1169,3 +1169,16 @@
 - [x] Step 3：执行原场景及相关回归，独立 review 并记录结果
   - [x] iOS 模拟器重启修复版后保持「待机 · 听 Hey LOOI」；用户对 Mac 麦克风口述 Hey LOOI 后进入「LIVE 连接中」
   - [x] `pnpm --filter @super-looi/nsh test:wake:ios`、`test:voice-runtime`、`cargo fmt --check` 通过；独立 review 未发现代码问题
+
+### NSH 中英双语接入调研（2026-11-08）
+
+- [ ] Step 1：核对 NSH 运行时、当前文案与对话语言链路
+  - [x] 确认应用为 NSH TSX + Rust，现有文案分布于 UI、store、runtime 与 Agent
+  - [ ] 核实系统语言、Intl 能力与手动语言偏好可用的现有接口
+- [ ] Step 2：核对最新社区方案与豆包／OpenAI 中英语音能力
+  - [ ] 对照官方发布记录、文档和本项目构建链比较候选框架
+  - [ ] 验证豆包默认音色的英文输出，记录可用音色或真实阻碍
+- [ ] Step 3：沉淀带来源的调研报告与后续接入建议
+  - [ ] 给出依赖的用途与复杂性成本、语言状态和提示词的职责边界
+  - [ ] 列明可执行的实施顺序与验收场景，记录未解决项到 todo.md
+- [ ] Step 4：独立复审、文档校验并提交本轮产物
