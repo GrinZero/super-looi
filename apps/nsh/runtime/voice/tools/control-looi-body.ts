@@ -1,17 +1,31 @@
-import type { VoiceToolContext, VoiceToolSchema } from "./types.js";
+import type {
+  VoiceBodyControlOptions,
+  VoiceToolContext,
+  VoiceToolSchema,
+} from "./types.js";
 
 const VALID_BODY_ACTIONS = new Set([
   "head_up",
   "head_center",
   "head_down",
+  "head_set",
   "forward",
   "backward",
   "turn_left",
   "turn_right",
+  "move",
   "light_on",
   "light_off",
+  "light_set",
+  "read_power",
   "stop",
 ]);
+
+function parseOptionalNumber(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 export function createControlLooiBody(
   context: Pick<
@@ -25,7 +39,7 @@ export function createControlLooiBody(
     type: "function",
     name: "control_looi_body",
     description:
-      "控制 LOOI 机器人底座执行头部俯仰（head_up/head_center/head_down）、方向脉冲移动（forward/backward/turn_left/turn_right）、补光灯开关（light_on/light_off）或立即停止（stop）。",
+      "控制 LOOI 机器人底座：头部俯仰（head_up/head_center/head_down 或 head_set 搭配 head_degrees 25..85）、方向或合成向量脉冲移动（forward/backward/turn_left/turn_right 或 move 搭配 speed/turn -127..127）、补光灯（light_on/light_off 或 light_set 搭配 brightness 0..255）、读取电量与外接供电（read_power）或立即停止（stop）。",
     parameters: {
       type: "object",
       properties: {
@@ -35,6 +49,23 @@ export function createControlLooiBody(
         },
         duration_ms: {
           type: "string",
+          description: "移动脉冲时长（50..1200 毫秒）",
+        },
+        head_degrees: {
+          type: "string",
+          description: "头部俯仰角度（25..85 度，配合 head_set）",
+        },
+        brightness: {
+          type: "string",
+          description: "补光灯亮度（0..255，配合 light_set 或 light_on）",
+        },
+        speed: {
+          type: "string",
+          description: "直行速度（-127..127，正数前进负数后退，配合 move）",
+        },
+        turn: {
+          type: "string",
+          description: "转向角速度（-127..127，正数左转负数右转，配合 move）",
         },
       },
       required: ["action"],
@@ -68,13 +99,21 @@ export function createControlLooiBody(
           if (!VALID_BODY_ACTIONS.has(action)) {
             throw new Error();
           }
-          const parsedDuration =
-            args.duration_ms !== undefined ? Number(args.duration_ms) : undefined;
-          const durationMs =
-            typeof parsedDuration === "number" && Number.isFinite(parsedDuration)
-              ? parsedDuration
-              : undefined;
-          output = await context.controlBody(action, durationMs);
+          const durationMs = parseOptionalNumber(args.duration_ms);
+          const headDegrees = parseOptionalNumber(args.head_degrees);
+          const brightness = parseOptionalNumber(args.brightness);
+          const speed = parseOptionalNumber(args.speed);
+          const turn = parseOptionalNumber(args.turn);
+          const extra: VoiceBodyControlOptions = {
+            ...(headDegrees !== undefined ? { headDegrees } : {}),
+            ...(brightness !== undefined ? { brightness } : {}),
+            ...(speed !== undefined ? { speed } : {}),
+            ...(turn !== undefined ? { turn } : {}),
+          };
+          output =
+            Object.keys(extra).length > 0
+              ? await context.controlBody(action, durationMs, extra)
+              : await context.controlBody(action, durationMs);
         } catch {
           output = { error: "底座动作未完成，请确认底座已连接。" };
         }

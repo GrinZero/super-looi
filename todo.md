@@ -38,13 +38,13 @@
 
 ## NSH 后续功能
 
-- [x] LOOI 具身底座 SDK 与 NSH 接入（方案见 [`docs/plans/nsh-looi-sdk-integration-plan.md`](docs/plans/nsh-looi-sdk-integration-plan.md)）：已完成 iOS / Android 双端 `LooiBle` 原生桥接、`BodyRuntime`、实时语音与 Pi Agent 双通道 `control_looi_body` 工具，以及去工程化的「底座」管理空间（经典方向轮盘 + 纵向头部滑动条 + 补光灯开关）。
-- [ ] LOOI 物理底座真机已验证 BLE 扫描、3 步握手及 `fed9` 上座通知；待实测脱座通知、轮盘与云台物理量程，以及方向轮盘轻触微移与长按连续运动的实机手感。
+- [x] LOOI 具身底座 SDK 与 NSH 接入（方案见 [`docs/plans/nsh-looi-sdk-integration-plan.md`](docs/plans/nsh-looi-sdk-integration-plan.md) 与 [`docs/plans/body-control-system-and-stepless-wheel-plan.md`](docs/plans/body-control-system-and-stepless-wheel-plan.md)）：已完成 iOS / Android 双端 `LooiBle` 原生桥接、`BodyRuntime`、实时语音与 Pi Agent 双通道 `control_looi_body` 工具（支持双轴无极脉冲、任意角度俯仰、无极补光亮度与电量查询），以及「底座」管理空间的 360° 无极变向摇杆轮盘、纵向头部滑动条、补光灯亮度滑杆与电量状态卡。
+- [ ] LOOI 物理底座真机已验证 BLE 扫描、3 步握手及 `fed9` 上座通知；待实测脱座通知、360° 无极变向摇杆斜向转向手感与云台物理量程。
 - [ ] 对照 [`andrey-tut/LOOI-Robot`](https://github.com/andrey-tut/LOOI-Robot) 的实测协议，完成以下真机核对：
   - [ ] 继续定位 [两套初始化真机对照](docs/looi-ble-live-verification.md) 中的具体必要步骤：记录目标底座固件版本，对照 `FEF0` 时间、`FEDA:8101`、通知顺序及社区 `FED8` 读取。
-  - [ ] 真机核对新四方向字节 `7f00`、`8100`、`007f`、`0081` 是否产生预期的纯直行/原地旋转；既有三步握手配合 30 ms `FED0` 已保持连接约 6 分 27 秒。
-  - [ ] 连续 `FED0` 心跳与头部/灯光写入并发时，真机曾显示“蓝牙特征值写入失败”；本轮已为 `FED8` 读取和 `FED2` 写入暂停心跳，仍需定位原有失败写入并核对头部操作时序。
-  - [ ] 真机核对 `FED8` 电量/外接供电读取及 `FED2` 亮度 `0x80`/`0xFF` 的物理效果。
+  - [ ] 真机核对新四方向字节 `7f00`、`8100`、`007f`、`0081` 及双轴合成向量是否产生预期的直行、原地旋转与差速弧线运动；既有三步握手配合 30 ms `FED0` 已保持连接约 6 分 27 秒。
+  - [ ] 连续 `FED0` 心跳与头部/灯光写入并发时，真机曾显示“蓝牙特征值写入失败”：已定位 Android `BluetoothGatt.writeCharacteristic` 无应答写入在 `onCharacteristicWrite` 回调前仍占写锁，并在 `BodySupervisor` 中将 `FED0`/`FED1`/停止帧统一纳入 FIFO 30 ms 节流队列且在 `FED8`/`FED2` 60 ms 静默窗暂停无应答写入；待在物理底座上核对并发拖动摇杆、调节俯仰与灯光时是否彻底消除写忙报错。
+  - [ ] 真机核对底座界面 `FED8` 电量/外接供电读取及 `FED2` 亮度滑杆（默认开灯 `50%` / `0x80`、满亮 `0xFF`）的物理效果。
   - [ ] 真机校准 `FED1` 中位 `0x87` 与对方实测 `0x5A`，同步核对 25°/85° 的抬头、低头标注；评估 `FED9` 触摸/悬崖传感器解析。
 - [ ] 蓝牙断线后自动重连：当前开关仅控制启动或切回蓝牙模式时连接上次底座；在真机验证断线事件与重连时机后，再实现持续重试。
 - [ ] 双端真机麦克风、扬声器、AEC（回声消除）、后台音频和 LIVE 并发性能验证；模拟器合成 PCM 链路已有记录。

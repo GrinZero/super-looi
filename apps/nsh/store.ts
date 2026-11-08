@@ -328,7 +328,7 @@ export function createAppStore() {
   let voice: VoiceRuntime | undefined;
   let voiceTaskCoordinator: VoiceTaskCoordinator | undefined;
   const stopVoiceSessionMotion = () => {
-    void runtime?.stopBody().catch(() => {});
+    void stopBodyNow();
   };
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
@@ -390,6 +390,10 @@ export function createAppStore() {
     connected: false,
     isDocked: false,
     lightOn: false,
+    lightBrightness: 0,
+    powerStatus: null,
+    powerReading: false,
+    motion: { speed: 0, turn: 0 },
     headPose: "center",
     headDegrees: 55,
     deviceId: null,
@@ -435,9 +439,27 @@ export function createAppStore() {
     notify(text);
     status.set("@looi:runtimeCouldNotCompleteTheRequest");
   };
+  const notifyBodyError = (error: unknown) => {
+    const text = error instanceof Error ? error.message : String(error);
+    if (text && !text.includes("cancelled") && text !== "Pulse preempted by stop: user_stop") {
+      notify(text);
+    }
+  };
+  const stopBodyNow = async () => {
+    ++bodyDriveOperation;
+    bodyActiveCommand.set(null);
+    if (!runtime) {
+      bodyStatus.update((prev) => ({ ...prev, motion: { speed: 0, turn: 0 } }));
+      return;
+    }
+    try {
+      const snap = await runtime.stopBody();
+      if (alive) bodyStatus.set(snap);
+    } catch {}
+  };
   const stop = async () => {
     interaction.set(undefined);
-    void runtime?.stopBody().catch(() => {});
+    void stopBodyNow();
     try {
       if (voiceTaskCoordinator?.hasActiveTask) {
         await voiceTaskCoordinator.cancel();
@@ -465,7 +487,7 @@ export function createAppStore() {
                 : "neutral";
     if (lifecycle() !== "active") {
       homeLogin?.cancel();
-      void runtime?.stopBody().catch(() => {});
+      void stopBodyNow();
       if (voiceState().phase !== "idle") voice?.stop();
       if (driver.getState().expression !== "sleeping") {
         driver.setExpression("sleeping");
@@ -613,7 +635,7 @@ export function createAppStore() {
         },
         cancelRunningTask: async () => {
           interaction.set(undefined);
-          void runtime?.stopBody().catch(() => {});
+          void stopBodyNow();
           try {
             const stopped = await runtime?.cancel();
             if (alive) {
@@ -664,7 +686,7 @@ export function createAppStore() {
         },
         taskBridge: voiceTaskCoordinator,
         onSessionEnd: stopVoiceSessionMotion,
-        controlBody: async (actionName, durationMs) => {
+        controlBody: async (actionName, durationMs, extra) => {
           if (!alive || !runtime) {
             throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
           }
@@ -672,6 +694,10 @@ export function createAppStore() {
             {
               action: actionName as BodyControlAction,
               ...(durationMs !== undefined ? { durationMs } : {}),
+              ...(extra?.headDegrees !== undefined ? { headDegrees: extra.headDegrees } : {}),
+              ...(extra?.brightness !== undefined ? { brightness: extra.brightness } : {}),
+              ...(extra?.speed !== undefined ? { speed: extra.speed } : {}),
+              ...(extra?.turn !== undefined ? { turn: extra.turn } : {}),
             },
             "voice_realtime",
           );
@@ -988,7 +1014,7 @@ export function createAppStore() {
     },
     stopVoice() {
       voice?.endSession();
-      void runtime?.stopBody().catch(() => {});
+      void stopBodyNow();
     },
     setWakeEnabled(enabled: boolean) {
       wakePreferenceTouched = true;
@@ -1008,7 +1034,7 @@ export function createAppStore() {
     },
     interruptVoice() {
       voice?.interrupt();
-      void runtime?.stopBody().catch(() => {});
+      void stopBodyNow();
     },
     configureVoice(key: string) {
       if (!voice) throw new Error("@looi:runtimeVoiceIsNotReady");
@@ -1100,13 +1126,7 @@ export function createAppStore() {
     bodyConfiguration: () => bodyConfiguration(),
     bodyStatus: () => ({
       ...bodyStatus(),
-      error: bodyStatus().error
-        ? translateMessage(
-            bodyStatus().error!.startsWith("@looi:")
-              ? bodyStatus().error!
-              : `@looi:${bodyStatus().error}`,
-          )
-        : null,
+      error: bodyStatus().error ? translateMessage(bodyStatus().error!) : null,
     }),
     bodyActiveCommand: () => bodyActiveCommand(),
     async configureBody(next: Partial<BodyConfiguration>) {
@@ -1129,6 +1149,9 @@ export function createAppStore() {
             supervisorState: "ready",
             connected: true,
             isDocked: true,
+            powerStatus: { batteryPercent: 100, externalPower: true },
+            powerReading: false,
+            motion: { speed: 0, turn: 0 },
             deviceId: merged.savedDeviceId || defaultCandidates[0].id,
             deviceName: merged.savedDeviceName || defaultCandidates[0].name,
             autoConnect: merged.autoConnect,
@@ -1145,6 +1168,11 @@ export function createAppStore() {
             simulation: false,
             connected: false,
             isDocked: false,
+            lightOn: false,
+            lightBrightness: 0,
+            powerStatus: null,
+            powerReading: false,
+            motion: { speed: 0, turn: 0 },
             autoConnect: merged.autoConnect,
             scanning: false,
             scanCompleted: false,
@@ -1162,7 +1190,7 @@ export function createAppStore() {
           bodyStatus.set(snap);
         }
       } catch (error) {
-        if (alive) fail(error);
+        if (alive) notifyBodyError(error);
       }
     },
     async scanBodyDevices(durationMs = 8000) {
@@ -1192,7 +1220,7 @@ export function createAppStore() {
       } catch (error) {
         if (alive) {
           bodyStatus.set(runtime.bodyStatus());
-          fail(error);
+          notifyBodyError(error);
         }
       }
     },
@@ -1212,6 +1240,8 @@ export function createAppStore() {
             ...prev,
             connected: true,
             isDocked: true,
+            powerStatus: { batteryPercent: 100, externalPower: true },
+            powerReading: false,
             supervisorState: "ready",
             connecting: false,
             deviceId: nextId,
@@ -1233,7 +1263,7 @@ export function createAppStore() {
       } catch (error) {
         if (alive && operation === bodyConnectionOperation) {
           bodyStatus.set(runtime.bodyStatus());
-          fail(error);
+          notifyBodyError(error);
         }
       }
     },
@@ -1245,6 +1275,11 @@ export function createAppStore() {
           ...prev,
           connected: false,
           isDocked: false,
+          lightOn: false,
+          lightBrightness: 0,
+          powerStatus: null,
+          powerReading: false,
+          motion: { speed: 0, turn: 0 },
           supervisorState: "disconnected",
         }));
         return;
@@ -1256,7 +1291,7 @@ export function createAppStore() {
           bodyStatus.set(runtime.bodyStatus());
         }
       } catch (error) {
-        if (alive && operation === bodyConnectionOperation) fail(error);
+        if (alive && operation === bodyConnectionOperation) notifyBodyError(error);
       }
     },
     async forgetSavedDock() {
@@ -1272,6 +1307,11 @@ export function createAppStore() {
           ...prev,
           connected: false,
           isDocked: false,
+          lightOn: false,
+          lightBrightness: 0,
+          powerStatus: null,
+          powerReading: false,
+          motion: { speed: 0, turn: 0 },
           connecting: false,
           supervisorState: "disconnected",
           deviceId: null,
@@ -1288,7 +1328,7 @@ export function createAppStore() {
           bodyStatus.set(runtime.bodyStatus());
         }
       } catch (error) {
-        if (alive && operation === bodyConnectionOperation) fail(error);
+        if (alive && operation === bodyConnectionOperation) notifyBodyError(error);
       }
     },
     setSimulatedDock(docked: boolean) {
@@ -1296,6 +1336,9 @@ export function createAppStore() {
         bodyStatus.update((prev) => ({
           ...prev,
           isDocked: docked,
+          powerStatus: prev.connected
+            ? { batteryPercent: prev.powerStatus?.batteryPercent ?? 100, externalPower: docked }
+            : null,
           supervisorState: docked ? "ready" : "connected_unarmed",
         }));
         return;
@@ -1304,10 +1347,40 @@ export function createAppStore() {
         const snap = runtime.setSimulatedDock(docked);
         if (alive) bodyStatus.set(snap);
       } catch (error) {
-        if (alive) fail(error);
+        if (alive) notifyBodyError(error);
       }
     },
-    async controlBody(actionName: BodyControlAction, durationMs?: number, headDegrees?: number) {
+    async refreshBodyPower() {
+      if (!runtime) {
+        if (bodyStatus().simulation && bodyStatus().connected) {
+          bodyStatus.update((prev) => ({
+            ...prev,
+            powerStatus: {
+              batteryPercent: prev.powerStatus?.batteryPercent ?? 100,
+              externalPower: prev.isDocked,
+            },
+            powerReading: false,
+          }));
+        }
+        return;
+      }
+      bodyStatus.update((prev) => ({ ...prev, powerReading: true }));
+      try {
+        const snap = await runtime.readBodyPower();
+        if (alive) bodyStatus.set(snap);
+      } catch (error) {
+        if (alive) {
+          bodyStatus.set(runtime.bodyStatus());
+          notifyBodyError(error);
+        }
+      }
+    },
+    async controlBody(
+      actionName: BodyControlAction,
+      durationMs?: number,
+      headDegrees?: number,
+      extra?: { brightness?: number; speed?: number; turn?: number },
+    ) {
       if (!runtime) {
         if (actionName === "head_set" && headDegrees !== undefined) {
           bodyStatus.update((prev) => ({
@@ -1334,10 +1407,42 @@ export function createAppStore() {
             headPose: pose,
             headDegrees: deg,
           }));
-        } else if (actionName === "light_on" || actionName === "light_off") {
+        } else if (actionName === "light_on") {
+          bodyStatus.update((prev) => {
+            const nextBrightness =
+              extra?.brightness !== undefined
+                ? Math.max(1, Math.min(255, Math.round(extra.brightness)))
+                : prev.lightBrightness > 0
+                  ? prev.lightBrightness
+                  : 128;
+            return {
+              ...prev,
+              lightOn: true,
+              lightBrightness: nextBrightness,
+            };
+          });
+        } else if (actionName === "light_off") {
           bodyStatus.update((prev) => ({
             ...prev,
-            lightOn: actionName === "light_on",
+            lightOn: false,
+            lightBrightness: 0,
+          }));
+        } else if (actionName === "light_set") {
+          const nextBrightness = Math.max(
+            0,
+            Math.min(255, Math.round(extra?.brightness ?? 0)),
+          );
+          bodyStatus.update((prev) => ({
+            ...prev,
+            lightOn: nextBrightness > 0,
+            lightBrightness: nextBrightness,
+          }));
+        } else if (actionName === "read_power") {
+          bodyStatus.update((prev) => ({
+            ...prev,
+            powerStatus: prev.connected
+              ? (prev.powerStatus ?? { batteryPercent: 100, externalPower: prev.isDocked })
+              : null,
           }));
         }
         return;
@@ -1346,7 +1451,8 @@ export function createAppStore() {
         actionName === "forward" ||
         actionName === "backward" ||
         actionName === "turn_left" ||
-        actionName === "turn_right";
+        actionName === "turn_right" ||
+        actionName === "move";
       if (isWheelMove) {
         bodyActiveCommand.set(actionName);
       }
@@ -1355,6 +1461,9 @@ export function createAppStore() {
           action: actionName,
           ...(durationMs !== undefined ? { durationMs } : {}),
           ...(headDegrees !== undefined ? { headDegrees } : {}),
+          ...(extra?.brightness !== undefined ? { brightness: extra.brightness } : {}),
+          ...(extra?.speed !== undefined ? { speed: extra.speed } : {}),
+          ...(extra?.turn !== undefined ? { turn: extra.turn } : {}),
         });
         if (alive) {
           bodyStatus.set(runtime.bodyStatus());
@@ -1363,21 +1472,47 @@ export function createAppStore() {
           }
         }
       } catch (error) {
-        if (alive) fail(error);
+        if (alive) notifyBodyError(error);
       } finally {
         if (alive && isWheelMove && bodyActiveCommand() === actionName) {
           bodyActiveCommand.set(null);
         }
       }
     },
-    async stopBody() {
-      ++bodyDriveOperation;
-      bodyActiveCommand.set(null);
-      if (!runtime) return;
+    stopBody: stopBodyNow,
+    async setBodyDriveVector(speed: number, turn: number) {
+      const clampedSpeed = Math.max(-127, Math.min(127, Math.round(speed)));
+      const clampedTurn = Math.max(-127, Math.min(127, Math.round(turn)));
+      const moving = clampedSpeed !== 0 || clampedTurn !== 0;
+      if (!runtime) {
+        if (!bodyStatus().connected) return false;
+        bodyActiveCommand.set(moving ? "move" : null);
+        bodyStatus.update((prev) => ({
+          ...prev,
+          motion: { speed: clampedSpeed, turn: clampedTurn },
+        }));
+        return true;
+      }
+      const operation = ++bodyDriveOperation;
+      bodyActiveCommand.set(moving ? "move" : null);
       try {
-        const snap = await runtime.stopBody();
+        const snap = await runtime.setBodyDriveVector(clampedSpeed, clampedTurn);
+        if (operation !== bodyDriveOperation) {
+          if (bodyActiveCommand() === null) await runtime.stopBody();
+          return false;
+        }
         if (alive) bodyStatus.set(snap);
-      } catch {}
+        return true;
+      } catch (error) {
+        if (operation === bodyDriveOperation) {
+          if (alive) {
+            bodyStatus.set(runtime.bodyStatus());
+            notifyBodyError(error);
+          }
+          bodyActiveCommand.set(null);
+        }
+        return false;
+      }
     },
     async startBodyDrive(action: "forward" | "backward" | "turn_left" | "turn_right") {
       if (!runtime) return false;
@@ -1393,7 +1528,10 @@ export function createAppStore() {
         return true;
       } catch (error) {
         if (operation === bodyDriveOperation) {
-          if (alive) fail(error);
+          if (alive) {
+            bodyStatus.set(runtime.bodyStatus());
+            notifyBodyError(error);
+          }
           bodyActiveCommand.set(null);
         }
         return false;

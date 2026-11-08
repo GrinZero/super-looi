@@ -1,4 +1,4 @@
-import type { BodyActionLease, BodyStopRequest, BodySupervisorState, SelfEventWindow } from "@super-looi/contracts";
+import type { BodyActionLease, BodyPrimitive, BodyStopRequest, BodySupervisorState, SelfEventWindow } from "@super-looi/contracts";
 import {
   BodySupervisor,
   CrossPlatformBleTransport,
@@ -7,6 +7,7 @@ import {
   type HeadPayloadKey,
   type LooiConnectTarget,
   type LooiDeviceCandidate,
+  type LooiPowerStatus,
   type NativeBleAdapter,
 } from "../../../packages/looi-driver/src/index.js";
 import type { Vault } from "./application.js";
@@ -20,6 +21,11 @@ export interface BodyConfiguration {
   autoConnect: boolean;
 }
 
+export interface BodyMotionVector {
+  speed: number;
+  turn: number;
+}
+
 export interface BodyStatusSnapshot {
   mode: BodyConnectionMode;
   simulation: boolean;
@@ -28,6 +34,10 @@ export interface BodyStatusSnapshot {
   connected: boolean;
   isDocked: boolean;
   lightOn: boolean;
+  lightBrightness: number;
+  powerStatus: LooiPowerStatus | null;
+  powerReading: boolean;
+  motion: BodyMotionVector;
   headPose: HeadPayloadKey | "custom";
   headDegrees: number;
   deviceId: string | null;
@@ -50,14 +60,20 @@ export type BodyControlAction =
   | "backward"
   | "turn_left"
   | "turn_right"
+  | "move"
   | "light_on"
   | "light_off"
+  | "light_set"
+  | "read_power"
   | "stop";
 
 export interface BodyControlInput {
   action: BodyControlAction;
   durationMs?: number;
   headDegrees?: number;
+  brightness?: number;
+  speed?: number;
+  turn?: number;
 }
 
 export interface BodyActionReceipt {
@@ -67,10 +83,58 @@ export interface BodyActionReceipt {
   isDocked: boolean;
   headDegrees: number;
   lightOn: boolean;
+  lightBrightness: number;
+  powerStatus: LooiPowerStatus | null;
+  speed?: number;
+  turn?: number;
   durationMs: number | null;
   stopCommandAt: string | null;
   recordedAt: string;
   reason?: string;
+}
+
+function clampSignedAxis(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(-127, Math.min(127, Math.round(value)));
+}
+
+function dominantPrimitive(speed: number, turn: number): BodyPrimitive {
+  if (Math.abs(speed) >= Math.abs(turn)) {
+    return speed >= 0 ? "forward" : "backward";
+  }
+  return turn >= 0 ? "turn_left" : "turn_right";
+}
+
+function normalizeBodyErrorMessage(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "@looi:body_connect_failed";
+  if (trimmed.startsWith("@looi:") || trimmed.startsWith("body_")) return trimmed;
+  if (trimmed.includes("FED8") || trimmed.includes("battery percent")) {
+    return "@looi:body_power_invalid";
+  }
+  if (trimmed.includes("lease mutex held") || trimmed.includes("Lease mismatch")) {
+    return "@looi:body_write_busy";
+  }
+  if (
+    trimmed.includes("activation is not complete") ||
+    trimmed.includes("expected a connected state")
+  ) {
+    return "@looi:body_not_connected";
+  }
+  if (trimmed === "蓝牙特征值写入失败") return "@looi:body_write_failed";
+  if (trimmed === "蓝牙特征值读取失败") return "@looi:body_read_failed";
+  if (trimmed === "无法启动蓝牙扫描，请检查蓝牙与权限" || trimmed.startsWith("蓝牙扫描失败")) {
+    return "@looi:body_scan_failed";
+  }
+  if (
+    trimmed === "无法连接到指定 LOOI 底座" ||
+    trimmed === "无法连接到 LOOI 底座" ||
+    trimmed === "蓝牙服务发现失败"
+  ) {
+    return "@looi:body_connect_failed";
+  }
+  if (trimmed === "底座通知订阅失败") return "@looi:body_subscribe_timeout";
+  return trimmed;
 }
 
 export interface NativeBlePort {
@@ -166,7 +230,7 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
       if (generation !== this.scanGeneration) return [];
       const nativeStatus = this.port.status();
       if (!concurrentConnection && nativeStatus.state === "error") {
-        throw new Error(nativeStatus.error || "蓝牙扫描失败");
+        throw new Error(normalizeBodyErrorMessage(nativeStatus.error || "@looi:body_scan_failed"));
       }
       return this.port.scannedDevices().map((d) => ({
         id: d.id,
@@ -200,7 +264,7 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
       deviceId = found[0]?.id ?? "";
     }
     if (!deviceId) {
-      throw new Error("附近未发现可用的 LOOI 底座");
+      throw new Error("@looi:body_no_dock_found");
     }
 
     if (generation !== this.connectionGeneration) throw new Error("BLE connection cancelled");
@@ -218,14 +282,14 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
       }
       if (st.state === "error" || (st.state === "disconnected" && st.error)) {
         this.stopPolling();
-        throw new Error(st.error || "无法连接到 LOOI 底座");
+        throw new Error(normalizeBodyErrorMessage(st.error || "@looi:body_connect_failed"));
       }
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
 
     this.port.disconnect();
     this.stopPolling();
-    throw new Error("连接 LOOI 底座超时");
+    throw new Error("@looi:body_connect_timeout");
   }
 
   public async disconnect(): Promise<void> {
@@ -245,10 +309,10 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     hexPayload: string,
   ): Promise<void> {
     this.pumpEvents();
-    if (this.pendingWrite) throw new Error("底座写入仍在进行");
+    if (this.pendingWrite) throw new Error("@looi:body_write_busy");
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.finishPendingWrite(new Error(`底座写入超时：${charKey}`));
+        this.finishPendingWrite(new Error("@looi:body_write_timeout"));
       }, 3000);
       this.pendingWrite = { characteristic: charKey, resolve, reject, timer };
       try {
@@ -270,9 +334,9 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
 
   public async readCharacteristic(charKey: CharacteristicKey): Promise<string> {
     this.pumpEvents();
-    if (this.pendingRead) throw new Error("底座读取仍在进行");
+    if (this.pendingRead) throw new Error("@looi:body_read_busy");
     return new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => this.finishPendingRead(new Error(`底座读取超时：${charKey}`)), 3000);
+      const timer = setTimeout(() => this.finishPendingRead(new Error("@looi:body_read_timeout")), 3000);
       this.pendingRead = { characteristic: charKey, resolve, reject, timer };
       try {
         this.port.read(charKey);
@@ -287,7 +351,7 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     charKey: CharacteristicKey,
     onData: (hexPayload: string) => void,
   ): Promise<() => void> {
-    if (this.pendingSubscription) throw new Error("底座通知订阅仍在进行");
+    if (this.pendingSubscription) throw new Error("@looi:body_subscribe_busy");
     let set = this.notificationListeners.get(charKey);
     if (!set) {
       set = new Set();
@@ -299,7 +363,7 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
       if (cached !== undefined) onData(cached);
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
-          this.finishPendingSubscription(new Error(`底座通知订阅超时：${charKey}`));
+          this.finishPendingSubscription(new Error("@looi:body_subscribe_timeout"));
         }, 3000);
         this.pendingSubscription = { characteristic: charKey, resolve, reject, timer };
         try {
@@ -449,6 +513,14 @@ export class BodyRuntime {
   private connectedDeviceName = "LOOI 桌面底座";
   private lastError: string | null = null;
   private heldDrive: BodyActionLease | null = null;
+  private heldDriveRenewTimer: ReturnType<typeof setInterval> | null = null;
+  private driveGeneration = 0;
+  private desiredMotion: BodyMotionVector = { speed: 0, turn: 0 };
+  private activeMotion: BodyMotionVector = { speed: 0, turn: 0 };
+  private pendingDriveWrite = false;
+  private driveFlushPromise: Promise<void> | null = null;
+  private activeStop: Promise<void> | null = null;
+  private inFlightPowerRead: Promise<LooiPowerStatus> | null = null;
   private readonly selfEventListeners = new Set<(window: SelfEventWindow) => void>();
 
   constructor(options: { vault: Vault; nativePort?: NativeBlePort | null }) {
@@ -464,7 +536,7 @@ export class BodyRuntime {
         deviceId: this.config.savedDeviceId || DEFAULT_SIM_CANDIDATES[0].id,
         deviceName: this.config.savedDeviceName || DEFAULT_SIM_CANDIDATES[0].name,
       }).then(() => {
-        this.simTransport?.simulateDock(true);
+        this.setSimulatedDock(true);
       });
     }
   }
@@ -506,37 +578,83 @@ export class BodyRuntime {
     }
   }
 
+  private stopHeldDriveRenewTimer(): void {
+    if (this.heldDriveRenewTimer !== null) {
+      clearInterval(this.heldDriveRenewTimer);
+      this.heldDriveRenewTimer = null;
+    }
+  }
+
+  private clearHeldDriveState(): void {
+    this.stopHeldDriveRenewTimer();
+    this.heldDrive = null;
+    this.pendingDriveWrite = false;
+    this.desiredMotion = { speed: 0, turn: 0 };
+    this.activeMotion = { speed: 0, turn: 0 };
+  }
+
+  private ensureHeldDriveRenewTimer(generation: number): void {
+    if (this.heldDriveRenewTimer !== null) return;
+    const timer = setInterval(() => {
+      if (generation !== this.driveGeneration || !this.heldDrive) {
+        this.stopHeldDriveRenewTimer();
+        return;
+      }
+      try {
+        this.supervisor.renewLease(this.heldDrive, 1500);
+      } catch {
+        this.clearHeldDriveState();
+      }
+    }, 450);
+    (timer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
+    this.heldDriveRenewTimer = timer;
+  }
+
   private buildSupervisorForMode(mode: BodyConnectionMode): BodySupervisor {
+    this.clearHeldDriveState();
+    this.inFlightPowerRead = null;
     this.bleTransport?.dispose();
     this.bleTransport = null;
     this.nativeAdapter?.dispose();
     this.nativeAdapter = null;
     this.simTransport = null;
 
+    const events = {
+      onStateChange: (state: BodySupervisorState) => {
+        if (state === "disconnected" || state === "fault") {
+          this.clearHeldDriveState();
+        }
+      },
+      onStop: (req: BodyStopRequest) => {
+        if (req.reason === "user_stop" || req.reason === "lease_expired") {
+          if (this.heldDrive !== null && this.heldDrive.lease_epoch <= req.revoke_through_lease_epoch) {
+            this.clearHeldDriveState();
+          }
+          return;
+        }
+        ++this.driveGeneration;
+        this.driveFlushPromise = null;
+        this.clearHeldDriveState();
+      },
+      onSelfEvent: (win: SelfEventWindow) => {
+        for (const listener of this.selfEventListeners) listener(win);
+      },
+      onError: (err: Error) => {
+        this.lastError = normalizeBodyErrorMessage(err.message);
+      },
+    };
+
     if (mode === "real_ble" && this.nativePort) {
       this.nativeAdapter = new NshNativeBleAdapter(this.nativePort);
       this.bleTransport = new CrossPlatformBleTransport(this.nativeAdapter);
-      return new BodySupervisor(this.bleTransport, {
-        onSelfEvent: (win) => {
-          for (const listener of this.selfEventListeners) listener(win);
-        },
-        onError: (err) => {
-          this.lastError = err.message;
-        },
-      });
+      return new BodySupervisor(this.bleTransport, events);
     }
 
     const sim = new SimulatedBleTransport();
     sim.candidates = [...DEFAULT_SIM_CANDIDATES];
+    sim.readValues.set("power", "6401");
     this.simTransport = sim;
-    return new BodySupervisor(sim, {
-      onSelfEvent: (win) => {
-        for (const listener of this.selfEventListeners) listener(win);
-      },
-      onError: (err) => {
-        this.lastError = err.message;
-      },
-    });
+    return new BodySupervisor(sim, events);
   }
 
   public attachNativeBle(port: NativeBlePort | null): BodyStatusSnapshot {
@@ -585,6 +703,10 @@ export class BodyRuntime {
       connected,
       isDocked: connected && snap.isDocked,
       lightOn: connected && snap.lightOn,
+      lightBrightness: connected ? snap.lightBrightness : 0,
+      powerStatus: connected ? snap.powerStatus : null,
+      powerReading: connected && this.inFlightPowerRead !== null,
+      motion: connected && this.heldDrive ? { ...this.activeMotion } : { speed: 0, turn: 0 },
       headPose: snap.headPose,
       headDegrees: snap.headDegrees,
       deviceId: connected ? this.connectedDeviceId : (this.config.savedDeviceId || null),
@@ -631,7 +753,7 @@ export class BodyRuntime {
           deviceId: DEFAULT_SIM_CANDIDATES[0].id,
           deviceName: DEFAULT_SIM_CANDIDATES[0].name,
         });
-        this.simTransport?.simulateDock(true);
+        this.setSimulatedDock(true);
       } else if (
         this.config.mode === "real_ble" &&
         this.config.autoConnect &&
@@ -662,7 +784,7 @@ export class BodyRuntime {
           this.scanCompleted = true;
         }
       } else if (!this.nativeAdapter) {
-        if (request === this.scanRequest) this.lastError = "当前环境不支持蓝牙扫描，可切换至模拟体验";
+        if (request === this.scanRequest) this.lastError = "@looi:body_scan_unavailable";
       } else {
         const candidates = await this.nativeAdapter.scanCandidates("", timeoutMs, this.connecting);
         if (request === this.scanRequest) {
@@ -672,7 +794,7 @@ export class BodyRuntime {
       }
     } catch (error) {
       if (request === this.scanRequest) {
-        this.lastError = error instanceof Error ? error.message : String(error);
+        this.lastError = normalizeBodyErrorMessage(error instanceof Error ? error.message : String(error));
       }
     } finally {
       if (request === this.scanRequest) this.scanning = false;
@@ -719,7 +841,7 @@ export class BodyRuntime {
         }
         if (request !== this.connectionRequest) return;
         if (this.config.mode === "real_ble" && !this.nativeAdapter) {
-          this.lastError = "当前设备蓝牙不可用，可切换至模拟体验";
+          this.lastError = "@looi:body_ble_device_unavailable";
           return;
         }
         const snap = this.supervisor.getSnapshot();
@@ -747,11 +869,13 @@ export class BodyRuntime {
             resolvedName || DEFAULT_SIM_CANDIDATES[0].name;
         }
         if (this.config.mode === "simulation" && !this.supervisor.getIsDocked()) {
+          this.simTransport?.readValues.set("power", "6401");
           this.simTransport?.simulateDock(true);
         }
+        void this.readPowerStatus().catch(() => {});
       } catch (error) {
         if (request === this.connectionRequest) {
-          this.lastError = error instanceof Error ? error.message : String(error);
+          this.lastError = normalizeBodyErrorMessage(error instanceof Error ? error.message : String(error));
         }
       } finally {
         if (request === this.connectionRequest) this.connecting = false;
@@ -764,7 +888,9 @@ export class BodyRuntime {
   }
 
   public async disconnect(): Promise<BodyStatusSnapshot> {
-    this.heldDrive = null;
+    ++this.driveGeneration;
+    this.clearHeldDriveState();
+    this.inFlightPowerRead = null;
     const request = ++this.connectionRequest;
     this.lastError = null;
     const previous = this.activeConnect;
@@ -799,26 +925,187 @@ export class BodyRuntime {
 
   public setSimulatedDock(docked: boolean): BodyStatusSnapshot {
     if (this.config.mode === "simulation" && this.simTransport) {
+      this.simTransport.readValues.set("power", docked ? "6401" : "6400");
       this.simTransport.simulateDock(docked);
+      void this.readPowerStatus().catch(() => {});
+    }
+    return this.status();
+  }
+
+  private performPowerRead(): Promise<LooiPowerStatus> {
+    if (this.inFlightPowerRead) return this.inFlightPowerRead;
+    const task = this.supervisor.readPowerStatus().finally(() => {
+      if (this.inFlightPowerRead === task) {
+        this.inFlightPowerRead = null;
+      }
+    });
+    this.inFlightPowerRead = task;
+    return task;
+  }
+
+  public async readPowerStatus(): Promise<BodyStatusSnapshot> {
+    if (this.config.mode === "disabled") return this.status();
+    const snap = this.supervisor.getSnapshot();
+    if (snap.state === "disconnected" || snap.state === "fault") {
+      return this.status();
+    }
+    try {
+      await this.performPowerRead();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        !message.includes("cancelled") &&
+        !message.includes("disconnected") &&
+        !message.includes("not complete")
+      ) {
+        this.lastError = normalizeBodyErrorMessage(message);
+      }
     }
     return this.status();
   }
 
   public async stop(reason: BodyStopRequest["reason"] = "user_stop"): Promise<BodyStatusSnapshot> {
-    this.heldDrive = null;
-    await this.supervisor.stop(reason);
+    const stopGeneration = ++this.driveGeneration;
+    this.driveFlushPromise = null;
+    this.clearHeldDriveState();
+    const previousStop = this.activeStop;
+    let task!: Promise<void>;
+    const rawStop =
+      previousStop === null
+        ? this.supervisor.stop(reason)
+        : previousStop.then(async () => {
+            if (stopGeneration === this.driveGeneration) {
+              await this.supervisor.stop(reason);
+            }
+          });
+    task = rawStop.finally(() => {
+      if (this.activeStop === task) {
+        this.activeStop = null;
+      }
+    });
+    this.activeStop = task;
+    await task;
+    return this.status();
+  }
+
+  /**
+   * Stepless 2D continuous drive session: acquires/renews a single motor lease,
+   * coalesces high-frequency joystick updates to the latest signed `(speed, turn)`,
+   * and maintains lease renewal while the thumb holds a non-zero vector.
+   */
+  public async setDriveVector(speed: number, turn: number): Promise<BodyStatusSnapshot> {
+    const nextSpeed = clampSignedAxis(speed);
+    const nextTurn = clampSignedAxis(turn);
+
+    if (nextSpeed === 0 && nextTurn === 0 && !this.heldDrive && !this.driveFlushPromise) {
+      this.desiredMotion = { speed: 0, turn: 0 };
+      return this.status();
+    }
+
+    if (this.activeStop !== null && !this.driveFlushPromise) {
+      ++this.driveGeneration;
+    }
+
+    this.desiredMotion = { speed: nextSpeed, turn: nextTurn };
+    const generation = this.driveGeneration;
+    this.pendingDriveWrite = true;
+
+    if (!this.driveFlushPromise) {
+      let run!: Promise<void>;
+      run = (async () => {
+        try {
+          while (this.pendingDriveWrite && generation === this.driveGeneration) {
+            if (this.activeStop) {
+              await this.activeStop;
+              if (generation !== this.driveGeneration) return;
+            }
+            this.pendingDriveWrite = false;
+            const target = { ...this.desiredMotion };
+            const snap = this.supervisor.getSnapshot();
+            if (
+              this.config.mode === "disabled" ||
+              snap.state === "disconnected" ||
+              snap.state === "fault"
+            ) {
+              this.clearHeldDriveState();
+              throw new Error("@looi:body_not_connected");
+            }
+
+            const activeLease = this.supervisor.getActiveLease();
+            const hasValidHeldLease =
+              this.heldDrive !== null &&
+              activeLease !== null &&
+              activeLease.lease_id === this.heldDrive.lease_id &&
+              activeLease.lease_epoch === this.heldDrive.lease_epoch;
+
+            if (!hasValidHeldLease) {
+              this.stopHeldDriveRenewTimer();
+              this.heldDrive = null;
+              if (target.speed === 0 && target.turn === 0) {
+                this.activeMotion = { speed: 0, turn: 0 };
+                break;
+              }
+              const lease = await this.supervisor.acquireLease({
+                holder: "user_panel",
+                primitive: dominantPrimitive(target.speed, target.turn),
+                durationMs: 1500,
+              });
+              if (generation !== this.driveGeneration) {
+                if (this.supervisor.getActiveLease()?.lease_id === lease.lease_id) {
+                  await this.supervisor.stop("user_stop");
+                }
+                return;
+              }
+              this.heldDrive = lease;
+            } else {
+              this.supervisor.renewLease(this.heldDrive!, 1500);
+            }
+
+            await this.supervisor.setMotion(this.heldDrive!, target.speed, target.turn);
+            if (generation !== this.driveGeneration) return;
+            this.activeMotion = target;
+            if (target.speed === 0 && target.turn === 0) {
+              this.stopHeldDriveRenewTimer();
+            } else {
+              this.ensureHeldDriveRenewTimer(generation);
+            }
+          }
+        } catch (error) {
+          if (generation === this.driveGeneration) {
+            this.clearHeldDriveState();
+          }
+          const rawMessage = error instanceof Error ? error.message : String(error);
+          const normalized = normalizeBodyErrorMessage(rawMessage);
+          if (
+            !rawMessage.includes("cancelled") &&
+            !rawMessage.includes("disconnected")
+          ) {
+            this.lastError = normalized;
+          }
+          throw new Error(normalized);
+        } finally {
+          if (this.driveFlushPromise === run) {
+            this.driveFlushPromise = null;
+          }
+        }
+      })();
+      this.driveFlushPromise = run;
+    }
+
+    await this.driveFlushPromise;
     return this.status();
   }
 
   public async startDrive(action: "forward" | "backward" | "turn_left" | "turn_right"): Promise<BodyStatusSnapshot> {
-    const lease = await this.supervisor.acquireLease({ holder: "user_panel", primitive: action, durationMs: 1500 });
-    this.heldDrive = lease;
-    try {
-      await this.supervisor.executePrimitive(lease);
-      return this.status();
-    } catch (error) {
-      this.heldDrive = null;
-      throw error;
+    switch (action) {
+      case "forward":
+        return this.setDriveVector(127, 0);
+      case "backward":
+        return this.setDriveVector(-127, 0);
+      case "turn_left":
+        return this.setDriveVector(0, 127);
+      case "turn_right":
+        return this.setDriveVector(0, -127);
     }
   }
 
@@ -828,9 +1115,42 @@ export class BodyRuntime {
       this.supervisor.renewLease(this.heldDrive, 1500);
       return true;
     } catch {
-      this.heldDrive = null;
+      this.clearHeldDriveState();
       return false;
     }
+  }
+
+  private buildReceipt(
+    action: BodyControlAction,
+    status: BodyActionReceipt["status"],
+    recordedAt: string,
+    extra: {
+      simulation?: boolean;
+      isDocked?: boolean;
+      durationMs?: number | null;
+      stopCommandAt?: string | null;
+      speed?: number;
+      turn?: number;
+      reason?: string;
+    } = {},
+  ): BodyActionReceipt {
+    const snap = this.supervisor.getSnapshot();
+    return {
+      action,
+      status,
+      simulation: extra.simulation ?? (this.config.mode === "simulation"),
+      isDocked: extra.isDocked ?? snap.isDocked,
+      headDegrees: snap.headDegrees,
+      lightOn: snap.lightOn,
+      lightBrightness: snap.lightBrightness,
+      powerStatus: snap.powerStatus,
+      ...(extra.speed !== undefined ? { speed: extra.speed } : {}),
+      ...(extra.turn !== undefined ? { turn: extra.turn } : {}),
+      durationMs: extra.durationMs ?? null,
+      stopCommandAt: extra.stopCommandAt ?? null,
+      recordedAt,
+      ...(extra.reason !== undefined ? { reason: extra.reason } : {}),
+    };
   }
 
   public async control(
@@ -839,107 +1159,113 @@ export class BodyRuntime {
   ): Promise<BodyActionReceipt> {
     this.nativeAdapter?.pumpEvents();
     const recordedAt = new Date().toISOString();
-    const simulation = this.config.mode === "simulation";
     const action = input.action;
 
     if (this.config.mode === "disabled") {
-      return {
-        action,
-        status: "rejected",
+      return this.buildReceipt(action, "rejected", recordedAt, {
         simulation: false,
         isDocked: false,
-        headDegrees: this.supervisor.getHeadDegrees(),
-        lightOn: this.supervisor.getLightOn(),
-        durationMs: null,
-        stopCommandAt: null,
-        recordedAt,
-        reason: "底座处于未启用状态",
-      };
+        reason: "@looi:body_disabled",
+      });
     }
 
     if (action === "stop") {
-      await this.supervisor.stop("user_stop");
-      return {
-        action,
-        status: "verified",
-        simulation,
-        isDocked: this.supervisor.getIsDocked(),
-        headDegrees: this.supervisor.getHeadDegrees(),
-        lightOn: this.supervisor.getLightOn(),
+      await this.stop("user_stop");
+      return this.buildReceipt(action, "verified", recordedAt, {
         durationMs: 0,
         stopCommandAt: new Date().toISOString(),
-        recordedAt,
-      };
+      });
+    }
+
+    if (this.activeStop) {
+      await this.activeStop;
     }
 
     const snap = this.supervisor.getSnapshot();
     if (snap.state === "disconnected" || snap.state === "fault") {
-      return {
-        action,
-        status: "rejected",
-        simulation,
+      return this.buildReceipt(action, "rejected", recordedAt, {
         isDocked: false,
-        headDegrees: snap.headDegrees,
-        lightOn: snap.lightOn,
-        durationMs: null,
-        stopCommandAt: null,
-        recordedAt,
-        reason: "底座尚未连接",
-      };
+        reason: "@looi:body_not_connected",
+      });
     }
 
     try {
-      if (action === "light_on" || action === "light_off") {
-        await this.supervisor.setLight(action === "light_on");
-        return {
-          action,
-          status: "verified",
-          simulation,
-          isDocked: this.supervisor.getIsDocked(),
-          headDegrees: this.supervisor.getHeadDegrees(),
-          lightOn: this.supervisor.getLightOn(),
-          durationMs: null,
-          stopCommandAt: null,
-          recordedAt,
-        };
+      if (action === "read_power") {
+        await this.performPowerRead();
+        return this.buildReceipt(action, "verified", recordedAt);
+      }
+
+      if (action === "light_on") {
+        if (typeof input.brightness === "number" && Number.isFinite(input.brightness)) {
+          await this.supervisor.setLightBrightness(Math.max(1, Math.min(255, Math.round(input.brightness))));
+        } else {
+          await this.supervisor.setLight(true);
+        }
+        return this.buildReceipt(action, "verified", recordedAt);
+      }
+
+      if (action === "light_off") {
+        await this.supervisor.setLight(false);
+        return this.buildReceipt(action, "verified", recordedAt);
+      }
+
+      if (action === "light_set") {
+        if (typeof input.brightness !== "number" || !Number.isFinite(input.brightness)) {
+          throw new Error("@looi:body_light_invalid");
+        }
+        await this.supervisor.setLightBrightness(input.brightness);
+        return this.buildReceipt(action, "verified", recordedAt);
       }
 
       if (action === "head_up" || action === "head_center" || action === "head_down") {
         const pose: HeadPayloadKey =
           action === "head_up" ? "up" : action === "head_down" ? "down" : "center";
         await this.supervisor.setHead(pose);
-        return {
-          action,
-          status: "verified",
-          simulation,
-          isDocked: this.supervisor.getIsDocked(),
-          headDegrees: this.supervisor.getHeadDegrees(),
-          lightOn: this.supervisor.getLightOn(),
-          durationMs: null,
-          stopCommandAt: null,
-          recordedAt,
-        };
+        return this.buildReceipt(action, "verified", recordedAt);
       }
 
       if (action === "head_set") {
-        await this.supervisor.setHeadDegrees(input.headDegrees!);
-        return {
-          action,
-          status: "verified",
-          simulation,
-          isDocked: this.supervisor.getIsDocked(),
-          headDegrees: this.supervisor.getHeadDegrees(),
-          lightOn: this.supervisor.getLightOn(),
-          durationMs: null,
-          stopCommandAt: null,
-          recordedAt,
-        };
+        if (typeof input.headDegrees !== "number" || !Number.isFinite(input.headDegrees)) {
+          throw new Error("@looi:body_head_invalid");
+        }
+        await this.supervisor.setHeadDegrees(input.headDegrees);
+        return this.buildReceipt(action, "verified", recordedAt);
       }
 
       const boundedDuration = Math.max(
         50,
         Math.min(typeof input.durationMs === "number" ? Math.round(input.durationMs) : 350, 1200),
       );
+
+      if (action === "move") {
+        const speed = clampSignedAxis(input.speed);
+        const turn = clampSignedAxis(input.turn);
+        if (speed === 0 && turn === 0) {
+          await this.stop("user_stop");
+          return this.buildReceipt(action, "verified", recordedAt, {
+            speed: 0,
+            turn: 0,
+            durationMs: 0,
+            stopCommandAt: new Date().toISOString(),
+          });
+        }
+        const obs = await this.supervisor.executePulse(
+          {
+            holder,
+            primitive: dominantPrimitive(speed, turn),
+            durationMs: boundedDuration,
+          },
+          60,
+          { speed, turn },
+        );
+        return this.buildReceipt(action, "verified", recordedAt, {
+          speed,
+          turn,
+          durationMs: boundedDuration,
+          stopCommandAt: obs.stop_command_at,
+        });
+      }
+
       const obs = await this.supervisor.executePulse(
         {
           holder,
@@ -948,36 +1274,21 @@ export class BodyRuntime {
         },
         60,
       );
-      return {
-        action,
-        status: "verified",
-        simulation,
-        isDocked: this.supervisor.getIsDocked(),
-        headDegrees: this.supervisor.getHeadDegrees(),
-        lightOn: this.supervisor.getLightOn(),
+      return this.buildReceipt(action, "verified", recordedAt, {
         durationMs: boundedDuration,
         stopCommandAt: obs.stop_command_at,
-        recordedAt,
-      };
+      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message !== "Pulse preempted by stop: user_stop") this.lastError = message;
-      return {
-        action,
-        status: "failed",
-        simulation,
-        isDocked: this.supervisor.getIsDocked(),
-        headDegrees: this.supervisor.getHeadDegrees(),
-        lightOn: this.supervisor.getLightOn(),
-        durationMs: null,
-        stopCommandAt: null,
-        recordedAt,
-        reason: message,
-      };
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const message = normalizeBodyErrorMessage(rawMessage);
+      if (rawMessage !== "Pulse preempted by stop: user_stop") this.lastError = message;
+      return this.buildReceipt(action, "failed", recordedAt, { reason: message });
     }
   }
 
   public close(): void {
+    ++this.driveGeneration;
+    this.clearHeldDriveState();
     void this.disconnect();
     this.bleTransport?.dispose();
     this.nativeAdapter?.dispose();

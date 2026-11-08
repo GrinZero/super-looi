@@ -20,12 +20,23 @@ export interface VoiceToolDefinition {
   execute(item: Record<string, unknown>, callId: string): void;
 }
 
+export interface VoiceBodyControlOptions {
+  headDegrees?: number;
+  brightness?: number;
+  speed?: number;
+  turn?: number;
+}
+
 export interface VoiceToolHost {
   send(value: unknown): Promise<void>;
   active(): boolean;
   requestTask?(prompt: string, traceContext?: TraceContext): Promise<string>;
   taskBridge?: VoiceTaskBridge;
-  controlBody?(action: string, durationMs?: number): Promise<unknown>;
+  controlBody?(
+    action: string,
+    durationMs?: number,
+    options?: VoiceBodyControlOptions,
+  ): Promise<unknown>;
   toolTraceContext?(callId: string): TraceContext | undefined;
   taskFinished(): void;
   fail(message: string): void;

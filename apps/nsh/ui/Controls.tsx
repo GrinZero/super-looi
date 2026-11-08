@@ -1,5 +1,21 @@
 import { t, translateMessage, formatDate } from "../i18n";
-import { signal, Text, View, Scroll, keyboardFrame, reduceMotion, windowSize, type JSX } from "nsh";
+import {
+  Canvas,
+  cleanup,
+  effect,
+  lifecycle,
+  signal,
+  Text,
+  token,
+  View,
+  Scroll,
+  keyboardFrame,
+  reduceMotion,
+  windowSize,
+  type GestureResponderEvent,
+  type JSX,
+  type TouchPoint,
+} from "nsh";
 import { Button, Input, Dialog, Select, Switch, Slider, type SelectItem } from "nsh/base";
 
 /** App-owned controls: shared touch targets, focus, disabled and press states. */
@@ -547,11 +563,379 @@ export function VerticalPitchSlider(props: {
           props.onChangeEnd?.(ev.value);
         }
       }}
-      class="w-11 h-20 items-center justify-center disabled:opacity-40"
+      class="w-11 h-28 items-center justify-center disabled:opacity-40"
       trackClass="w-11 h-full items-center justify-center"
       indicatorClass="w-2 h-full rounded-full bg-border items-center"
       rangeClass="w-2 rounded-full bg-foreground"
       thumbClass="w-5 h-5 rounded-full bg-foreground border-2 border-card active:scale-110 focus:border-ring"
+    />
+  );
+}
+
+/** App-owned horizontal slider using `Slider` from `nsh/base` with styled track, indicator, range and thumb parts. */
+export function HorizontalValueSlider(props: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  disabled?: boolean;
+  accessibilityLabel: string;
+  testID?: string;
+  onChange: (value: number) => void;
+  onChangeEnd?: (value: number) => void;
+}) {
+  return (
+    <Slider
+      testID={props.testID}
+      axis="horizontal"
+      min={props.min}
+      max={props.max}
+      step={props.step}
+      value={props.value}
+      disabled={props.disabled}
+      accessibilityLabel={props.accessibilityLabel}
+      onChange={(ev) => {
+        if (typeof ev.value === "number") {
+          props.onChange(ev.value);
+        }
+      }}
+      onChangeEnd={(ev) => {
+        if (typeof ev.value === "number") {
+          props.onChangeEnd?.(ev.value);
+        }
+      }}
+      class="w-full h-11 items-center justify-center disabled:opacity-40"
+      trackClass="w-full h-11 justify-center"
+      indicatorClass="w-full h-2 rounded-full bg-border justify-center"
+      rangeClass="h-2 rounded-full bg-foreground"
+      thumbClass="w-5 h-5 rounded-full bg-foreground border-2 border-card active:scale-110 focus:border-ring"
+    />
+  );
+}
+
+const WHEEL_DEADZONE_RATIO = 0.12;
+const WHEEL_DRAG_ACTIVATE_PT = 5;
+
+function computeSteplessMotion(
+  rawDx: number,
+  rawDy: number,
+  maxTravel: number,
+): { clampedDx: number; clampedDy: number; speed: number; turn: number } {
+  const dist = Math.hypot(rawDx, rawDy);
+  if (dist <= 0 || maxTravel <= 0) {
+    return { clampedDx: 0, clampedDy: 0, speed: 0, turn: 0 };
+  }
+  const clampedDist = Math.min(dist, maxTravel);
+  const ux = rawDx / dist;
+  const uy = rawDy / dist;
+  const clampedDx = ux * clampedDist;
+  const clampedDy = uy * clampedDist;
+  const norm = clampedDist / maxTravel;
+  if (norm < WHEEL_DEADZONE_RATIO) {
+    return { clampedDx, clampedDy, speed: 0, turn: 0 };
+  }
+  const mag = (norm - WHEEL_DEADZONE_RATIO) / (1 - WHEEL_DEADZONE_RATIO);
+  const speed = Math.max(-127, Math.min(127, Math.round(-uy * mag * 127)));
+  const turn = Math.max(-127, Math.min(127, Math.round(-ux * mag * 127)));
+  return { clampedDx, clampedDy, speed, turn };
+}
+
+/**
+ * 360-degree stepless analog directional joystick wheel (Honor of Kings style).
+ * Claims responder gestures inside Scroll containers, ignores pure taps (<5pt),
+ * maps 2D thumb displacement to signed `(speed, turn)` in `-127..127`, and
+ * immediately resets + invokes `onRelease` when lifted, cancelled, or disabled.
+ */
+export function SteplessWheel(props: {
+  disabled?: boolean;
+  size?: number;
+  resetToken?: number;
+  accessibilityLabel: string;
+  testID?: string;
+  onVectorChange: (speed: number, turn: number) => void;
+  onRelease: () => void;
+}) {
+  const wheelSize = () => props.size ?? 132;
+  const puckRadius = 22;
+  const maxTravel = () => Math.max(18, wheelSize() / 2 - 4 - puckRadius - 4);
+  const thumb = signal<{
+    dx: number;
+    dy: number;
+    active: boolean;
+    engaged: boolean;
+  }>({
+    dx: 0,
+    dy: 0,
+    active: false,
+    engaged: false,
+  });
+
+  let activeTouchId: number | null = null;
+  let disarmedUntilGrant = false;
+  let lastResetToken = props.resetToken ?? 0;
+  let startPageX = 0;
+  let startPageY = 0;
+  let startLocalX = 0;
+  let startLocalY = 0;
+  let lastSpeed = 0;
+  let lastTurn = 0;
+  let emittedNonZero = false;
+
+  const releaseWheel = (disarm = false) => {
+    if (disarm) {
+      disarmedUntilGrant = true;
+    }
+    const current = thumb();
+    const shouldNotifyRelease =
+      current.engaged || emittedNonZero || lastSpeed !== 0 || lastTurn !== 0;
+    activeTouchId = null;
+    lastSpeed = 0;
+    lastTurn = 0;
+    emittedNonZero = false;
+    if (current.active || current.dx !== 0 || current.dy !== 0 || current.engaged) {
+      thumb.set({ dx: 0, dy: 0, active: false, engaged: false });
+    }
+    if (shouldNotifyRelease) {
+      props.onRelease();
+    }
+  };
+
+  effect(() => {
+    const currentToken = props.resetToken ?? 0;
+    if (currentToken !== lastResetToken) {
+      lastResetToken = currentToken;
+      releaseWheel(true);
+      return;
+    }
+    if (props.disabled || lifecycle() !== "active") {
+      releaseWheel(true);
+    }
+  });
+
+  cleanup(() => {
+    releaseWheel(true);
+  });
+
+  const resolveTouch = (ev: GestureResponderEvent): TouchPoint | null => {
+    if (activeTouchId === null) return null;
+    if (Array.isArray(ev.touches) && ev.touches.length > 0) {
+      return ev.touches.find((item) => item.identifier === activeTouchId) ?? null;
+    }
+    return ev.identifier === activeTouchId ? ev : null;
+  };
+
+  return (
+    <Canvas
+      testID={props.testID}
+      accessibilityLabel={props.accessibilityLabel}
+      style={{
+        width: wheelSize(),
+        height: wheelSize(),
+        opacity: props.disabled ? 0.42 : 1,
+      }}
+      onStartShouldSetResponder={() => !props.disabled}
+      onMoveShouldSetResponder={() => !props.disabled && !disarmedUntilGrant}
+      onResponderTerminationRequest={() => false}
+      onResponderGrant={(ev) => {
+        if (props.disabled) return false;
+        if (activeTouchId !== null) {
+          return true;
+        }
+        disarmedUntilGrant = false;
+        activeTouchId = ev.identifier;
+        startPageX = ev.pageX;
+        startPageY = ev.pageY;
+        startLocalX = ev.locationX;
+        startLocalY = ev.locationY;
+        lastSpeed = 0;
+        lastTurn = 0;
+        emittedNonZero = false;
+        thumb.set({ dx: 0, dy: 0, active: true, engaged: false });
+        return true;
+      }}
+      onResponderMove={(ev) => {
+        if (props.disabled || disarmedUntilGrant) {
+          releaseWheel(disarmedUntilGrant);
+          return;
+        }
+        const point = resolveTouch(ev);
+        if (!point) {
+          releaseWheel();
+          return;
+        }
+        const dragDx = point.pageX - startPageX;
+        const dragDy = point.pageY - startPageY;
+        const dragDist = Math.hypot(dragDx, dragDy);
+        const engaged = thumb().engaged || dragDist >= WHEEL_DRAG_ACTIVATE_PT;
+        if (!engaged) {
+          return;
+        }
+        const half = wheelSize() / 2;
+        const rawDx = startLocalX + dragDx - half;
+        const rawDy = startLocalY + dragDy - half;
+        const { clampedDx, clampedDy, speed, turn } = computeSteplessMotion(
+          rawDx,
+          rawDy,
+          maxTravel(),
+        );
+        thumb.set({ dx: clampedDx, dy: clampedDy, active: true, engaged: true });
+        if (speed !== lastSpeed || turn !== lastTurn) {
+          lastSpeed = speed;
+          lastTurn = turn;
+          if (speed !== 0 || turn !== 0) {
+            emittedNonZero = true;
+          }
+          props.onVectorChange(speed, turn);
+        }
+      }}
+      onResponderEnd={(ev) => {
+        if (activeTouchId === null) return;
+        const primaryLifted =
+          ev.identifier === activeTouchId ||
+          (Array.isArray(ev.changedTouches) &&
+            ev.changedTouches.some((item) => item.identifier === activeTouchId)) ||
+          (Array.isArray(ev.touches) &&
+            ev.touches.length > 0 &&
+            !ev.touches.some((item) => item.identifier === activeTouchId));
+        if (primaryLifted) {
+          releaseWheel();
+        }
+      }}
+      onResponderRelease={() => {
+        disarmedUntilGrant = false;
+        releaseWheel();
+      }}
+      onResponderTerminate={() => {
+        disarmedUntilGrant = false;
+        releaseWheel();
+      }}
+      draw={(cx, canvasSize) => {
+        const state = thumb();
+        const w = canvasSize.width || wheelSize();
+        const h = canvasSize.height || wheelSize();
+        const centerX = w / 2;
+        const centerY = h / 2;
+        const outerRadius = Math.max(32, Math.min(w, h) / 2 - 4);
+        const orbitRadius = Math.max(18, outerRadius - puckRadius - 4);
+
+        const cardColor = token("card");
+        const secondaryColor = token("secondary");
+        const borderColor = token("border");
+        const subtleColor = token("subtle-text");
+        const mutedFgColor = token("muted-foreground");
+        const fgColor = token("foreground");
+        const primaryColor = token("primary");
+        const primaryFgColor = token("primary-foreground");
+
+        // 1. Outer recessed compass base disc
+        cx.beginPath();
+        cx.arc(centerX, centerY, outerRadius, 0, Math.PI * 2);
+        cx.fillStyle = cardColor;
+        cx.fill();
+        cx.lineWidth = 1.5;
+        cx.strokeStyle = borderColor;
+        cx.stroke();
+
+        // 2. Subtle 8-way compass ticks around outer rim
+        for (let i = 0; i < 8; i++) {
+          const tickAngle = (i * Math.PI) / 4;
+          const isCardinal = i % 2 === 0;
+          const rOuter = outerRadius - 5;
+          const rInner = rOuter - (isCardinal ? 5.5 : 3.5);
+          cx.beginPath();
+          cx.moveTo(
+            centerX + Math.cos(tickAngle) * rInner,
+            centerY + Math.sin(tickAngle) * rInner,
+          );
+          cx.lineTo(
+            centerX + Math.cos(tickAngle) * rOuter,
+            centerY + Math.sin(tickAngle) * rOuter,
+          );
+          cx.lineWidth = isCardinal ? 1.5 : 1;
+          cx.lineCap = "round";
+          cx.strokeStyle = isCardinal ? subtleColor : borderColor;
+          cx.stroke();
+        }
+
+        // 3. Inner stepless orbit ring
+        cx.beginPath();
+        cx.arc(centerX, centerY, orbitRadius, 0, Math.PI * 2);
+        cx.lineWidth = 1;
+        cx.strokeStyle = borderColor;
+        cx.stroke();
+
+        // 4. Active directional rim arc + outward chevron + tether
+        const offsetDist = Math.hypot(state.dx, state.dy);
+        const activeVector =
+          state.engaged && offsetDist >= orbitRadius * WHEEL_DEADZONE_RATIO;
+
+        if (activeVector) {
+          const heading = Math.atan2(state.dy, state.dx);
+          const arcSpan = 0.52;
+
+          cx.beginPath();
+          cx.arc(
+            centerX,
+            centerY,
+            outerRadius - 1.5,
+            heading - arcSpan,
+            heading + arcSpan,
+          );
+          cx.lineWidth = 3.5;
+          cx.lineCap = "round";
+          cx.strokeStyle = primaryColor;
+          cx.stroke();
+
+          // Outward directional chevron tip near rim
+          const tipRadius = outerRadius - 6;
+          const tipX = centerX + Math.cos(heading) * tipRadius;
+          const tipY = centerY + Math.sin(heading) * tipRadius;
+          const wingBack = 5.5;
+          const wingSpread = 4.2;
+          const perpX = -Math.sin(heading);
+          const perpY = Math.cos(heading);
+          const baseX = tipX - Math.cos(heading) * wingBack;
+          const baseY = tipY - Math.sin(heading) * wingBack;
+          cx.beginPath();
+          cx.moveTo(tipX, tipY);
+          cx.lineTo(baseX + perpX * wingSpread, baseY + perpY * wingSpread);
+          cx.lineTo(baseX - perpX * wingSpread, baseY - perpY * wingSpread);
+          cx.closePath();
+          cx.fillStyle = primaryColor;
+          cx.fill();
+
+          // Center anchor dot + tether line
+          cx.beginPath();
+          cx.arc(centerX, centerY, 3.5, 0, Math.PI * 2);
+          cx.fillStyle = mutedFgColor;
+          cx.fill();
+
+          cx.beginPath();
+          cx.moveTo(centerX, centerY);
+          cx.lineTo(centerX + state.dx, centerY + state.dy);
+          cx.lineWidth = 2;
+          cx.lineCap = "round";
+          cx.strokeStyle = mutedFgColor;
+          cx.stroke();
+        }
+
+        // 5. Movable 44x44pt thumb puck
+        const puckX = centerX + state.dx;
+        const puckY = centerY + state.dy;
+        cx.beginPath();
+        cx.arc(puckX, puckY, puckRadius, 0, Math.PI * 2);
+        cx.fillStyle = activeVector ? primaryColor : secondaryColor;
+        cx.fill();
+        cx.lineWidth = activeVector ? 2 : 1.5;
+        cx.strokeStyle = activeVector ? cardColor : borderColor;
+        cx.stroke();
+
+        // Inner tactile center dot on puck
+        cx.beginPath();
+        cx.arc(puckX, puckY, 4.5, 0, Math.PI * 2);
+        cx.fillStyle = activeVector ? primaryFgColor : fgColor;
+        cx.fill();
+      }}
     />
   );
 }

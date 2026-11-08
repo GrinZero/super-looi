@@ -1,5 +1,17 @@
 # Super-LOOI 重构与演进进度
 
+### LOOI 控制系统协议能力接入与无极变向轮盘（2026-11-09）
+
+方案见 [`docs/plans/body-control-system-and-stepless-wheel-plan.md`](docs/plans/body-control-system-and-stepless-wheel-plan.md)。
+
+- [x] Step 1：扩充 `@super-looi/looi-driver` 双轴脉冲、离散无应答 GATT 写入 FIFO 30ms 节流串行链与 `FED8`/`FED2` 静默窗保护，补充驱动单测（26/26 通过）
+- [x] Step 2：升级 `BodyRuntime`、`application.ts`、实时语音 `control_looi_body`、`store.ts` 与 `build-runtime.ts` 类型契约（接入无极 `setDriveVector`、亮度控制、电量读取与双语错误归一化）
+- [x] Step 3：实现《王者荣耀》式 360° 无极变向摇杆 `SteplessWheel`（多指触点追踪 + 前后台/急停锁定）、补光灯无极亮度滑杆、底座电量与外接供电状态栏及中英文文案，同步更新 `DESIGN.md`
+- [x] Step 4：完成驱动、运行时、NSH Headless UI 回归验证、魅族 20 Pro 真机安装检查与子 agent 独立 review
+  - [x] `@super-looi/looi-driver` 26/26 单测、`@super-looi/nsh` 类型检查、`test:voice-runtime` 与 Rust `app_ui` 2/2 全部通过
+  - [x] Android 开发包（`arm64-v8a` / `armeabi-v7a`）已重新构建并覆盖安装至魅族 20 Pro（`192.168.3.123:5555`）
+  - [x] 子 agent 三轮独立 review 终审 **PASS**
+
 ### LOOI 底座协议能力补齐（2026-11-09）
 
 - [x] Step 1：核对社区协议与本仓驱动/原生桥接边界，确定只扩充协议层

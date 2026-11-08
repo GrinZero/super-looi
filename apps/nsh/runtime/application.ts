@@ -415,6 +415,14 @@ export class MobileRuntime {
     return this.body.renewDrive();
   }
 
+  async setBodyDriveVector(speed: number, turn: number): Promise<BodyStatusSnapshot> {
+    return this.body.setDriveVector(speed, turn);
+  }
+
+  async readBodyPower(): Promise<BodyStatusSnapshot> {
+    return this.body.readPowerStatus();
+  }
+
   configuration(): { baseUrl: string; model: string; hasKey: boolean } {
     const envelope = this.credentialStore.readEnvelope();
     if (envelope.active) {
@@ -740,7 +748,7 @@ export class MobileRuntime {
         name: "get_looi_body_status",
         label: "查看底座状态",
         description:
-          "Read current LOOI physical dock connection, docked status, head pitch angle, and fill light state.",
+          "Read current LOOI physical dock connection, docked status, battery/external power status, head pitch angle, fill light brightness, and active motion vector.",
         parameters: obj({}),
         execute: async () => result(this.body.status()),
       },
@@ -748,21 +756,29 @@ export class MobileRuntime {
         name: "control_looi_body",
         label: "控制底座动作",
         description:
-          "Control LOOI dock head pitch (head_up/head_center/head_down), bounded wheel pulse movement (forward/backward/turn_left/turn_right), fill light (light_on/light_off), or stop. A BLE connection is required; docked status does not gate control.",
+          "Control LOOI dock head pitch (head_up 85°, head_center 55°, head_down 25°, or head_set with head_degrees 25..85 where 25=down, 55=level, 85=up), bounded wheel movement (forward/backward/turn_left/turn_right or move with signed speed +1..127 forward / -1..-127 backward and turn +1..127 turn left / -1..-127 turn right), fill light (light_on/light_off or light_set with brightness 0 off, 1..255 on), power readback (read_power), or stop. A BLE connection is required; docked status does not gate control.",
         parameters: obj({
           action: oneOf([
             "head_up",
             "head_center",
             "head_down",
+            "head_set",
             "forward",
             "backward",
             "turn_left",
             "turn_right",
+            "move",
             "light_on",
             "light_off",
+            "light_set",
+            "read_power",
             "stop",
           ]),
           duration_ms: opt(int({ minimum: 50, maximum: 1200 })),
+          head_degrees: opt(int({ minimum: 25, maximum: 85 })),
+          brightness: opt(int({ minimum: 0, maximum: 255 })),
+          speed: opt(int({ minimum: -127, maximum: 127 })),
+          turn: opt(int({ minimum: -127, maximum: 127 })),
         }),
         execute: async (callId, args, signal) => {
           if (signal?.aborted || !this.taskId) throw new Error("@looi:runtimeTaskStopped");
@@ -770,9 +786,13 @@ export class MobileRuntime {
           const requestId = createHash("sha256")
             .update(`${taskId}:body:${callId}`)
             .digest("hex");
-          const command = {
+          const command: BodyControlInput = {
             action: args.action as BodyControlAction,
             ...(args.duration_ms !== undefined ? { durationMs: args.duration_ms } : {}),
+            ...(args.head_degrees !== undefined ? { headDegrees: args.head_degrees } : {}),
+            ...(args.brightness !== undefined ? { brightness: args.brightness } : {}),
+            ...(args.speed !== undefined ? { speed: args.speed } : {}),
+            ...(args.turn !== undefined ? { turn: args.turn } : {}),
           };
           const evidence = {
             requestId,

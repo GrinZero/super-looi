@@ -103,7 +103,16 @@ export interface VoiceRuntimeOptions {
   requestTask?: (prompt: string, traceContext?: TraceContext) => Promise<string>;
   /** Detached task bridge supporting fast-path inline completion & async promotion. */
   taskBridge?: VoiceTaskBridge;
-  controlBody?: (action: string, durationMs?: number) => Promise<unknown>;
+  controlBody?: (
+    action: string,
+    durationMs?: number,
+    options?: {
+      headDegrees?: number;
+      brightness?: number;
+      speed?: number;
+      turn?: number;
+    },
+  ) => Promise<unknown>;
   onSessionEnd?: () => void;
   /** Legacy alias for `onSessionEnd` retained for backward compatibility. */
   cancelTask?: () => void;

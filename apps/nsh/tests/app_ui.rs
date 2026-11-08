@@ -1,4 +1,4 @@
-use nsh_core::platform::Locale;
+use nsh_core::{Points, geometry::point, platform::Locale};
 use nsh_engine::EngineConfig;
 use nsh_testing::{Headless, MemoryStorage, compile_tsx};
 use std::{path::Path, sync::Arc, time::Duration};
@@ -91,29 +91,48 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
         "扫描后选择要连接的底座",
         "启动时连接上次底座",
         "方向轮盘",
+        "拖动摇杆无极变向 · 松手即停",
+        "速度 0 · 转向 0",
+        "急停",
         "抬头",
         "低头",
         "55°",
         "补光灯 · 已关闭",
+        "0%",
     ] {
         app.wait_for(label)?;
     }
     app.press("body-mode-sim")?;
     app.wait_for("已吸合就绪")?;
     app.wait_for("LOOI 桌面底座")?;
+    app.wait_for("100%")?;
+    app.wait_for("外接供电")?;
     app.wait_for("其他可用底座")?;
     app.wait_for("卧室的 LOOI")?;
     app.press("body-sim-dock-switch")?;
     app.wait_for("已连接 · 未吸合")?;
+    app.wait_for("电池供电")?;
+    app.press("body-power-refresh")?;
     app.press("body-head-up")?;
     app.wait_for("85°")?;
     app.press("body-sim-dock-switch")?;
+    app.wait_for("外接供电")?;
     app.press("body-head-down")?;
     app.wait_for("25°")?;
     app.press("body-light-toggle")?;
     app.wait_for("补光灯 · 已开启")?;
-    app.press("body-wheel-forward")?;
-    app.long_press("body-wheel-left")?;
+    app.wait_for("50%")?;
+    app.drag("body-wheel-joystick", point(Points(2.0), Points(2.0)))?;
+    app.wait_for("速度 0 · 转向 0")?;
+    app.drag_and_hold("body-wheel-joystick", point(Points(-28.0), Points(-32.0)))?;
+    app.wait_until("stepless diagonal vector active", Duration::from_secs(3), |screen| {
+        screen
+            .texts()
+            .iter()
+            .any(|text| text.starts_with("速度 +") && text.contains("转向 +"))
+    })?;
+    app.drop_held()?;
+    app.wait_for("速度 0 · 转向 0")?;
     app.press("body-wheel-stop")?;
 
     app.press("nav-home")?;
@@ -173,6 +192,10 @@ fn language_and_appearance_preferences_survive_reopening() -> Result<(), String>
     restored.wait_for("General settings")?;
     restored.press("nav-voice")?;
     restored.wait_for("Doubao live voice credentials")?;
+    restored.press("nav-body")?;
+    restored.wait_for("Directional Wheel")?;
+    restored.wait_for("Speed 0 · Turn 0")?;
+    restored.wait_for("Fill Light · Off")?;
     restored.press("nav-home")?;
     restored.wait_for("Connect your Xiaomi Home account")?;
     restored.press("nav-tasks")?;

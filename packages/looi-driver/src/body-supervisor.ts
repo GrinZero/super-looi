@@ -79,6 +79,11 @@ export class BodySupervisor {
   private readonly inFlightDriveHeartbeats = new Set<Promise<void>>();
   private driveHeartbeatErrorReported = false;
   private gattControlTail: Promise<void> = Promise.resolve();
+  private gattControlDepth = 0;
+  private unackedWriteTail: Promise<void> = Promise.resolve();
+  private unackedWriteDepth = 0;
+  private lastUnackedWriteAt = 0;
+  private activeStopPromise: Promise<void> | null = null;
   private currentSessionEpoch: Id = "";
   private connectionEpoch = 0;
   private currentLeaseEpoch = 0;
@@ -171,6 +176,7 @@ export class BodySupervisor {
     this.activationComplete = false;
     this.stopDriveHeartbeat();
     this.drivePayload = MOVE_PAYLOADS.stop;
+    this.lastUnackedWriteAt = 0;
     const connectionEpoch = ++this.connectionEpoch;
     this.currentLeaseEpoch = 0;
     const ensureActive = () => {
@@ -199,6 +205,7 @@ export class BodySupervisor {
         await this.transport.write("handshakeControl", "8101", { response: true, expectedBytes: 2 });
         ensureActive();
         await this.transport.write("drive", MOVE_PAYLOADS.stop, { response: false, expectedBytes: 2 });
+        this.lastUnackedWriteAt = Date.now();
         ensureActive();
         this.activationComplete = true;
         this.startDriveHeartbeat();
@@ -237,6 +244,7 @@ export class BodySupervisor {
     this.clearLeaseTimer();
     this.stopDriveHeartbeat();
     this.drivePayload = MOVE_PAYLOADS.stop;
+    this.lastUnackedWriteAt = 0;
     this.activeLease = null;
     this.activationComplete = false;
     this.isDocked = false;
@@ -277,6 +285,9 @@ export class BodySupervisor {
    * Acquire single-active lease mutex for a bounded motor/head action.
    */
   public async acquireLease(request: LeaseAcquisitionRequest): Promise<BodyActionLease> {
+    if (this.activeStopPromise !== null) {
+      await this.activeStopPromise;
+    }
     if (!this.activationComplete) {
       throw new Error("LOOI activation is not complete");
     }
@@ -344,39 +355,52 @@ export class BodySupervisor {
     this.activeSelfWindows.push(selfWindow);
     this.events.onSelfEvent?.(selfWindow);
 
+    const abortIfRevoked = () => this.activeLease?.lease_id !== lease.lease_id;
     try {
       switch (lease.primitive) {
         case "forward":
-          await this.writeMotion(MOVE_PAYLOADS.forward);
+          this.drivePayload = MOVE_PAYLOADS.forward;
+          await this.writePacedUnacked("drive", MOVE_PAYLOADS.forward, abortIfRevoked);
           break;
         case "backward":
-          await this.writeMotion(MOVE_PAYLOADS.back);
+          this.drivePayload = MOVE_PAYLOADS.back;
+          await this.writePacedUnacked("drive", MOVE_PAYLOADS.back, abortIfRevoked);
           break;
         case "turn_left":
-          await this.writeMotion(MOVE_PAYLOADS.left);
+          this.drivePayload = MOVE_PAYLOADS.left;
+          await this.writePacedUnacked("drive", MOVE_PAYLOADS.left, abortIfRevoked);
           break;
         case "turn_right":
-          await this.writeMotion(MOVE_PAYLOADS.right);
+          this.drivePayload = MOVE_PAYLOADS.right;
+          await this.writePacedUnacked("drive", MOVE_PAYLOADS.right, abortIfRevoked);
           break;
         case "head_up":
-          await this.transport.write("head", HEAD_PAYLOADS.up, { response: false });
-          this.headPose = "up";
-          this.headDegrees = HEAD_POSE_DEGREES.up;
+          await this.writePacedUnacked("head", HEAD_PAYLOADS.up, abortIfRevoked);
+          if (!abortIfRevoked()) {
+            this.headPose = "up";
+            this.headDegrees = HEAD_POSE_DEGREES.up;
+          }
           break;
         case "head_center":
-          await this.transport.write("head", HEAD_PAYLOADS.center, { response: false });
-          this.headPose = "center";
-          this.headDegrees = HEAD_POSE_DEGREES.center;
+          await this.writePacedUnacked("head", HEAD_PAYLOADS.center, abortIfRevoked);
+          if (!abortIfRevoked()) {
+            this.headPose = "center";
+            this.headDegrees = HEAD_POSE_DEGREES.center;
+          }
           break;
         case "head_down":
-          await this.transport.write("head", HEAD_PAYLOADS.down, { response: false });
-          this.headPose = "down";
-          this.headDegrees = HEAD_POSE_DEGREES.down;
+          await this.writePacedUnacked("head", HEAD_PAYLOADS.down, abortIfRevoked);
+          if (!abortIfRevoked()) {
+            this.headPose = "down";
+            this.headDegrees = HEAD_POSE_DEGREES.down;
+          }
           break;
         default:
           throw new Error(`Unsupported primitive: ${lease.primitive}`);
       }
-      this.lastVerifiedAt = new Date().toISOString();
+      if (!abortIfRevoked()) {
+        this.lastVerifiedAt = new Date().toISOString();
+      }
     } catch (err) {
       await this.stop("fault");
       throw err;
@@ -384,16 +408,62 @@ export class BodySupervisor {
   }
 
   /** Write an arbitrary signed FED0 speed/turn vector under the active motor lease. */
-  public async setMotion(lease: BodyActionLease, speed: number, turn: number): Promise<void> {
+  public async setMotion(
+    lease: BodyActionLease,
+    speed: number,
+    turn: number,
+    options?: { paceIfBusy?: boolean }
+  ): Promise<void> {
     if (this.activeLease?.lease_id !== lease.lease_id || this.activeLease.lease_epoch !== lease.lease_epoch) {
       throw new Error("Lease mismatch or lease already expired/revoked.");
     }
     if (lease.primitive.startsWith("head")) throw new Error("Motor motion requires a motor lease");
-    const selfWindow = createSelfEventWindow("motor_drive", Math.min(lease.duration_ms + 250, 6000), ["camera", "microphone", "imu"]);
-    this.activeSelfWindows.push(selfWindow);
-    this.events.onSelfEvent?.(selfWindow);
+    const nowMs = Date.now();
+    const settlingMs = Math.min(lease.duration_ms + 250, 6000);
+    this.activeSelfWindows = this.activeSelfWindows.filter(
+      (w) => w.started_at_ms + w.estimated_settling_ms > nowMs
+    );
+    let recentMotorWindow: SelfEventWindow | undefined;
+    for (let i = this.activeSelfWindows.length - 1; i >= 0; i--) {
+      const candidate = this.activeSelfWindows[i]!;
+      if (candidate.cause === "motor_drive" && nowMs - candidate.started_at_ms < 200) {
+        recentMotorWindow = candidate;
+        break;
+      }
+    }
+    if (recentMotorWindow) {
+      recentMotorWindow.estimated_settling_ms = Math.max(
+        recentMotorWindow.estimated_settling_ms,
+        nowMs - recentMotorWindow.started_at_ms + settlingMs
+      );
+    } else {
+      const selfWindow = createSelfEventWindow("motor_drive", settlingMs, ["camera", "microphone", "imu"]);
+      this.activeSelfWindows.push(selfWindow);
+      this.events.onSelfEvent?.(selfWindow);
+    }
+    const payload = motionToPayload(speed, turn);
+    const prevPayload = this.drivePayload;
+    this.drivePayload = payload;
+    const isBoundaryTransition =
+      (prevPayload === MOVE_PAYLOADS.stop && payload !== MOVE_PAYLOADS.stop) ||
+      (prevPayload !== MOVE_PAYLOADS.stop && payload === MOVE_PAYLOADS.stop);
+    const abortIfLeaseRevoked = () => this.activeLease?.lease_id !== lease.lease_id;
     try {
-      await this.writeMotion(motionToPayload(speed, turn));
+      if (
+        options?.paceIfBusy ||
+        (isBoundaryTransition && this.gattControlDepth === 0)
+      ) {
+        await this.writePacedUnacked("drive", payload, abortIfLeaseRevoked);
+      } else if (this.gattControlDepth > 0 || this.unackedWriteDepth > 0) {
+        // Respect quiet window for in-flight FED8/FED2 control operations or queued discrete writes;
+        // startDriveHeartbeat() will stream this.drivePayload once those operations finish.
+      } else if (payload === prevPayload && this.driveHeartbeatTimer !== null) {
+        // Duplicate frame while heartbeat is active.
+      } else if (this.lastUnackedWriteAt === 0 || Date.now() - this.lastUnackedWriteAt >= MOVE_HEARTBEAT_MS) {
+        await this.writePacedUnacked("drive", payload, abortIfLeaseRevoked);
+      } else if (this.driveHeartbeatTimer === null && this.activationComplete && this.transport.isConnected()) {
+        this.startDriveHeartbeat();
+      }
       this.lastVerifiedAt = new Date().toISOString();
     } catch (error) {
       await this.stop("fault");
@@ -403,35 +473,63 @@ export class BodySupervisor {
 
   /**
    * Bounded Pulse Execution:
-   * Acquires lease, executes primitive, holds for durationMs, sends 0000 stop,
-   * waits for settling window, and returns MotionObservation evidence.
+   * Acquires lease, executes primitive (or signed speed/turn vector), holds for durationMs,
+   * sends 0000 stop, waits for settling window, and returns MotionObservation evidence.
    */
   public async executePulse(
     request: LeaseAcquisitionRequest,
-    settlingMs = 200
+    settlingMs = 200,
+    motion?: { speed: number; turn: number }
   ): Promise<MotionObservation> {
     const lease = await this.acquireLease(request);
-    await this.executePrimitive(lease);
+    let preemptedBy: Error | null = null;
+    let activePreemptHook: ((err: Error) => void) | null = null;
+    this.pulsePreemptRejectMap.set(lease.lease_id, (err: Error) => {
+      preemptedBy = err;
+      activePreemptHook?.(err);
+    });
 
     const waitPreemptible = (ms: number) =>
       new Promise<void>((resolve, reject) => {
-        this.pulsePreemptRejectMap.set(lease.lease_id, reject);
-        setTimeout(resolve, ms);
+        if (preemptedBy !== null) {
+          reject(preemptedBy);
+          return;
+        }
+        const timer = setTimeout(() => {
+          activePreemptHook = null;
+          resolve();
+        }, ms);
+        activePreemptHook = (err: Error) => {
+          clearTimeout(timer);
+          activePreemptHook = null;
+          reject(err);
+        };
       });
 
     try {
+      if (motion) {
+        await this.setMotion(lease, motion.speed, motion.turn, { paceIfBusy: true });
+      } else {
+        await this.executePrimitive(lease);
+      }
+      if (preemptedBy !== null) throw preemptedBy;
+
       await waitPreemptible(lease.duration_ms);
       this.clearLeaseTimer();
 
       const stopCommandAt = new Date().toISOString();
       // Stop wheels/head on pulse completion
-      await this.writeMotion(MOVE_PAYLOADS.stop);
+      this.drivePayload = MOVE_PAYLOADS.stop;
+      await this.writePacedUnacked("drive", MOVE_PAYLOADS.stop, () => preemptedBy !== null);
+      if (preemptedBy !== null) throw preemptedBy;
 
       // Settling delay for stable image capture
       if (settlingMs > 0) {
         await waitPreemptible(settlingMs);
       }
+      if (preemptedBy !== null) throw preemptedBy;
 
+      this.pulsePreemptRejectMap.delete(lease.lease_id);
       if (this.activeLease?.lease_id === lease.lease_id) {
         await this.stop("lease_expired");
       }
@@ -467,22 +565,48 @@ export class BodySupervisor {
       return;
     }
 
+    const connectionEpoch = this.connectionEpoch;
+    const previousStop = this.activeStopPromise;
     this.transitionTo("stopping");
 
-    try {
-      await this.transport.write("drive", MOVE_PAYLOADS.stop, { response: false });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      this.events.onError?.(error);
-    } finally {
-      if (!this.isTearingDown) {
-        if (this.transport.isConnected()) {
-          this.transitionTo(this.isDocked ? "ready" : "connected_unarmed");
-        } else {
+    let runStop!: Promise<void>;
+    runStop = (async () => {
+      await previousStop;
+      if (connectionEpoch !== this.connectionEpoch || !this.transport.isConnected()) {
+        if (!this.isTearingDown && connectionEpoch === this.connectionEpoch) {
           this.handleUnexpectedDisconnect();
         }
+        return;
       }
-    }
+      if (this.activeLease !== null || this.currentLeaseEpoch !== revokedEpoch) {
+        return;
+      }
+      try {
+        await this.writePacedUnacked(
+          "drive",
+          MOVE_PAYLOADS.stop,
+          () => this.activeLease !== null || this.currentLeaseEpoch !== revokedEpoch
+        );
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.events.onError?.(error);
+      } finally {
+        if (!this.isTearingDown && connectionEpoch === this.connectionEpoch) {
+          if (!this.transport.isConnected()) {
+            this.handleUnexpectedDisconnect();
+          } else if (this.activeLease === null && this.currentLeaseEpoch === revokedEpoch) {
+            this.transitionTo(this.isDocked ? "ready" : "connected_unarmed");
+          }
+        }
+      }
+    })().finally(() => {
+      if (this.activeStopPromise === runStop) {
+        this.activeStopPromise = null;
+      }
+    });
+
+    this.activeStopPromise = runStop;
+    await runStop;
   }
 
   public stopSync(reason: BodyStopRequest["reason"]): void {
@@ -495,11 +619,15 @@ export class BodySupervisor {
 
   public async setHeadDegrees(degrees: number): Promise<void> {
     if (!this.activationComplete) throw new Error("LOOI activation is not complete");
+    const connectionEpoch = this.connectionEpoch;
     const angle = Math.round(Math.max(HEAD_MIN_DEGREES, Math.min(HEAD_MAX_DEGREES, degrees)) * 10) / 10;
     const selfWindow = createSelfEventWindow("head_tilt", 350, ["camera", "microphone", "imu"]);
     this.activeSelfWindows.push(selfWindow);
     this.events.onSelfEvent?.(selfWindow);
-    await this.transport.write("head", headDegreesToPayload(angle), { response: false });
+    await this.writePacedUnacked("head", headDegreesToPayload(angle));
+    if (!this.activationComplete || connectionEpoch !== this.connectionEpoch || !this.transport.isConnected()) {
+      throw new Error("BLE connection cancelled");
+    }
     this.headDegrees = angle;
     this.headPose = angle === 85 ? "up" : angle === 55 ? "center" : angle === 25 ? "down" : "custom";
     this.lastVerifiedAt = new Date().toISOString();
@@ -562,6 +690,7 @@ export class BodySupervisor {
       this.activeLease = null;
       this.activationComplete = false;
       this.drivePayload = MOVE_PAYLOADS.stop;
+      this.lastUnackedWriteAt = 0;
       this.isDocked = false;
       this.lightOn = false;
       this.lightBrightness = 0;
@@ -589,9 +718,88 @@ export class BodySupervisor {
     }
   }
 
-  private async writeMotion(payload: string): Promise<void> {
-    this.drivePayload = payload;
-    await this.transport.write("drive", payload, { response: false });
+  private async writeUnacked(characteristic: "drive" | "head", payload: string): Promise<void> {
+    const startedAt = Date.now();
+    this.lastUnackedWriteAt = startedAt;
+    const write = this.transport.write(characteristic, payload, { response: false });
+    this.inFlightDriveHeartbeats.add(write);
+    try {
+      await write;
+    } catch (error) {
+      if (this.lastUnackedWriteAt === startedAt) {
+        this.lastUnackedWriteAt = 0;
+      }
+      throw error;
+    } finally {
+      this.inFlightDriveHeartbeats.delete(write);
+    }
+  }
+
+  /**
+   * Pace and FIFO-serialize discrete unacknowledged GATT writes (drive/head/stop)
+   * so concurrent calls never wake on the same millisecond (<30ms collision) or
+   * pierce an active FED8/FED2 quiet window.
+   */
+  private async writePacedUnacked(
+    characteristic: "drive" | "head",
+    payload: string,
+    shouldAbort?: () => boolean
+  ): Promise<void> {
+    const preceding = this.unackedWriteTail;
+    let release!: () => void;
+    this.unackedWriteTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const connectionEpoch = this.connectionEpoch;
+    this.unackedWriteDepth += 1;
+    await preceding;
+    try {
+      while (true) {
+        if (
+          connectionEpoch !== this.connectionEpoch ||
+          !this.transport.isConnected() ||
+          shouldAbort?.()
+        ) {
+          return;
+        }
+        if (!this.isTearingDown && this.gattControlDepth > 0) {
+          await this.gattControlTail;
+          continue;
+        }
+        this.stopDriveHeartbeat();
+        await Promise.allSettled([...this.inFlightDriveHeartbeats]);
+        if (
+          connectionEpoch !== this.connectionEpoch ||
+          !this.transport.isConnected() ||
+          shouldAbort?.()
+        ) {
+          return;
+        }
+        if (!this.isTearingDown && this.gattControlDepth > 0) {
+          continue;
+        }
+        const remaining = MOVE_HEARTBEAT_MS - (Date.now() - this.lastUnackedWriteAt);
+        if (this.lastUnackedWriteAt > 0 && remaining > 0) {
+          await new Promise((resolve) => setTimeout(resolve, remaining));
+          continue;
+        }
+        await this.writeUnacked(characteristic, payload);
+        return;
+      }
+    } finally {
+      this.unackedWriteDepth = Math.max(0, this.unackedWriteDepth - 1);
+      if (
+        this.unackedWriteDepth === 0 &&
+        this.gattControlDepth === 0 &&
+        !this.isTearingDown &&
+        this.activationComplete &&
+        connectionEpoch === this.connectionEpoch &&
+        this.transport.isConnected()
+      ) {
+        this.startDriveHeartbeat();
+      }
+      release();
+    }
   }
 
   /** Give read/acknowledged writes an idle GATT slot between continuous drive frames. */
@@ -600,6 +808,7 @@ export class BodySupervisor {
     let release!: () => void;
     this.gattControlTail = new Promise<void>((resolve) => { release = resolve; });
     const connectionEpoch = this.connectionEpoch;
+    this.gattControlDepth += 1;
     await preceding;
     const hadHeartbeat = this.driveHeartbeatTimer !== null;
     try {
@@ -608,8 +817,16 @@ export class BodySupervisor {
       }
       if (hadHeartbeat) {
         this.stopDriveHeartbeat();
-        await Promise.allSettled([...this.inFlightDriveHeartbeats]);
-        await new Promise((resolve) => setTimeout(resolve, MOVE_HEARTBEAT_MS * 2));
+      }
+      await Promise.allSettled([...this.inFlightDriveHeartbeats]);
+      const sinceUnacked = Date.now() - this.lastUnackedWriteAt;
+      const quietWaitMs = hadHeartbeat
+        ? MOVE_HEARTBEAT_MS * 2
+        : this.lastUnackedWriteAt > 0 && sinceUnacked < MOVE_HEARTBEAT_MS * 2
+          ? MOVE_HEARTBEAT_MS * 2 - sinceUnacked
+          : 0;
+      if (quietWaitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, quietWaitMs));
       }
       if (!this.activationComplete || connectionEpoch !== this.connectionEpoch || !this.transport.isConnected()) {
         throw new Error("BLE connection cancelled");
@@ -620,7 +837,15 @@ export class BodySupervisor {
       }
       return result;
     } finally {
-      if (hadHeartbeat && this.activationComplete && connectionEpoch === this.connectionEpoch && this.transport.isConnected()) {
+      this.gattControlDepth = Math.max(0, this.gattControlDepth - 1);
+      if (
+        this.gattControlDepth === 0 &&
+        this.unackedWriteDepth === 0 &&
+        !this.isTearingDown &&
+        this.activationComplete &&
+        connectionEpoch === this.connectionEpoch &&
+        this.transport.isConnected()
+      ) {
         this.startDriveHeartbeat();
       }
       release();
@@ -630,16 +855,23 @@ export class BodySupervisor {
   private startDriveHeartbeat(): void {
     this.stopDriveHeartbeat();
     const timer = setInterval(() => {
-      if (!this.activationComplete || !this.transport.isConnected()) return;
-      const write = this.transport.write("drive", this.drivePayload, { response: false }).then(() => {
-        this.driveHeartbeatErrorReported = false;
-      }).catch((error: unknown) => {
-        if (this.driveHeartbeatErrorReported) return;
-        this.driveHeartbeatErrorReported = true;
-        this.events.onError?.(error instanceof Error ? error : new Error(String(error)));
-      });
-      this.inFlightDriveHeartbeats.add(write);
-      void write.finally(() => this.inFlightDriveHeartbeats.delete(write));
+      if (
+        this.gattControlDepth > 0 ||
+        this.unackedWriteDepth > 0 ||
+        !this.activationComplete ||
+        !this.transport.isConnected()
+      ) {
+        return;
+      }
+      void this.writeUnacked("drive", this.drivePayload)
+        .then(() => {
+          this.driveHeartbeatErrorReported = false;
+        })
+        .catch((error: unknown) => {
+          if (this.driveHeartbeatErrorReported) return;
+          this.driveHeartbeatErrorReported = true;
+          this.events.onError?.(error instanceof Error ? error : new Error(String(error)));
+        });
     }, MOVE_HEARTBEAT_MS);
     (timer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
     this.driveHeartbeatTimer = timer;

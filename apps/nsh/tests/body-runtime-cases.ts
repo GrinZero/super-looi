@@ -76,8 +76,41 @@ export async function verifyBodyRuntime() {
   check(
     lightOnReceipt.status === "verified" &&
       lightOnReceipt.lightOn === true &&
-      simRuntime.status().lightOn === true,
-    "light_on control did not turn fill light on",
+      lightOnReceipt.lightBrightness === 128 &&
+      simRuntime.status().lightOn === true &&
+      simRuntime.status().lightBrightness === 128,
+    "light_on control did not turn fill light on at default brightness 128",
+  );
+
+  const lightSetReceipt = await simRuntime.control({
+    action: "light_set",
+    brightness: 192,
+  });
+  check(
+    lightSetReceipt.status === "verified" &&
+      lightSetReceipt.lightOn === true &&
+      lightSetReceipt.lightBrightness === 192 &&
+      simRuntime.status().lightBrightness === 192,
+    "light_set did not apply custom brightness 192",
+  );
+
+  const lightZeroReceipt = await simRuntime.control({
+    action: "light_set",
+    brightness: 0,
+  });
+  check(
+    lightZeroReceipt.status === "verified" &&
+      lightZeroReceipt.lightOn === false &&
+      lightZeroReceipt.lightBrightness === 0 &&
+      simRuntime.status().lightOn === false,
+    "light_set(0) did not turn fill light off",
+  );
+
+  const simPowerStatus = await simRuntime.readPowerStatus();
+  check(
+    simPowerStatus.powerStatus?.batteryPercent === 100 &&
+      simPowerStatus.powerStatus?.externalPower === true,
+    "simulation readPowerStatus did not report 100% external power while docked",
   );
 
   const moveReceipt = await simRuntime.control({
@@ -85,6 +118,54 @@ export async function verifyBodyRuntime() {
     durationMs: 80,
   });
   check(moveReceipt.status === "verified", "forward failed while docked");
+
+  const vectorPulseReceipt = await simRuntime.control({
+    action: "move",
+    speed: 84,
+    turn: -42,
+    durationMs: 70,
+  });
+  check(
+    vectorPulseReceipt.status === "verified" &&
+      vectorPulseReceipt.speed === 84 &&
+      vectorPulseReceipt.turn === -42,
+    "2D move pulse failed while docked",
+  );
+
+  const diagSnap1 = await simRuntime.setDriveVector(90, 45);
+  check(
+    diagSnap1.supervisorState === "observing" &&
+      diagSnap1.motion.speed === 90 &&
+      diagSnap1.motion.turn === 45,
+    "setDriveVector did not start continuous 2D motion",
+  );
+  const diagSnap2 = await simRuntime.setDriveVector(-60, -80);
+  check(
+    diagSnap2.supervisorState === "observing" &&
+      diagSnap2.motion.speed === -60 &&
+      diagSnap2.motion.turn === -80,
+    "setDriveVector did not smoothly update held 2D motion vector",
+  );
+  await simRuntime.stop();
+  check(
+    simRuntime.status().supervisorState === "ready" &&
+      simRuntime.status().motion.speed === 0 &&
+      simRuntime.status().motion.turn === 0,
+    "setDriveVector did not clear motion and return to ready on stop",
+  );
+
+  // Concurrent stop() + immediate re-drag setDriveVector() must serialize without throwing 'stopping'
+  await simRuntime.setDriveVector(70, 20);
+  const inFlightStop = simRuntime.stop();
+  const redragSnap = await simRuntime.setDriveVector(55, -35);
+  await inFlightStop;
+  check(
+    redragSnap.supervisorState === "observing" &&
+      redragSnap.motion.speed === 55 &&
+      redragSnap.motion.turn === -35,
+    "immediate setDriveVector after stop() raced on transient stopping state",
+  );
+  await simRuntime.stop();
 
   await simRuntime.startDrive("forward");
   check(simRuntime.status().supervisorState === "observing", "held drive did not start");
@@ -94,9 +175,11 @@ export async function verifyBodyRuntime() {
   check(simRuntime.renewDrive() === false, "stopped drive still accepted a heartbeat");
 
   const undockedStatus = simRuntime.setSimulatedDock(false);
+  const undockedPowerSnap = await simRuntime.readPowerStatus();
   check(
-    !undockedStatus.isDocked,
-    "setSimulatedDock(false) did not undock",
+    !undockedStatus.isDocked &&
+      undockedPowerSnap.powerStatus?.externalPower === false,
+    "setSimulatedDock(false) did not undock and clear external power",
   );
 
   const undockedMove = await simRuntime.control({ action: "forward", durationMs: 80 });
@@ -112,6 +195,17 @@ export async function verifyBodyRuntime() {
   check(
     simRuntime.status().isDocked,
     "setSimulatedDock(true) did not restore docked state",
+  );
+  await simRuntime.disconnect();
+  let disconnectedDriveErr = "";
+  try {
+    await simRuntime.setDriveVector(40, 10);
+  } catch (err) {
+    disconnectedDriveErr = err instanceof Error ? err.message : String(err);
+  }
+  check(
+    disconnectedDriveErr === "@looi:body_not_connected",
+    `expected normalized @looi:body_not_connected on disconnected setDriveVector, got: ${disconnectedDriveErr}`,
   );
   simRuntime.close();
 
@@ -258,6 +352,43 @@ export async function verifyBodyRuntime() {
   check(
     writtenCharacteristics.some((w) => w.hexPayload === "0000"),
     "real_ble pulse did not auto-stop after duration",
+  );
+
+  const bleVectorReceipt = await bleRuntime.control({
+    action: "move",
+    speed: 80,
+    turn: -40,
+    durationMs: 70,
+  });
+  check(
+    bleVectorReceipt.status === "verified" &&
+      writtenCharacteristics.some((w) => w.hexPayload === "50d8"),
+    "real_ble 2D move did not encode signed (80, -40) as 50d8",
+  );
+
+  const bleBrightnessReceipt = await bleRuntime.control({
+    action: "light_set",
+    brightness: 200,
+  });
+  check(
+    bleBrightnessReceipt.status === "verified" &&
+      bleBrightnessReceipt.lightBrightness === 200 &&
+      writtenCharacteristics.some(
+        (w) => w.characteristic === "light" && w.hexPayload === "c8",
+      ),
+    "real_ble light_set(200) did not write c8 to FED2",
+  );
+
+  const [powerReadA, powerReadB] = await Promise.all([
+    bleRuntime.readPowerStatus(),
+    bleRuntime.control({ action: "read_power" }),
+  ]);
+  check(
+    powerReadA.powerStatus?.batteryPercent === 76 &&
+      powerReadA.powerStatus?.externalPower === true &&
+      powerReadB.status === "verified" &&
+      powerReadB.powerStatus?.batteryPercent === 76,
+    "real_ble concurrent power reads did not coalesce and parse 4c01 (76% + externalPower)",
   );
 
   // Simulate undock event from hardware (dockNotify = 06)
@@ -426,10 +557,17 @@ export async function verifyBodyRuntime() {
     onState: () => {},
     requestTask: async () => "",
     cancelTask: () => {},
-    controlBody: async (action, durationMs) => {
+    controlBody: async (action, durationMs, extra) => {
       if (action === "stop") stopBodyCalls++;
       return await voiceBody.control(
-        { action: action as any, durationMs },
+        {
+          action: action as any,
+          durationMs,
+          ...(extra?.headDegrees !== undefined ? { headDegrees: extra.headDegrees } : {}),
+          ...(extra?.brightness !== undefined ? { brightness: extra.brightness } : {}),
+          ...(extra?.speed !== undefined ? { speed: extra.speed } : {}),
+          ...(extra?.turn !== undefined ? { turn: extra.turn } : {}),
+        },
         "voice_realtime",
       );
     },
@@ -461,6 +599,45 @@ export async function verifyBodyRuntime() {
           item.items?.[0]?.call_id === "body_call_1",
       ),
     "voice control_looi_body tool call did not update head pose and return tool output",
+  );
+
+  pushVoiceEvent({
+    type: "response.function_call_arguments.done",
+    call_id: "body_call_2",
+    name: "control_looi_body",
+    arguments: JSON.stringify({ action: "light_set", brightness: "204" }),
+  });
+  await settle(100);
+  check(
+    voiceBody.status().lightOn === true &&
+      voiceBody.status().lightBrightness === 204 &&
+      writes.some(
+        (item) =>
+          item.type === "conversation.item.create" &&
+          item.items?.[0]?.call_id === "body_call_2",
+      ),
+    "voice control_looi_body light_set did not update brightness to 204",
+  );
+
+  pushVoiceEvent({
+    type: "response.function_call_arguments.done",
+    call_id: "body_call_3",
+    name: "control_looi_body",
+    arguments: JSON.stringify({
+      action: "move",
+      speed: "64",
+      turn: "-32",
+      duration_ms: "60",
+    }),
+  });
+  await settle(160);
+  check(
+    writes.some(
+      (item) =>
+        item.type === "conversation.item.create" &&
+        item.items?.[0]?.call_id === "body_call_3",
+    ),
+    "voice control_looi_body 2D move did not return verified tool output",
   );
 
   voice.interrupt("server_vad");

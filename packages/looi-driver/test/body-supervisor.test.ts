@@ -639,4 +639,147 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     await assert.rejects(() => lightSupervisor.setLightBrightness(128), /cancelled/);
     assert.equal(lightSupervisor.getLightBrightness(), 0);
   });
+
+  it("coalesces rapid setMotion frames onto 30ms GATT cadence, respects FED8/FED2 quiet windows, and executes vector pulses", async () => {
+    const transport = new SimulatedBleTransport();
+    let selfEvents = 0;
+    const supervisor = new BodySupervisor(transport, {
+      onSelfEvent: () => {
+        selfEvents += 1;
+      },
+    });
+    await supervisor.connect();
+    const lease = await supervisor.acquireLease({
+      holder: "joystick",
+      primitive: "forward",
+      durationMs: 900,
+    });
+    const beforeWrites = transport.writtenCommands.length;
+    await supervisor.setMotion(lease, 64, -32);
+    const afterFirst = transport.writtenCommands.length;
+    assert.equal(afterFirst - beforeWrites, 1);
+    assert.equal(transport.writtenCommands.at(-1)?.payload, "40e0");
+
+    // Duplicate vector while heartbeat is active does not emit an extra immediate GATT write
+    await supervisor.setMotion(lease, 64, -32);
+    assert.equal(transport.writtenCommands.length, afterFirst);
+
+    // Sub-30ms burst of changed vectors coalesces onto the next 30ms heartbeat without back-to-back GATT collisions
+    await supervisor.setMotion(lease, 80, 16);
+    await supervisor.setMotion(lease, 96, 48);
+    assert.equal(transport.writtenCommands.length, afterFirst);
+    await new Promise((resolve) => setTimeout(resolve, 42));
+    assert.equal(transport.writtenCommands.at(-1)?.payload, "6030");
+    assert.equal(selfEvents, 1);
+    assert.equal(supervisor.getActiveSelfWindows().length, 1);
+
+    // During an in-flight FED8 readPowerStatus(), setMotion must not pierce the quiet window
+    let finishRead!: () => void;
+    transport.read = async () => {
+      await new Promise<void>((resolve) => {
+        finishRead = resolve;
+      });
+      return new Uint8Array([88, 1]);
+    };
+    const pendingRead = supervisor.readPowerStatus();
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    const writesDuringRead = transport.writtenCommands.filter((w) => w.characteristic === "drive").length;
+    await supervisor.setMotion(lease, -50, 25);
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    assert.equal(
+      transport.writtenCommands.filter((w) => w.characteristic === "drive").length,
+      writesDuringRead,
+    );
+    finishRead();
+    assert.deepEqual(await pendingRead, { batteryPercent: 88, externalPower: true });
+    await new Promise((resolve) => setTimeout(resolve, 42));
+    assert.equal(transport.writtenCommands.at(-1)?.payload, motionToPayload(-50, 25));
+
+    // Re-acquiring a lease while stopSync is in flight waits cleanly instead of throwing 'stopping'
+    supervisor.stopSync("user_stop");
+    const obs = await supervisor.executePulse(
+      { holder: "agent", primitive: "forward", durationMs: 60 },
+      20,
+      { speed: -80, turn: 40 }
+    );
+    assert.ok(obs.stop_command_at);
+    assert.ok(transport.writtenCommands.some((w) => w.payload === "b028"));
+    assert.equal(transport.writtenCommands.at(-1)?.payload, "0000");
+    await supervisor.disconnect();
+  });
+
+  it("FIFO-serializes concurrent sub-30ms unacked writes and orders undock stop before immediate pulse", async () => {
+    const transport = new SimulatedBleTransport();
+    const unackedTimestamps: Array<{ characteristic: string; payload: string; at: number }> = [];
+    const baseWrite = transport.write.bind(transport);
+    transport.write = async (characteristic, payload, options) => {
+      if (options?.response === false) {
+        unackedTimestamps.push({ characteristic, payload, at: Date.now() });
+      }
+      return baseWrite(characteristic, payload, options);
+    };
+
+    const supervisor = new BodySupervisor(transport);
+    await supervisor.connect();
+    transport.emitNotification("dockNotify", "05");
+    assert.equal(supervisor.getState(), "ready");
+
+    // 1. Trigger a fresh drive write, then fire stop() and setHeadDegrees() within <30ms
+    const lease = await supervisor.acquireLease({
+      holder: "joystick",
+      primitive: "forward",
+      durationMs: 800,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    await supervisor.setMotion(lease, 70, -20);
+    await new Promise((resolve) => setTimeout(resolve, 8));
+
+    const headLease = (async () => {
+      await supervisor.stop("user_stop");
+    })();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const headMove = supervisor.setHeadDegrees(75);
+    await Promise.all([headLease, headMove]);
+
+    // Every consecutive pair of unacked writes after connect must be spaced onto the 30ms cadence
+    for (let i = 1; i < unackedTimestamps.length; i++) {
+      const gapMs = unackedTimestamps[i]!.at - unackedTimestamps[i - 1]!.at;
+      assert.ok(
+        gapMs >= 25,
+        `Expected >=25ms spacing between unacked writes, got ${gapMs}ms between ${JSON.stringify(unackedTimestamps[i - 1])} and ${JSON.stringify(unackedTimestamps[i])}`
+      );
+    }
+
+    // 2. Emit undock ("06") 10ms after a drive write, then immediately call executePulse()
+    transport.emitNotification("dockNotify", "05");
+    const dockedLease = await supervisor.acquireLease({
+      holder: "joystick",
+      primitive: "forward",
+      durationMs: 800,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    await supervisor.setMotion(dockedLease, 90, 0);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const startIdx = unackedTimestamps.length;
+    transport.emitNotification("dockNotify", "06");
+    assert.equal(supervisor.getState(), "connected_unarmed");
+    const undockedPulse = await supervisor.executePulse(
+      { holder: "agent", primitive: "turn_left", durationMs: 65 },
+      15,
+      { speed: 0, turn: 88 }
+    );
+    assert.ok(undockedPulse.stop_command_at);
+
+    const postUndockWrites = unackedTimestamps.slice(startIdx);
+    const undockStopIdx = postUndockWrites.findIndex((w) => w.payload === "0000");
+    const pulseDriveIdx = postUndockWrites.findIndex((w) => w.payload === "0058");
+    assert.ok(undockStopIdx >= 0 && pulseDriveIdx > undockStopIdx, "undock stop 0000 must precede new pulse drive 0058");
+    for (let i = 1; i < postUndockWrites.length; i++) {
+      const gapMs = postUndockWrites[i]!.at - postUndockWrites[i - 1]!.at;
+      assert.ok(gapMs >= 25, `Expected >=25ms spacing after undock, got ${gapMs}ms`);
+    }
+
+    await supervisor.disconnect();
+  });
 });

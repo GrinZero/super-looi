@@ -1,8 +1,13 @@
 import { t } from "../i18n";
-import { cleanup, signal, Text, View, Scroll, windowSize } from "nsh";
+import { cleanup, effect, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { createAppStore } from "../store";
-import { SwitchRow, VerticalPitchSlider } from "./Controls";
+import {
+  HorizontalValueSlider,
+  SteplessWheel,
+  SwitchRow,
+  VerticalPitchSlider,
+} from "./Controls";
 
 function DockMiniIcon() {
   return (
@@ -39,6 +44,33 @@ function SignalBars(props: { rssi: number | null }) {
   );
 }
 
+function BatteryIcon(props: { percent: number | null; externalPower: boolean }) {
+  const fillWidth = () => {
+    if (props.percent === null) return 0;
+    return Math.max(2, Math.min(16, Math.round((props.percent / 100) * 16)));
+  };
+  const fillClass = () => {
+    if (props.externalPower) return "h-2 rounded-xs bg-verified";
+    if (props.percent !== null && props.percent <= 10) return "h-2 rounded-xs bg-destructive";
+    if (props.percent !== null && props.percent < 25) return "h-2 rounded-xs bg-warning";
+    return "h-2 rounded-xs bg-foreground";
+  };
+
+  return (
+    <View class="flex-row items-center gap-0.5">
+      <View
+        class="h-3.5 rounded-xs border border-muted-foreground px-0.5 flex-row items-center"
+        style={{ width: 22 }}
+      >
+        <If when={props.percent !== null}>
+          <View class={fillClass()} style={{ width: fillWidth() }} />
+        </If>
+      </View>
+      <View class="w-0.5 h-1.5 rounded-r-xs bg-muted-foreground" />
+    </View>
+  );
+}
+
 export function BodySpaceView(props: {
   store: ReturnType<typeof createAppStore>;
 }) {
@@ -48,83 +80,55 @@ export function BodySpaceView(props: {
   const canControlMotion = () => status().connected && !status().connecting;
   const canControlLight = () => status().connected && !status().connecting;
   const connectionBusy = () => status().scanning || status().connecting;
+
   const headDraft = signal<number | null>(null);
   type HeadRequest = number | "head_up" | "head_center" | "head_down";
   let requestedHead: HeadRequest | null = null;
   let headWrite: Promise<void> | null = null;
   let headRevision = 0;
-  type WheelDirection = "forward" | "backward" | "turn_left" | "turn_right";
-  let pressedDirection: WheelDirection | null = null;
-  let holdTimer: ReturnType<typeof setTimeout> | null = null;
-  let holdHeartbeat: ReturnType<typeof setInterval> | null = null;
-  let holdGeneration = 0;
-  let holdStarted = false;
-  let suppressTap: WheelDirection | null = null;
-  let tapQueue: Promise<void> = Promise.resolve();
-  let tapQueueGeneration = 0;
 
-  const endWheelPress = (direction?: WheelDirection, stopHeld = true) => {
-    if (direction && pressedDirection !== direction) return;
-    if (holdTimer) clearTimeout(holdTimer);
-    if (holdHeartbeat) clearInterval(holdHeartbeat);
-    holdTimer = null;
-    holdHeartbeat = null;
-    ++holdGeneration;
-    pressedDirection = null;
-    if (holdStarted) {
-      holdStarted = false;
-      if (stopHeld) void props.store.stopBody();
+  const wheelDraft = signal<{ speed: number; turn: number } | null>(null);
+  const wheelResetToken = signal(0);
+
+  const lightDraft = signal<number | null>(null);
+  const lastNonZeroBrightness = signal(128);
+  type LightRequest =
+    | { kind: "set"; brightness: number }
+    | { kind: "on"; brightness: number }
+    | { kind: "off" };
+  let requestedLight: LightRequest | null = null;
+  let lightWrite: Promise<void> | null = null;
+  let lightRevision = 0;
+
+  effect(() => {
+    const reported = status().lightBrightness;
+    if (reported > 0) {
+      lastNonZeroBrightness.set(reported);
     }
-  };
+  });
 
-  const startWheelPress = (direction: WheelDirection) => {
-    endWheelPress();
-    if (!canControlMotion()) return;
-    pressedDirection = direction;
-    suppressTap = null;
-    const generation = holdGeneration;
-    holdTimer = setTimeout(() => {
-      holdTimer = null;
-      if (generation !== holdGeneration || pressedDirection !== direction) return;
-      holdStarted = true;
-      suppressTap = direction;
-      ++tapQueueGeneration;
-      void (async () => {
-        await tapQueue;
-        if (generation !== holdGeneration || pressedDirection !== direction) return;
-        const started = await props.store.startBodyDrive(direction);
-        if (generation !== holdGeneration || pressedDirection !== direction) {
-          if (started) void props.store.stopBody();
-          return;
-        }
-        if (!started) {
-          endWheelPress(direction);
-          return;
-        }
-        holdHeartbeat = setInterval(() => {
-          if (!props.store.renewBodyDrive()) endWheelPress(direction);
-        }, 500);
-      })();
-    }, 450);
-  };
-
-  const tapWheel = (direction: WheelDirection) => {
-    if (suppressTap === direction) {
-      suppressTap = null;
-      return;
+  effect(() => {
+    if (!canControlMotion()) {
+      ++headRevision;
+      requestedHead = null;
+      if (headDraft() !== null) headDraft.set(null);
+      if (wheelDraft() !== null) wheelDraft.set(null);
     }
-    if (!canControlMotion()) return;
-    const generation = tapQueueGeneration;
-    tapQueue = tapQueue.then(async () => {
-      if (generation === tapQueueGeneration && canControlMotion()) {
-        await props.store.controlBody(direction, direction.startsWith("turn_") ? 140 : 180);
-      }
-    });
-  };
+  });
+
+  effect(() => {
+    if (!canControlLight()) {
+      ++lightRevision;
+      requestedLight = null;
+      if (lightDraft() !== null) lightDraft.set(null);
+    }
+  });
 
   cleanup(() => {
-    ++tapQueueGeneration;
-    endWheelPress();
+    wheelDraft.set(null);
+    headDraft.set(null);
+    lightDraft.set(null);
+    void props.store.stopBody();
   });
 
   const flushHead = (): Promise<void> => {
@@ -160,6 +164,87 @@ export function BodySpaceView(props: {
     void flushHead().finally(() => {
       if (revision === headRevision) headDraft.set(null);
     });
+  };
+
+  const flushLight = (): Promise<void> => {
+    if (lightWrite) return lightWrite;
+    lightWrite = (async () => {
+      while (requestedLight !== null) {
+        const request = requestedLight;
+        requestedLight = null;
+        if (request.kind === "set") {
+          await props.store.controlBody("light_set", undefined, undefined, {
+            brightness: request.brightness,
+          });
+        } else if (request.kind === "on") {
+          await props.store.controlBody("light_on", undefined, undefined, {
+            brightness: request.brightness,
+          });
+        } else {
+          await props.store.controlBody("light_off");
+        }
+      }
+    })().finally(() => {
+      lightWrite = null;
+      if (requestedLight !== null) void flushLight();
+    });
+    return lightWrite;
+  };
+
+  const effectiveLightBytes = () => {
+    if (!status().connected) return 0;
+    const draft = lightDraft();
+    if (draft !== null) return draft;
+    if (!status().lightOn) return 0;
+    return status().lightBrightness > 0 ? status().lightBrightness : 128;
+  };
+
+  const effectiveLightOn = () => effectiveLightBytes() > 0;
+
+  const effectiveLightPercent = () =>
+    Math.round((effectiveLightBytes() / 255) * 100);
+
+  const percentToLightByte = (percent: number): number => {
+    const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+    if (clamped === 0) return 0;
+    return Math.max(1, Math.min(255, Math.round((clamped / 100) * 255)));
+  };
+
+  const requestLightPercent = (percent: number) => {
+    ++lightRevision;
+    const byte = percentToLightByte(percent);
+    if (byte > 0) {
+      lastNonZeroBrightness.set(byte);
+    }
+    lightDraft.set(byte);
+    requestedLight = { kind: "set", brightness: byte };
+    return flushLight();
+  };
+
+  const toggleLight = () => {
+    const revision = ++lightRevision;
+    if (effectiveLightOn()) {
+      const current = effectiveLightBytes();
+      if (current > 0) lastNonZeroBrightness.set(current);
+      lightDraft.set(0);
+      requestedLight = { kind: "off" };
+    } else {
+      const target = lastNonZeroBrightness() > 0 ? lastNonZeroBrightness() : 128;
+      lightDraft.set(target);
+      requestedLight = { kind: "on", brightness: target };
+    }
+    void flushLight().finally(() => {
+      if (revision === lightRevision) lightDraft.set(null);
+    });
+  };
+
+  const wheelVectorLabel = () => {
+    const vec = wheelDraft() ?? status().motion;
+    if (vec.speed === 0 && vec.turn === 0) {
+      return t("wheelVectorIdle");
+    }
+    const fmt = (n: number) => (n > 0 ? `+${n}` : String(n));
+    return t("wheelVectorLive", { speed: fmt(vec.speed), turn: fmt(vec.turn) });
   };
 
   const otherCandidates = () => {
@@ -242,6 +327,58 @@ export function BodySpaceView(props: {
           {renderStatusPill()}
         </View>
       </View>
+
+      {/* Connected Dock Power & External Supply Bar */}
+      <If when={status().connected}>
+        <View
+          testID="body-power-row"
+          class="min-h-11 rounded-xl bg-muted border border-border px-3 py-1 flex-row items-center justify-between gap-2"
+        >
+          <View class="flex-row items-center gap-2 flex-1 min-w-0">
+            <BatteryIcon
+              percent={status().powerStatus?.batteryPercent ?? null}
+              externalPower={Boolean(status().powerStatus?.externalPower)}
+            />
+            <Text
+              testID="body-power-percent"
+              class="text-foreground text-sm font-semibold"
+              style={{ fontVariant: ["tabular-nums"] }}
+            >
+              {status().powerStatus
+                ? `${status().powerStatus!.batteryPercent}%`
+                : "—"}
+            </Text>
+            <Text
+              testID="body-power-source"
+              class={
+                status().powerStatus?.externalPower
+                  ? "text-verified text-xs font-medium flex-1"
+                  : "text-muted-foreground text-xs font-medium flex-1"
+              }
+              style={{ numberOfLines: 1 }}
+            >
+              {status().powerStatus
+                ? status().powerStatus!.externalPower
+                  ? t("externalPowerTag")
+                  : t("batteryPowerTag")
+                : status().powerReading
+                  ? t("readingPower")
+                  : t("powerUnread")}
+            </Text>
+          </View>
+          <Button
+            testID="body-power-refresh"
+            accessibilityLabel={t("refreshPower")}
+            disabled={status().powerReading}
+            onPress={() => void props.store.refreshBodyPower()}
+            class="min-h-11 px-3 rounded-lg border border-border bg-card items-center justify-center active:opacity-75 disabled:opacity-40"
+          >
+            <Text class="text-foreground text-xs font-medium">
+              {status().powerReading ? t("readingPower") : t("refreshPower")}
+            </Text>
+          </Button>
+        </View>
+      </If>
 
       {/* Recessed Toggle Row */}
       <If
@@ -371,125 +508,111 @@ export function BodySpaceView(props: {
     </View>
   );
 
-  const wheelDirectionClass = (cmd: "forward" | "backward" | "turn_left" | "turn_right", posClass: string) => {
-    const active = props.store.bodyActiveCommand() === cmd;
-    return active
-      ? `absolute ${posClass} min-w-11 min-h-11 rounded-full bg-primary items-center justify-center active:opacity-75 disabled:opacity-40`
-      : `absolute ${posClass} min-w-11 min-h-11 rounded-full items-center justify-center active:bg-muted disabled:opacity-40`;
+  const wide = () => windowSize().width >= 600;
+  const stackRightControls = () => windowSize().width < 380;
+  const wheelSize = () => {
+    const sz = windowSize();
+    if (sz.width >= 600) {
+      return Math.max(116, Math.min(136, sz.height - 268));
+    }
+    if (sz.width < 380) {
+      return 132;
+    }
+    return Math.max(116, Math.min(136, Math.floor((sz.width - 72) / 2)));
   };
 
-  const wheelChevronTextClass = (cmd: "forward" | "backward" | "turn_left" | "turn_right") =>
-    props.store.bodyActiveCommand() === cmd
-      ? "text-primary-foreground text-base font-bold"
-      : "text-muted-foreground text-base font-bold";
-
   const renderRightCard = () => (
-    <View class="rounded-2xl border border-border bg-card p-3 flex-row gap-2.5">
-      {/* Left Inner Sub-panel: Classic Directional Wheel */}
-      <View class="flex-1 rounded-2xl bg-muted border border-border p-2.5 items-center justify-between gap-1.5">
-        <View class="flex-1 items-center justify-center">
-          <View class="w-36 h-36 rounded-full border border-border bg-card items-center justify-center relative">
-            {/* Forward (Up) */}
-            <Button
-              testID="body-wheel-forward"
-              accessibilityLabel={t("wheelForward")}
-              disabled={!canControlMotion()}
-              onPressDown={() => startWheelPress("forward")}
-              onPressUp={() => endWheelPress("forward")}
-              onPress={() => tapWheel("forward")}
-              class={wheelDirectionClass("forward", "top-1")}
-            >
-              <Text class={wheelChevronTextClass("forward")}>⌃</Text>
-            </Button>
-
-            {/* Backward (Down) */}
-            <Button
-              testID="body-wheel-backward"
-              accessibilityLabel={t("wheelBackward")}
-              disabled={!canControlMotion()}
-              onPressDown={() => startWheelPress("backward")}
-              onPressUp={() => endWheelPress("backward")}
-              onPress={() => tapWheel("backward")}
-              class={wheelDirectionClass("backward", "bottom-1")}
-            >
-              <Text class={wheelChevronTextClass("backward")}>⌄</Text>
-            </Button>
-
-            {/* Turn Left */}
-            <Button
-              testID="body-wheel-left"
-              accessibilityLabel={t("wheelLeft")}
-              disabled={!canControlMotion()}
-              onPressDown={() => startWheelPress("turn_left")}
-              onPressUp={() => endWheelPress("turn_left")}
-              onPress={() => tapWheel("turn_left")}
-              class={wheelDirectionClass("turn_left", "left-1")}
-            >
-              <Text class={wheelChevronTextClass("turn_left")}>‹</Text>
-            </Button>
-
-            {/* Turn Right */}
-            <Button
-              testID="body-wheel-right"
-              accessibilityLabel={t("wheelRight")}
-              disabled={!canControlMotion()}
-              onPressDown={() => startWheelPress("turn_right")}
-              onPressUp={() => endWheelPress("turn_right")}
-              onPress={() => tapWheel("turn_right")}
-              class={wheelDirectionClass("turn_right", "right-1")}
-            >
-              <Text class={wheelChevronTextClass("turn_right")}>›</Text>
-            </Button>
-
-            {/* Center Stop Button */}
-            <Button
-              testID="body-wheel-stop"
-              accessibilityLabel={t("wheelStop")}
-              disabled={!status().connected}
-              onPress={() => {
-                ++tapQueueGeneration;
-                endWheelPress(undefined, false);
-                void props.store.stopBody();
-              }}
-              class="w-14 h-14 rounded-full border border-border bg-secondary items-center justify-center active:opacity-75 disabled:opacity-40"
-            >
-              <View class="w-3.5 h-3.5 rounded-xs bg-foreground" />
-            </Button>
-          </View>
-        </View>
-
-        <View class="items-center gap-0.5">
-          <Text class="text-muted-foreground text-xs font-medium text-center">
+    <View
+      class={
+        stackRightControls()
+          ? "rounded-2xl border border-border bg-card p-2.5 flex-col gap-2"
+          : "rounded-2xl border border-border bg-card p-2 flex-row gap-2"
+      }
+    >
+      {/* Left Inner Sub-panel: 360° Stepless Analog Wheel */}
+      <View class="flex-1 rounded-2xl bg-muted border border-border p-2 items-center justify-between gap-1">
+        <View class="w-full flex-row items-center justify-between gap-1.5">
+          <Text
+            class="flex-1 text-foreground text-xs font-semibold"
+            style={{ numberOfLines: 1 }}
+          >
             {t("directionalWheel")}
           </Text>
-          <Text class="text-muted-foreground text-xs text-center">
+          <Button
+            testID="body-wheel-stop"
+            accessibilityLabel={t("wheelStop")}
+            disabled={!status().connected}
+            onPress={() => {
+              wheelResetToken.update((n) => n + 1);
+              wheelDraft.set(null);
+              void props.store.stopBody();
+            }}
+            class="min-w-11 min-h-11 px-2.5 rounded-full border border-border bg-card flex-row items-center justify-center gap-1.5 active:opacity-75 disabled:opacity-40"
+          >
+            <View class="w-2.5 h-2.5 rounded-xs bg-destructive" />
+            <Text class="text-foreground text-xs font-semibold">
+              {t("wheelStop")}
+            </Text>
+          </Button>
+        </View>
+
+        <View class="items-center justify-center">
+          <SteplessWheel
+            testID="body-wheel-joystick"
+            accessibilityLabel={t("directionalWheel")}
+            disabled={!canControlMotion()}
+            resetToken={wheelResetToken()}
+            size={wheelSize()}
+            onVectorChange={(speed, turn) => {
+              wheelDraft.set({ speed, turn });
+              void props.store.setBodyDriveVector(speed, turn);
+            }}
+            onRelease={() => {
+              wheelDraft.set(null);
+              void props.store.stopBody();
+            }}
+          />
+        </View>
+
+        <View class="w-full items-center gap-0.5">
+          <Text
+            testID="body-wheel-vector"
+            class="w-full text-foreground text-xs font-medium text-center"
+            style={{ fontVariant: ["tabular-nums"], numberOfLines: 1 }}
+          >
+            {wheelVectorLabel()}
+          </Text>
+          <Text
+            class="w-full text-muted-foreground text-xs text-center"
+            style={{ numberOfLines: 1 }}
+          >
             {t("wheelGestureHint")}
           </Text>
         </View>
       </View>
 
-      {/* Right Inner Column: Vertical Head Slider + Bottom Fill Light Pill */}
+      {/* Right Inner Column: Two-Column Head Pitch Card + Fill Light Brightness Card */}
       <View class="flex-1 justify-between gap-2">
-        {/* Top Recessed Sub-panel: Vertical Head Pitch Slider */}
-        <View class="flex-1 rounded-2xl bg-muted border border-border px-3 py-1.5 justify-between">
-          <Button
-            testID="body-head-up"
-            disabled={!canControlMotion()}
-            onPress={() => setHeadPreset("head_up")}
-            class="min-h-11 flex-row items-center justify-between active:opacity-75 disabled:opacity-40"
-          >
-            <Text
-              class={
-                status().headPose === "up"
-                  ? "text-foreground text-xs font-bold"
-                  : "text-muted-foreground text-xs font-medium"
-              }
+        {/* Top Recessed Sub-panel: Head Presets Stack + Vertical Pitch Slider */}
+        <View class="flex-1 rounded-2xl bg-muted border border-border px-2.5 py-1 flex-row items-center justify-between gap-2">
+          <View class="flex-1 justify-between">
+            <Button
+              testID="body-head-up"
+              disabled={!canControlMotion()}
+              onPress={() => setHeadPreset("head_up")}
+              class="min-h-11 justify-center active:opacity-75 disabled:opacity-40"
             >
-              {t("headUp")}
-            </Text>
-          </Button>
+              <Text
+                class={
+                  status().headPose === "up"
+                    ? "text-foreground text-xs font-bold"
+                    : "text-muted-foreground text-xs font-medium"
+                }
+              >
+                {t("headUp")}
+              </Text>
+            </Button>
 
-          <View class="flex-row items-center justify-between gap-2 py-1">
             <Button
               testID="body-head-center"
               disabled={!canControlMotion()}
@@ -499,109 +622,139 @@ export function BodySpaceView(props: {
             >
               <Text
                 testID="body-head-degrees"
-                class="text-foreground text-3xl font-bold"
+                class="text-foreground text-2xl font-bold"
+                style={{ fontVariant: ["tabular-nums"] }}
               >
                 {`${Math.round((headDraft() ?? status().headDegrees) * 10) / 10}°`}
               </Text>
             </Button>
 
-            <VerticalPitchSlider
-              testID="body-head-slider"
-              accessibilityLabel={t("headPitchSlider")}
-              min={25}
-              max={85}
-              step={0}
-              value={headDraft() ?? status().headDegrees}
+            <Button
+              testID="body-head-down"
               disabled={!canControlMotion()}
-              onChange={(deg) => {
-                void requestHead(deg);
-              }}
-              onChangeEnd={(deg) => {
-                const finished = requestHead(deg);
-                const revision = headRevision;
-                void finished.finally(() => {
-                  if (revision === headRevision) headDraft.set(null);
-                });
-              }}
-            />
+              onPress={() => setHeadPreset("head_down")}
+              class="min-h-11 justify-center active:opacity-75 disabled:opacity-40"
+            >
+              <Text
+                class={
+                  status().headPose === "down"
+                    ? "text-foreground text-xs font-bold"
+                    : "text-muted-foreground text-xs font-medium"
+                }
+              >
+                {t("headDown")}
+              </Text>
+            </Button>
           </View>
 
-          <Button
-            testID="body-head-down"
+          <VerticalPitchSlider
+            testID="body-head-slider"
+            accessibilityLabel={t("headPitchSlider")}
+            min={25}
+            max={85}
+            step={0}
+            value={headDraft() ?? status().headDegrees}
             disabled={!canControlMotion()}
-            onPress={() => setHeadPreset("head_down")}
-            class="min-h-11 flex-row items-center justify-between active:opacity-75 disabled:opacity-40"
-          >
-            <Text
-              class={
-                status().headPose === "down"
-                  ? "text-foreground text-xs font-bold"
-                  : "text-muted-foreground text-xs font-medium"
-              }
-            >
-              {t("headDown")}
-            </Text>
-          </Button>
+            onChange={(deg) => {
+              void requestHead(deg);
+            }}
+            onChangeEnd={(deg) => {
+              const finished = requestHead(deg);
+              const revision = headRevision;
+              void finished.finally(() => {
+                if (revision === headRevision) headDraft.set(null);
+              });
+            }}
+          />
         </View>
 
-        {/* Bottom Fill Light Toggle Pill */}
-        <Button
-          testID="body-light-toggle"
-          selected={status().lightOn}
-          disabled={!canControlLight()}
-          onPress={() =>
-            void props.store.controlBody(
-              status().lightOn ? "light_off" : "light_on",
-            )
-          }
-          class={
-            status().lightOn
-              ? "min-h-11 w-full rounded-full bg-primary border border-transparent px-3 flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
-              : "min-h-11 w-full rounded-full bg-muted border border-border px-3 flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
-          }
-        >
-          <View
+        {/* Bottom Fill Light Toggle + Stepless Brightness Card */}
+        <View class="rounded-2xl bg-muted border border-border px-2.5 py-1 gap-0.5">
+          <Button
+            testID="body-light-toggle"
+            selected={effectiveLightOn()}
+            disabled={!canControlLight()}
+            onPress={() => toggleLight()}
             class={
-              status().lightOn
-                ? "w-2.5 h-2.5 rounded-full bg-primary-foreground"
-                : "w-2.5 h-2.5 rounded-full border border-muted-foreground"
+              effectiveLightOn()
+                ? "min-h-11 w-full rounded-xl bg-primary border border-transparent px-3 flex-row items-center justify-between gap-2 active:opacity-75 disabled:opacity-40"
+                : "min-h-11 w-full rounded-xl bg-card border border-border px-3 flex-row items-center justify-between gap-2 active:opacity-75 disabled:opacity-40"
             }
-          />
-          <Text
-            class={
-              status().lightOn
-                ? "text-primary-foreground text-xs font-semibold"
-                : "text-foreground text-xs font-medium"
-            }
-            style={{ numberOfLines: 1 }}
           >
-            {status().lightOn ? t("fillLightOn") : t("fillLightOff")}
-          </Text>
-        </Button>
+            <View class="flex-row items-center gap-2 flex-1 min-w-0">
+              <View
+                class={
+                  effectiveLightOn()
+                    ? "w-2.5 h-2.5 rounded-full bg-primary-foreground"
+                    : "w-2.5 h-2.5 rounded-full border border-muted-foreground"
+                }
+              />
+              <Text
+                class={
+                  effectiveLightOn()
+                    ? "text-primary-foreground text-xs font-semibold flex-1"
+                    : "text-foreground text-xs font-medium flex-1"
+                }
+                style={{ numberOfLines: 1 }}
+              >
+                {effectiveLightOn() ? t("fillLightOn") : t("fillLightOff")}
+              </Text>
+            </View>
+            <Text
+              testID="body-light-brightness-value"
+              class={
+                effectiveLightOn()
+                  ? "text-primary-foreground text-xs font-semibold"
+                  : "text-muted-foreground text-xs font-medium"
+              }
+              style={{ fontVariant: ["tabular-nums"] }}
+            >
+              {`${effectiveLightPercent()}%`}
+            </Text>
+          </Button>
+
+          <HorizontalValueSlider
+            testID="body-light-slider"
+            accessibilityLabel={t("fillLightBrightness")}
+            min={0}
+            max={100}
+            step={1}
+            value={effectiveLightPercent()}
+            disabled={!canControlLight()}
+            onChange={(pct) => {
+              void requestLightPercent(pct);
+            }}
+            onChangeEnd={(pct) => {
+              const finished = requestLightPercent(pct);
+              const revision = lightRevision;
+              void finished.finally(() => {
+                if (revision === lightRevision) lightDraft.set(null);
+              });
+            }}
+          />
+        </View>
       </View>
     </View>
   );
-
-  const wide = () => windowSize().width >= 600;
 
   return (
     <If
       when={wide()}
       else={
-        <Scroll class="flex-1" contentClass="gap-3.5 pb-6">
+        <Scroll class="flex-1" contentClass="gap-3 pb-5">
           {renderLeftCard()}
           {renderRightCard()}
         </Scroll>
       }
     >
-      <View class="flex-1 flex-row gap-3.5 min-h-0">
+      <View class="flex-1 flex-row gap-3 min-h-0">
         <View style={{ flex: 5, minWidth: 0, minHeight: 0 }}>
-          <Scroll class="flex-1" contentClass="gap-3 pb-4">
+          <Scroll class="flex-1" contentClass="gap-2.5 pb-2">
             {renderLeftCard()}
           </Scroll>
         </View>
         <View style={{ flex: 7, minWidth: 0, minHeight: 0 }}>
-          <Scroll class="flex-1" contentClass="gap-3 pb-4">
+          <Scroll class="flex-1" contentClass="gap-2 pb-1">
             {renderRightCard()}
           </Scroll>
         </View>

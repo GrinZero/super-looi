@@ -41,7 +41,16 @@ export interface LiveVoiceSessionOptions {
   tracer?: LangfuseTracer;
   requestTask?: (prompt: string, traceContext?: TraceContext) => Promise<string>;
   taskBridge?: VoiceTaskBridge;
-  controlBody?: (action: string, durationMs?: number) => Promise<unknown>;
+  controlBody?: (
+    action: string,
+    durationMs?: number,
+    options?: {
+      headDegrees?: number;
+      brightness?: number;
+      speed?: number;
+      turn?: number;
+    },
+  ) => Promise<unknown>;
   onStatePatch: (
     patch: Partial<Pick<VoiceState, "phase" | "muted" | "transcript" | "error">>,
   ) => void;
