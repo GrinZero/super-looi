@@ -1,3 +1,4 @@
+import { uiMessage } from "./messages.js";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
@@ -202,10 +203,10 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
     const result = await this.home.configure(input);
     const envelope = this.credentialStore.readEnvelope();
     if (
@@ -220,7 +221,7 @@ export class MobileRuntime {
   }
 
   async connectHome() {
-    if (this.loginPending) throw new Error("请先完成或取消米家登录");
+    if (this.loginPending) throw new Error("@looi:runtimeFinishOrCancelXiaomiSigninFirst");
     return this.home.connect();
   }
 
@@ -234,16 +235,16 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
     const attempt = ++this.loginAttempt;
     this.loginPending = true;
     try {
       const session = await this.home.beginMiotLogin(region);
       if (attempt !== this.loginAttempt || this.closed)
-        throw new Error("米家登录已取消");
+        throw new Error("@looi:runtimeXiaomiSigninCancelled");
       return { ...session, attempt };
     } catch (error) {
       if (attempt === this.loginAttempt) this.cancelMiotLogin();
@@ -257,11 +258,11 @@ export class MobileRuntime {
     isCurrent: () => boolean,
   ) {
     if (!this.loginPending || attempt !== this.loginAttempt || this.closed)
-      throw new Error("米家登录已取消");
+      throw new Error("@looi:runtimeXiaomiSigninCancelled");
     try {
       const result = this.home.interceptMiotCallback(callback);
       if (!result.intercepted || "error" in result)
-        throw new Error("米家授权回调无效或已过期");
+        throw new Error("@looi:runtimeXiaomiCallbackIsInvalidOrExpired");
       return await this.home.finishMiotLogin(
         result.code,
         () =>
@@ -293,15 +294,15 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
     await this.home.logoutMiot();
   }
 
   async listHome(query = "", offset = 0) {
-    if (this.loginPending) throw new Error("请先完成或取消米家登录");
+    if (this.loginPending) throw new Error("@looi:runtimeFinishOrCancelXiaomiSigninFirst");
     return this.home.list(query, offset);
   }
 
@@ -333,7 +334,7 @@ export class MobileRuntime {
   }
 
   private allTasks(): AgentTask[] {
-    if (this.closed) throw new Error("运行时已关闭");
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
     return (this.executor?.listTasks() ?? this.recoveredTasks.list()).map(
       (task) =>
         this.hasUnknownHome(task.id)
@@ -351,7 +352,7 @@ export class MobileRuntime {
 
   taskPage(offset = 0) {
     if (!Number.isSafeInteger(offset) || offset < 0)
-      throw new Error("无效任务页");
+      throw new Error("@looi:runtimeInvalidTaskPage");
     const tasks = this.allTasks().sort(
       (a, b) =>
         Number(b.state === "unknown") - Number(a.state === "unknown") ||
@@ -371,7 +372,7 @@ export class MobileRuntime {
 
   taskDetails(id: string) {
     const task = this.allTasks().find((item) => item.id === id);
-    if (!task) throw new Error("找不到这项任务");
+    if (!task) throw new Error("@looi:runtimeTaskNotFound");
     const homeActions = this.database
       .prepare(
         "SELECT evidence FROM home_action_evidence WHERE task_id = ? ORDER BY rowid",
@@ -388,10 +389,10 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
     const conversationId = `session_${randomUUID()}`;
     const raw = this.vault.get("model");
     if (raw) {
@@ -412,12 +413,12 @@ export class MobileRuntime {
       typeof config.model !== "string" ||
       typeof config.apiKey !== "string"
     )
-      throw new Error("模型配置不完整");
+      throw new Error("@looi:runtimeModelSettingsAreIncomplete");
     let url: URL;
     try {
       url = new URL(config.baseUrl);
     } catch {
-      throw new Error("模型地址需要使用不含账号或查询参数的 HTTPS 地址");
+      throw new Error("@looi:runtimeUseAnHttpsModelUrlWithoutCredentialsOr");
     }
     if (
       url.protocol !== "https:" ||
@@ -426,14 +427,14 @@ export class MobileRuntime {
       url.search ||
       url.hash
     )
-      throw new Error("模型地址需要使用不含账号或查询参数的 HTTPS 地址");
+      throw new Error("@looi:runtimeUseAnHttpsModelUrlWithoutCredentialsOr");
     if (
       !config.model.trim() ||
       config.model.length > 256 ||
       !config.apiKey.trim() ||
       config.apiKey.length > 8192
     )
-      throw new Error("请填写模型名称和 API Key");
+      throw new Error("@looi:runtimeEnterAModelNameAndApiKey");
     return {
       baseUrl: url.href.replace(/\/$/, ""),
       model: config.model.trim(),
@@ -473,12 +474,12 @@ export class MobileRuntime {
       typeof custom.baseUrl !== "string" ||
       typeof custom.modelId !== "string"
     )
-      throw new Error("自定义端点配置不完整");
+      throw new Error("@looi:runtimeCustomEndpointSettingsAreIncomplete");
     let url: URL;
     try {
       url = new URL(custom.baseUrl);
     } catch {
-      throw new Error("模型地址需要使用不含账号或查询参数的 HTTPS 地址");
+      throw new Error("@looi:runtimeUseAnHttpsModelUrlWithoutCredentialsOr");
     }
     if (
       url.protocol !== "https:" ||
@@ -487,9 +488,9 @@ export class MobileRuntime {
       url.search ||
       url.hash
     )
-      throw new Error("模型地址需要使用不含账号或查询参数的 HTTPS 地址");
+      throw new Error("@looi:runtimeUseAnHttpsModelUrlWithoutCredentialsOr");
     const model = custom.modelId.trim();
-    if (!model || model.length > 256) throw new Error("请填写模型名称");
+    if (!model || model.length > 256) throw new Error("@looi:runtimeEnterAModelName");
     const validProtocols: CompatibleApiProtocol[] = [
       "openai-completions",
       "openai-responses",
@@ -512,7 +513,7 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     const prevEnvelope = this.credentialStore.readEnvelope();
     const existingCustomKey =
       prevEnvelope.credentials.custom?.type === "api_key"
@@ -538,7 +539,7 @@ export class MobileRuntime {
     try {
       await this.executor?.close();
       this.executor = undefined;
-      if (this.closed) throw new Error("页面已关闭");
+      if (this.closed) throw new Error("@looi:runtimePageClosed");
       const conversationId = `session_${randomUUID()}`;
       let nextEnvelope: ModelVaultEnvelope;
       try {
@@ -641,7 +642,7 @@ export class MobileRuntime {
           color_temp_kelvin: opt(int()),
         }),
         execute: async (callId, args, signal) => {
-          if (signal?.aborted || !this.taskId) throw new Error("任务已停止");
+          if (signal?.aborted || !this.taskId) throw new Error("@looi:runtimeTaskStopped");
           const service_data: Record<string, number> = {};
           if (args.brightness !== undefined)
             service_data.brightness = args.brightness;
@@ -694,7 +695,7 @@ export class MobileRuntime {
     prompt: string,
     action: UserActionRef,
     onStep: (event: AgentStepEvent) => void,
-    options: { agentOnly?: boolean; mode?: "text" | "voice"; traceContext?: TraceContext } = {},
+    options: { agentOnly?: boolean; defaultLanguage?: "zh-CN" | "en-US"; mode?: "text" | "voice"; traceContext?: TraceContext } = {},
   ): Promise<{ answer: string; taskId: string; runtimeExited: boolean }> {
     if (
       this.closed ||
@@ -702,15 +703,15 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("当前已有任务或登录，请先停止");
+      throw new Error("@looi:runtimeATaskOrSigninIsActiveStopIt");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
     const text = prompt.trim();
-    if (!text) throw new Error("请输入内容");
+    if (!text) throw new Error("@looi:runtimeEnterAMessage");
     this.busy = true;
     try {
-      if (!this.executor) throw new Error("请先在连接设置中配置对话模型");
+      if (!this.executor) throw new Error("@looi:runtimeConfigureAChatModelInConnectionsFirst");
       if (
         this.allTasks().some(
           (task) =>
@@ -718,7 +719,7 @@ export class MobileRuntime {
         )
       )
         throw new Error(
-          "这段对话有待核实的操作，请先查看任务记录，再开始新对话",
+          "@looi:runtimeThisConversationHasUnverifiedActionsReviewTaskHistory",
         );
       if (!this.conversationPersisted && this.vault.get("model")) {
         this.credentialStore.updateEnvelope((draft) => {
@@ -732,6 +733,7 @@ export class MobileRuntime {
         taskId: this.taskId,
         sessionId: this.conversationId,
         mode: options.mode,
+        defaultLanguage: options.defaultLanguage,
         traceContext: options.traceContext,
         onStep,
       });
@@ -748,7 +750,7 @@ export class MobileRuntime {
   }
 
   respond(taskId: string, requestId: string, answer: AgentInteractionAnswer) {
-    if (this.closed || !this.executor) throw new Error("运行时不可用");
+    if (this.closed || !this.executor) throw new Error("@looi:runtimeRuntimeUnavailable");
     this.executor.respond(taskId, requestId, answer);
   }
 
@@ -911,12 +913,12 @@ export class MobileRuntime {
     if (!credential) return this.llmSnapshot();
     const channel = LLM_PROVIDER_CATALOG.flatMap((brand) => brand.channels)
       .find((item) => item.providerId === providerId);
-    if (!channel) throw new Error(`未知服务商: ${providerId}`);
+    if (!channel) throw new Error(uiMessage("unknownProvider", { provider: providerId }));
 
     const version = this.invalidateFetchedModels(providerId);
     try {
       const auth = await this.modelsRegistry.getAuth(providerId, { signal });
-      if (!auth) throw new Error("请先连接模型服务");
+      if (!auth) throw new Error("@looi:runtimeConnectAModelServiceFirst");
       const headers: Record<string, string> = {};
       for (const [name, value] of Object.entries(auth.auth.headers ?? {})) {
         if (value !== null) headers[name] = value;
@@ -938,7 +940,7 @@ export class MobileRuntime {
       if (this.modelFetchVersions.get(providerId) === version) {
         this.modelFetchErrors.set(
           providerId,
-          error instanceof Error ? error.message : "获取在线模型列表失败",
+          error instanceof Error ? error.message : "@looi:runtimeCouldNotLoadOnlineModels",
         );
       }
     }
@@ -969,10 +971,10 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
 
     let targetChannel: LlmChannelSpec | undefined;
     for (const b of LLM_PROVIDER_CATALOG) {
@@ -982,7 +984,7 @@ export class MobileRuntime {
         break;
       }
     }
-    if (!targetChannel) throw new Error(`未知服务商: ${input.providerId}`);
+    if (!targetChannel) throw new Error(uiMessage("unknownProvider", { provider: input.providerId }));
 
     let validatedCustom: CustomEndpointConfig | undefined;
     if (input.providerId === "custom") {
@@ -994,19 +996,19 @@ export class MobileRuntime {
     let nextCred: Credential;
     const trimmedKey = input.apiKey?.trim();
     if (trimmedKey) {
-      if (trimmedKey.length > 8192) throw new Error("API Key 过长");
+      if (trimmedKey.length > 8192) throw new Error("@looi:runtimeApiKeyIsTooLong");
       nextCred = { type: "api_key", key: trimmedKey };
     } else if (existingCred) {
       nextCred = existingCred;
     } else {
-      throw new Error("请填写 API Key");
+      throw new Error("@looi:runtimeEnterAnApiKey");
     }
 
     const targetModelId =
       input.modelId?.trim() ||
       (input.providerId === "custom" ? validatedCustom?.modelId : "") ||
       targetChannel.defaultModelId;
-    if (!targetModelId) throw new Error("请选择或填写模型 ID");
+    if (!targetModelId) throw new Error("@looi:runtimeSelectOrEnterAModelId");
 
     const isKnownModel = Boolean(
       this.modelsRegistry.getModel(input.providerId, targetModelId),
@@ -1108,17 +1110,17 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
 
     const envelope = this.credentialStore.readEnvelope();
     const cred = envelope.credentials[input.providerId];
-    if (!cred) throw new Error("请先配置该服务商的 API Key 或登录账号");
+    if (!cred) throw new Error("@looi:runtimeConfigureThisProvidersApiKeyOrSignIn");
 
     const targetModelId = input.modelId.trim();
-    if (!targetModelId) throw new Error("请选择或填写模型 ID");
+    if (!targetModelId) throw new Error("@looi:runtimeSelectOrEnterAModelId");
 
     const isKnownModel = Boolean(
       this.modelsRegistry.getModel(input.providerId, targetModelId),
@@ -1221,10 +1223,10 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
 
     const envelope = this.credentialStore.readEnvelope();
     const isActive = envelope.active?.providerId === providerId;
@@ -1269,10 +1271,10 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-      throw new Error("请先停止当前任务或取消登录");
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
-      throw new Error("页面已过期，请重新打开");
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
 
     let targetChannel: LlmChannelSpec | undefined;
     for (const b of LLM_PROVIDER_CATALOG) {
@@ -1282,7 +1284,7 @@ export class MobileRuntime {
         break;
       }
     }
-    if (!targetChannel) throw new Error(`未知服务商: ${providerId}`);
+    if (!targetChannel) throw new Error(uiMessage("unknownProvider", { provider: providerId }));
 
     const abort = new AbortController();
     this.llmOAuthAbort = abort;
@@ -1342,14 +1344,14 @@ export class MobileRuntime {
                 const onAbort = () => {
                   if (this.llmOAuthManualPrompt) {
                     this.llmOAuthManualPrompt = undefined;
-                    reject(new Error("登录已取消"));
+                    reject(new Error("@looi:runtimeSigninCancelled"));
                   }
                 };
                 p.signal?.addEventListener("abort", onAbort, { once: true });
                 abort.signal.addEventListener("abort", onAbort, { once: true });
               });
             }
-            throw new Error("不支持的交互提示类型");
+            throw new Error("@looi:runtimeUnsupportedInteractionType");
           },
         },
         {
@@ -1406,7 +1408,7 @@ export class MobileRuntime {
 
   submitProviderOAuthCallback(callbackUrl: string): void {
     const prompt = this.llmOAuthManualPrompt;
-    if (!prompt) throw new Error("当前没有等待回调的登录流程");
+    if (!prompt) throw new Error("@looi:runtimeNoSigninIsAwaitingACallback");
     this.llmOAuthManualPrompt = undefined;
     prompt.resolve(callbackUrl.trim());
   }
@@ -1415,7 +1417,7 @@ export class MobileRuntime {
     if (this.llmOAuthManualPrompt) {
       const prompt = this.llmOAuthManualPrompt;
       this.llmOAuthManualPrompt = undefined;
-      prompt.reject(new Error("登录已取消"));
+      prompt.reject(new Error("@looi:runtimeSigninCancelled"));
     }
     if (this.llmOAuthAbort) {
       const abort = this.llmOAuthAbort;

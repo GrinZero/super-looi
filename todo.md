@@ -4,7 +4,7 @@
 
 接入依据见 [NSH 中英双语接入调研](docs/nsh-multilingual-integration-research.md)，执行步骤见 [实施计划](docs/plans/nsh-bilingual-integration-plan.md)。
 
-- [ ] 接入 `zh-CN`／`en-US` 本地词条、系统语言与手动覆盖，迁移 UI、状态、错误和无障碍文案；随后统一文字 Agent 与 Realtime 的按输入语言回复规则。
+实现与验证见 [NSH 中英双语](docs/nsh-bilingual-integration.md)。
 - [ ] 豆包英文专用音色 `en_female_jenny_uranus_bigtts` 在当前 `1.2.6.1` 模型与凭证下返回英文文本但零音频帧；如需提供英文专用音色，先核实适用的 S2S 音色 ID 并取得有声输出。
 
 ## LOOI 专属机械音色

@@ -1,3 +1,5 @@
+import { uiMessage } from "../runtime/messages";
+import { t, translateMessage, formatDate } from "../i18n";
 import { effect, openUrl, Clipboard, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type {
@@ -57,7 +59,7 @@ export function ModelsSpaceView(props: {
     if (!currentBrand || !currentBrand.channels.length) {
       return {
         providerId: "custom",
-        label: "兼容端点",
+        label: t("compatibleEndpoint"),
         baseUrl: "",
         protocolLabel: "OpenAI Chat Completions",
         authTypes: ["api_key"],
@@ -139,7 +141,7 @@ export function ModelsSpaceView(props: {
       apiKey.set("");
     } catch (cause) {
       props.store.notify(
-        cause instanceof Error ? cause.message : "保存配置失败",
+        cause instanceof Error ? cause.message : "@looi:couldNotSaveSettings",
       );
     } finally {
       saving.set(false);
@@ -152,7 +154,7 @@ export function ModelsSpaceView(props: {
       await props.store.selectActiveModel(ch.providerId, modelItem.id);
     } else {
       localModelChoice.set(modelItem.id);
-      props.store.notify(`已选用 ${modelItem.id}（保存配置后生效）`);
+      props.store.notify(uiMessage("selectPendingModel", { model: modelItem.id }));
     }
   };
 
@@ -164,7 +166,7 @@ export function ModelsSpaceView(props: {
       await props.store.selectActiveModel(ch.providerId, raw, true);
     } else {
       localModelChoice.set(raw);
-      props.store.notify(`已添加并选用 ${raw}（保存配置后生效）`);
+      props.store.notify(uiMessage("addPendingModel", { model: raw }));
     }
     extraModelId.set("");
   };
@@ -178,7 +180,7 @@ export function ModelsSpaceView(props: {
     if (url) {
       openUrl(url).catch(() => {});
     }
-    props.store.notify("验证码已复制，已尝试在浏览器中打开验证页");
+    props.store.notify("@looi:codeCopiedBrowserVerificationPageRequested");
   };
 
   const renderLeftCard = () => (
@@ -186,27 +188,27 @@ export function ModelsSpaceView(props: {
       <View class="flex-row items-center justify-between gap-2 pb-0.5">
         <View class="gap-0.5 flex-1 min-w-0">
           <Text class="text-foreground text-sm font-semibold">
-            {brand()?.label ?? "模型服务"}
+            {brand()?.label ?? t("modelService")}
           </Text>
           <Text
             class="text-muted-foreground text-xs font-mono"
             style={{ numberOfLines: 1, flexShrink: 1 }}
           >
-            {channel().baseUrl || (brandId() === "custom" ? "自定义服务端点" : "官方默认端点")}
+            {channel().baseUrl || (brandId() === "custom" ? t("customEndpoint") : t("officialEndpoint"))}
             {channel().protocolLabel ? ` · ${channel().protocolLabel}` : ""}
           </Text>
         </View>
         <If when={channel().hasApiKey || channel().hasOAuth}>
           <View class="flex-row items-center gap-1.5 px-2 py-0.5 rounded-full bg-muted">
             <View class="w-1.5 h-1.5 rounded-full bg-verified" />
-            <Text class="text-verified text-xs font-medium">已保存凭证</Text>
+            <Text class="text-verified text-xs font-medium">{t("credentialsSaved")}</Text>
           </View>
         </If>
       </View>
 
       <If when={(brand()?.channels.length ?? 0) > 1}>
         <View class="gap-1.5 border-t border-border pt-3">
-          <Text class="text-muted-foreground text-xs">接入通道</Text>
+          <Text class="text-muted-foreground text-xs">{t("connectionChannel")}</Text>
           <View class="flex-row flex-wrap gap-1.5">
             <Each of={brand()?.channels ?? []} key={(ch) => ch.providerId}>
               {(ch) => {
@@ -240,7 +242,7 @@ export function ModelsSpaceView(props: {
 
       <If when={brandId() === "custom"}>
         <View class="gap-3 border-t border-border pt-3">
-          <Text class="text-muted-foreground text-xs">兼容协议</Text>
+          <Text class="text-muted-foreground text-xs">{t("apiProtocol")}</Text>
           <View class="flex-row flex-wrap gap-1.5">
             <Button
               onPress={() => customApi.set("openai-completions")}
@@ -299,7 +301,7 @@ export function ModelsSpaceView(props: {
           </View>
 
           <TextField
-            label="服务端点 (HTTPS)"
+            label={t("serviceEndpointHttps")}
             testID="custom-base-url"
             value={customBaseUrl()}
             onChange={(v) => customBaseUrl.set(v)}
@@ -307,7 +309,7 @@ export function ModelsSpaceView(props: {
           />
 
           <TextField
-            label="默认模型 ID"
+            label={t("defaultModelId")}
             testID="custom-model-id"
             value={customModelId()}
             onChange={(v) => customModelId.set(v)}
@@ -323,7 +325,7 @@ export function ModelsSpaceView(props: {
         }
       >
         <View class="gap-1.5 border-t border-border pt-3">
-          <Text class="text-muted-foreground text-xs">认证方式</Text>
+          <Text class="text-muted-foreground text-xs">{t("authentication")}</Text>
           <View class="flex-row gap-2">
             <Button
               onPress={() => authMode.set("oauth")}
@@ -340,8 +342,7 @@ export function ModelsSpaceView(props: {
                     : "text-foreground text-xs"
                 }
               >
-                账号订阅登录 (OAuth)
-              </Text>
+                {t("subscriptionSigninOauth")}</Text>
             </Button>
             <Button
               onPress={() => authMode.set("api_key")}
@@ -358,8 +359,7 @@ export function ModelsSpaceView(props: {
                     : "text-foreground text-xs"
                 }
               >
-                API Key 密钥
-              </Text>
+                {t("apiKey")}</Text>
             </Button>
           </View>
         </View>
@@ -380,7 +380,7 @@ export function ModelsSpaceView(props: {
               masked={true}
               placeholder={
                 channel().hasApiKey
-                  ? "已安全保存于系统钥匙串；留空可仅更新模型"
+                  ? t("savedInTheSystemKeychainLeaveBlank")
                   : "sk-..."
               }
               onSubmit={saveConfiguration}
@@ -390,7 +390,7 @@ export function ModelsSpaceView(props: {
               <View>
                 <If when={channel().hasApiKey || channel().hasOAuth}>
                   <ActionButton
-                    label="清除凭证"
+                    label={t("clearCredentials")}
                     testID="clear-provider-btn"
                     kind="danger"
                     compact={true}
@@ -401,7 +401,7 @@ export function ModelsSpaceView(props: {
                 </If>
               </View>
               <ActionButton
-                label={saving() ? "正在保存…" : "保存并设为当前模型"}
+                label={saving() ? t("saving") : t("saveAndUseModel")}
                 testID="save-provider-btn"
                 kind="primary"
                 compact={true}
@@ -430,13 +430,12 @@ export function ModelsSpaceView(props: {
                 else={
                   <View class="gap-2.5">
                     <Text class="text-muted-foreground text-xs">
-                      使用官方网页安全授权登录，令牌由系统钥匙串加密保存并自动续期。
-                    </Text>
+                      {t("signInOnTheOfficialWebsiteTokens")}</Text>
                     <ActionButton
                       label={
                         brandId() === "kimi"
-                          ? "使用 Kimi Code 会员登录"
-                          : "使用 ChatGPT 订阅登录"
+                          ? t("signInWithKimiCode")
+                          : t("signInWithChatgpt")
                       }
                       testID="oauth-start-btn"
                       kind="primary"
@@ -453,22 +452,20 @@ export function ModelsSpaceView(props: {
                   <View class="flex-row items-center gap-2">
                     <View class="w-2 h-2 rounded-full bg-verified" />
                     <Text class="text-verified text-xs font-semibold">
-                      已连接订阅账号
-                    </Text>
+                      {t("subscriptionAccountConnected")}</Text>
                   </View>
                   <Text class="text-muted-foreground text-xs">
-                    OAuth 凭证正常生效中，可随时重新授权或解绑。
-                  </Text>
+                    {t("oauthCredentialsAreActiveYouCanReauthorize")}</Text>
                   <View class="flex-row gap-2">
                     <ActionButton
-                      label="重新授权"
+                      label={t("reauthorize")}
                       compact={true}
                       onPress={() =>
                         props.store.startProviderOAuth(channel().providerId)
                       }
                     />
                     <ActionButton
-                      label="退出授权"
+                      label={t("disconnect")}
                       kind="danger"
                       compact={true}
                       onPress={() =>
@@ -493,10 +490,10 @@ export function ModelsSpaceView(props: {
                   else={
                     <View class="gap-2.5 rounded-xl border border-border bg-muted p-3">
                       <Text class="text-foreground text-xs font-medium">
-                        {props.store.oauth().instructions || "正在处理授权…"}
+                        {props.store.oauth().instructions || t("authorizing")}
                       </Text>
                       <ActionButton
-                        label="取消"
+                        label={t("cancel")}
                         compact={true}
                         onPress={() => props.store.cancelProviderOAuth()}
                       />
@@ -505,20 +502,17 @@ export function ModelsSpaceView(props: {
                 >
                   <View class="gap-2.5 rounded-xl border border-border bg-muted p-3">
                     <Text class="text-foreground text-xs font-semibold">
-                      系统浏览器登录授权
-                    </Text>
+                      {t("browserAuthorization")}</Text>
                     <If when={props.store.oauth().url}>
                       <ActionButton
-                        label="在浏览器中打开登录页"
+                        label={t("openSigninPage")}
                         compact={true}
                         kind="primary"
-                        onPress={() =>
-                          openUrl(props.store.oauth().url).catch(() => {})
-                        }
+                        onPress={() => openUrl(props.store.oauth().url).catch(() => {})}
                       />
                     </If>
                     <TextField
-                      label="若未自动重定向，请粘贴回调链接："
+                      label={t("ifTheBrowserDidNotRedirectPaste")}
                       testID="oauth-callback-input"
                       value={oauthCallbackUrl()}
                       onChange={(v) => oauthCallbackUrl.set(v)}
@@ -526,7 +520,7 @@ export function ModelsSpaceView(props: {
                     />
                     <View class="flex-row gap-2">
                       <ActionButton
-                        label="提交回调链接"
+                        label={t("submitCallbackUrl")}
                         kind="primary"
                         compact={true}
                         disabled={!oauthCallbackUrl().trim()}
@@ -537,7 +531,7 @@ export function ModelsSpaceView(props: {
                         }
                       />
                       <ActionButton
-                        label="取消授权"
+                        label={t("cancelAuthorization")}
                         kind="danger"
                         compact={true}
                         onPress={() => props.store.cancelProviderOAuth()}
@@ -549,8 +543,7 @@ export function ModelsSpaceView(props: {
             >
               <View class="gap-3 rounded-xl border border-border bg-muted p-3.5">
                 <Text class="text-muted-foreground text-xs">
-                  请复制下方设备验证码，并在随后打开的浏览器验证页完成授权：
-                </Text>
+                  {t("copyTheDeviceCodeBelowThenAuthorize")}</Text>
                 <View class="items-center py-1">
                   <Text class="text-xl font-mono font-bold tracking-widest text-foreground">
                     {props.store.oauth().userCode || "----"}
@@ -558,13 +551,13 @@ export function ModelsSpaceView(props: {
                 </View>
                 <View class="flex-row gap-2">
                   <ActionButton
-                    label="复制验证码并打开浏览器"
+                    label={t("copyCodeAndOpenBrowser")}
                     kind="primary"
                     compact={true}
                     onPress={copyAndOpenDeviceOAuth}
                   />
                   <ActionButton
-                    label="取消授权"
+                    label={t("cancelAuthorization")}
                     compact={true}
                     onPress={() => props.store.cancelProviderOAuth()}
                   />
@@ -579,23 +572,22 @@ export function ModelsSpaceView(props: {
 
   const renderRightCard = () => (
     <View class="rounded-2xl border border-border bg-card p-4 gap-3">
-      <View class="flex-row items-center justify-between border-b border-border pb-2.5">
-        <Text class="text-foreground text-sm font-semibold">可用模型</Text>
+      <View class="gap-1.5 border-b border-border pb-2.5">
+        <Text class="text-foreground text-sm font-semibold">{t("availableModels")}</Text>
         <If
           when={isGloballyActiveChannel()}
           else={
             <Text class="text-muted-foreground text-xs">
               {props.store.llm().active
-                ? `全局生效: ${props.store.llm().active?.modelId}`
-                : "尚未设置全局模型"}
+                ? t("activeModel", { model: props.store.llm().active?.modelId })
+                : t("noModelSelected")}
             </Text>
           }
         >
           <View class="flex-row items-center gap-1.5">
             <View class="w-1.5 h-1.5 rounded-full bg-verified" />
             <Text class="text-verified text-xs font-semibold">
-              当前对话生效中
-            </Text>
+              {t("activeForThisConversation")}</Text>
           </View>
         </If>
       </View>
@@ -604,14 +596,13 @@ export function ModelsSpaceView(props: {
         <If when={!channel().modelsFetched}>
           <Text class="text-muted-foreground text-xs py-2">
             {channel().hasApiKey || channel().hasOAuth
-              ? channel().modelsError || "正在获取在线模型列表…"
-              : "连接成功后加载可用模型"}
+              ? channel().modelsError || t("loadingOnlineModels")
+              : t("connectToLoadAvailableModels")}
           </Text>
         </If>
         <If when={channel().modelsFetched && !channel().models.length}>
           <Text class="text-muted-foreground text-xs py-2">
-            当前账号未返回可用模型，可在下方输入模型 ID
-          </Text>
+            {t("noModelsReturnedEnterAModelId")}</Text>
         </If>
         <Each of={channel().models} key={(m) => m.id}>
           {(m) => {
@@ -658,7 +649,7 @@ export function ModelsSpaceView(props: {
                   </View>
                   <If when={m().reasoning}>
                     <View class="px-1.5 py-0.5 rounded-md bg-secondary">
-                      <Text class="text-muted-foreground text-xs">思考</Text>
+                      <Text class="text-muted-foreground text-xs">{t("reasoning")}</Text>
                     </View>
                   </If>
                 </View>
@@ -673,16 +664,15 @@ export function ModelsSpaceView(props: {
                       }
                     >
                       {channel().hasApiKey || channel().hasOAuth
-                        ? "选用"
-                        : "设为待选"}
+                        ? t("select")
+                        : t("selectLater")}
                     </Text>
                   }
                 >
                   <View class="flex-row items-center gap-1.5">
                     <View class="w-1.5 h-1.5 rounded-full bg-verified" />
                     <Text class="text-primary-foreground text-xs font-bold">
-                      使用中
-                    </Text>
+                      {t("inUse")}</Text>
                   </View>
                 </If>
               </Button>
@@ -693,16 +683,16 @@ export function ModelsSpaceView(props: {
 
       <View class="gap-2 border-t border-border pt-3">
         <TextField
-          label="自定义模型 ID"
+          label={t("customModelId")}
           testID="custom-extra-model-input"
           value={extraModelId()}
           onChange={(v) => extraModelId.set(v)}
-          placeholder="输入模型 ID，如 glm-5-flash"
+          placeholder={t("enterAModelIdEgGlm5flash")}
           onSubmit={handleAddCustomModel}
         />
         <View class="flex-row justify-end">
           <ActionButton
-            label="添加并选用"
+            label={t("addAndSelect")}
             testID="add-custom-model-btn"
             compact={true}
             kind="primary"

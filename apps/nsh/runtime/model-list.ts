@@ -1,3 +1,4 @@
+import { uiMessage } from "./messages.js";
 export interface OnlineModel {
   id: string;
   name: string;
@@ -34,14 +35,14 @@ export async function fetchOnlineModels(
       ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
       : AbortSignal.timeout(10000),
   });
-  if (!response.ok) throw new Error(`获取模型列表失败 (${response.status})`);
+  if (!response.ok) throw new Error(uiMessage("loadModelsFailed", { status: response.status }));
   const payload: unknown = await response.json();
   const body = payload && typeof payload === "object"
     ? payload as Record<string, unknown>
     : {};
   const subscriptionModels = Array.isArray(body.models);
   const entries: unknown = subscriptionModels ? body.models : body.data;
-  if (!Array.isArray(entries)) throw new Error("模型列表格式不受支持");
+  if (!Array.isArray(entries)) throw new Error("@looi:runtimeUnsupportedModelListFormat");
   const models = new Map<string, OnlineModel>();
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;

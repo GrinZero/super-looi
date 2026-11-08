@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import {
   Canvas,
   computed,
@@ -103,7 +104,7 @@ export function RobotFace(props: {
   return (
     <Canvas
       testID="looi-face"
-      accessibilityLabel="LOOI 的圆眼表情"
+      accessibilityLabel={t("looisRoundeyeExpression")}
       role="image"
       class="absolute inset-0"
       style={{ minHeight: 180, opacity: breath.opacity }}

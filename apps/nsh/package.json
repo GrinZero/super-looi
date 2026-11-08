@@ -26,16 +26,19 @@
     "test:login:android": "node --import tsx scripts/nsh.ts login-android"
   },
   "devDependencies": {
+    "@types/node": "^22.13.0",
     "esbuild": "0.28.2",
     "tsx": "^4.19.3",
-    "@types/node": "^22.13.0",
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "@super-looi/runtime": "workspace:*",
-    "@super-looi/contracts": "workspace:*",
-    "@earendil-works/pi-schema": "1.5.0",
     "@earendil-works/pi-agent-core": "1.5.0",
-    "@super-looi/home-assistant": "workspace:*"
+    "@earendil-works/pi-schema": "1.5.0",
+    "@formatjs/intl-locale": "5.4.2",
+    "@formatjs/intl-pluralrules": "7.0.2",
+    "@super-looi/contracts": "workspace:*",
+    "@super-looi/home-assistant": "workspace:*",
+    "@super-looi/runtime": "workspace:*",
+    "i18next": "27.0.1"
   }
 }

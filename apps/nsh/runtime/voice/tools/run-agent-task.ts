@@ -47,7 +47,7 @@ export function createRunAgentTask(
         runs--;
         context.taskFinished(generation);
       })().catch(() => {
-        if (context.current(generation)) context.fail("语音任务回传失败");
+        if (context.current(generation)) context.fail("@looi:voiceTaskReplyFailed");
       });
     },
   };

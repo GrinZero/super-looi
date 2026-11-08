@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Select } from "nsh/base";
 import type { HomeConfiguration } from "../generated/looi-runtime.js";
@@ -13,12 +14,12 @@ export function HomeSpaceView(props: {
   const activeModeTab = (): HomeModeTab =>
     typeof props.modeTab === "function" ? props.modeTab() : props.modeTab;
   const regions = [
-    { value: "cn", title: "中国大陆" },
-    { value: "de", title: "欧洲" },
-    { value: "i2", title: "印度" },
-    { value: "ru", title: "俄罗斯" },
-    { value: "sg", title: "新加坡" },
-    { value: "us", title: "美国" },
+    { value: "cn", get title() { return t("mainlandChina"); } },
+    { value: "de", get title() { return t("europe"); } },
+    { value: "i2", get title() { return t("india"); } },
+    { value: "ru", get title() { return t("russia"); } },
+    { value: "sg", get title() { return t("singapore"); } },
+    { value: "us", get title() { return t("unitedStates"); } },
   ];
 
   const region = signal<HomeConfiguration["region"]>("cn");
@@ -67,9 +68,9 @@ export function HomeSpaceView(props: {
       }
     } catch (cause) {
       error.set(
-        cause instanceof Error && cause.message.startsWith("米家")
+        cause instanceof Error && cause.message.startsWith("@looi:")
           ? cause.message
-          : "米家连接未完成，请稍后重试。",
+          : "@looi:xiaomiHomeConnectionFailedTryAgainLater",
       );
     } finally {
       working.set(false);
@@ -89,7 +90,7 @@ export function HomeSpaceView(props: {
       }
       await props.store.connectHome();
     } catch {
-      error.set("暂时无法读取米家设备，请稍后重试。");
+      error.set("@looi:couldNotLoadXiaomiHomeDevicesTry");
     } finally {
       working.set(false);
     }
@@ -132,32 +133,29 @@ export function HomeSpaceView(props: {
     <View class="gap-3.5">
       <If when={activeModeTab() === "direct_miot"}>
         <View class="rounded-2xl border border-border bg-card p-4 gap-3.5">
-          <View class="flex-row items-center justify-between border-b border-border pb-2.5">
+          <View class="gap-1.5 border-b border-border pb-2.5">
             <View class="gap-0.5">
               <Text class="text-foreground text-sm font-semibold">
-                米家官方账号直连
-              </Text>
+                {t("connectYourXiaomiHomeAccount")}</Text>
               <Text class="text-muted-foreground text-xs font-mono">
-                云端端对端同步 · 支持插座、灯具与温湿度传感器
-              </Text>
+                {t("cloudSyncOutletsLightsAndTemperaturehumiditySensors")}</Text>
             </View>
             <If when={props.store.homeConfiguration().hasMiotAccount}>
               <View class="flex-row items-center gap-1.5 px-2 py-0.5 rounded-full bg-muted">
                 <View class="w-1.5 h-1.5 rounded-full bg-verified" />
-                <Text class="text-verified text-xs font-medium">已登录</Text>
+                <Text class="text-verified text-xs font-medium">{t("signedIn")}</Text>
               </View>
             </If>
           </View>
 
           <Text class="text-muted-foreground text-xs">
-            选择与米家 App 一致的服务区域，授权后可在语音或对话中安全控制智能设备。
-          </Text>
+            {t("chooseYourXiaomiHomeRegionAfterSigning")}</Text>
 
           <View class="gap-2">
-            <Text class="text-muted-foreground text-sm">米家服务区域</Text>
+            <Text class="text-muted-foreground text-sm">{t("xiaomiHomeRegion")}</Text>
             <Select
               testID="home-miot-region"
-              accessibilityLabel="米家服务区域"
+              accessibilityLabel={t("xiaomiHomeRegion")}
               items={regions}
               value={region()}
               disabled={working() || props.store.busy()}
@@ -182,10 +180,10 @@ export function HomeSpaceView(props: {
             <ActionButton
               label={
                 props.store.homeLoggingIn()
-                  ? "等待米家授权…"
+                  ? t("waitingForXiaomiAuthorization")
                   : savedMiotSelected()
-                    ? "重新登录米家"
-                    : "登录米家"
+                    ? t("signInToXiaomiHomeAgain")
+                    : t("signInToXiaomiHome")
               }
               testID="home-miot-login"
               kind="primary"
@@ -195,7 +193,7 @@ export function HomeSpaceView(props: {
             />
             <If when={props.store.homeLoggingIn()}>
               <ActionButton
-                label="取消米家登录"
+                label={t("cancelXiaomiSignin")}
                 testID="home-miot-cancel"
                 compact={true}
                 onPress={() => props.store.cancelHomeLogin()}
@@ -205,8 +203,8 @@ export function HomeSpaceView(props: {
               <ActionButton
                 label={
                   props.store.homeConfiguration().mode === "direct_miot"
-                    ? "刷新米家设备"
-                    : "连接已保存的米家账号"
+                    ? t("refreshXiaomiDevices")
+                    : t("connectSavedXiaomiAccount")
                 }
                 testID="home-miot-refresh"
                 compact={true}
@@ -221,7 +219,7 @@ export function HomeSpaceView(props: {
               }
             >
               <ActionButton
-                label="退出米家账号"
+                label={t("signOutOfXiaomiHome")}
                 testID="home-miot-logout"
                 kind="danger"
                 compact={true}
@@ -237,15 +235,13 @@ export function HomeSpaceView(props: {
         <View class="rounded-2xl border border-border bg-card p-4 gap-3.5">
           <View class="border-b border-border pb-2.5">
             <Text class="text-foreground text-sm font-semibold">
-              Home Assistant 实例直连
-            </Text>
+              {t("connectAHomeAssistantInstance")}</Text>
             <Text class="text-muted-foreground text-xs font-mono">
-              本地局域网 / 远程 WebSocket API 直连
-            </Text>
+              {t("directLocalOrRemoteWebsocketApiConnection")}</Text>
           </View>
 
           <TextField
-            label="Home Assistant 服务地址"
+            label={t("homeAssistantServerUrl")}
             testID="home-url"
             value={haUrl()}
             onChange={(v) => haUrl.set(v)}
@@ -253,22 +249,22 @@ export function HomeSpaceView(props: {
           />
 
           <TextField
-            label="长期访问令牌 (Long-Lived Access Token)"
+            label={t("longlivedAccessToken76")}
             testID="home-token"
             value={haToken()}
             onChange={(v) => haToken.set(v)}
             masked={true}
             placeholder={
               props.store.homeConfiguration().hasToken
-                ? "已安全保存；相同地址可留空继续使用"
-                : "输入访问令牌"
+                ? t("savedSecurelyLeaveBlankToReuseWith")
+                : t("enterAccessToken")
             }
             onSubmit={configureHa}
           />
 
           <View class="flex-row justify-end pt-1">
             <ActionButton
-              label={working() ? "正在连接…" : "连接 Home Assistant"}
+              label={working() ? t("connecting48") : t("connectHomeAssistant")}
               testID="home-connect"
               kind="primary"
               compact={true}
@@ -283,20 +279,17 @@ export function HomeSpaceView(props: {
         <View class="rounded-2xl border border-border bg-card p-4 gap-3.5">
           <View class="border-b border-border pb-2.5">
             <Text class="text-foreground text-sm font-semibold">
-              离线沙盒演示环境
-            </Text>
+              {t("offlineDemoEnvironment")}</Text>
             <Text class="text-muted-foreground text-xs font-mono">
-              本地内存虚拟状态机 · 零物理风险
-            </Text>
+              {t("virtualDevicesStoredInLocalMemory")}</Text>
           </View>
 
           <Text class="text-muted-foreground text-xs">
-            沙盒内置书房吸顶灯、台灯与温湿度传感器，提供完整的指令解析、状态回读与审计凭证流程，绝不控制任何物理硬件。
-          </Text>
+            {t("tryAStudyCeilingLightDeskLamp")}</Text>
 
           <View class="flex-row justify-end pt-1">
             <ActionButton
-              label="启用离线演示设备"
+              label={t("enableDemoDevices")}
               testID="home-simulation"
               kind="primary"
               compact={true}
@@ -309,14 +302,13 @@ export function HomeSpaceView(props: {
 
       <View class="rounded-xl border border-border bg-muted p-3">
         <Text class="text-muted-foreground text-xs">
-          安全防线：所有物理设备控制动作均在执行前要求单次人工允许，并在动作后严格回读确认物理状态。
-        </Text>
+          {t("deviceControlsRequireOnetimeApprovalBeforeExecution")}</Text>
       </View>
 
-      <If when={error() || props.store.homeConnection()?.error}>
+      <If when={translateMessage(error() || props.store.homeConnection()?.error || "")}>
         <View class="rounded-xl border border-destructive bg-muted p-3">
           <Text role="alert" class="text-destructive text-xs font-medium">
-            {error() || props.store.homeConnection()?.error}
+            {translateMessage(error() || props.store.homeConnection()?.error || "")}
           </Text>
         </View>
       </If>
@@ -325,19 +317,19 @@ export function HomeSpaceView(props: {
 
   const renderRightCard = () => (
     <View class="rounded-2xl border border-border bg-card p-4 gap-3.5">
-      <View class="flex-row items-center justify-between border-b border-border pb-2.5">
+      <View class="gap-1.5 border-b border-border pb-2.5">
         <Text class="text-foreground text-sm font-semibold">
-          连接回执与已发现设备 ({devices().length})
+          {t("devicesCount", { count: devices().length })}
         </Text>
         <If
           when={props.store.homeConnection()?.healthy}
           else={
-            <Text class="text-muted-foreground text-xs">未连接</Text>
+            <Text class="text-muted-foreground text-xs">{t("notConnected")}</Text>
           }
         >
           <View class="flex-row items-center gap-1.5">
             <View class="w-1.5 h-1.5 rounded-full bg-verified" />
-            <Text class="text-verified text-xs font-semibold">服务正常</Text>
+            <Text class="text-verified text-xs font-semibold">{t("serviceAvailable")}</Text>
           </View>
         </If>
       </View>
@@ -347,8 +339,7 @@ export function HomeSpaceView(props: {
         else={
           <View class="py-6 items-center justify-center">
             <Text class="text-muted-foreground text-xs">
-              尚未发现设备。请连接米家账号、Home Assistant 或启用离线演示。
-            </Text>
+              {t("noDevicesFoundConnectXiaomiHomeHome")}</Text>
           </View>
         }
       >
@@ -372,7 +363,7 @@ export function HomeSpaceView(props: {
                 </View>
                 <View class="px-2 py-0.5 rounded-md bg-secondary">
                   <Text class="text-foreground text-xs font-medium">
-                    {d().snapshot?.state ?? "在线"}
+                    {d().snapshot?.state ?? t("online")}
                   </Text>
                 </View>
               </View>

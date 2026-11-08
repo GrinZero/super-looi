@@ -98,7 +98,9 @@ export async function verifyVoiceRuntime() {
     } else incoming.push(raw);
   };
   let finishTask!: (value: string) => void;
+  let defaultLanguage: "zh-CN" | "en-US" = "zh-CN";
   const voice = new VoiceRuntime({
+    defaultLanguage: () => defaultLanguage,
     vault,
     audio,
     connect: async (url, options) => {
@@ -144,12 +146,14 @@ export async function verifyVoiceRuntime() {
     "permission denial started audio",
   );
   permission = "granted";
+  defaultLanguage = "en-US";
   await voice.start();
   check(
     starts === 0 && writes[0]?.type === "session.create",
     "capture started before provider ready",
   );
   check(writes[0]?.session?.audio?.output?.voice === "S_LooiWarm", "custom voice ID missing from Doubao handshake");
+  check(writes[0]?.session?.instructions.includes("A new conversation defaults to English"), "new voice session ignored the latest UI language");
   const tools = writes[0]?.session?.tools;
   check(
     Array.isArray(tools) &&
@@ -273,7 +277,7 @@ export async function verifyVoiceRuntime() {
   await connecting;
   check(delayedWrites[0]?.session?.audio?.output?.voice === "S_First", "connecting session changed voice ID");
   await settle();
-  check(switching.snapshot().error.includes("音色 ID 无法使用"), "invalid voice ID showed an unrelated connection error");
+  check(switching.snapshot().error === "@looi:runtimeDoubaoSpeakerIdUnavailableCheckTheIdAnd", "invalid voice ID showed an unrelated connection error");
   switching.close();
 
   // Close while connect is still unresolved: a late socket must be disposed.

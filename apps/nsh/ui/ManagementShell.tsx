@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { LlmBrandId } from "../generated/looi-runtime.js";
@@ -50,24 +51,32 @@ export function ManagementShell(props: {
 
   const appearanceLabel = () => {
     const mode = props.store.appearanceMode();
-    if (mode === "light") return "外观: 日间";
-    if (mode === "dark") return "外观: 夜间";
-    return "外观: 自动";
+    if (mode === "light") return t("appearanceLight");
+    if (mode === "dark") return t("appearanceDark");
+    return t("appearanceSystem");
   };
+
+  const languagePicker = () => (
+    <View class="flex-row items-center gap-1">
+      <ActionButton testID="language-system" label={t("languageSystem")} compact={true} kind={props.store.languagePreference() === "system" ? "primary" : undefined} onPress={() => { void props.store.setLanguagePreference("system"); }} />
+      <ActionButton testID="language-zh" label="中文" compact={true} kind={props.store.languagePreference() === "zh-CN" ? "primary" : undefined} onPress={() => { void props.store.setLanguagePreference("zh-CN"); }} />
+      <ActionButton testID="language-en" label="EN" compact={true} kind={props.store.languagePreference() === "en-US" ? "primary" : undefined} onPress={() => { void props.store.setLanguagePreference("en-US"); }} />
+    </View>
+  );
 
   const wide = () => windowSize().width >= 600;
 
-  const renderNavButton = (space: AppSpace, label: string, testId: string) => {
+  const renderNavButton = (space: AppSpace, label: () => string, testId: string) => {
     const isSelected = () => props.store.activeSpace() === space;
     return (
       <Button
         testID={testId}
-        accessibilityLabel={label}
+        accessibilityLabel={label()}
         onPress={() => props.store.openSpace(space)}
         class={
           isSelected()
-            ? "min-h-11 w-11 rounded-xl bg-card border border-border items-center justify-center active:opacity-75"
-            : "min-h-11 w-11 rounded-xl items-center justify-center active:opacity-75"
+            ? "min-h-11 min-w-11 px-1 rounded-xl bg-card border border-border items-center justify-center active:opacity-75"
+            : "min-h-11 min-w-11 px-1 rounded-xl items-center justify-center active:opacity-75"
         }
       >
         <View class="items-center justify-center relative">
@@ -78,7 +87,7 @@ export function ManagementShell(props: {
                 : "text-muted-foreground text-xs font-medium"
             }
           >
-            {label}
+            {label()}
           </Text>
           <If when={space === "tasks" && props.store.recoveryCount() > 0}>
             <View class="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-destructive" />
@@ -92,9 +101,9 @@ export function ManagementShell(props: {
     id: "direct_miot" | "external_ha" | "simulation";
     label: string;
   }> = [
-    { id: "direct_miot", label: "米家直连" },
+    { id: "direct_miot", get label() { return t("xiaomiHome92"); } },
     { id: "external_ha", label: "Home Assistant" },
-    { id: "simulation", label: "离线演示" },
+    { id: "simulation", get label() { return t("offlineDemo"); } },
   ];
 
   const renderContextPillBar = () => (
@@ -145,7 +154,7 @@ export function ManagementShell(props: {
 
       <If when={props.store.activeSpace() === "voice"}>
         <View class="flex-row items-center gap-2 flex-1 min-w-0 h-11">
-          <Text class="text-foreground text-xs font-semibold">实时语音</Text>
+          <Text class="text-foreground text-xs font-semibold">{t("liveVoice")}</Text>
           <View class="px-2.5 py-1 rounded-full border border-border bg-muted flex-row items-center gap-1.5">
             <View
               class={
@@ -156,8 +165,8 @@ export function ManagementShell(props: {
             />
             <Text class="text-muted-foreground text-xs">
               {props.store.voiceConfigured()
-                ? `${props.store.voiceProviderLabel()}凭证就绪`
-                : "尚未配置语音凭证"}
+                ? t("providerReady", { provider: props.store.voiceProviderLabel() })
+                : t("voiceCredentialsNotConfigured")}
             </Text>
           </View>
         </View>
@@ -203,31 +212,30 @@ export function ManagementShell(props: {
               }
               class="min-h-11 px-2.5 items-center justify-center active:opacity-75"
             >
-              <Text class="text-muted-foreground text-xs">停用家居</Text>
+              <Text class="text-muted-foreground text-xs">{t("disableHome95")}</Text>
             </Button>
           </If>
         </Scroll>
       </If>
 
       <If when={props.store.activeSpace() === "tasks"}>
-        <View class="flex-row items-center gap-2 flex-1 min-w-0 h-11">
+        <Scroll horizontal={true} scrollbar={false} class="flex-1 min-w-0 h-11" contentClass="flex-row items-center gap-2 h-11 pr-2">
           <Text class="text-foreground text-xs font-semibold">
-            任务与审计记录
-          </Text>
+            {t("tasksAndActivity")}</Text>
           <ActionButton
-            label="开始新对话"
+            label={t("newConversation")}
             testID="new-conversation-btn"
             compact={true}
             disabled={props.store.busy()}
             onPress={() => props.store.newConversation()}
           />
           <ActionButton
-            label="刷新"
+            label={t("refresh")}
             testID="refresh-tasks-btn"
             compact={true}
             onPress={() => props.store.refreshTasks(props.store.tasks().offset)}
           />
-        </View>
+        </Scroll>
       </If>
     </View>
   );
@@ -276,7 +284,7 @@ export function ManagementShell(props: {
           >
             <Button
               testID="back-to-face"
-              accessibilityLabel="返回桌宠主页"
+              accessibilityLabel={t("backToLooi")}
               onPress={() => props.store.backToFace()}
               class="min-h-11 px-2.5 rounded-xl bg-stage-bg border border-border flex-row items-center justify-center gap-1 active:opacity-75"
             >
@@ -298,10 +306,11 @@ export function ManagementShell(props: {
               onPress={() => props.store.backToFace()}
               class="min-h-11 px-2.5 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
             >
-              <Text class="text-foreground text-xs font-medium">返回</Text>
+              <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
             </Button>
           </View>
 
+          {languagePicker()}
           {/* Main Workspace */}
           <View class="flex-1 p-3 min-h-0 relative">
             {renderActiveWorkspace()}
@@ -319,10 +328,10 @@ export function ManagementShell(props: {
               paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)",
             }}
           >
-            {renderNavButton("models", "模型", "nav-models")}
-            {renderNavButton("voice", "语音", "nav-voice")}
-            {renderNavButton("home", "家居", "nav-home")}
-            {renderNavButton("tasks", "任务", "nav-tasks")}
+            {renderNavButton("models", () => t("models"), "nav-models")}
+            {renderNavButton("voice", () => t("voice"), "nav-voice")}
+            {renderNavButton("home", () => t("home"), "nav-home")}
+            {renderNavButton("tasks", () => t("tasks"), "nav-tasks")}
           </View>
         </View>
       }
@@ -336,14 +345,14 @@ export function ManagementShell(props: {
       >
         {/* 58pt Left Slim Rail */}
         <View
-          class="w-[58px] bg-sidebar border-r border-border pt-2.5 items-center justify-between"
+          class="w-[72px] bg-sidebar border-r border-border pt-2.5 items-center justify-between"
           style={{
             paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)",
           }}
         >
           <Button
             testID="back-to-face"
-            accessibilityLabel="返回桌宠主页"
+            accessibilityLabel={t("backToLooi")}
             onPress={() => props.store.backToFace()}
             class="w-11 h-11 rounded-xl bg-stage-bg border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
           >
@@ -352,10 +361,10 @@ export function ManagementShell(props: {
           </Button>
 
           <View class="gap-1.5 items-center">
-            {renderNavButton("models", "模型", "nav-models")}
-            {renderNavButton("voice", "语音", "nav-voice")}
-            {renderNavButton("home", "家居", "nav-home")}
-            {renderNavButton("tasks", "任务", "nav-tasks")}
+            {renderNavButton("models", () => t("models"), "nav-models")}
+            {renderNavButton("voice", () => t("voice"), "nav-voice")}
+            {renderNavButton("home", () => t("home"), "nav-home")}
+            {renderNavButton("tasks", () => t("tasks"), "nav-tasks")}
           </View>
 
           <View
@@ -378,6 +387,7 @@ export function ManagementShell(props: {
           >
             {renderContextPillBar()}
             <View class="flex-row items-center gap-2">
+              {languagePicker()}
               <Button
                 testID="appearance-cycle"
                 onPress={cycleAppearance}
@@ -392,7 +402,7 @@ export function ManagementShell(props: {
                 onPress={() => props.store.backToFace()}
                 class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
               >
-                <Text class="text-foreground text-xs font-medium">返回</Text>
+                <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
               </Button>
             </View>
           </View>

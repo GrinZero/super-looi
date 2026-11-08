@@ -332,7 +332,7 @@ try {
   try {
     await homeMobile.run("Continue", homeAction(), () => {});
   } catch (error) {
-    blocked = String(error).includes("待核实");
+    blocked = String(error).includes("@looi:runtimeThisConversationHasUnverifiedActionsReviewTaskHistory");
   }
   assert(
     blocked,

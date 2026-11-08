@@ -32,15 +32,23 @@ fn real_app_task_and_home_panels() -> Result<(), String> {
     config.ui_sets = sets;
     config.data_dir = Some(temp.path().to_owned());
     let mut app = Headless::start(config).map_err(|e| e.to_string())?;
-    app.wait_for_within("陪伴待机", Duration::from_secs(10))?;
+    app.wait_for_within("Standing by", Duration::from_secs(10))?;
+    app.set_environment("system Chinese", |environment| {
+        environment.locale = nsh_core::platform::Locale::parse("zh-CN").unwrap();
+    })?;
+    app.wait_for("陪伴待机")?;
+    app.set_environment("system English", |environment| {
+        environment.locale = nsh_core::platform::Locale::parse("en-US").unwrap();
+    })?;
+    app.wait_for("Standing by")?;
     app.press("compose")?;
-    app.wait_for_within("发送", Duration::from_secs(5))?;
+    app.wait_for_within("Send", Duration::from_secs(5))?;
     app.press("compose")?;
     app.press("connection-settings")?;
     app.wait_for_within("OpenAI / ChatGPT", Duration::from_secs(5))?;
     app.press("nav-voice")?;
-    app.wait_for_within("豆包实时语音凭证", Duration::from_secs(5))?;
+    app.wait_for_within("Doubao live voice credentials", Duration::from_secs(5))?;
     app.press("back-to-face")?;
-    app.wait_for_within("陪伴待机", Duration::from_secs(5))?;
+    app.wait_for_within("Standing by", Duration::from_secs(5))?;
     Ok(())
 }

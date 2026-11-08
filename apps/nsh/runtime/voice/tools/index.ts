@@ -27,7 +27,7 @@ export function createVoiceTools(host: VoiceToolHost, protocol: RealtimeProtocol
       const callId = typeof item.call_id === "string" ? item.call_id : "";
       if (!callId || callId.length > 256 || calls.has(callId)) return;
       if (calls.size >= 128) {
-        host.fail("本次语音任务较多，请重新开启");
+        host.fail("@looi:voiceTaskLimit");
         return;
       }
       calls.add(callId);

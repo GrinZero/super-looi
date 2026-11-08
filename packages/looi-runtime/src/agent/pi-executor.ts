@@ -1,3 +1,4 @@
+import { acknowledgementLanguage, conversationLanguageInstructions } from "./conversation-language.js";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -819,13 +820,17 @@ export class PiAgentExecutor implements AgentExecutor {
         emit,
       );
 
+      const previousAssistant = [...(restoredMessages ?? [])].reverse().find((message) => message.role === "assistant");
+      const acknowledgement = acknowledgementLanguage(prompt, previousAssistant?.role === "assistant" ? contentText(previousAssistant.content) : "", options.defaultLanguage ?? "zh-CN");
+      const turnLanguage = acknowledgement ? `\nFor this acknowledgement, reply only in ${acknowledgement === "en-US" ? "English" : "Simplified Chinese"}. This maintains the preceding conversation language.` : "";
       const agent = new Agent({
         initialState: {
           systemPrompt:
-            "你是 LOOI 的任务执行助手。使用真实工具完成任务；不要把失败说成已完成。不要启动后台进程或脱离管理的作业。",
+            "You are LOOI’s task assistant. Use real tools to complete tasks and report failures accurately. Do not start background processes or unmanaged jobs.\n" + conversationLanguageInstructions(options.defaultLanguage) + turnLanguage,
           model,
           tools,
-          ...(restoredMessages ? { messages: restoredMessages } : {}),
+          // Session history contains its old system message; use this run’s language policy.
+          ...(restoredMessages ? { messages: restoredMessages.filter(message => message.role !== "system") } : {}),
         },
         sessionId: task.sessionId,
         toolExecution: "sequential",
@@ -943,7 +948,7 @@ export class PiAgentExecutor implements AgentExecutor {
             abort();
             return;
           }
-          emit({ step, phase: "thinking", summary: "Pi Agent 正在思考…" });
+          emit({ step, phase: "thinking", summary: "@looi:runtimeAgentIsThinking" });
         } else if (event.type === "tool_execution_start") {
           if (trace && this.config.tracer) toolTraces.set(event.toolCallId, this.config.tracer.start(`agent.tool.${event.toolName}`, "tool", trace.context, { "langfuse.observation.input": event.args }));
           toolCallsCount++;
@@ -965,7 +970,7 @@ export class PiAgentExecutor implements AgentExecutor {
             step,
             phase: "tool_end",
             toolName: event.toolName,
-            summary: "工具已返回结果",
+            summary: "@looi:toolReturned",
           });
         }
       });
@@ -980,8 +985,8 @@ export class PiAgentExecutor implements AgentExecutor {
       task.state = "running";
       this.update(task);
 
-      const userPrompt = `${options.mode === "voice" ? "最终回答用简短自然的中文，适合语音口播。\n" : ""}${prompt}`;
-      await agent.prompt(userPrompt);
+      const userPrompt = `${options.mode === "voice" ? "Keep the final answer brief and natural for speech, following the conversation reply language.\n" : ""}${prompt}`;
+      await agent.prompt(acknowledgement ? `${userPrompt}\n\nReply in ${acknowledgement === "en-US" ? "English" : "Simplified Chinese"}, continuing the conversation’s language.` : userPrompt);
 
       if (worker.stopped) throw new Error(task.error ?? "Task cancelled");
 
@@ -1116,7 +1121,7 @@ export class PiAgentExecutor implements AgentExecutor {
         step: task.steps.at(-1)?.step ?? 0,
         phase: kind === "approval" ? "awaiting_approval" : "awaiting_input",
         summary:
-          kind === "approval" ? "此操作需要确认" : "Agent 正在等待你的回答",
+          kind === "approval" ? "@looi:approvalNeeded" : "@looi:agentAwaitingAnswer",
       });
     });
   }

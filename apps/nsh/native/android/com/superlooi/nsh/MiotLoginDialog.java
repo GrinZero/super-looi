@@ -42,7 +42,7 @@ public final class MiotLoginDialog {
 
     private MiotLoginDialog(long id, Activity owner) { this.id = id; this.owner = owner; }
 
-    public static synchronized boolean open(long id, String url) {
+    public static synchronized boolean open(long id, String url, boolean english) {
         Activity owner = SuperLooiApplication.foregroundActivity();
         if (owner == null || NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted("homeassistant.local")) return false;
         final long generation = lifecycleGeneration;
@@ -57,7 +57,7 @@ public final class MiotLoginDialog {
             if (current != null) current.finish(false);
             MiotLoginDialog login = new MiotLoginDialog(id, owner);
             current = login;
-            try { login.show(url); } catch (RuntimeException error) { login.finish(true); }
+            try { login.show(url, english); } catch (RuntimeException error) { login.finish(true); }
             }
         });
         return true;
@@ -70,12 +70,12 @@ public final class MiotLoginDialog {
         if (current != null && current.owner == owner) current.finish(false);
     }
 
-    private void show(String url) {
+    private void show(String url, boolean english) {
         dialog = new Dialog(owner, android.R.style.Theme_Material_Light_NoActionBar);
         LinearLayout layout = new LinearLayout(owner);
         layout.setOrientation(LinearLayout.VERTICAL);
         Button cancel = new Button(owner);
-        cancel.setText("取消米家登录");
+        cancel.setText(english ? "Cancel Xiaomi sign-in" : "取消米家登录");
         cancel.setMinHeight((int) (48 * owner.getResources().getDisplayMetrics().density));
         cancel.setOnClickListener(view -> finish(false));
         layout.addView(cancel, new LinearLayout.LayoutParams(-1, -2));

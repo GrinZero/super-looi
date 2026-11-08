@@ -1,7 +1,7 @@
 import { expect, open, test } from "nsh/test";
 
 test("keeps the pure face primary with inline ask bar and Structure 3 management shell", async () => {
-  const app = await open("./App.tsx");
+  const app = await open("./App.tsx", { locale: "zh-CN" });
 
   // 1. Initial screen has LIVE 对话, 对话, 连接
   expect(app.texts()).toContain("LIVE 对话");
@@ -72,4 +72,38 @@ test("keeps the pure face primary with inline ask bar and Structure 3 management
   expect(app.texts()).toContain("发送");
   await app.press("compose");
   expect(app.texts()).toContain("LIVE 对话");
+});
+
+test("language follows the system and a manual choice survives reopening", async () => {
+  const app = await open("./App.tsx", { locale: "en-GB" });
+  expect(app.texts()).toContain("Chat");
+  await app.press("connection-settings");
+  expect(app.texts()).toContain("Models");
+  await app.press("language-zh");
+  expect(app.texts()).toContain("模型");
+  await app.waitUntil(() => app.storage()["language-preference"] === "zh-CN");
+  const saved = app.storage();
+  app.dispose();
+  const restored = await open("./App.tsx", { locale: "en-US", storage: saved });
+  expect(restored.texts()).toContain("对话");
+  await restored.press("connection-settings");
+  await restored.press("language-system");
+  expect(restored.texts()).toContain("Models");
+  await restored.press("nav-voice");
+  expect(restored.texts()).toContain("Doubao live voice credentials");
+  await restored.press("nav-home");
+  expect(restored.texts()).toContain("Connect your Xiaomi Home account");
+  await restored.press("nav-tasks");
+  expect(restored.texts()).toContain("Tasks");
+});
+
+test("QuickJS formats English plurals and localized dates", async () => {
+  const en = await open("./I18nProbe.tsx", { locale: "en-US" });
+  expect(en.texts()).toContain("1 past action and Agent record");
+  expect(en.texts()).toContain("2 past actions and Agent records");
+  expect(en.texts()).toContain("November 8, 2026");
+  expect(en.texts()).toContain("12,345");
+  const zh = await open("./I18nProbe.tsx", { locale: "zh-Hans-CN" });
+  expect(zh.texts()).toContain("共 2 条历史操作与 Agent 审计记录");
+  expect(zh.texts()).toContain("2026年11月8日");
 });

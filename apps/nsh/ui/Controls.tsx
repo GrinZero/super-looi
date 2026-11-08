@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import { Text, View, Scroll, keyboardFrame, windowSize, type JSX } from "nsh";
 import { Button, Input, Dialog } from "nsh/base";
 
@@ -111,7 +112,7 @@ export function WakeGuideBar(props: { onPress: () => void; active: boolean }) {
   return (
     <Button
       testID="wake-guide"
-      accessibilityLabel={props.active ? "说 Hey LOOI 唤醒我，或轻触开启 LIVE 对话" : "轻触开启 LIVE 实时语音对话"}
+      accessibilityLabel={props.active ? t("sayHeyLooiToWakeMeOr") : t("tapToStartALiveVoiceConversation")}
       onPress={() => props.onPress()}
       class="flex-row items-center justify-center gap-3 px-3 py-1 active:opacity-75"
       style={{ minHeight: 52 }}
@@ -133,10 +134,9 @@ export function WakeGuideBar(props: { onPress: () => void; active: boolean }) {
               : "text-stage-muted text-base text-center"
           }
         >
-          <If when={props.active} else={<Text class="text-stage-muted">轻触开启 LIVE 实时语音对话</Text>}>
-            说 <Text class="text-stage-fg font-medium">Hey LOOI</Text> 唤醒我
-            {"  ·  "}
-            <Text class="text-stage-muted text-xs">轻触开启 LIVE 对话</Text>
+          <If when={props.active} else={<Text class="text-stage-muted">{t("tapToStartALiveVoiceConversation")}</Text>}>
+            {t("wakeGuideActive")}{"  ·  "}
+            <Text class="text-stage-muted text-xs">{t("tapToStartLive")}</Text>
           </If>
         </Text>
         <View
@@ -155,7 +155,7 @@ export function ResponsePreview(props: { text: string; onOpen: () => void }) {
   return (
     <Button
       testID="subtitle-capsule"
-      accessibilityLabel="查看完整回复"
+      accessibilityLabel={t("viewFullReply")}
       class="w-full rounded-full border border-stage-pill-border bg-glass-bg px-5 py-3 flex-row items-center gap-3 active:opacity-75"
       style={{ maxWidth: 720, minHeight: 54 }}
       onPress={() => props.onOpen()}
@@ -173,7 +173,7 @@ export function ResponsePreview(props: { text: string; onOpen: () => void }) {
           {props.text}
         </Text>
         <If when={props.text.length > 48 || props.text.includes("\n")}>
-          <Text class="text-stage-muted text-xs">轻触查看完整回复</Text>
+          <Text class="text-stage-muted text-xs">{t("tapToViewFullReply")}</Text>
         </If>
       </View>
     </Button>
@@ -250,7 +250,7 @@ export function Panel(props: {
             {props.title}
           </Text>
           <If when={props.dismissible !== false}>
-            <ActionButton label="关闭" onPress={() => props.onClose()} />
+            <ActionButton label={t("close")} onPress={() => props.onClose()} />
           </If>
         </View>
         <Scroll testID="panel-content" class="flex-1" style={{ minHeight: 0 }}>

@@ -65,7 +65,7 @@ impl MiotLoginBrowser {
         Self { session: None }
     }
     /// Validate an OAuth session and present its private login surface.
-    pub fn open(&mut self, authorization_url: String, redirect_uri: String) -> Result<(), String> {
+    pub fn open(&mut self, authorization_url: String, redirect_uri: String, language: Option<String>) -> Result<(), String> {
         let policy = Policy::new(&authorization_url, &redirect_uri)?;
         self.cancel();
         let session = Arc::new(Mutex::new(Session {
@@ -91,7 +91,7 @@ impl MiotLoginBrowser {
             *active = Arc::downgrade(&session);
         }
         self.session = Some(session.clone());
-        if let Err(error) = platform_open(&session, &authorization_url) {
+        if let Err(error) = platform_open(&session, &authorization_url, language.as_deref() == Some("en-US")) {
             self.cancel();
             return Err(error);
         }
@@ -145,18 +145,18 @@ impl Drop for MiotLoginBrowser {
     }
 }
 
-fn platform_open(session: &Shared, url: &str) -> Result<(), String> {
+fn platform_open(session: &Shared, url: &str, english: bool) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
-        android::open(session, url)
+        android::open(session, url, english)
     }
     #[cfg(target_os = "ios")]
     {
-        ios::open(session, url)
+        ios::open(session, url, english)
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        let _ = (session, url);
+        let _ = (session, url, english);
         Err("miot_browser_unavailable".into())
     }
 }

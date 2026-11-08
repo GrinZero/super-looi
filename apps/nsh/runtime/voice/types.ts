@@ -52,6 +52,7 @@ export interface VoiceState {
 
 export interface VoiceRuntimeOptions {
   vault: Vault;
+  defaultLanguage?: () => "zh-CN" | "en-US";
   audio: VoiceAudioPort;
   connect: (
     url: string,

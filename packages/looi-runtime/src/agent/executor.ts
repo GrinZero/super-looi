@@ -77,6 +77,7 @@ export interface AgentRunOptions {
   sessionId?: string;
   workspaceRoot?: string;
   mode?: "voice" | "text";
+  defaultLanguage?: "zh-CN" | "en-US";
   onStep?: (event: AgentStepEvent) => void;
   signal?: AbortSignal;
   resume?: boolean;
