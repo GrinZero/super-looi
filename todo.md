@@ -35,7 +35,8 @@
 
 ## NSH 后续功能
 
-- [ ] LOOI BLE 原生桥接及真机连接、断连、脱座与停止验证；共享驱动与状态机已保留。
+- [x] LOOI 具身底座 SDK 与 NSH 接入（方案见 [`docs/plans/nsh-looi-sdk-integration-plan.md`](docs/plans/nsh-looi-sdk-integration-plan.md)）：已完成 iOS / Android 双端 `LooiBle` 原生桥接、`BodyRuntime`、实时语音与 Pi Agent 双通道 `control_looi_body` 工具，以及去工程化的「底座」管理空间（经典方向轮盘 + 纵向头部滑动条 + 补光灯开关）。
+- [ ] LOOI 物理底座真机 BLE 扫描、3 步握手、`fed9` 磁吸上下座通知与轮盘/云台物理量程实测。
 - [ ] 双端真机麦克风、扬声器、AEC（回声消除）、后台音频和 LIVE 并发性能验证；模拟器合成 PCM 链路已有记录。
 - [ ] MIoT 完整 OAuth fixture、回调 GET / POST 307 / 子资源请求测试及真实设备回读。
 - [ ] 相机采集、视觉输入与前台保持唤醒的原生接线。

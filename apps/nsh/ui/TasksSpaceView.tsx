@@ -299,6 +299,29 @@ export function TasksSpaceView(props: {
               </View>
             </View>
           </If>
+
+          <If when={(currentTask()?.bodyActions?.length ?? 0) > 0}>
+            <View class="gap-1.5">
+              <Text class="text-muted-foreground text-xs">{t("bodyActionReceipts")}</Text>
+              <View class="gap-1.5">
+                <Each
+                  of={currentTask()?.bodyActions ?? []}
+                  key={(ba) => ba.requestId}
+                >
+                  {(ba) => (
+                    <View class="rounded-xl border border-border bg-muted p-3 gap-1 font-mono">
+                      <Text class="text-foreground text-xs font-mono">
+                        action: {ba().command.action} · status: {ba().status}
+                      </Text>
+                      <Text class="text-muted-foreground text-xs font-mono">
+                        {JSON.stringify(ba().receipt)}
+                      </Text>
+                    </View>
+                  )}
+                </Each>
+              </View>
+            </View>
+          </If>
         </View>
       </If>
     </View>

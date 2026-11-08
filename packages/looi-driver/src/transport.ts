@@ -15,10 +15,22 @@ export interface LooiNotificationEvent {
   bytes: Uint8Array;
 }
 
+export interface LooiDeviceCandidate {
+  id: string;
+  name: string;
+  rssi: number | null;
+}
+
+export interface LooiConnectTarget {
+  deviceId?: string;
+  deviceName?: string;
+}
+
 export interface LooiBleTransport {
   isConnected(): boolean;
-  connect(): Promise<void>;
+  connect(target?: LooiConnectTarget): Promise<void>;
   disconnect(): Promise<void>;
+  scanCandidates?(timeoutMs?: number): Promise<LooiDeviceCandidate[]>;
   write(
     characteristic: CharacteristicKey,
     payloadHex: string,
@@ -35,7 +47,8 @@ export interface LooiBleTransport {
  * Adapter interface matching native BLE libraries across Android BLE and iOS CoreBluetooth.
  */
 export interface NativeBleAdapter {
-  scanAndConnect(serviceUuid: string): Promise<void>;
+  scanCandidates?(serviceUuid: string, timeoutMs?: number): Promise<LooiDeviceCandidate[]>;
+  scanAndConnect(serviceUuid: string, target?: LooiConnectTarget): Promise<void>;
   disconnect(): Promise<void>;
   isConnected(): boolean;
   writeCharacteristicWithResponse(charKey: CharacteristicKey, hexPayload: string): Promise<void>;
@@ -76,13 +89,19 @@ export class CrossPlatformBleTransport implements LooiBleTransport {
     return !this.disposed && !this.disconnecting && this.adapter.isConnected();
   }
 
-  public async connect(): Promise<void> {
+  public async scanCandidates(timeoutMs = 3500): Promise<LooiDeviceCandidate[]> {
+    if (this.disposed) throw new Error("BLE transport disposed");
+    if (!this.adapter.scanCandidates) return [];
+    return this.adapter.scanCandidates(LOOI_SERVICE_UUID, timeoutMs);
+  }
+
+  public async connect(target?: LooiConnectTarget): Promise<void> {
     if (this.disposed) throw new Error("BLE transport disposed");
     if (this.disconnecting || this.connecting) throw new Error("BLE connection transition in progress");
     const generation = ++this.connectionGeneration;
     this.connecting = true;
     try {
-      await this.adapter.scanAndConnect(LOOI_SERVICE_UUID);
+      await this.adapter.scanAndConnect(LOOI_SERVICE_UUID, target);
       if (this.disposed || this.disconnecting || generation !== this.connectionGeneration) {
         await this.adapter.disconnect();
         throw new Error("BLE connection cancelled");
@@ -168,6 +187,10 @@ export class CrossPlatformBleTransport implements LooiBleTransport {
  */
 export class SimulatedBleTransport implements LooiBleTransport {
   public connected = false;
+  public connectedTarget: LooiConnectTarget | null = null;
+  public candidates: LooiDeviceCandidate[] = [
+    { id: "sim-looi-dock-01", name: "LOOI 桌面底座", rssi: -42 },
+  ];
   public writtenCommands: Array<{
     characteristic: CharacteristicKey;
     payload: string;
@@ -181,12 +204,22 @@ export class SimulatedBleTransport implements LooiBleTransport {
     return this.connected;
   }
 
-  public async connect(): Promise<void> {
+  public async scanCandidates(): Promise<LooiDeviceCandidate[]> {
+    return [...this.candidates];
+  }
+
+  public async connect(target?: LooiConnectTarget): Promise<void> {
     this.connected = true;
+    const defaultCandidate = this.candidates[0];
+    this.connectedTarget = target ?? {
+      deviceId: defaultCandidate?.id ?? "sim-looi-dock-01",
+      deviceName: defaultCandidate?.name ?? "LOOI 桌面底座",
+    };
   }
 
   public async disconnect(): Promise<void> {
     this.connected = false;
+    this.connectedTarget = null;
   }
 
   public async write(
@@ -231,8 +264,13 @@ export class SimulatedBleTransport implements LooiBleTransport {
     }
   }
 
+  public simulateDock(docked: boolean): void {
+    this.emitNotification("dockNotify", docked ? "05" : "06");
+  }
+
   public emitUnexpectedDisconnect(): void {
     this.connected = false;
+    this.connectedTarget = null;
     for (const listener of this.disconnectListeners) {
       listener();
     }

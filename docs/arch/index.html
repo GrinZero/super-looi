@@ -347,7 +347,7 @@
       $("node-description").textContent = node.description;
       $("file-tabs").innerHTML = node.files.map((file, index) => `<button role="tab" data-file="${index}" aria-selected="false" title="${escapeHtml(file.path)}">${escapeHtml(basename(file.path))}</button>`).join("");
       const relations = architecture.edges.filter((edge) => edge.from === id || edge.to === id).map((edge) => edge.from === id ? edge.to : edge.from);
-      $("related").innerHTML = relations.length ? `<span class="related-label">相邻模块</span>${[...new Set(relations)].map((id) => `<button data-related="${id}">${escapeHtml(byId.get(id).title)}</button>`).join("")}` : `<span class="related-label">${node.planned ? "原生 BLE 待接入，源码已保留。" : "共享依赖 · 点击文件可读完整实现。"}</span>`;
+      $("related").innerHTML = relations.length ? `<span class="related-label">相邻模块</span>${[...new Set(relations)].map((id) => `<button data-related="${id}">${escapeHtml(byId.get(id).title)}</button>`).join("")}` : `<span class="related-label">共享基础与具身硬件模块 · 点击文件可读完整实现。</span>`;
       updateHighlights();
       void showFile(Math.min(options.file ?? 0, node.files.length - 1), options.line ?? 0);
       if (options.reveal && matchMedia("(max-width:1190px)").matches) $("inspector").scrollIntoView({ behavior: "instant", block: "start" });

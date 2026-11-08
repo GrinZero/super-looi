@@ -7,7 +7,9 @@ import { ActionButton, LightToast } from "./Controls";
 import { ModelsSpaceView } from "./ModelsSpaceView";
 import { VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
+import { BodySpaceView } from "./BodySpaceView";
 import { TasksSpaceView } from "./TasksSpaceView";
+import { SettingsSpaceView } from "./SettingsSpaceView";
 
 export function ManagementShell(props: {
   store: ReturnType<typeof createAppStore>;
@@ -42,55 +44,50 @@ export function ManagementShell(props: {
     }
   });
 
-  const cycleAppearance = () => {
-    const current = props.store.appearanceMode();
-    if (current === "system") props.store.setAppearance("light");
-    else if (current === "light") props.store.setAppearance("dark");
-    else props.store.setAppearance("system");
-  };
-
-  const appearanceLabel = () => {
-    const mode = props.store.appearanceMode();
-    if (mode === "light") return t("appearanceLight");
-    if (mode === "dark") return t("appearanceDark");
-    return t("appearanceSystem");
-  };
-
-  const languagePicker = () => (
-    <View class="flex-row items-center gap-1">
-      <ActionButton testID="language-system" label={t("languageSystem")} compact={true} kind={props.store.languagePreference() === "system" ? "primary" : undefined} onPress={() => { void props.store.setLanguagePreference("system"); }} />
-      <ActionButton testID="language-zh" label="中文" compact={true} kind={props.store.languagePreference() === "zh-CN" ? "primary" : undefined} onPress={() => { void props.store.setLanguagePreference("zh-CN"); }} />
-      <ActionButton testID="language-en" label="EN" compact={true} kind={props.store.languagePreference() === "en-US" ? "primary" : undefined} onPress={() => { void props.store.setLanguagePreference("en-US"); }} />
-    </View>
-  );
-
   const wide = () => windowSize().width >= 600;
 
-  const renderNavButton = (space: AppSpace, label: () => string, testId: string) => {
+  const renderNavButton = (
+    space: AppSpace,
+    label: () => string,
+    testId: string,
+    rail = false,
+  ) => {
     const isSelected = () => props.store.activeSpace() === space;
+    const widthClass = rail ? "w-full min-h-11 px-1" : "min-h-11 min-w-11 px-2.5";
     return (
       <Button
         testID={testId}
+        selected={isSelected()}
         accessibilityLabel={label()}
         onPress={() => props.store.openSpace(space)}
         class={
           isSelected()
-            ? "min-h-11 min-w-11 px-1 rounded-xl bg-card border border-border items-center justify-center active:opacity-75"
-            : "min-h-11 min-w-11 px-1 rounded-xl items-center justify-center active:opacity-75"
+            ? `${widthClass} rounded-xl bg-card border border-border items-center justify-center active:opacity-75`
+            : `${widthClass} rounded-xl items-center justify-center active:opacity-75`
         }
       >
-        <View class="items-center justify-center relative">
+        <View class="w-full items-center justify-center relative">
           <Text
             class={
               isSelected()
-                ? "text-foreground text-xs font-bold"
-                : "text-muted-foreground text-xs font-medium"
+                ? "text-foreground text-xs font-bold text-center"
+                : "text-muted-foreground text-xs font-medium text-center"
             }
+            style={{ numberOfLines: 1 }}
           >
             {label()}
           </Text>
           <If when={space === "tasks" && props.store.recoveryCount() > 0}>
-            <View class="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-destructive" />
+            <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-destructive" />
+          </If>
+          <If
+            when={
+              space === "body" &&
+              props.store.bodyStatus().connected &&
+              props.store.bodyStatus().isDocked
+            }
+          >
+            <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-verified" />
           </If>
         </View>
       </Button>
@@ -218,6 +215,74 @@ export function ManagementShell(props: {
         </Scroll>
       </If>
 
+      <If when={props.store.activeSpace() === "body"}>
+        <View class="flex-1 min-w-0 h-11 flex-row items-center justify-between gap-2">
+          <Scroll
+            horizontal={true}
+            scrollbar={false}
+            class="flex-1 h-11"
+            contentClass="flex-row items-center gap-1.5 h-11"
+          >
+            <Button
+              testID="body-mode-ble"
+              selected={props.store.bodyStatus().mode !== "simulation"}
+              onPress={() =>
+                void props.store.configureBody({ mode: "real_ble" })
+              }
+              class={
+                props.store.bodyStatus().mode !== "simulation"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+              }
+            >
+              <Text
+                class={
+                  props.store.bodyStatus().mode !== "simulation"
+                    ? "text-primary-foreground text-xs font-semibold"
+                    : "text-muted-foreground text-xs font-medium"
+                }
+              >
+                {t("bleDock")}
+              </Text>
+            </Button>
+            <Button
+              testID="body-mode-sim"
+              selected={props.store.bodyStatus().mode === "simulation"}
+              onPress={() =>
+                void props.store.configureBody({ mode: "simulation" })
+              }
+              class={
+                props.store.bodyStatus().mode === "simulation"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+              }
+            >
+              <Text
+                class={
+                  props.store.bodyStatus().mode === "simulation"
+                    ? "text-primary-foreground text-xs font-semibold"
+                    : "text-muted-foreground text-xs font-medium"
+                }
+              >
+                {t("simulationMode")}
+              </Text>
+            </Button>
+          </Scroll>
+          <Button
+            testID="body-scan-btn"
+            disabled={props.store.bodyStatus().scanning}
+            onPress={() => void props.store.scanBodyDevices()}
+            class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-40"
+          >
+            <Text class="text-foreground text-xs font-medium">
+              {props.store.bodyStatus().scanning
+                ? t("scanningNearbyDocks")
+                : t("scanNearbyDocks")}
+            </Text>
+          </Button>
+        </View>
+      </If>
+
       <If when={props.store.activeSpace() === "tasks"}>
         <Scroll horizontal={true} scrollbar={false} class="flex-1 min-w-0 h-11" contentClass="flex-row items-center gap-2 h-11 pr-2">
           <Text class="text-foreground text-xs font-semibold">
@@ -236,6 +301,14 @@ export function ManagementShell(props: {
             onPress={() => props.store.refreshTasks(props.store.tasks().offset)}
           />
         </Scroll>
+      </If>
+
+      <If when={props.store.activeSpace() === "settings"}>
+        <View class="flex-row items-center gap-2 flex-1 min-w-0 h-11">
+          <Text class="text-foreground text-xs font-semibold">
+            {t("generalSettings")}
+          </Text>
+        </View>
       </If>
     </View>
   );
@@ -257,8 +330,14 @@ export function ManagementShell(props: {
           modeTab={() => homeModeTab()}
         />
       </If>
+      <If when={props.store.activeSpace() === "body"}>
+        <BodySpaceView store={props.store} />
+      </If>
       <If when={props.store.activeSpace() === "tasks"}>
         <TasksSpaceView store={props.store} />
+      </If>
+      <If when={props.store.activeSpace() === "settings"}>
+        <SettingsSpaceView store={props.store} />
       </If>
     </View>
   );
@@ -293,15 +372,6 @@ export function ManagementShell(props: {
             </Button>
             {renderContextPillBar()}
             <Button
-              testID="appearance-cycle"
-              onPress={cycleAppearance}
-              class="min-h-11 px-2.5 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
-            >
-              <Text class="text-foreground text-xs font-medium">
-                {appearanceLabel()}
-              </Text>
-            </Button>
-            <Button
               testID="back-btn"
               onPress={() => props.store.backToFace()}
               class="min-h-11 px-2.5 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
@@ -310,7 +380,6 @@ export function ManagementShell(props: {
             </Button>
           </View>
 
-          {languagePicker()}
           {/* Main Workspace */}
           <View class="flex-1 p-3 min-h-0 relative">
             {renderActiveWorkspace()}
@@ -331,7 +400,9 @@ export function ManagementShell(props: {
             {renderNavButton("models", () => t("models"), "nav-models")}
             {renderNavButton("voice", () => t("voice"), "nav-voice")}
             {renderNavButton("home", () => t("home"), "nav-home")}
+            {renderNavButton("body", () => t("body"), "nav-body")}
             {renderNavButton("tasks", () => t("tasks"), "nav-tasks")}
+            {renderNavButton("settings", () => t("settings"), "nav-settings")}
           </View>
         </View>
       }
@@ -343,9 +414,9 @@ export function ManagementShell(props: {
           paddingLeft: "env(safe-area-inset-left)",
         }}
       >
-        {/* 58pt Left Slim Rail */}
+        {/* Left Slim Rail */}
         <View
-          class="w-[72px] bg-sidebar border-r border-border pt-2.5 items-center justify-between"
+          class="w-20 bg-sidebar border-r border-border pt-2.5 items-center justify-between"
           style={{
             paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)",
           }}
@@ -360,12 +431,18 @@ export function ManagementShell(props: {
             <View class="w-2 h-2 rounded-full bg-eye-core" />
           </Button>
 
-          <View class="gap-1.5 items-center">
-            {renderNavButton("models", () => t("models"), "nav-models")}
-            {renderNavButton("voice", () => t("voice"), "nav-voice")}
-            {renderNavButton("home", () => t("home"), "nav-home")}
-            {renderNavButton("tasks", () => t("tasks"), "nav-tasks")}
-          </View>
+          <Scroll
+            scrollbar={false}
+            class="w-full flex-1 my-1"
+            contentClass="w-full px-1.5 gap-1 items-center justify-center grow"
+          >
+            {renderNavButton("models", () => t("models"), "nav-models", true)}
+            {renderNavButton("voice", () => t("voice"), "nav-voice", true)}
+            {renderNavButton("home", () => t("home"), "nav-home", true)}
+            {renderNavButton("body", () => t("body"), "nav-body", true)}
+            {renderNavButton("tasks", () => t("tasks"), "nav-tasks", true)}
+            {renderNavButton("settings", () => t("settings"), "nav-settings", true)}
+          </Scroll>
 
           <View
             class={
@@ -386,25 +463,13 @@ export function ManagementShell(props: {
             }}
           >
             {renderContextPillBar()}
-            <View class="flex-row items-center gap-2">
-              {languagePicker()}
-              <Button
-                testID="appearance-cycle"
-                onPress={cycleAppearance}
-                class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
-              >
-                <Text class="text-foreground text-xs font-medium">
-                  {appearanceLabel()}
-                </Text>
-              </Button>
-              <Button
-                testID="back-btn"
-                onPress={() => props.store.backToFace()}
-                class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
-              >
-                <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
-              </Button>
-            </View>
+            <Button
+              testID="back-btn"
+              onPress={() => props.store.backToFace()}
+              class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
+            >
+              <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
+            </Button>
           </View>
 
           {/* Bottom Workspace Body */}

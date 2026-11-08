@@ -17,8 +17,27 @@ import {
   LIGHT_PAYLOADS,
   DOCK_STATUS_HEX,
   createInitTimeHex,
+  type HeadPayloadKey,
 } from "./constants.js";
-import type { LooiBleTransport } from "./transport.js";
+import type { LooiBleTransport, LooiConnectTarget } from "./transport.js";
+
+export const HEAD_POSE_DEGREES: Record<HeadPayloadKey, number> = Object.freeze({
+  up: 85,
+  center: 55,
+  down: 25,
+});
+
+export interface BodySupervisorSnapshot {
+  state: BodySupervisorState;
+  isDocked: boolean;
+  lightOn: boolean;
+  headPose: HeadPayloadKey;
+  headDegrees: number;
+  activeLease: BodyActionLease | null;
+  sessionEpoch: Id;
+  lastVerifiedAt: string | null;
+  lastError: string | null;
+}
 
 export interface BodySupervisorEvents {
   onStateChange?: (state: BodySupervisorState, previousState: BodySupervisorState) => void;
@@ -37,6 +56,10 @@ export interface LeaseAcquisitionRequest {
 export class BodySupervisor {
   private state: BodySupervisorState = "disconnected";
   private isDocked = false;
+  private lightOn = false;
+  private headPose: HeadPayloadKey = "center";
+  private lastVerifiedAt: string | null = null;
+  private lastError: string | null = null;
   private currentSessionEpoch: Id = "";
   private currentLeaseEpoch = 0;
   private activeLease: BodyActionLease | null = null;
@@ -69,6 +92,18 @@ export class BodySupervisor {
     return this.isDocked;
   }
 
+  public getLightOn(): boolean {
+    return this.lightOn;
+  }
+
+  public getHeadPose(): HeadPayloadKey {
+    return this.headPose;
+  }
+
+  public getHeadDegrees(): number {
+    return HEAD_POSE_DEGREES[this.headPose];
+  }
+
   public getActiveLease(): BodyActionLease | null {
     return this.activeLease;
   }
@@ -77,11 +112,29 @@ export class BodySupervisor {
     return this.currentSessionEpoch;
   }
 
+  public getSnapshot(): BodySupervisorSnapshot {
+    return {
+      state: this.state,
+      isDocked: this.isDocked,
+      lightOn: this.lightOn,
+      headPose: this.headPose,
+      headDegrees: HEAD_POSE_DEGREES[this.headPose],
+      activeLease: this.activeLease ? { ...this.activeLease } : null,
+      sessionEpoch: this.currentSessionEpoch,
+      lastVerifiedAt: this.lastVerifiedAt,
+      lastError: this.lastError,
+    };
+  }
+
   /**
    * Connect and execute the verified 3-step LOOI handshake sequence,
    * supporting configurable retry on transient GATT write errors.
    */
-  public async connect(initDate: Date = new Date(), maxRetries = 2): Promise<void> {
+  public async connect(
+    initDate: Date = new Date(),
+    maxRetries = 2,
+    target?: LooiConnectTarget
+  ): Promise<void> {
     if (this.state !== "disconnected" && this.state !== "fault") {
       return;
     }
@@ -93,7 +146,11 @@ export class BodySupervisor {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await this.transport.connect();
+        if (target !== undefined) {
+          await this.transport.connect(target);
+        } else {
+          await this.transport.connect();
+        }
         this.transitionTo("connected_unarmed");
 
         // Subscribe to dock notifications (fed9)
@@ -111,6 +168,8 @@ export class BodySupervisor {
         // Step 3: handshakeControl -> 8101 (expected 2 bytes)
         await this.transport.write("handshakeControl", "8101", { response: true, expectedBytes: 2 });
 
+        this.lastVerifiedAt = new Date().toISOString();
+        this.lastError = null;
         if (this.isDocked) {
           this.transitionTo("ready");
         }
@@ -123,6 +182,7 @@ export class BodySupervisor {
       }
     }
 
+    this.lastError = lastError?.message ?? "Handshake failed";
     this.transitionTo("fault");
     this.events.onError?.(lastError!);
     throw lastError!;
@@ -135,6 +195,8 @@ export class BodySupervisor {
     this.clearLeaseTimer();
     this.activeLease = null;
     this.isDocked = false;
+    this.lightOn = false;
+    this.headPose = "center";
     this.rejectInFlightPulses(new Error("Unexpected BLE transport disconnect"));
     this.transitionTo("disconnected");
   }
@@ -244,16 +306,20 @@ export class BodySupervisor {
           break;
         case "head_up":
           await this.transport.write("head", HEAD_PAYLOADS.up, { response: false });
+          this.headPose = "up";
           break;
         case "head_center":
           await this.transport.write("head", HEAD_PAYLOADS.center, { response: false });
+          this.headPose = "center";
           break;
         case "head_down":
           await this.transport.write("head", HEAD_PAYLOADS.down, { response: false });
+          this.headPose = "down";
           break;
         default:
           throw new Error(`Unsupported primitive: ${lease.primitive}`);
       }
+      this.lastVerifiedAt = new Date().toISOString();
     } catch (err) {
       await this.stop("fault");
       throw err;
@@ -272,39 +338,39 @@ export class BodySupervisor {
     const lease = await this.acquireLease(request);
     await this.executePrimitive(lease);
 
-    // Wait for lease duration, with preemption handling
-    const pulsePromise = new Promise<void>((resolve, reject) => {
-      this.pulsePreemptRejectMap.set(lease.lease_id, reject);
-      setTimeout(() => {
-        resolve();
-      }, lease.duration_ms);
-    });
+    const waitPreemptible = (ms: number) =>
+      new Promise<void>((resolve, reject) => {
+        this.pulsePreemptRejectMap.set(lease.lease_id, reject);
+        setTimeout(resolve, ms);
+      });
 
     try {
-      await pulsePromise;
+      await waitPreemptible(lease.duration_ms);
+      this.clearLeaseTimer();
+
+      const stopCommandAt = new Date().toISOString();
+      // Stop wheels/head on pulse completion
+      await this.transport.write("drive", MOVE_PAYLOADS.stop, { response: false });
+
+      // Settling delay for stable image capture
+      if (settlingMs > 0) {
+        await waitPreemptible(settlingMs);
+      }
+
+      if (this.activeLease?.lease_id === lease.lease_id) {
+        await this.stop("lease_expired");
+      }
+
+      return {
+        stop_command_at: stopCommandAt,
+        // A stop write and elapsed settling time do not prove physical stability.
+        verified_motion_end_at: null,
+        stable_capture_at: null,
+        stability_evidence_ids: [],
+      };
     } finally {
       this.pulsePreemptRejectMap.delete(lease.lease_id);
     }
-    this.clearLeaseTimer();
-
-    const stopCommandAt = new Date().toISOString();
-    // Stop wheels/head on pulse completion
-    await this.transport.write("drive", MOVE_PAYLOADS.stop, { response: false });
-
-    // Settling delay for stable image capture
-    if (settlingMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, settlingMs));
-    }
-
-    await this.stop("lease_expired");
-
-    return {
-      stop_command_at: stopCommandAt,
-      // A stop write and elapsed settling time do not prove physical stability.
-      verified_motion_end_at: null,
-      stable_capture_at: null,
-      stability_evidence_ids: [],
-    };
   }
 
   /**
@@ -340,9 +406,23 @@ export class BodySupervisor {
     void this.stop(reason);
   }
 
+  public async setHead(pose: HeadPayloadKey): Promise<void> {
+    if (!this.isDocked) {
+      throw new Error("Cannot set head pose: LOOI is not docked (safety lock active).");
+    }
+    const selfWindow = createSelfEventWindow("head_tilt", 350, ["camera", "microphone", "imu"]);
+    this.activeSelfWindows.push(selfWindow);
+    this.events.onSelfEvent?.(selfWindow);
+    await this.transport.write("head", HEAD_PAYLOADS[pose], { response: false });
+    this.headPose = pose;
+    this.lastVerifiedAt = new Date().toISOString();
+  }
+
   public async setLight(on: boolean): Promise<void> {
     const payload = on ? LIGHT_PAYLOADS.on : LIGHT_PAYLOADS.off;
     await this.transport.write("light", payload, { response: false });
+    this.lightOn = on;
+    this.lastVerifiedAt = new Date().toISOString();
   }
 
   public recordExternalSelfEvent(window: SelfEventWindow): void {
@@ -370,6 +450,8 @@ export class BodySupervisor {
       this.clearLeaseTimer();
       this.activeLease = null;
       this.isDocked = false;
+      this.lightOn = false;
+      this.headPose = "center";
       this.isTearingDown = false;
       this.unsubscribeTransportDisconnect?.();
       this.unsubscribeTransportDisconnect = undefined;

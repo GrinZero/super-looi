@@ -1,3 +1,4 @@
+import { createControlLooiBody } from "./control-looi-body.js";
 import { createEndConversation } from "./end-conversation.js";
 import { createRunAgentTask } from "./run-agent-task.js";
 import type { VoiceToolHost } from "./types.js";
@@ -12,12 +13,13 @@ export function createVoiceTools(host: VoiceToolHost, protocol: RealtimeProtocol
   };
   const task = createRunAgentTask(context);
   const farewell = createEndConversation(context);
-  const definitions = [task, farewell];
+  const body = createControlLooiBody(context);
+  const definitions = host.controlBody ? [task, farewell, body] : [task, farewell];
   const calls = new Set<string>();
 
   return {
     schemas: definitions.map(({ schema }) => schema),
-    get busy() { return task.busy; },
+    get busy() { return task.busy || body.busy; },
     get closingAfterFarewell() { return farewell.closing; },
     get farewellComplete() { return farewell.complete; },
     onAudioStarted: farewell.onAudioStarted,
@@ -38,6 +40,7 @@ export function createVoiceTools(host: VoiceToolHost, protocol: RealtimeProtocol
       calls.clear();
       task.reset();
       farewell.reset();
+      body.reset();
     },
   };
 }

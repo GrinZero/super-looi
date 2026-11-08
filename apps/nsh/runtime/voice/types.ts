@@ -61,6 +61,7 @@ export interface VoiceRuntimeOptions {
   onState: (state: VoiceState) => void;
   onAudioLevel?: (level: number) => void;
   requestTask: (prompt: string, traceContext?: TraceContext) => Promise<string>;
+  controlBody?: (action: string, durationMs?: number) => Promise<unknown>;
   cancelTask: () => void;
   protocol?: RealtimeProtocolAdapter;
   tracer?: LangfuseTracer;

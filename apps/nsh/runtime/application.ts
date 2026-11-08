@@ -28,6 +28,16 @@ import {
 } from "@super-looi/runtime/agent/llm-providers";
 
 import { HomeRuntime, type HomeSettings } from "./home.js";
+import {
+  BodyRuntime,
+  type BodyActionReceipt,
+  type BodyConfiguration,
+  type BodyConnectionMode,
+  type BodyControlAction,
+  type BodyControlInput,
+  type BodyStatusSnapshot,
+  type NativeBlePort,
+} from "./body.js";
 import { chooseConnectedModelId, fetchOnlineModels, type OnlineModel } from "./model-list.js";
 import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
@@ -53,6 +63,13 @@ export type {
   CustomEndpointConfig,
   ActiveLlmSelection,
   ModelVaultEnvelope,
+  BodyConfiguration,
+  BodyConnectionMode,
+  BodyControlAction,
+  BodyControlInput,
+  BodyStatusSnapshot,
+  BodyActionReceipt,
+  NativeBlePort,
 };
 
 export interface LlmModelItem {
@@ -122,6 +139,7 @@ export class MobileRuntime {
     this.storage.tasks,
   );
   private readonly home: HomeRuntime;
+  private readonly body: BodyRuntime;
   private readonly credentialStore: VaultCredentialStore;
   private readonly modelsRegistry: MutableModels;
   private readonly fetchedModels = new Map<string, OnlineModel[]>();
@@ -151,7 +169,11 @@ export class MobileRuntime {
       this.database.exec(
         "CREATE TABLE IF NOT EXISTS home_action_evidence (request_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, evidence TEXT NOT NULL)",
       );
+      this.database.exec(
+        "CREATE TABLE IF NOT EXISTS body_action_evidence (request_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, evidence TEXT NOT NULL)",
+      );
       this.home = new HomeRuntime({ vault });
+      this.body = new BodyRuntime({ vault });
       this.credentialStore = new VaultCredentialStore(vault, {
         conversationId: () => this.conversationId,
       });
@@ -306,6 +328,79 @@ export class MobileRuntime {
     return this.home.list(query, offset);
   }
 
+  bodyConfiguration(): BodyConfiguration {
+    return this.body.configuration();
+  }
+
+  bodyStatus(): BodyStatusSnapshot {
+    return this.body.status();
+  }
+
+  attachNativeBle(port: NativeBlePort | null): BodyStatusSnapshot {
+    return this.body.attachNativeBle(port);
+  }
+
+  async configureBody(
+    input: Partial<BodyConfiguration>,
+    action: UserActionRef,
+  ): Promise<BodyStatusSnapshot> {
+    if (
+      this.closed ||
+      this.busy ||
+      this.loginPending ||
+      Boolean(this.llmOAuthAbort)
+    )
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId)
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
+    const prevMode = this.body.configuration().mode;
+    const result = await this.body.configure(input);
+    const nextMode = this.body.configuration().mode;
+    if (prevMode !== nextMode) {
+      const envelope = this.credentialStore.readEnvelope();
+      if (
+        envelope.active &&
+        envelope.credentials[envelope.active.providerId] &&
+        !this.closed
+      ) {
+        await this.executor?.close();
+        this.executor = this.createExecutorForSelection(envelope.active);
+      }
+    }
+    return result;
+  }
+
+  async scanBodyDevices(timeoutMs?: number): Promise<BodyStatusSnapshot> {
+    return this.body.scan(timeoutMs);
+  }
+
+  async connectBodyDevice(target?: {
+    deviceId?: string;
+    deviceName?: string;
+  }): Promise<BodyStatusSnapshot> {
+    return this.body.connect(target);
+  }
+
+  async disconnectBody(): Promise<BodyStatusSnapshot> {
+    return this.body.disconnect();
+  }
+
+  setSimulatedDock(docked: boolean): BodyStatusSnapshot {
+    return this.body.setSimulatedDock(docked);
+  }
+
+  async controlBody(
+    input: BodyControlInput,
+    holder = "user_panel",
+  ): Promise<BodyActionReceipt> {
+    return this.body.control(input, holder);
+  }
+
+  async stopBody(): Promise<BodyStatusSnapshot> {
+    return this.body.stop("user_stop");
+  }
+
   configuration(): { baseUrl: string; model: string; hasKey: boolean } {
     const envelope = this.credentialStore.readEnvelope();
     if (envelope.active) {
@@ -379,7 +474,13 @@ export class MobileRuntime {
       )
       .all(task.id)
       .map((row) => JSON.parse(String(row.evidence)));
-    return { ...structuredClone(task), homeActions };
+    const bodyActions = this.database
+      .prepare(
+        "SELECT evidence FROM body_action_evidence WHERE task_id = ? ORDER BY rowid",
+      )
+      .all(task.id)
+      .map((row) => JSON.parse(String(row.evidence)));
+    return { ...structuredClone(task), homeActions, bodyActions };
   }
 
   newConversation(action: UserActionRef): void {
@@ -595,6 +696,7 @@ export class MobileRuntime {
     const credential = this.credentialStore.readEnvelope().credentials[selection.providerId];
     if (credential?.type === "api_key" && credential.key) this.tracer.registerSecret(credential.key);
     const homeEnabled = this.home.configuration().mode !== "disabled";
+    const bodyEnabled = this.body.configuration().mode !== "disabled";
     return new PiAgentExecutor({
       tracer: this.tracer,
       modelsRegistry: this.modelsRegistry,
@@ -606,9 +708,83 @@ export class MobileRuntime {
       approvalUiSessionId: this.uiSessionId,
       requireApprovalForAllWrites: true,
       maxConcurrentTasks: 1,
-      additionalTools: homeEnabled ? [...this.homeTools()] : [],
+      additionalTools: [
+        ...(homeEnabled ? this.homeTools() : []),
+        ...(bodyEnabled ? this.bodyTools() : []),
+      ],
       approvalRequiredTools: homeEnabled ? ["control_home_device"] : [],
     });
+  }
+
+  private bodyTools(): AgentTool<any>[] {
+    const result = (value: unknown) => ({
+      content: [{ type: "text" as const, text: JSON.stringify(value) }],
+      details: { value },
+    });
+    return [
+      {
+        name: "get_looi_body_status",
+        label: "查看底座状态",
+        description:
+          "Read current LOOI physical dock connection, docked status, head pitch angle, and fill light state.",
+        parameters: obj({}),
+        execute: async () => result(this.body.status()),
+      },
+      {
+        name: "control_looi_body",
+        label: "控制底座动作",
+        description:
+          "Control LOOI dock head pitch (head_up/head_center/head_down), bounded wheel pulse movement (forward/backward/turn_left/turn_right), fill light (light_on/light_off), or stop. Requires isDocked=true for head/wheel motion.",
+        parameters: obj({
+          action: oneOf([
+            "head_up",
+            "head_center",
+            "head_down",
+            "forward",
+            "backward",
+            "turn_left",
+            "turn_right",
+            "light_on",
+            "light_off",
+            "stop",
+          ]),
+          duration_ms: opt(int({ minimum: 50, maximum: 1200 })),
+        }),
+        execute: async (callId, args, signal) => {
+          if (signal?.aborted || !this.taskId) throw new Error("@looi:runtimeTaskStopped");
+          const taskId = this.taskId;
+          const requestId = createHash("sha256")
+            .update(`${taskId}:body:${callId}`)
+            .digest("hex");
+          const command = {
+            action: args.action as BodyControlAction,
+            ...(args.duration_ms !== undefined ? { durationMs: args.duration_ms } : {}),
+          };
+          const evidence = {
+            requestId,
+            command,
+            simulation: this.body.configuration().mode === "simulation",
+            recordedAt: new Date().toISOString(),
+            status: "unknown",
+            receipt: null as unknown,
+          };
+          this.database
+            .prepare(
+              "INSERT INTO body_action_evidence (request_id, task_id, evidence) VALUES (?, ?, ?)",
+            )
+            .run(requestId, taskId, JSON.stringify(evidence));
+          const receipt = await this.body.control(command, "pi_agent");
+          evidence.status = receipt.status;
+          evidence.receipt = receipt;
+          this.database
+            .prepare(
+              "UPDATE body_action_evidence SET evidence = ? WHERE request_id = ?",
+            )
+            .run(JSON.stringify(evidence), requestId);
+          return result({ status: receipt.status, receipt });
+        },
+      },
+    ];
   }
 
   private homeTools(): AgentTool<any>[] {
@@ -758,6 +934,7 @@ export class MobileRuntime {
     this.cancelMiotLogin();
     this.cancelProviderOAuth();
     this.home.suspend();
+    void this.body.stop("user_stop");
     const taskId = this.taskId;
     const result =
       taskId && this.executor
@@ -773,6 +950,7 @@ export class MobileRuntime {
     this.closed = true;
     this.cancelProviderOAuth();
     this.home.close();
+    this.body.close();
     this.closing = (async () => {
       try {
         await this.executor?.close();

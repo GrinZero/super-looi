@@ -16,6 +16,7 @@ import {
   NodeCompat,
   VoiceAudio,
   MiotLoginBrowser,
+  LooiBle,
 } from "super-looi/native";
 import { connect } from "websocket";
 import {
@@ -24,6 +25,9 @@ import {
   type VoiceState,
   openRuntime,
   RobotFaceController,
+  type BodyConfiguration,
+  type BodyControlAction,
+  type BodyStatusSnapshot,
   type HomeConfiguration,
   type HomeConnection,
   type NativeRuntime,
@@ -36,8 +40,19 @@ import {
 } from "./generated/looi-runtime.js";
 type TraceContext = { traceId: string; parentSpanId?: string; traceName: string; sessionId?: string };
 
-export type AppSpace = "face" | "models" | "voice" | "home" | "tasks";
+export type AppSpace =
+  | "face"
+  | "models"
+  | "voice"
+  | "home"
+  | "body"
+  | "tasks"
+  | "settings";
 export type AppearancePreference = "system" | "light" | "dark";
+
+const WAKE_GUIDE_DISMISSED_KEY = "wake-guide-dismissed";
+const LANGUAGE_PREFERENCE_KEY = "language-preference";
+const APPEARANCE_PREFERENCE_KEY = "appearance-preference";
 
 export const INITIAL_LLM_SNAPSHOT: LlmCatalogSnapshot = {
   brands: [
@@ -284,7 +299,7 @@ export function createAppStore() {
     status = signal("@looi:runtimeStandingBy"),
     message = signal(""),
     toast = signal(""),
-    wakeGuideDismissed = signal(false);
+    wakeGuideDismissed = signal(true);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   const notify = (text: string) => {
     if (!alive) return;
@@ -299,10 +314,11 @@ export function createAppStore() {
   const voiceState = signal<VoiceState>({
     phase: "idle",
     muted: false,
-    wakeEnabled: false,
+    wakeEnabled: true,
     transcript: "",
     error: "",
   });
+  const voiceAudioLevel = signal(0);
   const voiceConfigured = signal(false);
   const voiceProviderId = signal("doubao");
   const voiceId = signal("");
@@ -324,6 +340,7 @@ export function createAppStore() {
       pendingVoice = undefined;
     }
     voiceTask.set("");
+    void runtime?.stopBody().catch(() => {});
     if (voiceExecuting) {
       void runtime?.cancel().catch(() => {});
       voiceExecuting = false;
@@ -332,6 +349,10 @@ export function createAppStore() {
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
   const appearancePreference = signal<AppearancePreference>("system");
+  let languagePreferenceTouched = false;
+  let appearancePreferenceTouched = false;
+  let wakePreferenceTouched = false;
+  let wakeGuideTouched = false;
   const llmSnapshot = signal<LlmCatalogSnapshot>(INITIAL_LLM_SNAPSHOT);
   const oauthFlow = signal<{
     running: boolean;
@@ -362,6 +383,31 @@ export function createAppStore() {
   const homeDevices = signal<Record<string, unknown>>({});
   const homeLoggingIn = signal(false);
   let homeLogin: MiotLoginFlow | undefined;
+  const bodyConfiguration = signal<BodyConfiguration>({
+    mode: "real_ble",
+    savedDeviceId: "",
+    savedDeviceName: "LOOI 桌面底座",
+    autoConnect: true,
+  });
+  const bodyStatus = signal<BodyStatusSnapshot>({
+    mode: "real_ble",
+    simulation: false,
+    permission: "undetermined",
+    supervisorState: "disconnected",
+    connected: false,
+    isDocked: false,
+    lightOn: false,
+    headPose: "center",
+    headDegrees: 55,
+    deviceId: null,
+    deviceName: "LOOI 桌面底座",
+    autoConnect: true,
+    scanning: false,
+    candidates: [],
+    lastVerifiedAt: null,
+    error: null,
+  });
+  const bodyActiveCommand = signal<BodyControlAction | null>(null);
   const recoveryCount = signal(0);
   const tasks = signal<NativeTaskPage>({ total: 0, offset: 0, items: [] });
   const task = signal<NativeTask | undefined>(undefined);
@@ -394,6 +440,7 @@ export function createAppStore() {
   };
   const stop = async () => {
     interaction.set(undefined);
+    void runtime?.stopBody().catch(() => {});
     try {
       const stopped = await runtime?.cancel();
       if (!alive) return;
@@ -418,6 +465,7 @@ export function createAppStore() {
     if (lifecycle() !== "active") {
       homeLogin?.cancel();
       runtime?.cancelProviderOAuth();
+      void runtime?.stopBody().catch(() => {});
       if (voiceState().phase !== "idle") voice?.stop();
       if (driver.getState().expression !== "sleeping") {
         driver.setExpression("sleeping");
@@ -442,10 +490,48 @@ export function createAppStore() {
     }, 4800);
     return () => clearInterval(timer);
   });
+  effect(() => {
+    if (
+      !ready() ||
+      lifecycle() !== "active" ||
+      (!bodyStatus().connected && activeSpace() !== "body")
+    ) {
+      return;
+    }
+    const timer = setInterval(() => {
+      if (alive && runtime && !bodyStatus().scanning) {
+        bodyStatus.set(runtime.bodyStatus());
+      }
+    }, 250);
+    return () => clearInterval(timer);
+  });
   void (async () => {
     try {
-      const savedLanguage = await Storage.getItem("language-preference");
-      if (savedLanguage === "zh-CN" || savedLanguage === "en-US") languagePreference.set(savedLanguage);
+      const [savedLanguage, savedAppearance, savedWakeGuide] =
+        await Promise.all([
+          Storage.getItem(LANGUAGE_PREFERENCE_KEY),
+          Storage.getItem(APPEARANCE_PREFERENCE_KEY),
+          Storage.getItem(WAKE_GUIDE_DISMISSED_KEY),
+        ]);
+      if (!alive) return;
+      if (
+        !languagePreferenceTouched &&
+        (savedLanguage === "zh-CN" || savedLanguage === "en-US")
+      ) {
+        languagePreference.set(savedLanguage);
+      }
+      if (
+        !appearancePreferenceTouched &&
+        (savedAppearance === "system" ||
+          savedAppearance === "light" ||
+          savedAppearance === "dark")
+      ) {
+        setColorScheme(savedAppearance);
+        appearancePreference.set(savedAppearance);
+      }
+      if (!wakeGuideTouched) {
+        wakeGuideDismissed.set(savedWakeGuide === "true");
+      }
       const vault = new CredentialVault();
       const opened = await openRuntime(new NodeCompat(), vault);
       if (!alive) {
@@ -453,6 +539,11 @@ export function createAppStore() {
         return;
       }
       runtime = opened;
+      try {
+        opened.attachNativeBle(new LooiBle());
+      } catch {}
+      bodyConfiguration.set(opened.bodyConfiguration());
+      bodyStatus.set(opened.bodyStatus());
       voice = new VoiceRuntime({
         vault,
         defaultLanguage: effectiveLocale,
@@ -464,6 +555,7 @@ export function createAppStore() {
           const previousError = voiceState().error;
           voiceState.set(state);
           if (state.phase !== "listening" && state.phase !== "speaking") {
+            voiceAudioLevel.set(0);
             driver.updateAudioLevel(0);
             face.set(driver.getState());
           }
@@ -473,6 +565,7 @@ export function createAppStore() {
         },
         onAudioLevel: (level) => {
           if (alive) {
+            voiceAudioLevel.set(level);
             driver.updateAudioLevel(level);
             face.set(driver.getState());
           }
@@ -491,7 +584,24 @@ export function createAppStore() {
           }
         },
         cancelTask: cancelVoiceTask,
+        controlBody: async (actionName, durationMs) => {
+          if (!alive || !runtime) {
+            throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
+          }
+          const receipt = await runtime.controlBody(
+            {
+              action: actionName as BodyControlAction,
+              ...(durationMs !== undefined ? { durationMs } : {}),
+            },
+            "voice_realtime",
+          );
+          if (alive) bodyStatus.set(runtime.bodyStatus());
+          return receipt;
+        },
       });
+      if (wakePreferenceTouched) {
+        voice.setWakeEnabled(voiceState().wakeEnabled, { autoStandby: false });
+      }
       voiceConfigured.set(voice.configuration().hasKey);
       voiceProviderId.set(voice.configuration().providerId);
       voiceId.set(voice.configuration().voiceId);
@@ -544,8 +654,13 @@ export function createAppStore() {
     languagePreference: () => languagePreference(),
     effectiveLocale,
     async setLanguagePreference(value: LanguagePreference) {
+      languagePreferenceTouched = true;
       languagePreference.set(value);
-      await Storage.setItem("language-preference", value);
+      try {
+        await Storage.setItem(LANGUAGE_PREFERENCE_KEY, value);
+      } catch (error) {
+        if (alive) fail(error);
+      }
     },
     activeSpace: () => activeSpace(),
     openSpace(space: AppSpace) {
@@ -572,8 +687,12 @@ export function createAppStore() {
     appearance: () => colorScheme(),
     appearanceMode: () => appearancePreference(),
     setAppearance(mode: AppearancePreference) {
+      appearancePreferenceTouched = true;
       setColorScheme(mode);
       appearancePreference.set(mode);
+      void Storage.setItem(APPEARANCE_PREFERENCE_KEY, mode).catch((error) => {
+        if (alive) fail(error);
+      });
     },
     llm: () => ({ ...llmSnapshot(), brands: llmSnapshot().brands.map(brand => {
       const labels = INITIAL_LLM_SNAPSHOT.brands.find(item => item.brandId === brand.brandId);
@@ -756,13 +875,14 @@ export function createAppStore() {
       });
     },
     voiceState: () => ({ ...voiceState(), error: translateMessage(voiceState().error) }),
+    voiceAudioLevel: () => voiceAudioLevel(),
     voiceConfigured: () => voiceConfigured(),
     voiceId: () => voiceId(),
     voiceProviderId: () => voiceProviderId(),
     voiceProviderLabel: () => translateMessage(voice?.configuration().providerLabel ?? "@looi:runtimeDoubao"),
     voiceTask: () => voiceTask(),
     async startVoice() {
-      wakeGuideDismissed.set(true);
+      api.dismissWakeGuide();
       try {
         await voice?.start();
       } catch (error) {
@@ -771,9 +891,19 @@ export function createAppStore() {
     },
     stopVoice() {
       voice?.endSession();
+      void runtime?.stopBody().catch(() => {});
     },
     setWakeEnabled(enabled: boolean) {
-      try { voice?.setWakeEnabled(enabled); }
+      wakePreferenceTouched = true;
+      if (!voice) {
+        voiceState.update((previous) => ({ ...previous, wakeEnabled: enabled }));
+        return;
+      }
+      try {
+        voice.setWakeEnabled(enabled, {
+          autoStandby: ready() && lifecycle() === "active" && !homeLoggingIn(),
+        });
+      }
       catch (error) { fail(error); }
     },
     muteVoice(value: boolean) {
@@ -781,6 +911,7 @@ export function createAppStore() {
     },
     interruptVoice() {
       voice?.interrupt();
+      void runtime?.stopBody().catch(() => {});
     },
     configureVoice(key: string) {
       if (!voice) throw new Error("@looi:runtimeVoiceIsNotReady");
@@ -818,7 +949,10 @@ export function createAppStore() {
     notify,
     wakeGuideDismissed: () => wakeGuideDismissed(),
     dismissWakeGuide() {
+      if (wakeGuideTouched && wakeGuideDismissed()) return;
+      wakeGuideTouched = true;
       wakeGuideDismissed.set(true);
+      void Storage.setItem(WAKE_GUIDE_DISMISSED_KEY, "true").catch(fail);
     },
     status: () => translateMessage(
       busy()
@@ -827,8 +961,6 @@ export function createAppStore() {
           ? "@looi:runtimeVoiceTaskAwaitingApproval"
           : voiceState().phase === "connecting"
             ? "@looi:runtimeConnectingLive"
-            : voiceState().phase === "standby"
-              ? "@looi:runtimeStandbyListeningForHeyLooi"
             : voiceState().phase === "speaking"
               ? "@looi:runtimeLooiIsSpeaking"
               : voiceState().phase === "listening"
@@ -890,6 +1022,228 @@ export function createAppStore() {
       homeDevices.set(await runtime.listHome());
       homeConnection.set(runtime.homeConnection());
     },
+    bodyConfiguration: () => bodyConfiguration(),
+    bodyStatus: () => ({
+      ...bodyStatus(),
+      error: bodyStatus().error
+        ? translateMessage(
+            bodyStatus().error!.startsWith("@looi:")
+              ? bodyStatus().error!
+              : `@looi:${bodyStatus().error}`,
+          )
+        : null,
+    }),
+    bodyActiveCommand: () => bodyActiveCommand(),
+    async configureBody(next: Partial<BodyConfiguration>) {
+      if (!runtime) {
+        const merged: BodyConfiguration = {
+          ...bodyConfiguration(),
+          ...next,
+        };
+        bodyConfiguration.set(merged);
+        if (merged.mode === "simulation") {
+          const defaultCandidates = [
+            { id: "sim-looi-dock-01", name: "LOOI 桌面底座", rssi: -42 },
+            { id: "sim-looi-bedroom-02", name: "卧室的 LOOI", rssi: -65 },
+          ];
+          bodyStatus.update((prev) => ({
+            ...prev,
+            mode: "simulation",
+            simulation: true,
+            permission: "granted",
+            supervisorState: "ready",
+            connected: true,
+            isDocked: true,
+            deviceId: merged.savedDeviceId || defaultCandidates[0].id,
+            deviceName: merged.savedDeviceName || defaultCandidates[0].name,
+            autoConnect: merged.autoConnect,
+            candidates: defaultCandidates,
+            error: null,
+          }));
+        } else {
+          bodyStatus.update((prev) => ({
+            ...prev,
+            mode: merged.mode,
+            simulation: false,
+            connected: false,
+            isDocked: false,
+            autoConnect: merged.autoConnect,
+            candidates: [],
+            error: null,
+          }));
+        }
+        return;
+      }
+      try {
+        const snap = await runtime.configureBody(next, action());
+        if (alive) {
+          bodyConfiguration.set(runtime.bodyConfiguration());
+          bodyStatus.set(snap);
+        }
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    async scanBodyDevices(durationMs = 1500) {
+      if (!runtime) {
+        if (bodyStatus().mode === "simulation") {
+          bodyStatus.update((prev) => ({
+            ...prev,
+            scanning: false,
+            candidates: [
+              { id: "sim-looi-dock-01", name: "LOOI 桌面底座", rssi: -42 },
+              { id: "sim-looi-bedroom-02", name: "卧室的 LOOI", rssi: -65 },
+            ],
+          }));
+        }
+        return;
+      }
+      bodyStatus.update((prev) => ({ ...prev, scanning: true, error: null }));
+      try {
+        const snap = await runtime.scanBodyDevices(durationMs);
+        if (alive) {
+          bodyStatus.set(snap);
+          if (snap.error) notify(snap.error);
+        }
+      } catch (error) {
+        if (alive) {
+          bodyStatus.set(runtime.bodyStatus());
+          fail(error);
+        }
+      }
+    },
+    async connectBodyDevice(target?: { deviceId?: string; deviceName?: string }) {
+      if (!runtime) {
+        if (bodyStatus().mode === "simulation") {
+          const nextId = target?.deviceId || bodyStatus().deviceId || "sim-looi-dock-01";
+          const nextName = target?.deviceName || bodyStatus().deviceName || "LOOI 桌面底座";
+          bodyConfiguration.update((prev) => ({
+            ...prev,
+            savedDeviceId: nextId,
+            savedDeviceName: nextName,
+          }));
+          bodyStatus.update((prev) => ({
+            ...prev,
+            connected: true,
+            isDocked: true,
+            supervisorState: "ready",
+            deviceId: nextId,
+            deviceName: nextName,
+            error: null,
+          }));
+        }
+        return;
+      }
+      try {
+        const snap = await runtime.connectBodyDevice(target);
+        if (alive) {
+          bodyConfiguration.set(runtime.bodyConfiguration());
+          bodyStatus.set(snap);
+          if (snap.error) notify(snap.error);
+        }
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    async disconnectBody() {
+      if (!runtime) {
+        bodyActiveCommand.set(null);
+        bodyStatus.update((prev) => ({
+          ...prev,
+          connected: false,
+          isDocked: false,
+          supervisorState: "disconnected",
+        }));
+        return;
+      }
+      try {
+        const snap = await runtime.disconnectBody();
+        if (alive) {
+          bodyActiveCommand.set(null);
+          bodyStatus.set(snap);
+        }
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    setSimulatedDock(docked: boolean) {
+      if (!runtime) {
+        bodyStatus.update((prev) => ({
+          ...prev,
+          isDocked: docked,
+          supervisorState: docked ? "ready" : "connected_unarmed",
+        }));
+        return;
+      }
+      try {
+        const snap = runtime.setSimulatedDock(docked);
+        if (alive) bodyStatus.set(snap);
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    async controlBody(actionName: BodyControlAction, durationMs?: number) {
+      if (!runtime) {
+        if (
+          actionName === "head_up" ||
+          actionName === "head_center" ||
+          actionName === "head_down"
+        ) {
+          const pose =
+            actionName === "head_up"
+              ? "up"
+              : actionName === "head_down"
+                ? "down"
+                : "center";
+          const deg = pose === "up" ? 85 : pose === "down" ? 25 : 55;
+          bodyStatus.update((prev) => ({
+            ...prev,
+            headPose: pose,
+            headDegrees: deg,
+          }));
+        } else if (actionName === "light_on" || actionName === "light_off") {
+          bodyStatus.update((prev) => ({
+            ...prev,
+            lightOn: actionName === "light_on",
+          }));
+        }
+        return;
+      }
+      const isWheelMove =
+        actionName === "forward" ||
+        actionName === "backward" ||
+        actionName === "turn_left" ||
+        actionName === "turn_right";
+      if (isWheelMove) {
+        bodyActiveCommand.set(actionName);
+      }
+      try {
+        const receipt = await runtime.controlBody({
+          action: actionName,
+          ...(durationMs !== undefined ? { durationMs } : {}),
+        });
+        if (alive) {
+          bodyStatus.set(runtime.bodyStatus());
+          if (receipt.status !== "verified" && receipt.reason) {
+            notify(receipt.reason);
+          }
+        }
+      } catch (error) {
+        if (alive) fail(error);
+      } finally {
+        if (alive && isWheelMove && bodyActiveCommand() === actionName) {
+          bodyActiveCommand.set(null);
+        }
+      }
+    },
+    async stopBody() {
+      if (!runtime) return;
+      bodyActiveCommand.set(null);
+      try {
+        const snap = await runtime.stopBody();
+        if (alive) bodyStatus.set(snap);
+      } catch {}
+    },
     tasks: () => tasks(),
     task: () => task(),
     refreshTasks(offset = 0) {
@@ -937,7 +1291,7 @@ export function createAppStore() {
     },
     async send(prompt: string, agentOnly = false, traceContext?: TraceContext) {
       if (busy() || !runtime || !prompt.trim()) return false;
-      wakeGuideDismissed.set(true);
+      api.dismissWakeGuide();
       busy.set(true);
       message.set("");
       status.set("@looi:runtimeAgentIsThinking");
@@ -966,6 +1320,7 @@ export function createAppStore() {
           busy.set(false);
           interaction.set(undefined);
           recoveryCount.set(runtime.recoveryCount());
+          bodyStatus.set(runtime.bodyStatus());
         }
       }
     },

@@ -25,7 +25,7 @@ export class VoiceRuntime {
   private state: VoiceState = {
     phase: "idle",
     muted: false,
-    wakeEnabled: false,
+    wakeEnabled: true,
     transcript: "",
     error: "",
   };
@@ -66,6 +66,7 @@ export class VoiceRuntime {
       send: (value, generation) => this.send(value, generation),
       current: (generation) => this.current(generation),
       requestTask: options.requestTask,
+      controlBody: options.controlBody,
       toolTraceContext: (callId) => this.socket?.getToolTraceContext?.(callId),
       beginFarewell: () => {
         this.outputStreamDone = false;
@@ -84,7 +85,7 @@ export class VoiceRuntime {
         if (config.apiKeys && typeof config.apiKeys === "object") this.apiKeys = { ...config.apiKeys };
         if (typeof config.apiKey === "string" && config.apiKey.trim()) this.apiKeys.doubao ??= config.apiKey.trim();
         if (typeof config.voiceId === "string") this.voiceId = config.voiceId.trim();
-        this.state.wakeEnabled = config.wakeEnabled === true;
+        this.state.wakeEnabled = config.wakeEnabled !== false;
       }
     } catch {
       this.state = {
@@ -147,14 +148,25 @@ export class VoiceRuntime {
     this.voiceId = next;
     this.saveVault();
   }
-  setWakeEnabled(enabled: boolean): void {
+  setWakeEnabled(enabled: boolean, options: { autoStandby?: boolean } = {}): void {
     if (this.closed) return;
-    if (enabled && !this.resolveApiKey()) throw new Error("@looi:configureVoiceKey");
     this.publish({ wakeEnabled: enabled });
     this.saveVault();
-    if (enabled && ["idle", "error", "permission"].includes(this.state.phase))
+    if (
+      enabled &&
+      options.autoStandby !== false &&
+      this.resolveApiKey() &&
+      ["idle", "error", "permission"].includes(this.state.phase)
+    ) {
       void this.enterStandby();
-    if (!enabled && this.state.phase === "standby") this.stop();
+    }
+    if (!enabled) {
+      if (["standby", "permission"].includes(this.state.phase)) {
+        this.stop();
+      } else if (this.state.phase === "error" && !this.state.error) {
+        this.publish({ phase: "idle" });
+      }
+    }
   }
   snapshot(): VoiceState {
     return { ...this.state };
@@ -196,19 +208,20 @@ export class VoiceRuntime {
       this.options.audio.setCaptureMode("kws");
       const status = this.options.audio.status();
       if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady)
-        throw new Error(status.error || "@looi:runtimeLocalWakewordEngineIsNotReady");
+        throw new Error("");
       this.publish({ phase: "standby", muted: false, error: "" });
       this.pollStandby(this.generation);
-    } catch (error) {
+    } catch {
       this.options.audio.stop();
-      this.publish({ phase: "error", error: error instanceof Error ? error.message : String(error) });
+      this.publish({ phase: "error", muted: false, error: "" });
     }
   }
   private pollStandby(generation: number): void {
     if (!this.current(generation) || this.state.phase !== "standby") return;
     const status = this.options.audio.status();
     if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady) {
-      this.fail(status.error || "@looi:runtimeLocalWakewordEngineIsNotReady");
+      this.options.audio.stop();
+      this.publish({ phase: "error", muted: false, error: "" });
       return;
     }
     if (status.wakeWord) {
@@ -511,6 +524,7 @@ export class VoiceRuntime {
   }
   interrupt(trigger: "manual" | "server_vad" = "manual") {
     if (!["listening", "speaking"].includes(this.state.phase)) return;
+    void this.options.controlBody?.("stop").catch(() => {});
     if (this.discardOutput) return;
     if (
       this.state.phase !== "speaking" &&
