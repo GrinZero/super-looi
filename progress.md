@@ -1,5 +1,14 @@
 # Super-LOOI 重构与演进进度
 
+### Langfuse 语音会话消息与 LLM 调用可见性（2026-11-08）
+
+- [x] Step 1：核对截图对应的 Langfuse 会话，确认用户转写和两次 `llm.chat` 已入库；定位 Session 页只呈现 AI 消息的输入输出结构问题
+- [x] Step 2：在 `realtime.response` 记录按轮次排序的 `role/content` 输入与输出；晚到 ASR 归位后导出并保留模型回复完成时间；失败的 `llm.chat` 写入错误原因
+- [x] Step 3：运行相关测试和类型检查，验证本地 Langfuse 展示效果，完成独立 review 与提交
+  - [x] 8 项遥测测试、运行时类型检查、NSH 语音集成测试、类型检查和构建通过
+  - [x] 本地 Langfuse Session 页已显示两轮用户消息与助手回复；LLM 失败原因已通过 Observations v2 API 回读
+  - [x] 独立复审发现并修复 ASR 失败时待导出响应未释放；iPhone 16e 模拟器已连接新构建
+
 ### LOOI 原创暖机械音复刻参考（2026-11-08）
 
 - [x] Step 1：确定偏中性、机灵温暖且有明确电子质感的声线；核对豆包复刻参考音频规格

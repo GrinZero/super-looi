@@ -130,9 +130,7 @@ export interface RealtimeProtocolAdapter {
 1. **全节点追踪上下文传播（Context Propagation）**：
    - Langfuse v4 按 Observation 筛选时不会自动从根 Span 继承追踪级属性。因此 `TraceContext` 定义为 `{ traceId: string; parentSpanId?: string; traceName: string; sessionId?: string }`，`LangfuseTracer` 在编码**每一条** OTel Span 时，均强制写入 `session.id`（及 `langfuse.session.id`）和 `langfuse.trace.name`。
 2. **根 Observation 的整体输入与最终输出**：
-   - 语音会话根 Span（`voice.session`）在会话结束时写入整体摘要：
-     - `langfuse.observation.input`：`{ trigger: fromWakeWord ? "wake_word" : "manual", providerId: protocol.providerId, model: protocol.model, userTranscripts: string[] }`
-     - `langfuse.observation.output`：`{ assistantTranscripts: string[], turnsCount: number, toolCallsCount: number, closeReason: string }`
+   - 语音会话根 Span（`voice.session`）在会话结束时按发生顺序写入 `[{ role: "user" | "assistant", content: string }]`：`langfuse.observation.input` 包含截至最后一条助手回复前的完整消息，`langfuse.observation.output` 包含最后一条助手回复。触发方式、服务商、模型、转写数组、轮数、工具调用数和关闭原因写入 `langfuse.observation.metadata.*`。
 3. **未知成本保护（Cost Accuracy）**：
    - 仅当 `usage.cost.totalFromProvider === true` 或 `model.cost` 存在大于 0 的目录单价时，才写入 `langfuse.observation.cost_details`；对于单价全为 0 的自定义模型，省略 `langfuse.observation.cost_details`，避免将未知成本覆盖为 `$0.00`。
 4. **OTLP 属性值编码契约（OTLP `stringValue` Encoding Contract）**：
@@ -143,19 +141,21 @@ export interface RealtimeProtocolAdapter {
 
 | 观测节点 | `langfuse.observation.type` | 必带公共属性 | 节点专属 OTel Attributes (`langfuse.*`) |
 | :--- | :--- | :--- | :--- |
-| **语音会话根 Span** (`voice.session`) | `"span"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.input` (整场用户转写与触发方式), `langfuse.observation.output` (整场回复摘要与关闭原因), `langfuse.observation.metadata.{providerId,model,fromWakeWord}` |
+| **语音会话根 Span** (`voice.session`) | `"span"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.input/output` (按时间排序的 `role/content` 对话消息), `langfuse.observation.metadata.{providerId,model,fromWakeWord,userTranscripts,assistantTranscripts,turnsCount,toolCallsCount,closeReason}` |
 | **WebSocket 握手** (`realtime.handshake`) | `"span"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.input` (握手配置), `langfuse.observation.metadata.handshakeMs` |
 | **用户语音轮次** (`realtime.user_turn`) | `"span"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.output` (本轮 ASR 转写文本), `langfuse.observation.metadata.{inputFrames,inputBytes,audioDurationMs}` |
-| **Realtime 语音回复** (`realtime.response`) | `"generation"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.model.name`, `langfuse.observation.completion_start_time` (首包音频时刻即 TTFA), `langfuse.observation.output` (回复字幕), `langfuse.observation.metadata.{ttfaMs,outputFrames,outputBytes,audioDurationMs,cancelled,statusCode}` |
+| **Realtime 语音回复** (`realtime.response`) | `"generation"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.input` (截至本轮用户话语的 `role/content` 对话历史), `langfuse.observation.output` (本轮助手回复的 `role/content` 消息), `langfuse.observation.model.name`, `langfuse.observation.completion_start_time` (首包音频时刻即 TTFA), `langfuse.observation.metadata.{ttfaMs,outputFrames,outputBytes,audioDurationMs,cancelled,statusCode}` |
 | **语音工具调用** (`realtime.tool_call`) | `"tool"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.input` (`{ name, arguments }`), `langfuse.observation.output` (工具回传结果) |
 | **Agent 任务执行** (`agent.run`) | `"agent"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.input` (`prompt`), `langfuse.observation.output` (`answer`), `langfuse.observation.metadata.{taskId,mode,toolCallsCount}` |
-| **LLM 推理步** (`llm.chat`) | `"generation"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.model.name`, `langfuse.observation.model.parameters`, `langfuse.observation.input` (`messages` + `tools`), `langfuse.observation.completion_start_time` (TTFT), `langfuse.observation.output` (text / thinking / toolCalls), `langfuse.observation.usage_details`, `langfuse.observation.cost_details` *(仅在价格已知时写入)* |
+| **LLM 推理步** (`llm.chat`) | `"generation"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.model.name`, `langfuse.observation.model.parameters`, `langfuse.observation.input` (`messages` + `tools`), `langfuse.observation.completion_start_time` (TTFT), `langfuse.observation.output` (text / thinking / toolCalls), `langfuse.observation.usage_details`, `langfuse.observation.cost_details` *(仅在价格已知时写入)*；失败时写入 `langfuse.observation.level=ERROR` 与 `langfuse.observation.status_message` |
 | **Agent 工具执行** (`agent.tool.<name>`) | `"tool"` | `session.id`, `langfuse.trace.name` | `langfuse.observation.input` (`args`), `langfuse.observation.output` (`result`), `langfuse.observation.level` (`ERROR` when `isError`) |
+
+Langfuse Session 页从 `realtime.response` 的 `role/content` 输入输出还原用户与助手消息；`llm.chat` 是 `realtime.tool_call → agent.run` 下的子观测，在对应 Trace 的 Tree 视图中查看。
 
 ```mermaid
 flowchart TD
     subgraph Session["Langfuse v4 Session (每个 Span 均携带 session.id 与 langfuse.trace.name)"]
-        RootSpan["Root Span (type='span'): voice.session\n(input: userTranscripts[], output: assistantTranscripts[])"]
+        RootSpan["Root Span (type='span'): voice.session\n(input/output: ordered role/content messages)"]
 
         subgraph RealtimeLayer["Realtime Socket 层 (observeVoiceSocket)"]
             Handshake["Span (type='span'): realtime.handshake\n(ws connect -> session_ready)"]
@@ -268,7 +268,7 @@ flowchart TD
 2. **新增 [`packages/looi-runtime/src/telemetry/realtime-observer.ts`](file:///Users/bugyaluwang/project/super-looi/packages/looi-runtime/src/telemetry/realtime-observer.ts)**：
    - 实现 `observeVoiceSocket(socket, { tracer, protocol, sessionId, fromWakeWord })`；
    - 折叠高频音频帧，计算 `inputFrames`、`inputBytes`、`outputFrames`、`outputBytes`、`audioDurationMs` 与 `ttfaMs`；
-   - 自动维护 `voice.session` (`span`，结束时写入整场会话的 `input` 用户转写汇总与 `output` 回复汇总) $\rightarrow$ `realtime.handshake` (`span`) / `realtime.user_turn` (`span`) / `realtime.response` (`generation`) / `realtime.tool_call` (`tool`)；
+   - 自动维护 `voice.session` (`span`，结束时按对话顺序写入 `role/content` 消息，统计摘要写入 metadata) $\rightarrow$ `realtime.handshake` (`span`) / `realtime.user_turn` (`span`) / `realtime.response` (`generation`) / `realtime.tool_call` (`tool`)；
    - **同步完成会话收尾入队（Synchronous Finalization on `endSession` / `close`）**：暴露幂等的同步方法 `finalizeSession(reason)`，在 `VoiceRuntime.endSession()` 脱离 `this.socket` 时以及包装后的 `socket.close()` 调用底层 `rawSocket.close()` **之前**同步执行（立即结束所有未闭合子 Span 与 `voice.session` 根 Span 并同步推入 `tracer` 内存队列），确保即使 `endSession()` 的 `pendingWrites` 尚未排空或 `rawSocket.close()` 尚未完成，根 Span 也已 100% 同步入队；
    - 提供 `getToolTraceContext(callId): TraceContext | undefined` 供 `run_agent_task` 透传给下游。
 3. **新增 [`packages/looi-runtime/src/telemetry/llm-observer.ts`](file:///Users/bugyaluwang/project/super-looi/packages/looi-runtime/src/telemetry/llm-observer.ts)**：

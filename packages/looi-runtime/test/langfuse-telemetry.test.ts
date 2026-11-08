@@ -88,9 +88,12 @@ test("voice observer folds audio and finalizes root synchronously", async () => 
   assert.equal(attrs(turn)["langfuse.observation.metadata.inputFrames"].intValue, "100");
   assert.equal(attrs(turn)["langfuse.observation.output"].stringValue, "开灯");
   const root = spans().find((span: any) => span.name === "voice.session");
-  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.input"].stringValue).userTranscripts, ["开灯"]);
-  assert.equal(JSON.parse(attrs(root)["langfuse.observation.output"].stringValue).closeReason, "end_session");
+  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.input"].stringValue), [{ role: "user", content: "开灯" }]);
+  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.output"].stringValue), [{ role: "assistant", content: "好的" }]);
+  assert.equal(attrs(root)["langfuse.observation.metadata.closeReason"].stringValue, "end_session");
   const generation = spans().find((span: any) => span.name === "realtime.response");
+  assert.deepEqual(JSON.parse(attrs(generation)["langfuse.observation.input"].stringValue), [{ role: "user", content: "开灯" }]);
+  assert.deepEqual(JSON.parse(attrs(generation)["langfuse.observation.output"].stringValue), [{ role: "assistant", content: "好的" }]);
   assert.equal(attrs(generation)["langfuse.observation.metadata.outputFrames"].intValue, "50");
   assert.equal(attrs(generation)["langfuse.observation.metadata.outputBytes"].intValue, "150");
   assert.equal(typeof attrs(generation)["langfuse.observation.completion_start_time"].stringValue, "string");
@@ -117,9 +120,76 @@ test("OpenAI transcript arriving after response remains on its user turn", async
   await tracer.shutdown();
   const root = spans().find((span: any) => span.name === "voice.session");
   const turn = spans().find((span: any) => span.name === "realtime.user_turn");
-  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.input"].stringValue).userTranscripts, ["打开灯"]);
+  const generation = spans().find((span: any) => span.name === "realtime.response");
+  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.input"].stringValue), [{ role: "user", content: "打开灯" }]);
+  assert.deepEqual(JSON.parse(attrs(generation)["langfuse.observation.input"].stringValue), [{ role: "user", content: "打开灯" }]);
   assert.equal(attrs(turn)["langfuse.observation.output"].stringValue, "打开灯");
   assert.equal(attrs(turn)["langfuse.observation.metadata.inputFrames"].intValue, "1");
+});
+
+test("session replay keeps user and assistant messages in turn order", async () => {
+  const { tracer, spans, attrs } = fixture();
+  const messages = [
+    { type: "session.created" },
+    { type: "input_audio_buffer.speech_started" },
+    { type: "input_audio_buffer.speech_stopped" },
+    { type: "response.created", response_id: "first" },
+    { type: "response.output_text.done", response_id: "first", text: "第一句回复" },
+    { type: "response.done", response_id: "first" },
+    { type: "conversation.item.input_audio_transcription.completed", transcript: "第一句提问" },
+    { type: "input_audio_buffer.speech_started" },
+    { type: "conversation.item.input_audio_transcription.completed", transcript: "第二句提问" },
+    { type: "response.created", response_id: "second" },
+    { type: "response.output_text.done", response_id: "second", text: "第二句回复" },
+    { type: "response.done", response_id: "second" },
+  ].map(JSON.stringify);
+  const socket = observeVoiceSocket({ read: async () => messages.shift() ?? null, write: async () => {}, close: async () => {} }, {
+    tracer, protocol: createDoubaoDuplexV3Protocol(), sessionId: "replay", fromWakeWord: false,
+  });
+  while (messages.length) await socket.read();
+  socket.finalizeSession();
+  await tracer.shutdown();
+  const root = spans().find((span: any) => span.name === "voice.session");
+  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.input"].stringValue), [
+    { role: "user", content: "第一句提问" },
+    { role: "assistant", content: "第一句回复" },
+    { role: "user", content: "第二句提问" },
+  ]);
+  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.output"].stringValue), [
+    { role: "assistant", content: "第二句回复" },
+  ]);
+  const generations = spans().filter((span: any) => span.name === "realtime.response");
+  assert.deepEqual(generations.map((span: any) => JSON.parse(attrs(span)["langfuse.observation.input"].stringValue)), [
+    [{ role: "user", content: "第一句提问" }],
+    [{ role: "user", content: "第一句提问" }, { role: "assistant", content: "第一句回复" }, { role: "user", content: "第二句提问" }],
+  ]);
+});
+
+test("ASR failure releases a completed response without changing its end time", async () => {
+  const { tracer, spans, attrs } = fixture();
+  const messages = [
+    { type: "session.updated" },
+    { type: "input_audio_buffer.speech_started" },
+    { type: "input_audio_buffer.speech_stopped", item_id: "user-1" },
+    { type: "response.created", response: { id: "response-1" } },
+    { type: "response.output_audio_transcript.done", response_id: "response-1", transcript: "请再说一遍。" },
+    { type: "response.done", response: { id: "response-1" } },
+    { type: "conversation.item.input_audio_transcription.failed", item_id: "user-1" },
+  ].map(JSON.stringify);
+  const socket = observeVoiceSocket({ read: async () => messages.shift() ?? null, write: async () => {}, close: async () => {} }, {
+    tracer, protocol: createOpenAiRealtimeProtocol(), sessionId: "failed-asr", fromWakeWord: false,
+  });
+  for (let index = 0; index < 6; index++) await socket.read();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const transcriptionFailedAt = Date.now();
+  await socket.read();
+  await tracer.flush();
+  const response = spans().find((span: any) => span.name === "realtime.response");
+  assert.ok(response);
+  assert.ok(BigInt(response.endTimeUnixNano) < BigInt(transcriptionFailedAt) * 1_000_000n);
+  assert.deepEqual(JSON.parse(attrs(response)["langfuse.observation.output"].stringValue), [{ role: "assistant", content: "请再说一遍。" }]);
+  socket.finalizeSession();
+  await tracer.shutdown();
 });
 
 test("LLM observer emits known costs and omits unknown custom model costs", async () => {
@@ -148,6 +218,24 @@ test("LLM observer emits known costs and omits unknown custom model costs", asyn
     systemPrompt: "你是助手", messages: [{ role: "system", content: "你是助手", toolsAdded: [{ name: "ping", description: "ping", parameters: { type: "object", properties: {} } }], timestamp: 1 }],
     tools: [{ name: "ping", description: "ping", parameters: { type: "object", properties: {} } }],
   });
+});
+
+test("failed LLM generation records the provider error on the observation", async () => {
+  const { tracer, spans, attrs } = fixture();
+  const model = { id: "test-model", api: "openai-completions", provider: "openai", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } } as any;
+  const failed = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "error", errorMessage: "model access denied", timestamp: Date.now() } as any;
+  const stream = createAssistantMessageEventStream();
+  stream.push({ type: "error", reason: "error", error: failed });
+  stream.end(failed);
+  const wrapped = wrapStreamFnWithLangfuse(() => stream, { tracer, getTraceContext: () => undefined });
+  const result = await wrapped(model, { messages: [] } as any);
+  await result.result();
+  await tracer.shutdown();
+  const generation = spans().find((span: any) => span.name === "llm.chat");
+  assert.equal(attrs(generation)["langfuse.observation.level"].stringValue, "ERROR");
+  assert.equal(attrs(generation)["langfuse.observation.status_message"].stringValue, "model access denied");
 });
 
 test("voice tool context connects agent, generation and tool observations", async () => {

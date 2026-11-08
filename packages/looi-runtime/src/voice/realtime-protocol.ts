@@ -15,7 +15,7 @@ export type NormalizedRealtimeEvent =
   | { kind: "user_transcription_started" }
   | { kind: "user_transcription_update"; text: string; itemId?: string }
   | { kind: "user_speech_stopped"; transcript?: string; itemId?: string; transcriptionFinal?: boolean }
-  | { kind: "user_transcription_failed"; message?: string }
+  | { kind: "user_transcription_failed"; message?: string; itemId?: string }
   | { kind: "response_started"; responseId: string }
   | { kind: "audio_started"; responseId: string; itemId?: string; contentIndex?: number }
   | { kind: "audio_delta"; responseId: string; pcmBase64: string; itemId?: string; contentIndex?: number }
@@ -99,7 +99,7 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
         case "input_audio_buffer.committed":
         case "input_audio_buffer.speech_stopped": return { kind: "user_speech_stopped", itemId: string(event.item_id) || undefined };
         case "conversation.item.input_audio_transcription.completed": return { kind: "user_speech_stopped", transcript: string(event.transcript) || undefined, itemId: string(event.item_id) || undefined, transcriptionFinal: true };
-        case "conversation.item.input_audio_transcription.failed": return { kind: "user_transcription_failed" };
+        case "conversation.item.input_audio_transcription.failed": return { kind: "user_transcription_failed", itemId: string(event.item_id) || undefined };
         case "response.function_call_arguments.done": {
           const items = Array.isArray(event.items) ? event.items.slice(0, 8) : [event];
           return { kind: "tool_calls", responseId: id, calls: items.map((item) => object(item)).map((item) => ({ callId: string(item.call_id), name: string(item.name), argumentsJson: string(item.arguments) })) };
@@ -178,7 +178,7 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
         case "input_audio_buffer.speech_stopped":
         case "input_audio_buffer.committed": return { kind: "user_speech_stopped", itemId: string(event.item_id) || undefined };
         case "conversation.item.input_audio_transcription.completed": return { kind: "user_speech_stopped", transcript: string(event.transcript) || undefined, itemId: string(event.item_id) || undefined, transcriptionFinal: true };
-        case "conversation.item.input_audio_transcription.failed": return { kind: "user_transcription_failed", message: string(object(event.error).message) };
+        case "conversation.item.input_audio_transcription.failed": return { kind: "user_transcription_failed", message: string(object(event.error).message), itemId: string(event.item_id) || undefined };
         case "response.function_call_arguments.done": return { kind: "tool_calls", responseId: id, calls: [{ callId: string(event.call_id), name: string(event.name), argumentsJson: string(event.arguments) }] };
         case "response.done": {
           const response = object(event.response);

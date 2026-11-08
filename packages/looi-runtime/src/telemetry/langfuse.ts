@@ -11,7 +11,7 @@ export type ObservationAttributes = Record<string, unknown>;
 export interface Observation {
   readonly context: TraceContext;
   readonly spanId: string;
-  end(attributes?: ObservationAttributes): void;
+  end(attributes?: ObservationAttributes, endTimeMs?: number): void;
 }
 export interface LangfuseTracer {
   readonly enabled: boolean;
@@ -111,10 +111,10 @@ export function createLangfuseTracer(config?: {
       let ended = false;
       return {
         context, spanId,
-        end(final = {}) {
+        end(final = {}, endTimeMs) {
           if (ended) return;
           ended = true;
-          const endedAt = Date.now();
+          const endedAt = endTimeMs ?? Date.now();
           if (queue.length >= 500) queue.shift();
           queue.push({
             traceId: context.traceId, spanId,

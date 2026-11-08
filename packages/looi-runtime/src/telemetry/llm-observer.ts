@@ -17,7 +17,7 @@ export function wrapStreamFnWithLangfuse(baseStreamFn: StreamFn, options: {
     let source;
     try { source = await baseStreamFn(model, context, streamOptions); }
     catch (error) {
-      observation.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.output": String(error) });
+      observation.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": String(error) });
       throw error;
     }
     const target = createAssistantMessageEventStream();
@@ -34,7 +34,7 @@ export function wrapStreamFnWithLangfuse(baseStreamFn: StreamFn, options: {
         }
         target.end(await source.result());
       } catch (error) {
-        observation.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.output": String(error) });
+        observation.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": String(error) });
         const failed = {
           role: "assistant", content: [], api: model.api, provider: model.provider,
           model: model.id, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
@@ -63,6 +63,9 @@ function observationResult(model: Model<Api>, message: AssistantMessage, firstDe
       input: usage.cost.input, output: usage.cost.output, cacheRead: usage.cost.cacheRead,
       cacheWrite: usage.cost.cacheWrite, total: usage.cost.total,
     } } : {}),
-    ...(message.stopReason === "error" ? { "langfuse.observation.level": "ERROR" } : {}),
+    ...(message.stopReason === "error" ? {
+      "langfuse.observation.level": "ERROR",
+      "langfuse.observation.status_message": message.errorMessage || "LLM request failed",
+    } : {}),
   };
 }
