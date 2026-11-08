@@ -129,9 +129,12 @@ export async function verifyVoiceRuntime() {
   }
   check(rejected && starts === 0, "missing key opened microphone");
   voice.configure("TEST_ONLY_VOICE");
+  voice.configureVoiceId("S_LooiWarm");
   check(
     slots.has("voice") &&
-      !JSON.stringify(voice.configuration()).includes("TEST_ONLY"),
+      !JSON.stringify(voice.configuration()).includes("TEST_ONLY") &&
+      voice.configuration().voiceId === "S_LooiWarm" &&
+      JSON.parse(slots.get("voice") || "{}").voiceId === "S_LooiWarm",
     "voice credentials escaped public config",
   );
   permission = "denied";
@@ -146,6 +149,7 @@ export async function verifyVoiceRuntime() {
     starts === 0 && writes[0]?.type === "session.create",
     "capture started before provider ready",
   );
+  check(writes[0]?.session?.audio?.output?.voice === "S_LooiWarm", "custom voice ID missing from Doubao handshake");
   const tools = writes[0]?.session?.tools;
   check(
     Array.isArray(tools) &&
@@ -243,7 +247,34 @@ export async function verifyVoiceRuntime() {
     socketClosed && state === "idle" && stops > 0,
     "stop retained native session",
   );
+  voice.configureVoiceId("");
+  check(voice.configuration().voiceId === "" && !JSON.parse(slots.get("voice") || "{}").voiceId, "default voice was not restored");
   voice.close();
+
+  // Saving a new ID while a socket connects must not change the session already starting.
+  let resolveVoiceConnect!: (socket: VoiceSocket) => void;
+  const delayedWrites: Record<string, any>[] = [];
+  const switching = new VoiceRuntime({
+    vault,
+    audio,
+    connect: () => new Promise((resolve) => { resolveVoiceConnect = resolve; }),
+    onState: () => {},
+    requestTask: async () => "",
+    cancelTask: () => {},
+  });
+  switching.configureVoiceId("S_First");
+  const connecting = switching.start();
+  switching.configureVoiceId("S_Second");
+  resolveVoiceConnect({
+    read: async () => JSON.stringify({ type: "session.error", error: { message: "speaker permission denied" } }),
+    write: async (value) => { delayedWrites.push(JSON.parse(value)); },
+    close: async () => {},
+  });
+  await connecting;
+  check(delayedWrites[0]?.session?.audio?.output?.voice === "S_First", "connecting session changed voice ID");
+  await settle();
+  check(switching.snapshot().error.includes("音色 ID 无法使用"), "invalid voice ID showed an unrelated connection error");
+  switching.close();
 
   // Close while connect is still unresolved: a late socket must be disposed.
   let finishConnect!: (socket: VoiceSocket) => void,

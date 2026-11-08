@@ -11,6 +11,8 @@ test("Doubao preserves its native wire format and maps farewell status", () => {
   const handshake = protocol.createHandshakeMessages([tool])[0] as any;
   assert.equal(handshake.type, "session.create");
   assert.equal(handshake.session.audio.input.format.rate, 16000);
+  assert.equal(handshake.session.audio.output.voice, "zh_female_vv_jupiter_bigtts");
+  assert.equal((protocol.createHandshakeMessages([tool], { voiceId: "S_LooiWarm" })[0] as any).session.audio.output.voice, "S_LooiWarm");
   assert.equal(handshake.extension.dialog.extra.enable_user_query_exit, true);
   assert.equal((protocol.encodeToolReply("call", { ok: true })[0] as any).items[0].content[0].text, '{"ok":true}');
   assert.deepEqual(protocol.encodeMute(true), { type: "input_audio_mute.commit" });

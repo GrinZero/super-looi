@@ -34,7 +34,7 @@ export interface RealtimeProtocolAdapter {
   readonly inputSampleRate: 16000 | 24000;
   readonly outputSampleRate: 24000;
   connectTarget(apiKey: string): { url: string; headers: Record<string, string> };
-  createHandshakeMessages(tools: VoiceToolSchema[]): Record<string, unknown>[];
+  createHandshakeMessages(tools: VoiceToolSchema[], options?: { voiceId?: string }): Record<string, unknown>[];
   encodeAudioAppend(pcm16k: Uint8Array): Record<string, unknown>;
   encodeMute(muted: boolean): Record<string, unknown> | null;
   encodeToolReply(callId: string, output: unknown): Record<string, unknown>[];
@@ -63,13 +63,13 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
       url: options.baseUrl || "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
       headers: { "X-Api-Key": apiKey },
     }),
-    createHandshakeMessages: (tools) => [{
+    createHandshakeMessages: (tools, sessionOptions) => [{
       type: "session.create",
       session: {
         model, instructions: options.instructions || "", tools,
         audio: {
           input: { format: { type: "pcm", rate: 16000 } },
-          output: { format: { type: "pcm_s16le", rate: 24000 }, voice: "zh_female_vv_jupiter_bigtts" },
+          output: { format: { type: "pcm_s16le", rate: 24000 }, voice: sessionOptions?.voiceId || "zh_female_vv_jupiter_bigtts" },
         },
       },
       extension: {

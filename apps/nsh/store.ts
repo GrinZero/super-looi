@@ -297,6 +297,8 @@ export function createAppStore() {
     error: "",
   });
   const voiceConfigured = signal(false);
+  const voiceProviderId = signal("doubao");
+  const voiceId = signal("");
   const voiceTask = signal("");
   let voice: VoiceRuntime | undefined;
   let pendingVoice:
@@ -449,12 +451,13 @@ export function createAppStore() {
         connect,
         onState: (state) => {
           if (!alive) return;
+          const previousError = voiceState().error;
           voiceState.set(state);
           if (state.phase !== "listening" && state.phase !== "speaking") {
             driver.updateAudioLevel(0);
             face.set(driver.getState());
           }
-          if (state.phase === "error" && state.error) {
+          if (state.error && state.error !== previousError) {
             notify(state.error);
           }
         },
@@ -480,6 +483,8 @@ export function createAppStore() {
         cancelTask: cancelVoiceTask,
       });
       voiceConfigured.set(voice.configuration().hasKey);
+      voiceProviderId.set(voice.configuration().providerId);
+      voiceId.set(voice.configuration().voiceId);
       voiceState.set(voice.snapshot());
       configuration.set(opened.configuration());
       llmSnapshot.set(opened.llmSnapshot());
@@ -725,6 +730,8 @@ export function createAppStore() {
     },
     voiceState: () => voiceState(),
     voiceConfigured: () => voiceConfigured(),
+    voiceId: () => voiceId(),
+    voiceProviderId: () => voiceProviderId(),
     voiceProviderLabel: () => voice?.configuration().providerLabel ?? "豆包",
     voiceTask: () => voiceTask(),
     async startVoice() {
@@ -752,6 +759,11 @@ export function createAppStore() {
       if (!voice) throw new Error("语音尚未就绪");
       voice.configure(key);
       voiceConfigured.set(voice.configuration().hasKey);
+    },
+    configureVoiceId(id: string) {
+      if (!voice) throw new Error("语音尚未就绪");
+      voice.configureVoiceId(id);
+      voiceId.set(voice.configuration().voiceId);
     },
     async confirmVoiceTask(allowed: boolean): Promise<void> {
       const pending = pendingVoice,

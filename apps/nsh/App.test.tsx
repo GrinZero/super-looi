@@ -45,6 +45,7 @@ test("keeps the pure face primary with inline ask bar and Structure 3 management
   // 4. Switch spaces
   await app.press("nav-voice");
   expect(app.texts()).toContain("豆包实时语音凭证");
+  expect(app.texts()).toContain("豆包输出音色");
   expect(app.texts()).toContain("开启 Hey LOOI 自动唤醒");
   expect(app.texts()).toContain("待机（未占用麦克风）");
 

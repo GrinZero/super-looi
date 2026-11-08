@@ -2,7 +2,7 @@
 
 ## LOOI 专属机械音色
 
-- [ ] 试听 `assets/voice/looi-warm-mechanical-reference.wav` 后确定声线；在豆包音色设计或声音复刻中生成专属 Speaker ID，并替换 NSH 全双工会话的默认音色。当前 `DOUBAO_API_KEY` 请求 Seed Audio 1.0 返回 `403 resource not granted`。
+- [ ] 试听 `assets/voice/looi-warm-mechanical-reference.wav` 后确定声线；在豆包音色设计或声音复刻中生成专属 Speaker ID，填入 NSH「语音 → 豆包输出音色」。当前 `DOUBAO_API_KEY` 请求 Seed Audio 1.0 返回 `403 resource not granted`。
 
 ## iOS 模拟器语音回灌（2026-11-08）
 

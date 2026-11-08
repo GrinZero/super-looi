@@ -49,6 +49,7 @@ export class VoiceRuntime {
   private currentAudioItem?: { itemId: string; contentIndex: number };
   private outputBytes = 0;
   private apiKeys: Record<string, string> = {};
+  private voiceId = "";
   private responseInProgress = false;
   private cancelEventId = "";
   private exitAfterPlayback = false;
@@ -79,6 +80,7 @@ export class VoiceRuntime {
         const config = JSON.parse(saved);
         if (config.apiKeys && typeof config.apiKeys === "object") this.apiKeys = { ...config.apiKeys };
         if (typeof config.apiKey === "string" && config.apiKey.trim()) this.apiKeys.doubao ??= config.apiKey.trim();
+        if (typeof config.voiceId === "string") this.voiceId = config.voiceId.trim();
         this.state.wakeEnabled = config.wakeEnabled === true;
       }
     } catch {
@@ -89,8 +91,8 @@ export class VoiceRuntime {
       };
     }
   }
-  configuration(): { hasKey: boolean; providerId: string; providerLabel: string } {
-    return { hasKey: Boolean(this.resolveApiKey()), providerId: this.protocol.providerId, providerLabel: this.protocol.providerId === "doubao" ? "豆包" : this.protocol.providerId === "openai" ? "OpenAI" : this.protocol.providerId };
+  configuration(): { hasKey: boolean; providerId: string; providerLabel: string; voiceId: string } {
+    return { hasKey: Boolean(this.resolveApiKey()), providerId: this.protocol.providerId, providerLabel: this.protocol.providerId === "doubao" ? "豆包" : this.protocol.providerId === "openai" ? "OpenAI" : this.protocol.providerId, voiceId: this.protocol.providerId === "doubao" ? this.voiceId : "" };
   }
   private resolveApiKey(): string {
     const own = this.apiKeys[this.protocol.providerId];
@@ -106,9 +108,10 @@ export class VoiceRuntime {
     this.options.vault.set("voice", JSON.stringify({
       ...(this.apiKeys.doubao ? { apiKey: this.apiKeys.doubao } : {}),
       apiKeys: this.apiKeys, wakeEnabled: this.state.wakeEnabled,
+      ...(this.voiceId ? { voiceId: this.voiceId } : {}),
     }));
   }
-  refreshCredentials(): { hasKey: boolean; providerId: string; providerLabel: string } {
+  refreshCredentials(): { hasKey: boolean; providerId: string; providerLabel: string; voiceId: string } {
     const configuration = this.configuration();
     if (!configuration.hasKey && !["idle", "error"].includes(this.state.phase)) this.stop();
     else if (configuration.hasKey && this.state.wakeEnabled && ["idle", "error"].includes(this.state.phase)) void this.enterStandby();
@@ -132,6 +135,14 @@ export class VoiceRuntime {
     this.options.tracer?.registerSecret(next);
     this.saveVault();
     if (this.state.wakeEnabled) void this.enterStandby();
+  }
+  configureVoiceId(value: string): void {
+    if (this.closed) throw new Error("语音已关闭");
+    if (this.protocol.providerId !== "doubao") throw new Error("当前语音服务不支持豆包音色 ID");
+    const next = value.trim();
+    if (next && !/^[A-Za-z0-9_-]{1,256}$/.test(next)) throw new Error("请输入有效的豆包音色 ID");
+    this.voiceId = next;
+    this.saveVault();
   }
   setWakeEnabled(enabled: boolean): void {
     if (this.closed) return;
@@ -208,6 +219,7 @@ export class VoiceRuntime {
     if (!["idle", "standby", "error", "permission"].includes(this.state.phase)) return;
     const key = this.resolveApiKey();
     if (!key) throw new Error(`请先配置${this.configuration().providerLabel}语音 API Key`);
+    const selectedVoiceId = this.voiceId;
     const fromStandby = this.state.phase === "standby";
     if (this.standbyTimer) clearTimeout(this.standbyTimer);
     this.standbyTimer = undefined;
@@ -240,8 +252,8 @@ export class VoiceRuntime {
         tracer: this.options.tracer, protocol: this.protocol, sessionId: randomUUID(), fromWakeWord: options.fromWakeWord === true, connectStartedAt,
       }) : rawSocket;
       this.socket = socket;
-      for (const message of this.protocol.createHandshakeMessages(this.tools.schemas)) await this.send(message, generation);
-      void this.read(socket, generation);
+      for (const message of this.protocol.createHandshakeMessages(this.tools.schemas, { voiceId: selectedVoiceId })) await this.send(message, generation);
+      void this.read(socket, generation, selectedVoiceId);
     } catch {
       if (this.current(generation))
         this.fail("语音连接失败，请检查 Key、服务权限或网络");
@@ -270,7 +282,7 @@ export class VoiceRuntime {
       if (this.current(generation)) this.writes--;
     }
   }
-  private async read(socket: VoiceSocket, generation: number) {
+  private async read(socket: VoiceSocket, generation: number, selectedVoiceId: string) {
     try {
       while (this.current(generation)) {
         const raw = await socket.read();
@@ -396,8 +408,13 @@ export class VoiceRuntime {
         else if (normalized.kind === "tool_calls") {
           for (const call of normalized.calls)
             this.tools.handle({ call_id: call.callId, name: call.name, arguments: call.argumentsJson }, generation, this.responseId);
-        } else if (normalized.kind === "error")
+        } else if (normalized.kind === "error") {
+          if (this.protocol.providerId === "doubao" && selectedVoiceId && this.state.phase === "connecting" && /speaker|voice[_ -]?(?:id|type)|音色/i.test(normalized.message)) {
+            this.fail("豆包音色 ID 无法使用，请检查 ID 与当前项目的音色权限");
+            return;
+          }
           throw new Error("Provider error");
+        }
       }
     } catch {
       if (this.current(generation))

@@ -6,6 +6,7 @@ export function VoiceSpaceView(props: {
   store: ReturnType<typeof createAppStore>;
 }) {
   const voiceKey = signal("");
+  const voiceIdDraft = signal("");
   const saving = signal(false);
 
   const active = () =>
@@ -48,6 +49,16 @@ export function VoiceSpaceView(props: {
       );
     } finally {
       saving.set(false);
+    }
+  };
+
+  const saveVoiceId = () => {
+    if (!props.store.ready() || !voiceIdDraft().trim()) return;
+    try {
+      props.store.configureVoiceId(voiceIdDraft());
+      voiceIdDraft.set("");
+    } catch (cause) {
+      props.store.notify(cause instanceof Error ? cause.message : "保存音色 ID 失败");
     }
   };
 
@@ -115,6 +126,47 @@ export function VoiceSpaceView(props: {
           />
         </View>
       </View>
+
+      <If when={props.store.voiceProviderId() === "doubao"}>
+        <View class="rounded-2xl border border-border bg-card p-3.5 gap-3">
+          <View class="border-b border-border pb-2">
+            <Text class="text-foreground text-sm font-semibold">豆包输出音色</Text>
+          </View>
+          <Text class="text-muted-foreground text-xs">
+            当前：{props.store.voiceId() || "默认音色"}
+          </Text>
+          <TextField
+            label="Speaker ID（音色 ID）"
+            testID="voice-id"
+            value={voiceIdDraft()}
+            onChange={(value) => voiceIdDraft.set(value)}
+            placeholder="输入复刻音色 ID，例如 S_…"
+            onSubmit={saveVoiceId}
+          />
+          <View class="flex-row justify-end gap-2">
+            <If when={Boolean(props.store.voiceId())}>
+              <ActionButton
+                label="恢复默认"
+                testID="restore-voice-id-btn"
+                compact={true}
+                onPress={() => {
+                  props.store.configureVoiceId("");
+                  voiceIdDraft.set("");
+                }}
+              />
+            </If>
+            <ActionButton
+              label="保存音色 ID"
+              testID="save-voice-id-btn"
+              kind="primary"
+              compact={true}
+              disabled={!props.store.ready() || !voiceIdDraft().trim() || voiceIdDraft().trim() === props.store.voiceId()}
+              onPress={saveVoiceId}
+            />
+          </View>
+          <Text class="text-muted-foreground text-xs">新音色从下一次 LIVE 对话开始使用。</Text>
+        </View>
+      </If>
     </View>
   );
 
