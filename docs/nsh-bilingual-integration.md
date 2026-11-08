@@ -1,6 +1,6 @@
 # NSH 中英双语
 
-NSH 支持 `zh-CN` 与 `en-US`。默认跟随 NSH 响应式系统语言；管理空间的 System／中文／EN 控件可覆盖，并由 `Storage` 保存。其他系统语言映射到简体中文。
+NSH 支持 `zh-CN` 与 `en-US`。默认跟随 NSH 响应式系统语言；管理空间「设置」页的语言下拉框（`跟随系统`／`简体中文`／`English`）可覆盖，并由 `Storage` 保存。其他系统语言映射到简体中文。
 
 ## 实现边界
 
@@ -38,7 +38,7 @@ NSH 支持 `zh-CN` 与 `en-US`。默认跟随 NSH 响应式系统语言；管理
 
 ## 界面截图
 
-[首页](artifacts/multilingual/ios-face-en.png) · [模型](artifacts/multilingual/ios-models-en.png) · [语音](artifacts/multilingual/ios-voice-en.png) · [家居](artifacts/multilingual/ios-home-en.png) · [任务](artifacts/multilingual/ios-tasks-en.png)
+[首页](artifacts/multilingual/ios-face-en.png) · [模型](artifacts/multilingual/ios-models-en.png) · [语音](artifacts/multilingual/ios-voice-en.png) · [家居](artifacts/multilingual/ios-home-en.png) · [任务](artifacts/multilingual/ios-tasks-en.png) · [设置](artifacts/multilingual/ios-settings-en.png)
 
 ## Realtime 连续语言切换
 

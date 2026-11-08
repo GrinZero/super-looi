@@ -1,5 +1,84 @@
 # Super-LOOI 重构与演进进度
 
+### 现有代码分主题提交与 PR（2026-11-09）
+
+- [x] Step 1：核对 `origin/main`、本地 66 个提交及未提交文件，确定以现有历史构建串联 PR
+- [x] Step 2：全仓 `pnpm typecheck`、`pnpm test`（NSH 24/24）与 `pnpm build` 通过；独立 review 指出的未确认取消状态错误已修复并由异步语音回归用例覆盖，生成的 Python 缓存已忽略
+- [x] Step 3：按历史主题建立五个分支；运行时代码与原生底座控制已提交为 `88622fa`，文档和资源另成提交
+- [x] Step 4：推送七个分支并创建 GitHub PR #7–#13；按 NSH 兼容、移动运行时、界面与唤醒、Realtime 遥测、双语与底座、运行时收尾、文档资源依次串联
+
+### Android LIVE 实体音量键控制（2026-11-09）
+
+- [x] Step 1：确认 LIVE 的 AAudio 输出与音频焦点均使用语音通话用途，Activity 未指定实体音量键对应的播放通道
+- [x] Step 2：会话期间将音量键指向语音外放通道，结束或退后台时恢复原通道
+- [ ] Step 3：完成原生插件构建检查与 Android 真机验证，独立 review 后提交
+  - [x] Android 原生插件测试与 Java 编译通过；开发宿主已构建并安装到魅族 20 Pro
+  - [x] 独立 review 未发现明确缺陷
+  - [ ] 待真机在 LIVE 实际播报时按音量键确认外放音量变化
+
+### 实时语音会话由静默超时结束（2026-11-09）
+
+- [x] Step 1：确认模型结束工具、豆包结束意图选项与 12 秒计时链路
+- [x] Step 2：移除模型结束工具和服务端主动退出配置；用户或洛伊结束说话后进入 12 秒静默计时
+- [x] Step 3：双协议配置、播报排空与静默回待机回归通过；延迟转写完成不延后截止时间，独立 review 通过
+
+### Android 真机连接后约 5 秒断开（2026-11-08）
+
+- [x] Step 1：核对真机蓝牙记录，连接约 5 秒后由对端断开；发现社区流程的持续 `FED0` 心跳未接入
+- [x] Step 2：在驱动状态机中持续发送当前运动帧，空闲与停止时发送 `0000`，断连时结束心跳
+- [x] Step 3：驱动 19/19、NSH 运行时测试与类型检查通过；Android 修复版已打包并安装到魅族 20 Pro，独立 review 未发现明确问题；开发宿主已切到当前源码并保持运行
+- [x] Step 4：真机对照定位 5 秒断开：社区序列即使持续写 `FED0` 仍被底座断开；恢复既有三步握手并保留心跳后，连接持续约 6 分 27 秒，直到开发宿主重启
+- [x] Step 4.1：按独立 review 恢复 `FED9` 在三步握手前订阅，驱动 19 项测试与类型检查通过
+- [ ] Step 5：实测吸合通知与基础动作，确认控制手感
+
+### LOOI 底座社区初始化流程试验（2026-11-08）
+
+- [x] Step 1：核对现有握手、原生通知订阅时机与社区初始化顺序
+- [x] Step 2：切换为 `FEDA:01 → FED5/FED9 订阅 → FEDA:03 → FED0:0000`，注释保留原三步握手
+- [x] Step 3：更新双端桥接与相关测试，完成构建检查及独立 review
+  - [x] 驱动 19/19、NSH 运行时测试、类型检查及 Android 原生插件测试通过
+  - [x] Android APK 与 iOS 模拟器 App 打包通过；新版 APK 已安装到魅族 20 Pro
+  - [x] 修复独立 review 指出的通知丢失、重复回调与握手期间动作抢先执行
+- [ ] Step 4：等待用户在物理底座上测试连接、在座通知与基础动作
+
+### NSH headless App 私有存储测试修复（2026-11-08）
+
+- [x] Step 1：复现 `Private app storage unavailable`，确认 2 项 `App.test.tsx` 在 `nsh/test` 的无数据目录宿主中初始化失败
+- [x] Step 2：迁移整页用例至 Rust `Headless`，为每次应用启动配置私有临时目录，并保留国际化纯 TSX 测试
+- [x] Step 3：补齐独立 review 指出的模型、语音、底座界面断言；`cargo test --test app_ui` 2/2 与完整 `pnpm --filter @super-looi/nsh test` 24/24 通过
+
+### 底座方向轮盘轻触与长按（2026-11-08）
+
+- [x] Step 1：确认轮盘原先每次按下发送 600–800 毫秒脉冲，底座控制接口支持停止和有界运动
+- [x] Step 2：轻触改为短脉冲；长按保持同一次运动并定期续租，松手或离开页面立即停止；补充中英文操作提示
+- [x] Step 3：验证轻触、长按、停止与页面切换，完成独立 review
+  - [x] NSH 类型检查、24 项应用测试、底座运行时测试及 looi-driver 18 项测试通过
+  - [x] 独立 review 指出的外部停止后心跳误判和连续轻触后长按延迟已修复，最终复审 PASS；长按 UI 测试覆盖按下与松开
+
+### 底座头部俯仰连续调节（2026-11-08）
+
+- [x] Step 1：定位三档限制在滑杆步长、界面映射和驱动固定字节
+- [x] Step 2：将 25°–85° 的角度写入贯通界面、运行时和蓝牙驱动；滑杆拖动期间更新设备，合并过密指令
+- [x] Step 3：验证任意角度、快捷档位和界面反馈，完成独立 review
+  - [x] 驱动 17 项测试、运行时用例、驱动与 NSH 类型检查通过
+  - [x] 独立 review 指出的角度术语冲突与滑杆／快捷按钮竞态已处理
+  - [x] 当次完整 NSH 测试复跑为 22/24；另 2 项的私有存储初始化问题已在上方「NSH headless App 私有存储测试修复」中处理
+
+### 清除上次底座连接（2026-11-08）
+
+- [x] Step 1：确认底座只保存一台上次连接设备；现有断开操作不清除本机记录
+- [x] Step 2：在底座运行时清除保存记录并取消当前连接，接入页面操作与中英文文案
+- [x] Step 3：运行时用例验证断开、持久记录清除、重启不自动连接及再次连接后保存；NSH 类型检查通过，独立审查发现的测试竞态已修正
+
+### 安卓真机底座扫描修复（2026-11-08）
+
+- [x] Step 1：确认蓝牙与扫描权限已开启，系统记录原扫描采用低功耗模式、每次约 1.5 秒且返回 0 个广播
+- [x] Step 2：首次配对扫描改为 8 秒低延迟扫描；补齐精确位置授权，并将系统扫描失败回传到界面
+- [x] Step 3：开发包真机扫描发现 `LOOI Robot`，定位后续 3 步握手未等待 GATT 写入确认
+- [x] Step 4：等待订阅与每步写入回执后，开发包真机连接 `LOOI Robot`，界面显示“已吸合就绪”
+- [x] Step 5：连接状态单独决定方向、头部与补光灯操控，吸合状态不作为操控前提
+- [ ] Step 6：清理诊断日志，运行相关检查，完成独立 review 与提交
+
 ### Android Task 审核模式（2026-11-08）
 
 - [x] Step 1：梳理审核链路与设置持久化
@@ -11,6 +90,19 @@
 - [x] Step 3：验证与独立 review
   - [x] 类型检查、iOS／Android 模式行为探针与设置页持久化测试通过
   - [x] 子 agent 独立 review 无实际缺陷；本轮差异已提交
+
+### Android 实时语音后页面卡死修复（2026-11-08）
+
+- [x] Step 1：魅族 20 Pro 真机复现，并通过关闭自动唤醒的对照试验定位到唤醒词线程
+- [x] Step 2：修复音频错误重置时的条件变量身份丢失，增加针对死锁路径的回归测试；测试修复前失败、修复后通过
+- [x] Step 3：Rust 单元测试 17/17 通过；修复版 APK 覆盖安装到魅族 20 Pro，启动实时对话并等待 18 秒后，“对话”输入框及“连接”页均可正常打开；独立 review 通过
+
+### ChatGPT 订阅登录回调重试（2026-11-08）
+
+- [x] Step 1：定位手动回调提交后立即消耗 prompt、错误链接导致授权流程退出的原因
+- [x] Step 2：提交前核对回调地址与当前授权 state；错误时清空输入框并保留授权页面
+- [x] Step 3：按用户要求移除依赖补丁，保留应用内回调链接校验和输入框清空行为
+- [x] Step 4：覆盖格式错误、state 不匹配后继续等待及取消；相关运行时用例与类型检查通过
 
 ### LOOI 具身底座 SDK 接入 NSH 应用（2026-11-08）
 
@@ -1254,7 +1346,59 @@
 
 - [x] Step 1：核对底座页面、扫描和连接状态链，定位扫描完成后状态卡住的问题
 - [x] Step 2：修正运行时状态并明确页面的扫描、连接、失败和空列表反馈
+  - [x] 将自动连接开关文案对齐现有启动行为，真实断线重连记入待办
 - [x] Step 3：运行相关测试与类型检查，独立复审并提交本轮改动
   - [x] NSH 24 项测试通过；BLE mock 覆盖首次授权等待、扫描完成和连接完成状态
   - [x] 主 agent 修正独立 review 指出的连接控制、扫描失败、旧错误与 Android 首次授权问题；复审通过
-  - [x] 将自动连接开关文案对齐现有启动行为，真实断线重连记入待办
+
+### 手机应用图标接入（2026-11-08）
+
+- [x] Step 1：确认选定图标和 NSH 0.4.0 的图标配置入口
+  - [x] 选定荧光黄底抽象机器人图标，输出 1024 × 1024 无透明 PNG
+  - [x] 核对 NSH 的 `nsh.json.icon` 会进入 iOS asset catalog 和 Android launcher mipmap
+- [x] Step 2：接入项目配置与文档
+  - [x] 在应用 manifest 指向工作区图标资产
+  - [x] 更新应用说明中的图标来源与打包行为
+- [x] Step 3：验证真实平台产物
+  - [x] 构建 iOS 模拟器应用，`Assets.car` 含 `AppIcon`；安装后主屏幕显示选定图标，截图保存于 `docs/artifacts/app-icon/ios-home.png`
+  - [x] 构建 Android APK，manifest 指向 `res/mipmap-xxxhdpi-v4/ic_launcher.png`，包内资源为 192 × 192
+  - [x] 独立 review 通过；NSH 开发宿主 `NshDev` 使用通用图标，正式 package 已使用项目图标
+
+### NSH 底座扫描与连接解耦（2026-11-08）
+
+- [x] Step 1：定位界面、store、BLE 运行时和连接取消路径中的耦合点
+- [x] Step 2：允许连接期间扫描，点选新底座时切换连接目标
+  - [x] 分离扫描和连接的 UI 禁用条件；扫描取消、连接取消及迟到结果按操作代次处理
+  - [x] iOS 保留待连接目标所需的扫描；Android 连接不再中断附近设备扫描
+- [x] Step 3：验证连接切换与扫描行为，完成独立 review
+  - [x] BLE mock 覆盖连接中扫描、替换目标、授权等待取消和断开后立即重连
+  - [x] NSH 类型检查、voice runtime、iOS 模拟器探针、Android 插件测试、looi-driver 17 项及独立复审通过
+
+### Android 横屏挖孔遮挡修复（2026-11-08）
+
+- [x] Step 1：真机复现并定位安全区数据链
+  - [x] 魅族 20 Pro 横屏左侧系统挖孔 84 px，NSH `safeArea()` 四边均为 0
+- [x] Step 2：在现有 Android 插件中读取左右挖孔边界，通过 NSH host 事件更新应用根容器，背景铺满屏幕
+- [x] Step 3：仅在魅族 20 Pro 真机安装开发包并核对左右两侧，完成相关检查与独立 review
+  - [x] 真机截图显示导航轨从左侧 84 px 安全边界后开始，右上返回按钮与右侧工作区完整显示
+  - [x] NSH 类型检查、App UI 2 项测试、Android 插件测试通过；独立 review 通过
+
+### `VoiceRuntime` 模块化重构与 `run_agent_task` 异步协同升级（2026-11-09）
+
+- [x] Step 1：审视模块边界、实测豆包主动播报协议并落地实施计划
+  - [x] 基于 `codebase-design` 审视 `apps/nsh/runtime/voice/runtime.ts` 的 4 类生命周期耦合，确定 `VoiceCredentialStore`、`VoiceAudioPipeline`、`LiveVoiceSession` 与 `VoiceTaskCoordinator` 边界
+  - [x] 真网实测豆包 Duplex V3 `1.2.6.1`：`session.update` + `speech_text_buffer.commit` 产出 240,054 B 音频流（无 `call_id` 的 `conversation.item.create` 不触发响应）
+  - [x] 沉淀设计方案至 `docs/plans/voice-runtime-refactor-and-async-task-plan.md`
+- [x] Step 2：拆分重构 `apps/nsh/runtime/voice/`（保持存量行为零回归）
+  - [x] 提取 `credentials.ts`（凭据与 `voiceId`、`wakeEnabled` 持久化）
+  - [x] 提取 `audio-pipeline.ts`（纯同步 PCM 切片、背压、RMS 与打断已播毫秒账本）
+  - [x] 提取 `live-session.ts`（一次性 WebSocket 会话实例隔离，收敛写队列、回合门控与取消账本）
+  - [x] 精简 `runtime.ts` 为设备级状态监督器（`idle` / `permission` / `standby` / 当前会话槽位），通过存量全部语音与 NSH 24 项集成测试并提交
+- [x] Step 3：实现双协议 `WHEN_IDLE` 主动播报与 `run_agent_task` 异步晋升升级
+  - [x] 在 `packages/looi-runtime/src/voice/realtime-protocol.ts` 增加 `encodeProactiveSpeech`（豆包与 OpenAI 双协议适配）
+  - [x] 实现 `task-coordinator.ts` 与 `manage-agent-task.ts`，升级 `run-agent-task.ts` 与 `prompts.ts`（2.5s 快路径直返 + 超时自动转后台 + 进度查询/中止）
+  - [x] 接入 `apps/nsh/store.ts` 与 `build-runtime.ts`：解耦 `endSession()` 对后台长任务的取消行为，修正语音对话与后台思考并发时的表情优先级，同步更新 `docs/arch/`
+  - [x] 新增 `apps/nsh/tests/voice-async-task-cases.ts` 覆盖快慢分流、挂断存活、`WHEN_IDLE` 排队播报与待审批通知
+- [ ] Step 4：全量验证、独立子 agent 代码复审与提交
+  - [x] `@super-looi/runtime` 79 项测试、`@super-looi/nsh` 类型检查 / 语音与异步测试 / 24 项集成测试与 `build` 全部通过
+  - [ ] 独立子 agent 复审通过并修正反馈后提交
