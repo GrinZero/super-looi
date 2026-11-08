@@ -35,6 +35,7 @@ export interface RealtimeProtocolAdapter {
   readonly outputSampleRate: 24000;
   connectTarget(apiKey: string): { url: string; headers: Record<string, string> };
   createHandshakeMessages(tools: VoiceToolSchema[], options?: { voiceId?: string; instructions?: string }): Record<string, unknown>[];
+  encodeInstructionsUpdate(instructions: string): Record<string, unknown>;
   encodeAudioAppend(pcm16k: Uint8Array): Record<string, unknown>;
   encodeMute(muted: boolean): Record<string, unknown> | null;
   encodeToolReply(callId: string, output: unknown): Record<string, unknown>[];
@@ -78,6 +79,7 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
         dialog: { extra: { enable_user_query_exit: true } },
       },
     }],
+    encodeInstructionsUpdate: (instructions) => ({ type: "session.update", session: { instructions } }),
     encodeAudioAppend: (pcm) => ({ type: "input_audio_buffer.append", audio: Buffer.from(pcm).toString("base64") }),
     encodeMute: (muted) => ({ type: muted ? "input_audio_mute.commit" : "input_audio_unmute.commit" }),
     encodeToolReply: (callId, output) => [{ type: "conversation.item.create", items: [{ call_id: callId, role: "tool", content: [{ type: "input_text", text: reply(output) }] }] }],
@@ -145,6 +147,7 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
         },
       },
     }],
+    encodeInstructionsUpdate: (instructions) => ({ type: "session.update", session: { type: "realtime", instructions } }),
     encodeAudioAppend: (pcm) => ({ type: "input_audio_buffer.append", audio: Buffer.from(resamplePcm16To24k(pcm)).toString("base64") }),
     encodeMute: (muted) => muted ? { type: "input_audio_buffer.clear" } : null,
     encodeToolReply: (callId, output) => [

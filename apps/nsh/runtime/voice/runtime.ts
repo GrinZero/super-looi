@@ -1,3 +1,4 @@
+import { replyTextLanguage, type ConversationLanguage } from "../../../../packages/looi-runtime/src/agent/conversation-language.js";
 import { voiceInstructions } from "./prompts.js";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
@@ -29,6 +30,7 @@ export class VoiceRuntime {
     error: "",
   };
   private generation = 0;
+  private conversationLanguage: ConversationLanguage = "zh-CN";
   private socket?: VoiceSocket;
   private timer?: ReturnType<typeof setTimeout>;
   private deadline?: ReturnType<typeof setTimeout>;
@@ -221,6 +223,7 @@ export class VoiceRuntime {
     const key = this.resolveApiKey();
     if (!key) throw new Error("@looi:configureVoiceKey");
     const selectedVoiceId = this.voiceId;
+    this.conversationLanguage = this.options.defaultLanguage?.() ?? "zh-CN";
     const fromStandby = this.state.phase === "standby";
     if (this.standbyTimer) clearTimeout(this.standbyTimer);
     this.standbyTimer = undefined;
@@ -253,7 +256,7 @@ export class VoiceRuntime {
         tracer: this.options.tracer, protocol: this.protocol, sessionId: randomUUID(), fromWakeWord: options.fromWakeWord === true, connectStartedAt,
       }) : rawSocket;
       this.socket = socket;
-      for (const message of this.protocol.createHandshakeMessages(this.tools.schemas, { voiceId: selectedVoiceId, instructions: voiceInstructions(this.options.defaultLanguage?.()) })) await this.send(message, generation);
+      for (const message of this.protocol.createHandshakeMessages(this.tools.schemas, { voiceId: selectedVoiceId, instructions: voiceInstructions(this.conversationLanguage) })) await this.send(message, generation);
       void this.read(socket, generation, selectedVoiceId);
     } catch {
       if (this.current(generation))
@@ -386,12 +389,15 @@ export class VoiceRuntime {
               this.state.transcript + normalized.delta
             ).slice(-4096),
           });
-        else if (normalized.kind === "text_done")
-          this.publish({
-            transcript: String(normalized.text ?? this.state.transcript).slice(
-              -4096,
-            ),
-          });
+        else if (normalized.kind === "text_done") {
+          const transcript = String(normalized.text ?? this.state.transcript).slice(-4096);
+          this.publish({ transcript });
+          const language = replyTextLanguage(transcript, this.conversationLanguage);
+          if (language !== this.conversationLanguage) {
+            this.conversationLanguage = language;
+            await this.send(this.protocol.encodeInstructionsUpdate(voiceInstructions(language, true)), generation);
+          }
+        }
         else if (normalized.kind === "user_speech_started" || normalized.kind === "user_transcription_started") {
           this.turnActivity = "user_speaking";
           this.pauseIdleTimer();

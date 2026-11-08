@@ -171,6 +171,17 @@ export async function verifyVoiceRuntime() {
     Number(starts) === 1 && voice.snapshot().phase === "listening",
     "session did not start native capture",
   );
+  event({ type: "response.output_text.done", text: "太阳从东方升起。" });
+  await settle();
+  const languageUpdates = () => writes.filter(item => item.type === "session.update");
+  check(languageUpdates().length === 1 && languageUpdates()[0].session.instructions.includes("current conversation language is Simplified Chinese"), "completed Chinese reply did not update conversation language");
+  check(Object.keys(languageUpdates()[0].session).join() === "instructions", "language update changed voice or tools");
+  event({ type: "response.output_text.done", text: "太阳从东方升起。" });
+  await settle();
+  check(languageUpdates().length === 1, "same-language reply repeated session update");
+  event({ type: "response.output_text.done", text: 'The Chinese word “你好” means hello.' });
+  await settle();
+  check(languageUpdates().length === 2 && languageUpdates()[1].session.instructions.includes("current conversation language is English"), "English reply with quoted Chinese did not restore English");
   event({ type: "input_audio_buffer.speech_started" });
   await settle();
   check(
