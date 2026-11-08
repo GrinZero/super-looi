@@ -56,10 +56,10 @@ export async function buildRuntime() {
   await writeFile(
     resolve(root, "generated/looi-runtime.d.ts"),
     `
-export interface VoiceState {phase:"idle"|"permission"|"connecting"|"listening"|"speaking"|"error";muted:boolean;transcript:string;error:string}
+export interface VoiceState {phase:"idle"|"standby"|"permission"|"connecting"|"listening"|"speaking"|"error";muted:boolean;wakeEnabled:boolean;transcript:string;error:string}
 export class VoiceRuntime {
- constructor(options:{vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;stop():void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;onAudioLevel?:(level:number)=>void;requestTask:(prompt:string)=>Promise<string>;cancelTask:()=>void});
- configuration():{hasKey:boolean};configure(value:string):void;snapshot():VoiceState;start():Promise<void>;mute(value:boolean):void;interrupt():void;stop():void;close():void;
+ constructor(options:{vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;stop():void;setCaptureMode(mode:string):void;playReadyCue():void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number;captureMode:string;wakeWord:string;kwsReady:boolean}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;onAudioLevel?:(level:number)=>void;requestTask:(prompt:string)=>Promise<string>;cancelTask:()=>void});
+ configuration():{hasKey:boolean};configure(value:string):void;setWakeEnabled(enabled:boolean):void;snapshot():VoiceState;enterStandby():Promise<void>;start(options?:{fromWakeWord?:boolean}):Promise<void>;endSession():void;mute(value:boolean):void;interrupt():void;stop():void;close():void;
 }
 export interface UiAction {event_id:string;ui_session_id:string;kind:"tap"|"gesture"|"voice_command";captured_at:string;expires_at:string}
 export interface NativeStep {step:number;phase:string;summary:string;taskId?:string;interaction?:{id:string;kind:"approval"|"question";details:Record<string,unknown>;expiresAt:string}}
@@ -73,6 +73,18 @@ export class MiotLoginFlow {
  start(region:HomeConfiguration["region"],action:UiAction):Promise<HomeConnection>;
  cancel():void;
 }
+export type LlmBrandId = "openai" | "kimi" | "minimax" | "xiaomi" | "zai" | "custom";
+export type CompatibleApiProtocol = "openai-completions" | "openai-responses" | "anthropic-messages";
+export interface CustomEndpointConfig {api:CompatibleApiProtocol;baseUrl:string;modelId:string}
+export interface LlmModelItem {id:string;name:string;reasoning:boolean;contextWindow:number;isCustom:boolean}
+export interface LlmChannelStatus {providerId:string;label:string;baseUrl:string;protocolLabel:string;authTypes:Array<"api_key"|"oauth">;defaultModelId:string;hasApiKey:boolean;hasOAuth:boolean;oauthExpiresAt:number|null;models:LlmModelItem[];modelsFetched?:boolean;modelsError?:string}
+export interface LlmBrandStatus {brandId:LlmBrandId;label:string;shortLabel:string;configured:boolean;channels:LlmChannelStatus[]}
+export interface LlmCatalogSnapshot {brands:LlmBrandStatus[];active:{brandId:LlmBrandId;providerId:string;modelId:string;authType:"api_key"|"oauth"}|null;custom:CustomEndpointConfig}
+export type LlmOAuthUiEvent =
+ | {kind:"device_code";userCode:string;verificationUri:string;expiresInSeconds?:number}
+ | {kind:"auth_url";url:string;instructions?:string}
+ | {kind:"awaiting_callback";message:string;placeholder:string}
+ | {kind:"progress";message:string};
 export interface NativeRuntime {
  homeConfiguration():HomeConfiguration;
  homeConnection():HomeConnection;
@@ -94,6 +106,14 @@ export interface NativeRuntime {
  respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  close():Promise<void>;
+ llmSnapshot():LlmCatalogSnapshot;
+ refreshProviderModels(providerId:string):Promise<LlmCatalogSnapshot>;
+ saveProviderApiKey(input:{providerId:string;apiKey?:string;modelId?:string;custom?:CustomEndpointConfig;setActive?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
+ selectActiveModel(input:{providerId:string;modelId:string;addCustomModel?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
+ removeProviderCredential(providerId:string,action:UiAction):Promise<LlmCatalogSnapshot>;
+ startProviderOAuth(providerId:string,action:UiAction,onEvent:(event:LlmOAuthUiEvent)=>void):Promise<LlmCatalogSnapshot>;
+ submitProviderOAuthCallback(callbackUrl:string):void;
+ cancelProviderOAuth():void;
 }
 export interface FaceState {expression:"neutral"|"listening"|"thinking"|"speaking"|"curious"|"sleeping"|"alarmed";gaze:{x:number;y:number};blinkProgress:number;waveformBars:number[]}
 export class RobotFaceController {

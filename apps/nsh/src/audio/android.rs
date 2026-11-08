@@ -5,6 +5,7 @@ use jni::{
     objects::{GlobalRef, JClass, JString, JValue},
 };
 use std::{
+    collections::VecDeque,
     ffi::{CStr, c_char, c_void},
     ptr,
     sync::{
@@ -64,6 +65,7 @@ type Handle = *mut c_void;
 type SetInt = unsafe extern "C" fn(Handle, i32);
 type ResultCall = unsafe extern "C" fn(Handle) -> i32;
 type GetInt = unsafe extern "C" fn(Handle) -> i32;
+type GetLong = unsafe extern "C" fn(Handle) -> i64;
 type Transfer = unsafe extern "C" fn(Handle, *mut c_void, i32, i64) -> i32;
 
 #[link(name = "dl")]
@@ -95,6 +97,8 @@ struct Api {
     device: GetInt,
     read: Transfer,
     write: Transfer,
+    frames_written: GetLong,
+    frames_read: GetLong,
 }
 
 static API: OnceLock<Result<Api, String>> = OnceLock::new();
@@ -204,6 +208,8 @@ impl Api {
                 device: required!(c"AAudioStream_getDeviceId", GetInt),
                 read: required!(c"AAudioStream_read", Transfer),
                 write: required!(c"AAudioStream_write", Transfer),
+                frames_written: required!(c"AAudioStream_getFramesWritten", GetLong),
+                frames_read: required!(c"AAudioStream_getFramesRead", GetLong),
             })
         }
     }
@@ -267,6 +273,31 @@ impl Api {
 struct Stream {
     handle: usize,
     api: &'static Api,
+}
+
+struct PlayedChunk {
+    end_frame: i64,
+    samples: usize,
+    cue_samples: usize,
+}
+
+fn retire_played(
+    shared: &SharedAudio,
+    chunks: &mut VecDeque<PlayedChunk>,
+    frame: i64,
+    generation: u64,
+) {
+    if let Ok(mut state) = shared.lock() {
+        if state.generation != generation {
+            chunks.clear();
+            return;
+        }
+        while chunks.front().is_some_and(|chunk| chunk.end_frame <= frame) {
+            let chunk = chunks.pop_front().unwrap();
+            state.pending_samples = state.pending_samples.saturating_sub(chunk.samples);
+            state.cue_pending_samples = state.cue_pending_samples.saturating_sub(chunk.cue_samples);
+        }
+    }
 }
 impl Drop for Stream {
     fn drop(&mut self) {
@@ -363,6 +394,7 @@ impl Audio {
         audio.workers.push(thread::spawn(move || {
             let mut seen_generation = 0;
             let mut focus_tick = 0u32;
+            let mut played_chunks = VecDeque::new();
             while running.load(Ordering::Acquire) {
                 // The application marks focus lost when it backgrounds. This
                 // native check also runs while JS is suspended or disconnected.
@@ -384,13 +416,14 @@ impl Audio {
                     break;
                 }
                 let mut buffer = [0i16; 480];
-                let (count, generation) = match shared.lock() {
+                let (count, cue_count, generation) = match shared.lock() {
                     Ok(mut state) => {
                         let count = state.playback.len().min(buffer.len());
+                        let cue_count = state.cue_queued_samples.min(count);
                         for sample in &mut buffer[..count] {
                             *sample = state.playback.pop_front().unwrap();
                         }
-                        (count, state.generation)
+                        (count, cue_count, state.generation)
                     }
                     Err(_) => {
                         running.store(false, Ordering::Release);
@@ -398,6 +431,7 @@ impl Audio {
                     }
                 };
                 if generation != seen_generation {
+                    played_chunks.clear();
                     if let Err(error) = api.clear_output(output.handle as Handle, &running) {
                         fail(&shared, &error);
                         running.store(false, Ordering::Release);
@@ -412,6 +446,12 @@ impl Audio {
                 if !current {
                     continue;
                 }
+                retire_played(
+                    &shared,
+                    &mut played_chunks,
+                    unsafe { (api.frames_read)(output.handle as Handle) },
+                    generation,
+                );
                 let written = unsafe {
                     (api.write)(
                         output.handle as Handle,
@@ -428,7 +468,19 @@ impl Audio {
                 if let Ok(mut state) = shared.lock() {
                     if state.generation == generation {
                         let consumed = count.min(written as usize);
-                        state.pending_samples = state.pending_samples.saturating_sub(consumed);
+                        let cue_written = cue_count.min(consumed);
+                        state.cue_queued_samples =
+                            state.cue_queued_samples.saturating_sub(cue_written);
+                        if consumed != 0 {
+                            let end_frame =
+                                unsafe { (api.frames_written)(output.handle as Handle) }
+                                    - (written as usize - consumed) as i64;
+                            played_chunks.push_back(PlayedChunk {
+                                end_frame,
+                                samples: consumed,
+                                cue_samples: cue_written,
+                            });
+                        }
                         // A partial timed write must keep speech that has not
                         // reached the device, in order, before the next chunk.
                         for &sample in buffer[consumed..count].iter().rev() {
@@ -436,6 +488,12 @@ impl Audio {
                         }
                     }
                 }
+                retire_played(
+                    &shared,
+                    &mut played_chunks,
+                    unsafe { (api.frames_read)(output.handle as Handle) },
+                    generation,
+                );
             }
             drop(output);
             let _ = with_java(|env, class| {

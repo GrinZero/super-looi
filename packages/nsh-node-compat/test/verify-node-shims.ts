@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { deflateRawSync, inflateRawSync, crc32 } from "node:zlib";
 import { createInterface } from "node:readline";
+import http from "node:http";
 import { cloneValue } from "../src/polyfills.js";
 import { StringDecoder } from "../src/shims/string_decoder.js";
 fs.mkdirSync("/workspace/test", { recursive: true });
@@ -84,6 +85,17 @@ let output = "";
 child.stdout.on("data", (data) => (output += data.toString()));
 await new Promise((resolve) => child.on("close", resolve));
 equal(output, "event\n");
+const server = http.createServer();
+assert(typeof server.listen === "function");
+let listened = false;
+server.listen(1455, "127.0.0.1", () => {
+  listened = true;
+});
+await new Promise<void>((resolve) => queueMicrotask(resolve));
+assert(listened);
+equal(server.address().port, 1455);
+server.closeAllConnections();
+server.close();
 const cycle: any = {
   date: new Date(0),
   bytes: new Uint8Array([1, 2]),

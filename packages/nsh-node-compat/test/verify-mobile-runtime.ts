@@ -383,3 +383,207 @@ try {
   assert(fresh.attempt !== session.attempt, "Login attempt identity was reused");
 } finally { await loginMobile.close(); }
 console.log("PASS mobile MIoT: fresh UI authorization, pending-operation isolation, native commit guard and cancellation generations");
+
+// Multi-provider LLM catalog, API Key mutation, custom models, and OAuth device flow
+const llmSlots = new Map<string, string>();
+const llmMobile = new MobileRuntime(
+  {
+    get: (key) => llmSlots.get(key) ?? "",
+    set: (key, value) => {
+      llmSlots.set(key, value);
+    },
+    remove: (key) => {
+      llmSlots.delete(key);
+    },
+  },
+  () => {},
+);
+const llmAction = () => ({
+  event_id: `llm_${Date.now()}`,
+  ui_session_id: llmMobile.uiSessionId,
+  kind: "tap" as const,
+  captured_at: new Date().toISOString(),
+  expires_at: new Date(Date.now() + 10000).toISOString(),
+});
+
+try {
+  // 1. llmSnapshot() has 6 brands (including zai-cn standard endpoint vs zai-coding-cn)
+  const snapshot = llmMobile.llmSnapshot();
+  equal(snapshot.brands.length, 6);
+  const brandIds = snapshot.brands.map((b) => b.brandId);
+  equal(brandIds, ["openai", "kimi", "minimax", "xiaomi", "zai", "custom"]);
+  equal(snapshot.active, null);
+
+  const zaiBrand = snapshot.brands.find((b) => b.brandId === "zai");
+  assert(Boolean(zaiBrand), "Zai brand must be present");
+  const zaiChannelIds = zaiBrand!.channels.map((c) => c.providerId);
+  assert(zaiChannelIds.includes("zai-cn"), "zai-cn channel must be present");
+  assert(zaiChannelIds.includes("zai-coding-cn"), "zai-coding-cn channel must be present");
+  const zaiCnChannel = zaiBrand!.channels.find((c) => c.providerId === "zai-cn")!;
+  equal(zaiCnChannel.baseUrl, "https://open.bigmodel.cn/api/paas/v4");
+  const zaiCodingChannel = zaiBrand!.channels.find((c) => c.providerId === "zai-coding-cn")!;
+  equal(zaiCodingChannel.baseUrl, "https://open.bigmodel.cn/api/coding/paas/v4");
+
+  // 2. saveProviderApiKey saves Zhipu zai-cn API Key and switches active model
+  const snapAfterSave = await llmMobile.saveProviderApiKey(
+    {
+      providerId: "zai-cn",
+      apiKey: "test-zhipu-key-12345",
+      modelId: "glm-5.3",
+    },
+    llmAction(),
+  );
+  equal(snapAfterSave.active?.providerId, "zai-cn");
+  equal(snapAfterSave.active?.modelId, "glm-5.3");
+  equal(snapAfterSave.active?.brandId, "zai");
+  equal(snapAfterSave.active?.authType, "api_key");
+  const updatedZaiBrand = snapAfterSave.brands.find((b) => b.brandId === "zai")!;
+  assert(updatedZaiBrand.configured, "Zai brand should be marked configured");
+  const updatedZaiCn = updatedZaiBrand.channels.find((c) => c.providerId === "zai-cn")!;
+  assert(updatedZaiCn.hasApiKey, "zai-cn channel should have apiKey");
+  equal(llmMobile.configuration().model, "glm-5.3");
+  equal(llmMobile.configuration().baseUrl, "https://open.bigmodel.cn/api/paas/v4");
+  equal(llmMobile.configuration().hasKey, true);
+
+  // 3. selectActiveModel injects a custom model ID
+  const snapAfterCustom = await llmMobile.selectActiveModel(
+    {
+      providerId: "zai-cn",
+      modelId: "glm-custom-pro-v1",
+    },
+    llmAction(),
+  );
+  equal(snapAfterCustom.active?.providerId, "zai-cn");
+  equal(snapAfterCustom.active?.modelId, "glm-custom-pro-v1");
+  equal(llmMobile.configuration().model, "glm-custom-pro-v1");
+  const customModelItem = snapAfterCustom.brands
+    .find((b) => b.brandId === "zai")!
+    .channels.find((c) => c.providerId === "zai-cn")!
+    .models.find((m) => m.id === "glm-custom-pro-v1");
+  assert(Boolean(customModelItem), "Injected custom model must appear in models list");
+  equal(customModelItem!.isCustom, true);
+
+  // 4. removeProviderCredential clears credential
+  const snapAfterRemove = await llmMobile.removeProviderCredential("zai-cn", llmAction());
+  equal(snapAfterRemove.active, null);
+  const clearedZaiBrand = snapAfterRemove.brands.find((b) => b.brandId === "zai")!;
+  assert(!clearedZaiBrand.configured, "Zai brand should no longer be configured");
+  const clearedZaiCn = clearedZaiBrand.channels.find((c) => c.providerId === "zai-cn")!;
+  assert(!clearedZaiCn.hasApiKey, "zai-cn channel should no longer have apiKey");
+  equal(llmMobile.configuration().model, "");
+  equal(llmMobile.configuration().hasKey, false);
+
+  // 5. startProviderOAuth("kimi-coding", ...) under mock fetch
+  const oauthFetch = globalThis.fetch;
+  const origTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = () => new AbortController().signal;
+  const oauthEvents: any[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as any)?.url ?? "";
+    if (url.includes("/api/oauth/device_authorization")) {
+      return new Response(
+        JSON.stringify({
+          device_code: "kimi_device_123",
+          user_code: "KIMI-4321",
+          verification_uri: "https://auth.kimi.com/device",
+          verification_uri_complete: "https://auth.kimi.com/device?code=KIMI-4321",
+          interval: 1,
+          expires_in: 300,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("/api/oauth/token")) {
+      return new Response(
+        JSON.stringify({
+          access_token: "kimi_access_secret",
+          refresh_token: "kimi_refresh_secret",
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return oauthFetch(input, init);
+  };
+
+  try {
+    const snapAfterOAuth = await llmMobile.startProviderOAuth(
+      "kimi-coding",
+      llmAction(),
+      (ev) => {
+        oauthEvents.push(ev);
+      },
+    );
+    assert(oauthEvents.length > 0, "Should have received device code event");
+    equal(oauthEvents[0].kind, "device_code");
+    equal(oauthEvents[0].userCode, "KIMI-4321");
+    equal(
+      oauthEvents[0].verificationUri,
+      "https://auth.kimi.com/device?code=KIMI-4321",
+    );
+
+    equal(snapAfterOAuth.active?.providerId, "kimi-coding");
+    equal(snapAfterOAuth.active?.modelId, "k3.1-pro");
+    equal(snapAfterOAuth.active?.authType, "oauth");
+    equal(snapAfterOAuth.active?.brandId, "kimi");
+
+    const kimiBrand = snapAfterOAuth.brands.find((b) => b.brandId === "kimi")!;
+    assert(kimiBrand.configured, "Kimi brand should be configured");
+    const kimiChannel = kimiBrand.channels.find(
+      (c) => c.providerId === "kimi-coding",
+    )!;
+    assert(kimiChannel.hasOAuth, "kimi-coding should have OAuth");
+    assert(
+      typeof kimiChannel.oauthExpiresAt === "number",
+      "oauthExpiresAt should be set",
+    );
+    equal(llmMobile.configuration().model, "k3.1-pro");
+    equal(llmMobile.configuration().baseUrl, "https://api.kimi.com/coding/v1");
+    equal(llmMobile.configuration().hasKey, true);
+
+    // 6. OpenAI PKCE manual callback prompt + cancelProviderOAuth releases lock cleanly
+    const openaiEvents: any[] = [];
+    const pendingOpenai = llmMobile.startProviderOAuth(
+      "openai",
+      llmAction(),
+      (ev) => {
+        openaiEvents.push(ev);
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert(
+      openaiEvents.some((ev) => ev.kind === "auth_url"),
+      "OpenAI OAuth should emit auth_url",
+    );
+    llmMobile.cancelProviderOAuth();
+    let cancelledError = false;
+    try {
+      await pendingOpenai;
+    } catch {
+      cancelledError = true;
+    }
+    assert(cancelledError, "Cancelled OpenAI OAuth should reject cleanly");
+    const afterCancelSnap = await llmMobile.saveProviderApiKey(
+      {
+        providerId: "openai",
+        apiKey: "sk-openai-after-cancel",
+        modelId: "gpt-5.4",
+      },
+      llmAction(),
+    );
+    equal(afterCancelSnap.active?.providerId, "openai");
+  } finally {
+    globalThis.fetch = oauthFetch;
+    AbortSignal.timeout = origTimeout;
+  }
+} finally {
+  await llmMobile.close();
+}
+console.log(
+  "PASS mobile LLM catalog: 6 brands, zai standard/coding distinction, api-key save/switch/remove, and kimi-coding OAuth flow",
+);

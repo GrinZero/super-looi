@@ -7,7 +7,9 @@
     "build:probe": "node --import tsx scripts/build-compat-probe.ts",
     "build": "pnpm build:probe && node --import tsx scripts/nsh.ts build",
     "typecheck": "pnpm build:probe && tsc -p tsconfig.runtime.json && node --import tsx scripts/nsh.ts check",
-    "test": "pnpm build:probe && node --import tsx scripts/nsh.ts test",
+    "test": "pnpm test:voice-runtime && pnpm test:model-list && pnpm build:probe && node --import tsx scripts/nsh.ts test",
+    "test:model-list": "node --import tsx --test tests/model-list.node.ts",
+    "test:voice-runtime": "node --import tsx -e 'Promise.all([import(\"./tests/voice-runtime-cases.ts\"), import(\"./tests/voice-wake-cases.ts\")]).then(async ([voice, wake]) => { await voice.verifyVoiceRuntime(); await wake.verifyWakeRuntime(); })'",
     "test:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-ios",
     "test:android": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-android",
     "ios": "node --import tsx scripts/nsh.ts run --target ios",
@@ -19,6 +21,7 @@
     "test:live:sdk:android": "node --import tsx scripts/verify-live.ts android --sdk",
     "test:plugins": "python3 -B native/android/test_plugin.py",
     "test:login:ios": "node --import tsx scripts/nsh.ts login-ios",
+    "test:wake:ios": "node --import tsx scripts/nsh.ts wake-ios",
     "test:login:android": "node --import tsx scripts/nsh.ts login-android"
   },
   "devDependencies": {

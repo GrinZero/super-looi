@@ -37,9 +37,10 @@ fn real_app_task_and_home_panels() -> Result<(), String> {
     app.wait_for_within("发送", Duration::from_secs(5))?;
     app.press("compose")?;
     app.press("connection-settings")?;
-    app.wait_for_within("连接设置", Duration::from_secs(5))?;
-    app.wait_for_within("豆包实时语音 API Key", Duration::from_secs(5))?;
-    app.press("关闭")?;
+    app.wait_for_within("OpenAI / ChatGPT", Duration::from_secs(5))?;
+    app.press("nav-voice")?;
+    app.wait_for_within("豆包实时语音凭证", Duration::from_secs(5))?;
+    app.press("back-to-face")?;
     app.wait_for_within("陪伴待机", Duration::from_secs(5))?;
     Ok(())
 }

@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -33,12 +34,26 @@ class AndroidPluginTest(unittest.TestCase):
                 archive.writestr("classes.dex", b"original primary dex")
                 archive.writestr("classes2.dex", b"original secondary dex")
                 archive.writestr("assets/original.bin", b"original asset")
+                archive.writestr("lib/arm64-v8a/libnsh.so", b"native host")
+            sherpa = root / "sherpa"
+            libraries = sherpa / "android/jniLibs/arm64-v8a"
+            libraries.mkdir(parents=True)
+            (libraries / "libonnxruntime.so").write_bytes(b"onnx runtime")
+            (libraries / "libsherpa-onnx-c-api.so").write_bytes(b"keyword spotter")
             dex = root / "plugin.dex"
             dex.write_bytes(b"owned plugin test dex")
             first, second = root / "first.apk", root / "second.apk"
             application = "com.superlooi.nsh.SuperLooiApplication"
-            merge(original, dex, first, application, False)
-            merge(first, dex, second, application, False)
+            previous_cache = os.environ.get("LOOI_SHERPA_CACHE_DIR")
+            os.environ["LOOI_SHERPA_CACHE_DIR"] = str(sherpa)
+            try:
+                merge(original, dex, first, application, False)
+                merge(first, dex, second, application, False)
+            finally:
+                if previous_cache is None:
+                    os.environ.pop("LOOI_SHERPA_CACHE_DIR", None)
+                else:
+                    os.environ["LOOI_SHERPA_CACHE_DIR"] = previous_cache
             def tree(path):
                 return subprocess.check_output([str(tools / "aapt2"), "dump", "xmltree", "--file", "AndroidManifest.xml", str(path)], text=True)
             def unchanged(text):
@@ -56,6 +71,12 @@ class AndroidPluginTest(unittest.TestCase):
                         self.assertEqual(src.read(name), result.read(name), name)
                 self.assertEqual(result.read("classes3.dex"), dex.read_bytes())
                 self.assertNotIn("classes4.dex", result.namelist())
+                marker = json.loads(result.read("assets/super-looi-native-plugin.json"))
+                self.assertEqual(len(marker["native_libs"]), 2)
+                for library in ("libonnxruntime.so", "libsherpa-onnx-c-api.so"):
+                    name = "lib/arm64-v8a/" + library
+                    self.assertEqual(result.getinfo(name).compress_type, zipfile.ZIP_STORED)
+                    self.assertEqual(result.read(name), (libraries / library).read_bytes())
             # Add a missing permission without dropping an unrelated permission,
             # then reapply to prove no duplicate RECORD_AUDIO node appears.
             manifest.write_text(manifest.read_text().replace("android.permission.RECORD_AUDIO", "android.permission.INTERNET"))

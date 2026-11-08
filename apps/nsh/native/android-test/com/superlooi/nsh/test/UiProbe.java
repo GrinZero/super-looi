@@ -25,11 +25,11 @@ public final class UiProbe extends Instrumentation {
             waitText("陪伴待机", 20000);
             tapText("对话"); waitText("发送", 5000);
             tapText("对话");
-            tapText("连接"); waitText("连接设置", 5000);
-            waitText("豆包实时语音 API Key", 5000);
-            tapText("关闭");
+            tapText("连接"); waitText("OpenAI / ChatGPT", 5000);
+            tapText("语音"); waitText("豆包实时语音凭证", 5000);
+            tapText("返回");
             waitText("陪伴待机", 5000);
-            result.putString("result", "PASS native Android pure face, inline ask bar, and LLM/voice connection settings through system input");
+            result.putString("result", "PASS native Android pure face, inline ask bar, and Structure 3 management shell through system input");
             finish(-1, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL " + error.getClass().getSimpleName() + ": " + error.getMessage());

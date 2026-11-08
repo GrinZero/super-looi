@@ -1,5 +1,128 @@
 # Super-LOOI 重构与演进进度
 
+### 模型配置按账号加载可用模型（2026-11-08）
+
+- [x] Step 1：定位右侧静态列表与订阅授权后的数据流
+- [x] Step 2：在授权或保存凭证后拉取 `/models`，打开已有连接时刷新；右侧仅展示在线结果和手动模型
+- [x] Step 3：核对 OpenAI 订阅与兼容 API 返回格式，完成 NSH 检查、UI 测试与独立 review
+  - [x] 模型列表 3 项协议/选型测试、NSH 19 项及运行时 68 项测试、类型检查与构建通过
+  - [x] iPhone 16e 模拟器 UI 测试通过；测试网络返回两条账号模型，截图确认右栏展示 ID 与名称
+  - [x] 独立 review 指出的非聊天模型筛选、旧账号异步覆盖、订阅初次选型和在线型号持久化问题已修复并复审通过
+
+### NSH 语音工具定义与执行聚合（2026-11-08）
+
+- [x] Step 1：核对两个工具的 schema、执行逻辑及会话状态依赖
+- [x] Step 2：将两个工具拆为各自的函数模块，schema 与执行逻辑同处一处
+  - [x] `tools/run-agent-task.ts` 管理任务调用；`tools/end-conversation.ts` 管理道别回执和完成状态
+  - [x] `tools/index.ts` 只处理共享回执格式与调用去重；`protocol.ts` 组装会话消息
+- [x] Step 3：更新会话配置和架构图，完成测试、构建与独立 review
+  - [x] NSH `typecheck`、完整 `test`（19/19）和 `build` 通过
+  - [x] 架构图锚点与工具源码快照一致；独立 review 通过
+
+
+### NSH 语音运行时模块拆分（2026-11-08）
+
+- [x] Step 1：梳理 `voice.ts` 职责、调用入口与现有语音测试
+- [x] Step 2：建立 `runtime/voice/`，集中模型提示词和 Realtime 会话配置，保留现有公开入口
+  - [x] 拆出类型、提示词、协议配置；`VoiceRuntime` 保留原有状态机和调用签名
+  - [x] 更新架构图中的语音源码入口与本地快照
+- [x] Step 3：完成语音测试、类型检查、构建及独立 review
+  - [x] `test:voice-runtime`、NSH `typecheck`、完整 `test`（19/19）与 `build` 通过
+  - [x] 架构图源码锚点与语音快照一致；独立 review 未发现回归
+
+
+### NSH 自动语音唤醒与 Realtime 对话（2026-11-07）
+
+- [x] Step 1：固定 sherpa-onnx 模型与原生库，接入 iOS / Android 构建和 APK 打包
+  - [x] 核对发布资产、C API 与唤醒词 token，并实现缓存准备脚本
+  - [x] 配置 Cargo 链接、模型内嵌与 Android 原生库注入
+- [x] Step 2：实现 Rust 音频单流切换、本地 KWS 工作线程与就绪提示音
+  - [x] KWS 模型初始化、专用线程和有界采集队列
+  - [x] KWS / conversation 切换、播放排空与音频状态桥接
+- [x] Step 3：实现 VoiceRuntime 待机唤醒、Duplex 会话、多轮对话和自动休眠
+  - [x] 待机、权限、唤醒、会话结束及道别工具
+  - [x] 播放排空、用户语音阶段和 12 秒空闲计时
+- [x] Step 4：连接状态管理和首屏、语音管理空间交互
+- [x] Step 5：运行测试与 iOS / Android 构建，独立 review 并提交
+  - [x] iOS 模拟器真实模型加载与单流切换；Android API 34 模拟器首次授权后 KWS 与单流切换通过
+  - [x] Android 三 ABI APK 构建、ELF 与 ZIP 16 KB 对齐验证；iOS 合成 PCM → 豆包 ASR → Agent 工具 → 原生语音输出通过
+  - [x] 类型检查、NSH 18 项测试、插件测试和 iOS UI 复核通过；独立 review 指出并复核播放完成与权限时序修复
+  - [x] 分阶段提交本次改动
+
+### LIVE 首屏嘴型闪烁修复（2026-11-07）
+
+- [x] Step 1：定位音量阈值导致微笑与波形嘴型反复切换
+- [x] Step 2：移除首屏语音波形嘴型及重采样逻辑，保留表情嘴型
+- [x] Step 3：完成 NSH 检查、构建、现有测试及 iOS 视觉验证，独立审查并提交
+  - [x] `typecheck`、`build` 通过，现有测试 17/17 通过
+  - [x] iPhone 16e 模拟器进入 LIVE 聆听，确认微笑嘴型显示
+  - [x] 独立审查无功能问题；同步 UI 规范及颜色 Token 用途说明
+
+### 可点击源码的架构图（2026-11-07）
+
+- [x] Step 1：核对当前 NSH / QuickJS / Pi 源码、原生能力与家居调用关系
+  - [x] 区分已接入的运行链路与保留的 LOOI 身体驱动
+  - [x] 使用 Anthropic frontend-design 技能确定暖白、陶土色的图与源码双栏布局
+- [x] Step 2：实现 `docs/arch/index.html` 与源码阅读交互
+  - [x] 绘制架构节点、调用关系及任务 / 语音 / 家居路径
+  - [x] 内嵌相关源码快照、入口定位与本地文件链接
+- [x] Step 3：浏览器验证、独立子 agent 审查与提交
+  - [x] 浏览器遍历 16 个节点、40 个文件视图：代码与 37 个原文件一致，全部入口可定位
+  - [x] 验证 HTTP 工作区读取、file:// 快照读取、390px 窄屏、搜索、入口跳转与 URL 定位恢复
+  - [x] 独立子 agent 复审通过；修复跨视图搜索、语音任务回调箭头与 SVG 文本贴边
+  - [x] 更新进度并只提交本次架构图文件
+
+### 语音管理空间 UI 体验优化（去冗余提示、消除 CLS、修复边界溢出）（2026-11-07）
+
+针对横屏与移动端语音配置界面的视觉与交互优化：清除未要求冗余提示文案，将 Toast 提示升级为绝对定位悬浮层消除 CLS 抖动，精简卡片结构与尺寸以消除边界溢出与文字截断。
+
+- [x] **Step 1：精简冗余提示文案与状态展示 (`apps/nsh/ui/VoiceSpaceView.tsx`)**
+  - [x] 移除冷门技术参数副标题（`16kHz PCM...`）与未要求的免责/安全废话（系统钥匙串存储声明、麦克风权限隐私声明）
+  - [x] 移除卡片右上角与顶栏重复的被挤断徽标（`已配`），保持顶栏统一表达状态
+  - [x] 简化输入框占位符、操作按钮文案及 `phaseDescription` 阶段文案
+- [x] **Step 2：将 Toast 改为绝对定位悬浮层消除 CLS (`apps/nsh/ui/ManagementShell.tsx`, `apps/nsh/ui/Controls.tsx`)**
+  - [x] 在 `ManagementShell.tsx` 中将横屏与竖屏下的 Toast 脱离文档流，改为 `absolute` 浮动层
+  - [x] 在 `Controls.tsx` 中优化 `LightToast` 悬浮阴影与层次
+  - [x] 缩短保存通知文案，避免打扰用户
+- [x] **Step 3：消除横屏下的内容与徽标超出边界问题 (`apps/nsh/ui/VoiceSpaceView.tsx`, `apps/nsh/ui/ManagementShell.tsx`)**
+  - [x] 优化卡片内边距与间隙（`p-3.5 gap-3`），卡片首屏完整可见（输入框与保存按钮不被切断）
+  - [x] 补齐 `min-h-0`、`min-w-0` 弹性盒属性，确保外层视口自适应与滚动安全兜底
+  - [x] 优化 Safe Area 布局：外层移除粗暴的右侧死黑边，横屏顶部 Banner 背景与边框延伸到底，内部操作按钮与下方内容区保留安全区避让保护
+- [x] **Step 4：测试与构建验证、独立子 Agent 审查与 Git 提交**
+  - [x] 运行 `pnpm --filter @super-looi/nsh typecheck` 和 `test`（17 项全部通过）
+  - [x] 启动独立 review 子 agent 审查代码与 UI（审查结论：PASS）
+  - [x] 提交 git commit
+
+### LLM 凭证配置标准化与 NSH 前后台一体化重构（2026-11-07）
+
+对齐 [`docs/plans/llm-credential-standardization-plan.md`](docs/plans/llm-credential-standardization-plan.md) 与 [`apps/nsh/DESIGN.md`](apps/nsh/DESIGN.md)：直接复用 `@earendil-works/pi-ai@1.5.0` 标准化多服务商凭证架构，落地「全天候深色省电桌宠主页 + A/B 明暗双主题结构 3 后台管理空间」。
+
+- [x] **Step 0：视觉与架构规范定稿 (`apps/nsh/DESIGN.md`, `docs/plans/llm-credential-standardization-plan.md`)**
+  - [x] 敲定「结构 3」后台管理布局（`58pt` 极窄左轨 + `48pt` 横向胶囊顶栏 + `7:5` 平衡双栏工作区，竖屏 `<600pt` 自动折为底栏 + 单列）
+  - [x] 敲定全天候深色省电桌宠舞台（白天 `#11100F` 深炭底 + `#FBF7F0` 清朗暖奶米圆眼；夜间 `#040405` 纯黑 OLED 底 + `#E8DAC3` 柔暗暖燕麦米圆眼，去除拟真眼球高光白斑与青色系束缚）与后台 A/B 明暗双主题
+  - [x] 完成 `apps/nsh/DESIGN.md` 与 `docs/plans/llm-credential-standardization-plan.md` 编写校验
+- [x] **Step 1：构建标准化 LLM Provider 目录与 `VaultCredentialStore` (`packages/looi-runtime`)**
+  - [x] 新增 `packages/looi-runtime/src/agent/llm-providers.ts`：定义五大预置服务品牌（`OpenAI / ChatGPT`、`Kimi`、`MiniMax`、`小米 MiMo`、`智谱 / Z.AI` 含标准按量 `zai-cn`/`zai-intl` 与 Coding Plan 区分）+ `custom` 兼容 API（`openai-completions` / `openai-responses` / `anthropic-messages`）目录矩阵
+  - [x] 实现版本化 `ModelVaultEnvelope`（`version: 2`）与旧版 `{ baseUrl, model, apiKey, conversationId }` 无损迁移，实现对接 Pi `CredentialStore` 全局单槽互斥读写的 `VaultCredentialStore` 及 `createLooiModelsRegistry`
+  - [x] 导出接口并编写单元测试 `packages/looi-runtime/test/llm-providers.test.ts`（68 项测试通过）
+- [x] **Step 2：升级 `PiAgentExecutor` 与 `packages/nsh-node-compat` 静态 OAuth 打包支持**
+  - [x] 在 `packages/nsh-node-compat` 新增沙盒安全的轻量 `node:http` 回调服务垫片（支撑 `openaiChatGPTOAuth` 竞态回退至手动粘贴回调 URL），并在打包入口静态注册 `registerBunOAuthFlows`（覆盖 `kimiCodingOAuth` 设备码授权与 `openaiChatGPTOAuth`）
+  - [x] 升级 `packages/looi-runtime/src/agent/pi-executor.ts`：支持注入共享 `Models` 注册表与 `{ providerId, modelId }` 解析模型和流式函数，100% 兼容既有 `{ baseUrl, apiKey, model }` 与自定义 `streamFn`
+  - [x] 通过 `pnpm --filter @super-looi/runtime test` / `typecheck` / `build` 与 `pnpm --filter @super-looi/nsh-node-compat test`
+- [x] **Step 3：落地全天候深色桌宠光学 Token 与 A/B 双主题 (`apps/nsh/theme.json`, `apps/nsh/ui/RobotFace.tsx`, `apps/nsh/nsh.json`)**
+  - [x] 更新 `apps/nsh/theme.json`：写入 `light`（日间深炭桌宠 + 后台方案 B 暖石日光）与 `dark`（夜间纯黑 OLED 桌宠 + 后台方案 A 中性锌灰）全量语义 Token
+  - [x] 更新 `apps/nsh/nsh.json`：切换 `"appearance": "system"`，补充 OAuth 所需的 `"clipboard": true` 与 `"openUrl": { "schemes": ["https"] }` 权限声明
+  - [x] 重构 `apps/nsh/ui/RobotFace.tsx`：接入 `eye-core` / `eye-edge` / `eye-halo` / `halo-zero` / `face-stroke` / `face-texture` / `horizon-core` / `horizon-zero`，移除拟真高光白斑（`glint`）与暗底月牙内缘，保留正圆几何、条件眉弧与真实音频 RMS 声波
+- [x] **Step 4：升级 `MobileRuntime`、`store.ts` 与「结构 3」后台四空间 UI (`apps/nsh`)**
+  - [x] 升级 `apps/nsh/runtime/application.ts` 与 `apps/nsh/scripts/build-runtime.ts`：接入 `VaultCredentialStore` + `createLooiModelsRegistry`，暴露多 Provider 目录快照、API Key 保存/清除、兼容 API 配置、模型切换及 OAuth 登录（设备码通知 / 浏览器回调 URL 提交 / 取消 / 登出）接口，保持旧 `configuration()` / `configure()` 兼容（QuickJS 12 项验收全通过）
+  - [x] 升级 `apps/nsh/store.ts`：管理前后台空间路由（`face | models | voice | home | tasks`）、外观切换（`system | light | dark`）、多服务商凭证/模型状态与 OAuth 交互流
+  - [x] 实现结构 3 后台管理组件：`ManagementShell.tsx`、`ModelsSpaceView.tsx`、`VoiceSpaceView.tsx`、`HomeSpaceView.tsx`、`TasksSpaceView.tsx`，连通 `apps/nsh/App.tsx` 前台深色省电舞台与后台切换
+- [x] **Step 5：全量测试回归、iOS 模拟器双模式实机截图验证与独立子 Agent 审查**
+  - [x] 更新并扩充 `apps/nsh/App.test.tsx`、`apps/nsh/HomePanelProbe.tsx`、`apps/nsh/native/android-test/com/superlooi/nsh/test/UiProbe.java` 与 `apps/nsh/scripts/nsh.ts`
+  - [x] 运行全套 `typecheck`、`build`、`test`（含 QuickJS 兼容套件）全部通过
+  - [x] 在 iOS 模拟器实机验证白天/暗黑模式下的桌宠大脸与结构 3 四空间截图
+  - [x] 调度独立审查子 Agent 核验代码与 UI，修复全部审查发现项（离开模型空间自动中止悬空 OAuth、`custom` 兼容保存按钮禁用校验、全量胶囊 `44pt` 触控热区对齐、`openUrl` 异常防御、`DESIGN.md` Token 同步）并提交 Git Commit
+
 ### Expo / Hub 退役收尾（2026-11-07）
 
 当前产品采用 NSH 最简 Agent Loop。以下历史阶段的旧端保留、Expo 验证与记忆产品迁移要求由本次退役收尾取代；硬件后续事项统一见 todo.md。归档分支 archive/legacy-hub-and-expo（55f77ef）保留旧端及删除前未提交修改。
@@ -982,3 +1105,15 @@
 
   - [x] 官方文档与固定开源版本交叉核验；独立复核通过；记录当前 preview、第三方身份及套餐边界
   - [x] 文档空白检查通过；本轮仅调研，未运行账号登录或付费推理
+
+### Hey LOOI 唤醒失效排查（2026-11-08）
+
+- [x] Step 1：核对当前模拟器状态、唤醒配置与调用链
+  - [x] 模拟器首页显示「待机 · 听 Hey LOOI」，确认已进入本地 KWS 待机
+  - [x] 确认现有 iOS 探针仅验证模型加载与切流，未验证真实关键词命中
+- [x] Step 2：复现关键词输入，定位识别或传递问题并修复
+  - [x] 同一模型与词条下，4 条解码候选漏检较快的 Hey Louie 合成语音；12/16 条命中，16 条的两条非唤醒样本均未触发
+  - [x] 对比仅匹配 LOOI/露伊：未改善该样本，保留完整唤醒词并将解码候选数调为 16
+- [x] Step 3：执行原场景及相关回归，独立 review 并记录结果
+  - [x] iOS 模拟器重启修复版后保持「待机 · 听 Hey LOOI」；用户对 Mac 麦克风口述 Hey LOOI 后进入「LIVE 连接中」
+  - [x] `pnpm --filter @super-looi/nsh test:wake:ios`、`test:voice-runtime`、`cargo fmt --check` 通过；独立 review 未发现代码问题

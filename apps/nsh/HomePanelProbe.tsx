@@ -1,5 +1,5 @@
 import { mount, signal, Text, View } from "nsh";
-import { HomePanel } from "./ui/HomePanel";
+import { HomeSpaceView } from "./ui/HomeSpaceView";
 import type { HomeConfiguration } from "./generated/looi-runtime.js";
 import type { createAppStore } from "./store";
 
@@ -10,6 +10,7 @@ function HomePanelProbe() {
   });
   const evidence = signal("No account action");
   const store = {
+    ready: () => true,
     busy: () => false,
     homeConfiguration: () => configuration(), homeConnection: () => undefined,
     homeDevices: () => ({}), homeLoggingIn: () => false, cancelHomeLogin() {},
@@ -20,6 +21,6 @@ function HomePanelProbe() {
       configuration.set({ ...configuration(), hasMiotAccount: false });
     },
   } as unknown as ReturnType<typeof createAppStore>;
-  return <View><Text>{evidence()}</Text><HomePanel open={true} store={store} onClose={() => {}} /></View>;
+  return <View class="flex-1"><Text>{evidence()}</Text><HomeSpaceView store={store} modeTab="direct_miot" /></View>;
 }
 mount(HomePanelProbe);

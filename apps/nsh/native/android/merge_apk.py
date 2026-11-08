@@ -1,10 +1,12 @@
 """Apply the app's registered manifest and DEX plugin before APK signing."""
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
 import zipfile
+from pathlib import Path
 from patch_manifest import patch, parse_strings, u16, u32, ANDROID, NO_INDEX
 
 
@@ -42,6 +44,9 @@ def merge(original, dex, out, application, backup, permissions=()):
                 raise ValueError("Invalid plugin DEX marker")
             if hashlib.sha256(src.read(owned)).hexdigest() != previous.get("sha256"):
                 raise ValueError("Plugin DEX integrity mismatch")
+            for name, digest in previous.get("native_libs", {}).items():
+                if name not in names or hashlib.sha256(src.read(name)).hexdigest() != digest:
+                    raise ValueError("Plugin native library integrity mismatch")
         manifest = src.read("AndroidManifest.xml")
         if not previous and application_name(manifest) == application:
             raise ValueError("Existing Application has no plugin DEX marker")
@@ -49,16 +54,30 @@ def merge(original, dex, out, application, backup, permissions=()):
         while f"classes{number}.dex" in names and f"classes{number}.dex" != owned:
             number += 1
         dex_name = f"classes{number}.dex"
+        native_libs = {}
+        cache = os.environ.get("LOOI_SHERPA_CACHE_DIR")
+        if cache:
+            for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
+                if f"lib/{abi}/libnsh.so" not in names:
+                    continue
+                for library in ("libonnxruntime.so", "libsherpa-onnx-c-api.so"):
+                    name = f"lib/{abi}/{library}"
+                    source = Path(cache) / "android/jniLibs" / abi / library
+                    with source.open("rb") as file:
+                        native_libs[name] = hashlib.file_digest(file, "sha256").hexdigest()
         for item in src.infolist():
-            if item.filename.startswith("META-INF/") or item.filename in ("AndroidManifest.xml", marker, owned):
+            if item.filename.startswith("META-INF/") or item.filename in ("AndroidManifest.xml", marker, owned) or item.filename in native_libs:
                 continue
             with src.open(item) as reader, dst.open(item, "w") as writer:
                 shutil.copyfileobj(reader, writer, 1024 * 1024)
         dst.writestr("AndroidManifest.xml", patch(manifest, application, backup, permissions), compress_type=zipfile.ZIP_DEFLATED)
         dst.write(dex, dex_name, compress_type=zipfile.ZIP_DEFLATED)
+        for name in native_libs:
+            library = Path(cache) / "android/jniLibs" / name.removeprefix("lib/")
+            dst.write(library, name, compress_type=zipfile.ZIP_STORED)
         with open(dex, "rb") as file:
             digest = hashlib.file_digest(file, "sha256").hexdigest()
-        dst.writestr(marker, json.dumps({"version": 1, "dex": dex_name, "sha256": digest}), compress_type=zipfile.ZIP_DEFLATED)
+        dst.writestr(marker, json.dumps({"version": 1, "dex": dex_name, "sha256": digest, "native_libs": native_libs}), compress_type=zipfile.ZIP_DEFLATED)
 
 
 if __name__ == "__main__":

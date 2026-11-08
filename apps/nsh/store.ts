@@ -1,5 +1,18 @@
-import { cleanup, effect, lifecycle, reduceMotion, signal } from "nsh";
-import { CredentialVault, NodeCompat, VoiceAudio, MiotLoginBrowser } from "super-looi/native";
+import {
+  cleanup,
+  colorScheme,
+  effect,
+  lifecycle,
+  reduceMotion,
+  setColorScheme,
+  signal,
+} from "nsh";
+import {
+  CredentialVault,
+  NodeCompat,
+  VoiceAudio,
+  MiotLoginBrowser,
+} from "super-looi/native";
 import { connect } from "websocket";
 import {
   VoiceRuntime,
@@ -14,7 +27,247 @@ import {
   type NativeTask,
   type NativeTaskPage,
   type UiAction,
+  type LlmCatalogSnapshot,
+  type LlmOAuthUiEvent,
 } from "./generated/looi-runtime.js";
+
+export type AppSpace = "face" | "models" | "voice" | "home" | "tasks";
+export type AppearancePreference = "system" | "light" | "dark";
+
+export const INITIAL_LLM_SNAPSHOT: LlmCatalogSnapshot = {
+  brands: [
+    {
+      brandId: "openai",
+      label: "OpenAI / ChatGPT",
+      shortLabel: "OpenAI",
+      configured: false,
+      channels: [
+        {
+          providerId: "openai",
+          label: "官方 API / ChatGPT 订阅",
+          baseUrl: "https://api.openai.com/v1",
+          protocolLabel: "OpenAI Responses",
+          authTypes: ["oauth", "api_key"],
+          defaultModelId: "gpt-5.4",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+      ],
+    },
+    {
+      brandId: "kimi",
+      label: "Kimi",
+      shortLabel: "Kimi",
+      configured: false,
+      channels: [
+        {
+          providerId: "kimi-coding",
+          label: "Kimi Code (会员订阅)",
+          baseUrl: "https://api.kimi.com/coding/v1",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["oauth", "api_key"],
+          defaultModelId: "k3.1-pro",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "moonshotai-cn",
+          label: "Moonshot 开放平台 (国内)",
+          baseUrl: "https://api.moonshot.cn/v1",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "kimi-k3.1-pro",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "moonshotai",
+          label: "Moonshot 开放平台 (国际)",
+          baseUrl: "https://api.moonshot.ai/v1",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "kimi-k3.1-pro",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+      ],
+    },
+    {
+      brandId: "minimax",
+      label: "MiniMax",
+      shortLabel: "MiniMax",
+      configured: false,
+      channels: [
+        {
+          providerId: "minimax-cn",
+          label: "国内站 (minimaxi.com)",
+          baseUrl: "https://api.minimaxi.com/anthropic",
+          protocolLabel: "Anthropic Messages",
+          authTypes: ["api_key"],
+          defaultModelId: "MiniMax-M3.1-Flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "minimax",
+          label: "国际站 (minimax.io)",
+          baseUrl: "https://api.minimax.io/anthropic",
+          protocolLabel: "Anthropic Messages",
+          authTypes: ["api_key"],
+          defaultModelId: "MiniMax-M3.1-Flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+      ],
+    },
+    {
+      brandId: "xiaomi",
+      label: "小米 MiMo",
+      shortLabel: "小米",
+      configured: false,
+      channels: [
+        {
+          providerId: "xiaomi",
+          label: "普通按量 API",
+          baseUrl: "https://api.xiaomimimo.com/v1",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "mimo-v2.6-flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "xiaomi-token-plan-cn",
+          label: "Token Plan (国内)",
+          baseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "mimo-v2.6-flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "xiaomi-token-plan-sgp",
+          label: "Token Plan (新加坡)",
+          baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "mimo-v2.6-flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "xiaomi-token-plan-ams",
+          label: "Token Plan (欧洲)",
+          baseUrl: "https://token-plan-ams.xiaomimimo.com/v1",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "mimo-v2.6-flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+      ],
+    },
+    {
+      brandId: "zai",
+      label: "智谱 / Z.AI",
+      shortLabel: "智谱",
+      configured: false,
+      channels: [
+        {
+          providerId: "zai-cn",
+          label: "标准 API (国内 BigModel)",
+          baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "glm-5.3-flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "zai-intl",
+          label: "标准 API (国际 Z.AI)",
+          baseUrl: "https://api.z.ai/api/paas/v4",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "glm-5.3-flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "zai-coding-cn",
+          label: "Coding Plan 专属 (国内)",
+          baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "glm-5.3-flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+        {
+          providerId: "zai",
+          label: "Coding Plan 专属 (国际)",
+          baseUrl: "https://api.z.ai/api/coding/paas/v4",
+          protocolLabel: "OpenAI Chat Completions",
+          authTypes: ["api_key"],
+          defaultModelId: "glm-5.3-flash",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+      ],
+    },
+    {
+      brandId: "custom",
+      label: "+ 兼容 API",
+      shortLabel: "兼容",
+      configured: false,
+      channels: [
+        {
+          providerId: "custom",
+          label: "自定义兼容端点",
+          baseUrl: "",
+          protocolLabel: "可切换协议",
+          authTypes: ["api_key"],
+          defaultModelId: "",
+          hasApiKey: false,
+          hasOAuth: false,
+          oauthExpiresAt: null,
+          models: [],
+        },
+      ],
+    },
+  ],
+  active: null,
+  custom: { api: "openai-completions", baseUrl: "", modelId: "" },
+};
 
 /** One owner for the surface. Credentials stay in the native vault/runtime. */
 export function createAppStore() {
@@ -38,6 +291,7 @@ export function createAppStore() {
   const voiceState = signal<VoiceState>({
     phase: "idle",
     muted: false,
+    wakeEnabled: false,
     transcript: "",
     error: "",
   });
@@ -65,6 +319,27 @@ export function createAppStore() {
     }
   };
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
+  const activeSpace = signal<AppSpace>("face");
+  const appearancePreference = signal<AppearancePreference>("system");
+  const llmSnapshot = signal<LlmCatalogSnapshot>(INITIAL_LLM_SNAPSHOT);
+  const oauthFlow = signal<{
+    running: boolean;
+    providerId: string;
+    kind: "idle" | "device_code" | "auth_url" | "awaiting_callback" | "progress";
+    userCode: string;
+    url: string;
+    instructions: string;
+    error: string;
+  }>({
+    running: false,
+    providerId: "",
+    kind: "idle",
+    userCode: "",
+    url: "",
+    instructions: "",
+    error: "",
+  });
+
   const homeConfiguration = signal<HomeConfiguration>({
     mode: "disabled",
     haUrl: "",
@@ -131,13 +406,22 @@ export function createAppStore() {
                 : "neutral";
     if (lifecycle() !== "active") {
       homeLogin?.cancel();
-      voice?.stop();
+      runtime?.cancelProviderOAuth();
+      if (voiceState().phase !== "idle") voice?.stop();
       if (driver.getState().expression !== "sleeping") {
         driver.setExpression("sleeping");
       }
-      void stop();
+      if (busy()) void stop();
     } else if (driver.getState().expression !== next) {
       driver.setExpression(next);
+    }
+  });
+  effect(() => {
+    if (!ready() || !voice) return;
+    if (lifecycle() !== "active" || homeLoggingIn()) {
+      if (voiceState().phase !== "idle") voice.stop();
+    } else if (voiceState().wakeEnabled && voiceState().phase === "idle") {
+      void voice.enterStandby();
     }
   });
   effect(() => {
@@ -195,11 +479,14 @@ export function createAppStore() {
       voiceConfigured.set(voice.configuration().hasKey);
       voiceState.set(voice.snapshot());
       configuration.set(opened.configuration());
+      llmSnapshot.set(opened.llmSnapshot());
       homeLogin = new MiotLoginFlow({
         runtime: opened,
         browser: () => new MiotLoginBrowser(),
         active: () => alive && lifecycle() === "active",
-        onRunning: (value) => { if (alive) homeLoggingIn.set(value); },
+        onRunning: (value) => {
+          if (alive) homeLoggingIn.set(value);
+        },
       });
       homeConfiguration.set(opened.homeConfiguration());
       homeConnection.set(opened.homeConnection());
@@ -221,12 +508,216 @@ export function createAppStore() {
     alive = false;
     if (toastTimer) clearTimeout(toastTimer);
     homeLogin?.cancel();
+    runtime?.cancelProviderOAuth();
     voice?.close();
     driver.dispose();
     void runtime?.close().catch(() => {});
   });
 
   const api = {
+    activeSpace: () => activeSpace(),
+    openSpace(space: AppSpace) {
+      if (space !== "models" && oauthFlow().running) {
+        api.cancelProviderOAuth();
+      }
+      if (space !== "home" && homeLoggingIn()) {
+        api.cancelHomeLogin();
+      }
+      activeSpace.set(space);
+      if (space === "tasks" && ready()) {
+        api.refreshTasks(0);
+      }
+    },
+    backToFace() {
+      if (oauthFlow().running) {
+        api.cancelProviderOAuth();
+      }
+      if (homeLoggingIn()) {
+        api.cancelHomeLogin();
+      }
+      activeSpace.set("face");
+    },
+    appearance: () => colorScheme(),
+    appearanceMode: () => appearancePreference(),
+    setAppearance(mode: AppearancePreference) {
+      setColorScheme(mode);
+      appearancePreference.set(mode);
+    },
+    llm: () => llmSnapshot(),
+    oauth: () => oauthFlow(),
+    async refreshProviderModels(providerId: string) {
+      if (!runtime) return;
+      try {
+        llmSnapshot.set(await runtime.refreshProviderModels(providerId));
+      } catch {
+        llmSnapshot.set(runtime.llmSnapshot());
+      }
+    },
+    async saveProviderApiKey(
+      input: Parameters<NativeRuntime["saveProviderApiKey"]>[0],
+    ) {
+      if (!runtime) throw new Error("本机存储尚未就绪");
+      const snap = await runtime.saveProviderApiKey(input, action());
+      llmSnapshot.set(snap);
+      if (input.providerId !== "custom") {
+        await api.refreshProviderModels(input.providerId);
+      }
+      configuration.set(runtime.configuration());
+      status.set("陪伴待机");
+      notify("模型配置已保存并生效");
+    },
+    async selectActiveModel(
+      providerId: string,
+      modelId: string,
+      addCustomModel?: boolean,
+    ) {
+      try {
+        if (!runtime) throw new Error("本机存储尚未就绪");
+        const snap = await runtime.selectActiveModel(
+          { providerId, modelId, addCustomModel },
+          action(),
+        );
+        llmSnapshot.set(snap);
+        configuration.set(runtime.configuration());
+        notify(`已切换至 ${modelId}`);
+      } catch (error) {
+        fail(error);
+      }
+    },
+    async removeProviderCredential(providerId: string) {
+      try {
+        if (!runtime) throw new Error("本机存储尚未就绪");
+        const snap = await runtime.removeProviderCredential(
+          providerId,
+          action(),
+        );
+        llmSnapshot.set(snap);
+        configuration.set(runtime.configuration());
+        notify("已移除该服务商凭证");
+      } catch (error) {
+        fail(error);
+      }
+    },
+    async startProviderOAuth(providerId: string) {
+      if (!runtime) {
+        fail(new Error("本机存储尚未就绪"));
+        return;
+      }
+      oauthFlow.set({
+        running: true,
+        providerId,
+        kind: "progress",
+        userCode: "",
+        url: "",
+        instructions: "正在发起授权...",
+        error: "",
+      });
+      try {
+        const snap = await runtime.startProviderOAuth(
+          providerId,
+          action(),
+          (ev: LlmOAuthUiEvent) => {
+            if (!alive) return;
+            const current = oauthFlow();
+            if (ev.kind === "device_code") {
+              oauthFlow.set({
+                ...current,
+                running: true,
+                providerId,
+                kind: "device_code",
+                userCode: ev.userCode,
+                url: ev.verificationUri,
+                instructions: "",
+                error: "",
+              });
+            } else if (ev.kind === "auth_url") {
+              oauthFlow.set({
+                ...current,
+                running: true,
+                providerId,
+                kind: "auth_url",
+                url: ev.url,
+                instructions: ev.instructions ?? "",
+                error: "",
+              });
+            } else if (ev.kind === "awaiting_callback") {
+              oauthFlow.set({
+                ...current,
+                running: true,
+                providerId,
+                kind: "awaiting_callback",
+                // Retain previous url from auth_url
+                instructions: ev.message,
+                error: "",
+              });
+            } else if (ev.kind === "progress") {
+              oauthFlow.set({
+                ...current,
+                running: true,
+                providerId,
+                kind: "progress",
+                instructions: ev.message,
+                error: "",
+              });
+            }
+          },
+        );
+        if (!alive) return;
+        llmSnapshot.set(snap);
+        configuration.set(runtime.configuration());
+        oauthFlow.set({
+          running: false,
+          providerId: "",
+          kind: "idle",
+          userCode: "",
+          url: "",
+          instructions: "",
+          error: "",
+        });
+        status.set("陪伴待机");
+        notify("账号授权成功");
+      } catch (error) {
+        if (!alive) return;
+        const text = error instanceof Error ? error.message : String(error);
+        const isCancelled = text.includes("取消") || text.includes("abort");
+        if (isCancelled) {
+          oauthFlow.set({
+            running: false,
+            providerId: "",
+            kind: "idle",
+            userCode: "",
+            url: "",
+            instructions: "",
+            error: "",
+          });
+        } else {
+          oauthFlow.set({
+            ...oauthFlow(),
+            running: false,
+            error: text,
+          });
+          fail(error);
+        }
+      }
+    },
+    submitProviderOAuthCallback(callbackUrl: string) {
+      if (!runtime) throw new Error("本机运行时尚未就绪");
+      runtime.submitProviderOAuthCallback(callbackUrl);
+    },
+    cancelProviderOAuth() {
+      try {
+        runtime?.cancelProviderOAuth();
+      } catch {}
+      oauthFlow.set({
+        running: false,
+        providerId: "",
+        kind: "idle",
+        userCode: "",
+        url: "",
+        instructions: "",
+        error: "",
+      });
+    },
     voiceState: () => voiceState(),
     voiceConfigured: () => voiceConfigured(),
     voiceTask: () => voiceTask(),
@@ -239,7 +730,11 @@ export function createAppStore() {
       }
     },
     stopVoice() {
-      voice?.stop();
+      voice?.endSession();
+    },
+    setWakeEnabled(enabled: boolean) {
+      try { voice?.setWakeEnabled(enabled); }
+      catch (error) { fail(error); }
     },
     muteVoice(value: boolean) {
       voice?.mute(value);
@@ -287,6 +782,8 @@ export function createAppStore() {
           ? "语音任务待确认"
           : voiceState().phase === "connecting"
             ? "LIVE 连接中"
+            : voiceState().phase === "standby"
+              ? "待机 · 听 Hey LOOI"
             : voiceState().phase === "speaking"
               ? "LOOI 说话中"
               : voiceState().phase === "listening"
@@ -302,16 +799,21 @@ export function createAppStore() {
     homeConnection: () => homeConnection(),
     homeDevices: () => homeDevices(),
     homeLoggingIn: () => homeLoggingIn(),
-    cancelHomeLogin() { homeLogin?.cancel(); },
+    cancelHomeLogin() {
+      homeLogin?.cancel();
+    },
     async loginMiot(region: HomeConfiguration["region"]) {
       if (!runtime || !homeLogin) throw new Error("本机运行时尚未就绪");
+      homeLoggingIn.set(true);
       voice?.stop();
       homeDevices.set({});
       try {
         const connection = await homeLogin.start(region, action());
         homeConnection.set(connection);
-        if (connection.configured && connection.connectionId) homeDevices.set(await runtime.listHome());
+        if (connection.configured && connection.connectionId)
+          homeDevices.set(await runtime.listHome());
       } finally {
+        homeLoggingIn.set(false);
         if (alive) {
           homeConfiguration.set(runtime.homeConfiguration());
           homeConnection.set(runtime.homeConnection());
@@ -384,6 +886,7 @@ export function createAppStore() {
       if (!runtime) throw new Error("本机存储尚未就绪");
       await runtime.configure(value);
       configuration.set(runtime.configuration());
+      llmSnapshot.set(runtime.llmSnapshot());
       status.set("陪伴待机");
       notify("模型已配置");
     },

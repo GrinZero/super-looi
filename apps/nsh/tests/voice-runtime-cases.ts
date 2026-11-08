@@ -15,6 +15,7 @@ export async function verifyVoiceRuntime() {
     playback = 0,
     requests = 0,
     taskCalls = 0;
+  let captureMode = "idle";
   let maxPlaybackFrame = 0,
     fullQueueChecks = 0;
   const audio: VoiceAudioPort = {
@@ -25,10 +26,17 @@ export async function verifyVoiceRuntime() {
     start: () => {
       starts++;
       state = "running";
+      captureMode = "conversation";
     },
+    setCaptureMode: (mode) => {
+      if (state !== "running") audio.start(true);
+      captureMode = mode;
+    },
+    playReadyCue: () => {},
     stop: () => {
       stops++;
       state = "idle";
+      captureMode = "idle";
     },
     enqueue: (pcm) => {
       maxPlaybackFrame = Math.max(maxPlaybackFrame, pcm.length);
@@ -44,6 +52,9 @@ export async function verifyVoiceRuntime() {
       permission,
       error: "",
       queuedPlaybackMs: fullQueueChecks-- > 0 ? 5000 : playback > 0 ? 10 : 0,
+      captureMode,
+      wakeWord: "",
+      kwsReady: true,
     }),
   };
   const slots = new Map<string, string>();
@@ -134,6 +145,17 @@ export async function verifyVoiceRuntime() {
   check(
     starts === 0 && writes[0]?.type === "session.create",
     "capture started before provider ready",
+  );
+  const tools = writes[0]?.session?.tools;
+  check(
+    Array.isArray(tools) &&
+      tools.length === 2 &&
+      tools[0]?.name === "run_agent_task" &&
+      tools[0]?.parameters?.properties?.prompt?.type === "string" &&
+      tools[0]?.parameters?.required?.includes("prompt") &&
+      tools[1]?.name === "end_conversation" &&
+      tools[1]?.parameters?.additionalProperties === false,
+    "voice tool schemas were not sent with the session",
   );
   event({ type: "session.created" });
   await settle();

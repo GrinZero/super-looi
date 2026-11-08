@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "esbuild";
 const shimNames: Record<string, string> = {
+  http: "http",
   url: "url",
   crypto: "crypto",
   buffer: "buffer",
