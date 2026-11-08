@@ -1,6 +1,6 @@
 # @super-looi/nsh-node-compat
 
-NSH v0.4.0 同版本 QuickJS 的独立兼容包与验证宿主。实际 Pi 1.5.0 programmatic SDK 七工具、Durable 与本机隔离 codemode 已通过。当前是经过测试的 Node API 子集，iOS / Android 模拟器宿主已通过，完整手机业务迁移仍在进行，见 [实施记录](../../docs/nsh-node-compat-implementation.md)。
+NSH v0.4.0 同版本 QuickJS 的独立兼容包与验证宿主。实际 Pi 1.5.0 programmatic SDK 七工具、Durable 与本机隔离 codemode 已通过。当前提供经过测试的 Node API 子集，并已接入 `apps/nsh` 的手机业务运行时；实现与验证记录见 [实施记录](../../docs/nsh-node-compat-implementation.md)。
 
 ```sh
 pnpm install --frozen-lockfile
@@ -48,7 +48,7 @@ pnpm --filter @super-looi/nsh-node-compat verify:codemode
 - `@super-looi/nsh-node-compat/adapters/pi-durable-env`：`NshExecutionEnv`，复用上游文件契约并替换 Shell；`namespace` 必须在同一文件空间内保持一致。
 - `@super-looi/nsh-node-compat/adapters/chord-sqlite`：复用 Chord 的队列/事务封装，底层为本包 SQLite 垫片。
 
-宿主可以在同版本 QuickJS `Ctx` 调用 Rust `nsh_node_compat::install(&ctx, app_data_root)`，或用 NSH 原生 class 暴露 `Bridge::request/begin/wait/close`，通过 `@super-looi/nsh-node-compat/native-host` 的 `installNshNativeCompat(host)` 安装相同协议。`apps/nsh` 已注册真实 class，十组测试在 NSH hardened engine（256 MiB）及 iOS / Android ARM64 模拟器通过；完整业务 App 迁移仍待完成。不能直接在 Expo/Hermes 使用。`files/` 是文件能力根，`sqlite/` 是独立私有数据库目录，`/workspace`、`/home`、`/tmp` 是文件能力根内的虚拟目录。JS 不能借 `node:fs` 读取 SQLite 文件；数据库迁出/备份需由可信宿主完成。
+宿主可以在同版本 QuickJS `Ctx` 调用 Rust `nsh_node_compat::install(&ctx, app_data_root)`，或用 NSH 原生 class 暴露 `Bridge::request/begin/wait/close`，通过 `@super-looi/nsh-node-compat/native-host` 的 `installNshNativeCompat(host)` 安装相同协议。`apps/nsh` 已注册真实 class，业务 App 使用该桥接运行 Pi Agent；十组兼容测试在 NSH hardened engine（256 MiB）及 iOS / Android ARM64 模拟器通过。`files/` 是文件能力根，`sqlite/` 是独立私有数据库目录，`/workspace`、`/home`、`/tmp` 是文件能力根内的虚拟目录。JS 不能借 `node:fs` 读取 SQLite 文件；数据库迁出/备份需由可信宿主完成。
 
 文件上限 16 MiB、目录上限 10,000 条、文件句柄 256、数据库连接 32、watcher 32（每个原生队列 1,024 条，溢出显式失败）。SQLite 单操作约 1 秒、结果最多 10,000 行/16 MiB；Shell 默认 1 秒、最大 30 秒、输出 1 MiB，解析前限制结构字符，未知命令返回 127，未实现参数在操作前拒绝。Shell 支持有限的管道、重定向、与或、变量、子命令与常用内置命令，**不是任意 Bash、系统进程或 Git/Python/npm 环境**。spawn 输出目前在执行完成后交付，取消为合作式；阻塞文件系统 I/O 不具备硬实时抢占保证。
 

@@ -267,8 +267,8 @@ stateDiagram-v2
      - 在 `connecting` 或 `listening` 态点击：调用 `store.stopVoice()`（即 `endSession()`，退回 `standby` 或 `idle`）；
      - 在 `speaking` 态点击：调用 `store.interruptVoice()` 打断播报。
    - 底部 [`WakeGuideBar`](file:///Users/bugyaluwang/project/super-looi/apps/nsh/ui/Controls.tsx#L109)：
-     - 当 `store.voiceState().phase === "standby"` 且 `!compose()` 时始终展示 `"说 Hey LOOI 唤醒我 · 轻触开启 LIVE 对话"`（不受 `wakeGuideDismissed` 隐藏限制，因为此时本地唤醒真实处于激活态）；
-     - 当处于 `idle`（未开启唤醒或未配置 Key）且 `!store.wakeGuideDismissed() && !compose()` 时，文案显示 `"轻触开启 LIVE 实时语音对话"`，不在未监听唤醒词时展示虚假唤醒提示。
+     - 首次使用且 `!compose()` 时，`standby` 显示 `"说 Hey LOOI 唤醒我 · 轻触开启 LIVE 对话"`；点击后保存已读状态，后续待机不再显示引导。
+     - 首次使用且处于 `idle`（未开启唤醒或未配置 Key）时，文案显示 `"轻触开启 LIVE 实时语音对话"`，点击后同样保持隐藏。
 
 3. **独立语音管理空间（[`apps/nsh/ui/VoiceSpaceView.tsx`](file:///Users/bugyaluwang/project/super-looi/apps/nsh/ui/VoiceSpaceView.tsx)）**：
    - 更新 `phaseDescription()`（第 16-31 行）：新增 `case "standby": return "待机监听唤醒词（本地离线 KWS）";`，仅在 `idle` 时显示 `"待机（未占用麦克风）"`；
