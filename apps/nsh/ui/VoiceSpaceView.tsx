@@ -86,7 +86,7 @@ export function VoiceSpaceView(props: {
       <View class="rounded-2xl border border-border bg-card p-3.5 gap-3">
         <View class="border-b border-border pb-2">
           <Text class="text-foreground text-sm font-semibold">
-            豆包实时语音凭证
+            {props.store.voiceProviderLabel()}实时语音凭证
           </Text>
         </View>
 
@@ -99,7 +99,7 @@ export function VoiceSpaceView(props: {
           placeholder={
             props.store.voiceConfigured()
               ? "留空保持现有凭证"
-              : "输入豆包实时语音 API Key"
+              : `输入${props.store.voiceProviderLabel()}实时语音 API Key`
           }
           onSubmit={saveVoiceKey}
         />

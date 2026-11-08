@@ -28,6 +28,8 @@ import {
 
 import { HomeRuntime, type HomeSettings } from "./home.js";
 import { chooseConnectedModelId, fetchOnlineModels, type OnlineModel } from "./model-list.js";
+import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 
 type MutableModels = ReturnType<typeof createLooiModelsRegistry>;
 type Credential = ModelVaultEnvelope["credentials"][string];
@@ -107,6 +109,11 @@ export type LlmOAuthUiEvent =
 
 /** One foreground app owns the database and executor. No Hub endpoint exists. */
 export class MobileRuntime {
+  readonly tracer = createLangfuseTracer({
+    baseUrl: process.env.LANGFUSE_BASE_URL,
+    publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+    secretKey: process.env.LANGFUSE_SECRET_KEY,
+  });
   private readonly database = new DatabaseSync("/home/looi.sqlite");
   private readonly storage = new SqliteRuntimeStore(this.database);
   private readonly recoveredTasks = new AgentTaskStore(
@@ -584,8 +591,11 @@ export class MobileRuntime {
   private createExecutorForSelection(
     selection: ActiveLlmSelection,
   ): PiAgentExecutor {
+    const credential = this.credentialStore.readEnvelope().credentials[selection.providerId];
+    if (credential?.type === "api_key" && credential.key) this.tracer.registerSecret(credential.key);
     const homeEnabled = this.home.configuration().mode !== "disabled";
     return new PiAgentExecutor({
+      tracer: this.tracer,
       modelsRegistry: this.modelsRegistry,
       providerId: selection.providerId,
       model: selection.modelId,
@@ -684,7 +694,7 @@ export class MobileRuntime {
     prompt: string,
     action: UserActionRef,
     onStep: (event: AgentStepEvent) => void,
-    options: { agentOnly?: boolean; mode?: "text" | "voice" } = {},
+    options: { agentOnly?: boolean; mode?: "text" | "voice"; traceContext?: TraceContext } = {},
   ): Promise<{ answer: string; taskId: string; runtimeExited: boolean }> {
     if (
       this.closed ||
@@ -722,6 +732,7 @@ export class MobileRuntime {
         taskId: this.taskId,
         sessionId: this.conversationId,
         mode: options.mode,
+        traceContext: options.traceContext,
         onStep,
       });
       return {
@@ -764,6 +775,7 @@ export class MobileRuntime {
       try {
         await this.executor?.close();
       } finally {
+        await this.tracer.shutdown();
         this.storage.close();
         this.releaseHost();
       }

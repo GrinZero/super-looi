@@ -1,5 +1,20 @@
 # Super-LOOI 重构与演进进度
 
+### Langfuse v4 与多厂商 Realtime 接入（2026-11-08）
+
+- [x] Step 1：建立 Realtime 协议适配器并迁移语音运行时
+  - [x] 豆包与 OpenAI GA 握手、事件、工具回执和打断
+  - [x] 凭据隔离、热更新、字幕与音频播放归属
+- [x] Step 2：接入 Langfuse OTLP 追踪与 Voice → Agent 上下文
+  - [x] 本地 Compose、构建配置与密钥隔离
+  - [x] Voice Socket、Agent StreamFn 和工具观测
+- [x] Step 3：验证、独立 review、文档与分阶段提交
+  - [x] 全仓 `pnpm typecheck`、`pnpm test`、`pnpm build` 通过；协议、语音运行时、OTLP、跨层 Trace 与构建密钥隔离测试通过
+  - [x] Langfuse v4 Compose 六个服务启动；OTLP 写入后 Observations v2 可读回观测
+  - [x] 独立 review 的构建密钥、Compose 密钥长度、打断竞态、静音轮次、握手时长、凭据脱敏及晚到 ASR 问题已修复并复审通过
+  - [x] 更新架构图与源码快照，分阶段提交核心实现和集成改动
+
+
 ### 模型配置按账号加载可用模型（2026-11-08）
 
 - [x] Step 1：定位右侧静态列表与订阅授权后的数据流

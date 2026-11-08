@@ -156,7 +156,7 @@ export function ManagementShell(props: {
             />
             <Text class="text-muted-foreground text-xs">
               {props.store.voiceConfigured()
-                ? "豆包凭证就绪"
+                ? `${props.store.voiceProviderLabel()}凭证就绪`
                 : "尚未配置语音凭证"}
             </Text>
           </View>

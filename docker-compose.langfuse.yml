@@ -1,0 +1,119 @@
+services:
+  langfuse-worker:
+    image: docker.langfuse.com/langfuse/langfuse-worker:4
+    depends_on: &dependencies
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    environment: &worker-environment
+      NEXTAUTH_URL: http://localhost:3000
+      DATABASE_URL: postgresql://langfuse:langfuse-local@postgres:5432/langfuse
+      SALT: super-looi-local-langfuse-salt
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: langfuse-local
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      CLICKHOUSE_CLUSTER_NAME: default
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: langfuse-local
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: langfuse-local
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: langfuse-local
+
+  langfuse-web:
+    image: docker.langfuse.com/langfuse/langfuse:4
+    depends_on: *dependencies
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      <<: *worker-environment
+      NEXTAUTH_SECRET: super-looi-local-langfuse-nextauth
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
+      LANGFUSE_INIT_ORG_ID: super-looi-local
+      LANGFUSE_INIT_ORG_NAME: Super LOOI Local
+      LANGFUSE_INIT_PROJECT_ID: super-looi
+      LANGFUSE_INIT_PROJECT_NAME: Super LOOI
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-super-looi-local
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-super-looi-local
+      LANGFUSE_INIT_USER_EMAIL: local@super-looi.test
+      LANGFUSE_INIT_USER_NAME: Local Developer
+      LANGFUSE_INIT_USER_PASSWORD: super-looi-local
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.12
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: langfuse-local
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse-local
+      POSTGRES_DB: langfuse
+      TZ: UTC
+      PGTZ: UTC
+    volumes: ["langfuse_postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--requirepass", "langfuse-local", "--maxmemory-policy", "noeviction"]
+    volumes: ["langfuse_redis_data:/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a langfuse-local ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  minio:
+    image: cgr.dev/chainguard/minio
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: langfuse-local
+    ports: ["127.0.0.1:9090:9000"]
+    volumes: ["langfuse_minio_data:/data"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_redis_data:
+  langfuse_minio_data:

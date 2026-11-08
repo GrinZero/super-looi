@@ -58,7 +58,7 @@ if (!binary) {
 }
 const [command = "check", ...args] = process.argv.slice(2);
 // Generated business code must be fresh even for a clean checkout's direct run.
-if (command !== "--help" && command !== "--version") await buildRuntime();
+if (command !== "--help" && command !== "--version") await buildRuntime({ release: command === "package" || command.startsWith("release-"), debugTelemetry: command === "run" });
 const buildVariables = pickBuildVariables(config);
 const target = args[args.indexOf("--target") + 1];
 if (command === "build" || command === "package" || target === "android" || target === "ios" || target === "ios-simulator" || command.endsWith("-android") || command.endsWith("-ios"))

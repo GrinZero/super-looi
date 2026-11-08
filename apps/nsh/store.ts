@@ -30,6 +30,7 @@ import {
   type LlmCatalogSnapshot,
   type LlmOAuthUiEvent,
 } from "./generated/looi-runtime.js";
+type TraceContext = { traceId: string; parentSpanId?: string; traceName: string; sessionId?: string };
 
 export type AppSpace = "face" | "models" | "voice" | "home" | "tasks";
 export type AppearancePreference = "system" | "light" | "dark";
@@ -303,6 +304,7 @@ export function createAppStore() {
         resolve: (value: string) => void;
         reject: (error: Error) => void;
         timer: ReturnType<typeof setTimeout>;
+        traceContext?: TraceContext;
       }
     | undefined;
   let voiceExecuting = false;
@@ -442,6 +444,7 @@ export function createAppStore() {
       runtime = opened;
       voice = new VoiceRuntime({
         vault,
+        tracer: opened.tracer,
         audio: new VoiceAudio(),
         connect,
         onState: (state) => {
@@ -461,13 +464,13 @@ export function createAppStore() {
             face.set(driver.getState());
           }
         },
-        requestTask: async (prompt) => {
+        requestTask: async (prompt, traceContext) => {
           if (!alive || voiceExecuting || busy()) {
             throw new Error("已有任务，请稍后");
           }
           voiceExecuting = true;
           try {
-            const success = await api.send(prompt, true);
+            const success = await api.send(prompt, true, traceContext);
             if (!success) throw new Error("任务未完成");
             return message();
           } finally {
@@ -559,6 +562,7 @@ export function createAppStore() {
       if (!runtime) throw new Error("本机存储尚未就绪");
       const snap = await runtime.saveProviderApiKey(input, action());
       llmSnapshot.set(snap);
+      voiceConfigured.set(voice?.refreshCredentials().hasKey ?? false);
       if (input.providerId !== "custom") {
         await api.refreshProviderModels(input.providerId);
       }
@@ -592,6 +596,7 @@ export function createAppStore() {
           action(),
         );
         llmSnapshot.set(snap);
+        voiceConfigured.set(voice?.refreshCredentials().hasKey ?? false);
         configuration.set(runtime.configuration());
         notify("已移除该服务商凭证");
       } catch (error) {
@@ -720,6 +725,7 @@ export function createAppStore() {
     },
     voiceState: () => voiceState(),
     voiceConfigured: () => voiceConfigured(),
+    voiceProviderLabel: () => voice?.configuration().providerLabel ?? "豆包",
     voiceTask: () => voiceTask(),
     async startVoice() {
       wakeGuideDismissed.set(true);
@@ -760,7 +766,7 @@ export function createAppStore() {
       }
       voiceExecuting = true;
       try {
-        const success = await api.send(prompt, true);
+        const success = await api.send(prompt, true, pending.traceContext);
         if (success) pending.resolve(message());
         else pending.reject(new Error("任务未完成"));
       } finally {
@@ -890,7 +896,7 @@ export function createAppStore() {
       status.set("陪伴待机");
       notify("模型已配置");
     },
-    async send(prompt: string, agentOnly = false) {
+    async send(prompt: string, agentOnly = false, traceContext?: TraceContext) {
       if (busy() || !runtime || !prompt.trim()) return false;
       wakeGuideDismissed.set(true);
       busy.set(true);
@@ -906,7 +912,7 @@ export function createAppStore() {
             if (event.interaction && event.taskId)
               interaction.set({ ...event.interaction, taskId: event.taskId });
           },
-          { agentOnly, mode: agentOnly ? "voice" : "text" },
+          { agentOnly, mode: agentOnly ? "voice" : "text", traceContext },
         );
         if (alive) {
           message.set(result.answer);
