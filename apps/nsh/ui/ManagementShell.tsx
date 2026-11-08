@@ -411,15 +411,15 @@ export function ManagementShell(props: {
       <View
         class="flex-1 flex-row bg-background"
         style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingRight: "env(safe-area-inset-right)",
+          paddingBottom: "env(safe-area-inset-bottom)",
           paddingLeft: "env(safe-area-inset-left)",
         }}
       >
         {/* Left Slim Rail */}
         <View
-          class="w-20 bg-sidebar border-r border-border pt-2.5 items-center justify-between"
-          style={{
-            paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)",
-          }}
+          class="w-20 bg-sidebar border-r border-border pt-2.5 pb-2.5 items-center justify-between"
         >
           <Button
             testID="back-to-face"
@@ -457,10 +457,7 @@ export function ManagementShell(props: {
         <View class="flex-1 min-w-0 flex flex-col min-h-0">
           {/* Top 48pt Context Pill Bar */}
           <View
-            class="min-h-12 border-b border-border pl-4 py-1.5 flex-row items-center justify-between gap-3 bg-card"
-            style={{
-              paddingRight: "calc(env(safe-area-inset-right) + 16px)",
-            }}
+            class="min-h-12 border-b border-border px-4 py-1.5 flex-row items-center justify-between gap-3 bg-card"
           >
             {renderContextPillBar()}
             <Button
@@ -474,11 +471,7 @@ export function ManagementShell(props: {
 
           {/* Bottom Workspace Body */}
           <View
-            class="flex-1 pl-3.5 pt-3.5 min-h-0 relative"
-            style={{
-              paddingRight: "calc(env(safe-area-inset-right) + 14px)",
-              paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)",
-            }}
+            class="flex-1 p-3.5 min-h-0 relative"
           >
             {renderActiveWorkspace()}
             <If when={props.store.toast()}>
