@@ -77,6 +77,8 @@ export interface AgentRunOptions {
   sessionId?: string;
   workspaceRoot?: string;
   mode?: "voice" | "text";
+  /** Approval choice is fixed when this task starts. */
+  approvalMode?: "ask" | "local_auto" | "yolo";
   defaultLanguage?: "zh-CN" | "en-US";
   onStep?: (event: AgentStepEvent) => void;
   signal?: AbortSignal;

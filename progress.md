@@ -1,5 +1,17 @@
 # Super-LOOI 重构与演进进度
 
+### Android Task 审核模式（2026-11-08）
+
+- [x] Step 1：梳理审核链路与设置持久化
+  - [x] 确认 `PiAgentExecutor` 的工具前审核和 `SettingsSpaceView` 的偏好保存方式
+  - [x] 确定逐项确认、本机自动、YOLO 三档的执行范围
+- [x] Step 2：实现模式传递与设置界面
+  - [x] 每次 task 启动时固定审核模式，执行器按模式决定是否弹出审核
+  - [x] 设置页显示三档说明并保存选择，补齐中英文文案
+- [x] Step 3：验证与独立 review
+  - [x] 类型检查、iOS／Android 模式行为探针与设置页持久化测试通过
+  - [x] 子 agent 独立 review 无实际缺陷；本轮差异已提交
+
 ### LOOI 具身底座 SDK 接入 NSH 应用（2026-11-08）
 
 对齐 [`docs/plans/nsh-looi-sdk-integration-plan.md`](docs/plans/nsh-looi-sdk-integration-plan.md) 与 Nano Banana V2 暗黑版设计稿：合并 `@sourcebug/looi-sdk` 与 `@super-looi/looi-driver`，实现 iOS / Android 双端原生 `LooiBle` 桥接与 `BodyRuntime`，接入实时语音与 Pi Agent 双通道具身工具，落地去工程化的「底座」管理空间（极简状态卡 + 经典圆形方向轮盘 + 纵向头部俯仰滑动条 + 补光灯开关）。

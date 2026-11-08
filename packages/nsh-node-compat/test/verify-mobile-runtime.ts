@@ -232,7 +232,7 @@ let round = 0,
   approvals = 0;
 let homeTask = "";
 globalThis.fetch = async () => {
-  const tool = round++ === 0;
+  const tool = round++ % 2 === 0;
   return sseResponse([
     {
       id: "home-chat",
@@ -288,6 +288,32 @@ try {
   equal(evidence[0].status, "verified");
   equal(evidence[0].simulation, true);
   equal(evidence[0].command.entity_id, "light.study_ceiling");
+  const autoOutcome = await homeMobile.run(
+    "再次打开演示书房灯",
+    homeAction(),
+    (event) => {
+      if (event.interaction?.kind === "approval" && event.taskId) {
+        approvals++;
+        homeMobile.respond(event.taskId, event.interaction.id, {
+          outcome: "allowed-once",
+          userAction: homeAction(),
+        });
+      }
+    },
+    { approvalMode: "local_auto" },
+  );
+  equal(approvals, 2);
+  equal(homeMobile.taskDetails(autoOutcome.taskId).homeActions[0].status, "verified");
+  const yoloOutcome = await homeMobile.run(
+    "自动打开演示书房灯",
+    homeAction(),
+    (event) => {
+      if (event.interaction?.kind === "approval") approvals++;
+    },
+    { approvalMode: "yolo" },
+  );
+  equal(approvals, 2);
+  equal(homeMobile.taskDetails(yoloOutcome.taskId).homeActions[0].status, "verified");
   await homeMobile.close();
   homeMobile = new MobileRuntime(
     {

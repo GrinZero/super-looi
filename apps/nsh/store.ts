@@ -49,10 +49,12 @@ export type AppSpace =
   | "tasks"
   | "settings";
 export type AppearancePreference = "system" | "light" | "dark";
+export type TaskApprovalMode = "ask" | "local_auto" | "yolo";
 
 const WAKE_GUIDE_DISMISSED_KEY = "wake-guide-dismissed";
 const LANGUAGE_PREFERENCE_KEY = "language-preference";
 const APPEARANCE_PREFERENCE_KEY = "appearance-preference";
+const TASK_APPROVAL_MODE_KEY = "task-approval-mode";
 
 export const INITIAL_LLM_SNAPSHOT: LlmCatalogSnapshot = {
   brands: [
@@ -349,8 +351,10 @@ export function createAppStore() {
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
   const appearancePreference = signal<AppearancePreference>("system");
+  const taskApprovalMode = signal<TaskApprovalMode>("ask");
   let languagePreferenceTouched = false;
   let appearancePreferenceTouched = false;
+  let taskApprovalModeTouched = false;
   let wakePreferenceTouched = false;
   let wakeGuideTouched = false;
   const llmSnapshot = signal<LlmCatalogSnapshot>(INITIAL_LLM_SNAPSHOT);
@@ -507,11 +511,12 @@ export function createAppStore() {
   });
   void (async () => {
     try {
-      const [savedLanguage, savedAppearance, savedWakeGuide] =
+      const [savedLanguage, savedAppearance, savedWakeGuide, savedTaskApprovalMode] =
         await Promise.all([
           Storage.getItem(LANGUAGE_PREFERENCE_KEY),
           Storage.getItem(APPEARANCE_PREFERENCE_KEY),
           Storage.getItem(WAKE_GUIDE_DISMISSED_KEY),
+          Storage.getItem(TASK_APPROVAL_MODE_KEY),
         ]);
       if (!alive) return;
       if (
@@ -531,6 +536,14 @@ export function createAppStore() {
       }
       if (!wakeGuideTouched) {
         wakeGuideDismissed.set(savedWakeGuide === "true");
+      }
+      if (
+        !taskApprovalModeTouched &&
+        (savedTaskApprovalMode === "ask" ||
+          savedTaskApprovalMode === "local_auto" ||
+          savedTaskApprovalMode === "yolo")
+      ) {
+        taskApprovalMode.set(savedTaskApprovalMode);
       }
       const vault = new CredentialVault();
       const opened = await openRuntime(new NodeCompat(), vault);
@@ -686,6 +699,14 @@ export function createAppStore() {
     },
     appearance: () => colorScheme(),
     appearanceMode: () => appearancePreference(),
+    taskApprovalMode: () => taskApprovalMode(),
+    setTaskApprovalMode(mode: TaskApprovalMode) {
+      taskApprovalModeTouched = true;
+      taskApprovalMode.set(mode);
+      void Storage.setItem(TASK_APPROVAL_MODE_KEY, mode).catch((error) => {
+        if (alive) fail(error);
+      });
+    },
     setAppearance(mode: AppearancePreference) {
       appearancePreferenceTouched = true;
       setColorScheme(mode);
@@ -1305,7 +1326,7 @@ export function createAppStore() {
             if (event.interaction && event.taskId)
               interaction.set({ ...event.interaction, taskId: event.taskId });
           },
-          { agentOnly, mode: agentOnly ? "voice" : "text", traceContext, defaultLanguage: effectiveLocale() },
+          { agentOnly, mode: agentOnly ? "voice" : "text", approvalMode: taskApprovalMode(), traceContext, defaultLanguage: effectiveLocale() },
         );
         if (alive) {
           message.set(result.answer);

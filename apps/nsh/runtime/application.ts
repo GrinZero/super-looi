@@ -809,7 +809,7 @@ export class MobileRuntime {
         name: "control_home_device",
         label: "控制家居设备",
         description:
-          "Control one device after explicit UI approval. Requires entity_id and connectionId from a recent list. Only a verified receipt confirms success; unknown must not be retried automatically. Simulation changes no real device.",
+          "Control one device using the task's approval setting. Requires entity_id and connectionId from a recent list. Only a verified receipt confirms success; unknown must not be retried automatically. Simulation changes no real device.",
         parameters: obj({
           entity_id: str(),
           connectionId: str(),
@@ -871,7 +871,7 @@ export class MobileRuntime {
     prompt: string,
     action: UserActionRef,
     onStep: (event: AgentStepEvent) => void,
-    options: { agentOnly?: boolean; defaultLanguage?: "zh-CN" | "en-US"; mode?: "text" | "voice"; traceContext?: TraceContext } = {},
+    options: { agentOnly?: boolean; defaultLanguage?: "zh-CN" | "en-US"; mode?: "text" | "voice"; approvalMode?: "ask" | "local_auto" | "yolo"; traceContext?: TraceContext } = {},
   ): Promise<{ answer: string; taskId: string; runtimeExited: boolean }> {
     if (
       this.closed ||
@@ -909,6 +909,7 @@ export class MobileRuntime {
         taskId: this.taskId,
         sessionId: this.conversationId,
         mode: options.mode,
+        approvalMode: options.approvalMode,
         defaultLanguage: options.defaultLanguage,
         traceContext: options.traceContext,
         onStep,

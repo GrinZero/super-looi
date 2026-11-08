@@ -9,7 +9,7 @@ export function createRunAgentTask(
     type: "function",
     name: "run_agent_task",
     description:
-      "提交本机任务由 Agent 执行（写入或命令需用户在手机单次审批）；只根据返回结果回答。",
+      "提交本机任务由 Agent 执行；工具审批方式由用户在设置中选择。只根据返回结果回答。",
     parameters: {
       type: "object",
       properties: { prompt: { type: "string" } },

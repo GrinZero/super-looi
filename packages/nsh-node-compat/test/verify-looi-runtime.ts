@@ -179,6 +179,28 @@ try {
     "native LOOI\n",
   );
   equal(executor.getTask(result.taskId)?.state, "succeeded");
+  faux.setResponses([
+    fauxAssistantMessage(
+      fauxToolCall("write_file", { path: "auto.txt", content: "automatic\n" }),
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage(
+      fauxToolCall("bash", { command: "cat auto.txt > auto-copy.txt" }),
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage("Automatic task finished"),
+  ]);
+  let automaticApprovals = 0;
+  const automatic = await executor.run("Write and copy without prompts", {
+    taskId: `${taskId}_automatic`,
+    approvalMode: "local_auto",
+    onStep(event) {
+      if (event.phase === "awaiting_approval") automaticApprovals++;
+    },
+  });
+  equal(automaticApprovals, 0);
+  equal(automatic.executions?.[0].exitCode, 0);
+  equal(fs.readFileSync("/workspace/looi-runtime-test/auto-copy.txt", "utf8"), "automatic\n");
 } finally {
   await executor.close();
   storage.close();

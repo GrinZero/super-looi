@@ -130,7 +130,7 @@ export interface NativeRuntime {
  taskDetails(id:string):NativeTask;
  newConversation(action:UiAction):void;
  configure(value:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
- run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{agentOnly?:boolean;mode?:"text"|"voice";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
+ run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
  respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  close():Promise<void>;

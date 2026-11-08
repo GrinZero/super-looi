@@ -846,8 +846,10 @@ export class PiAgentExecutor implements AgentExecutor {
                 "Task was stopped; no further tool execution is permitted.",
             };
           const parsedArgs = (args ?? {}) as Record<string, unknown>;
+          const approvalMode = options.approvalMode ?? "ask";
           let needsApproval =
-            this.config.approvalRequiredTools?.includes(toolCall.name) ?? false;
+            approvalMode !== "yolo" &&
+            (this.config.approvalRequiredTools?.includes(toolCall.name) ?? false);
           let details: Record<string, unknown> = {
             callId: toolCall.id,
             toolName: toolCall.name,
@@ -855,7 +857,7 @@ export class PiAgentExecutor implements AgentExecutor {
             ...(needsApproval ? { arguments: parsedArgs } : {}),
           };
 
-          if (toolCall.name === "bash") {
+          if (approvalMode === "ask" && toolCall.name === "bash") {
             const command = String(parsedArgs.command ?? "");
             // A shell can write via redirects, substitutions or command flags.
             // Strict mobile mode approves every shell invocation, not a regex
@@ -867,10 +869,10 @@ export class PiAgentExecutor implements AgentExecutor {
               needsApproval = true;
               details = { ...details, operation: "bash", command };
             }
-          } else if (
+          } else if (approvalMode === "ask" && (
             toolCall.name === "write_file" ||
             toolCall.name === "write"
-          ) {
+          )) {
             const targetPath = String(parsedArgs.path ?? "");
             const { inside, resolved } = resolveWorkspacePath(
               task.workspaceRoot,
@@ -886,10 +888,10 @@ export class PiAgentExecutor implements AgentExecutor {
                 willOverwrite: fs.existsSync(resolved),
               };
             }
-          } else if (
+          } else if (approvalMode === "ask" && (
             toolCall.name === "read_file" ||
             toolCall.name === "read"
-          ) {
+          )) {
             const targetPath = String(parsedArgs.path ?? "");
             const { inside } = resolveWorkspacePath(
               task.workspaceRoot,
