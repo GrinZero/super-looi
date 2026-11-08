@@ -1428,3 +1428,8 @@
 - [x] Step 4：独立子 agent 代码复审与提交
   - [x] 独立子 agent 完成代码与视觉规范一致性复审，修复安全区 `safeArea()` 居中缩放、`cat_w` 逆时针开弧、`glasses` 鼻梁桥接/`pout_puff` 嘴角折线与静息态 `waveformBars` 守卫，终审 `PASS`
   - [x] 更新 `progress.md` 并隔离提交本轮变更
+- [x] Step 5：iOS 模拟器预览台、可中断表情过渡与按需微动态循环
+  - [x] 升级 `apps/nsh/FaceProbe.tsx` 与 `apps/nsh/scripts/nsh.ts`（支持自定义 `.tsx` 入口与 `ios:faces` 脚本），在 iOS 模拟器提供 72 表情分组试镜、自动轮播与单次眨眼触发
+  - [x] 在 `apps/nsh/ui/RobotFace.tsx` 实现 `drawRobotFaceTransition`（同形态直接插值、异形态带预备/过冲弹性的交叉溶解及可中断重定锚）与 `normalizeBlinkProgress` 静息态防漏眨眼守卫
+  - [x] 实现 `hasAmbientMotion` 与 36 个特殊表情连续微动态（`dizzy_spiral` 双眼反向旋转、`deep_snore` `ZZZ` 持续上浮消散、`coffee_boost` 蒸汽升腾、阅读扫视、计时器走针、落雨/音波/心跳等），36 个常规表情静止时保持零定时器空闲开销，并遵守 `reduceMotion()` 与前后台生命周期守卫
+  - [x] 补齐 `apps/nsh/RobotFace.test.tsx`（过渡矩阵、微动态连续性、`thinking` 满眨眼挑眉连续性、唤醒中途打断及原生 `Canvas` 72 态回放），同步更新 `docs/arch/` 快照并通过独立子 agent 两轮复审 `PASS`

@@ -4,7 +4,12 @@ import {
   getFaceExpressionBehavior,
 } from "./generated/looi-runtime.js";
 import { FACE_EXPRESSION_IDS, FACE_EXPRESSION_RECIPES } from "./ui/face-recipes";
-import { drawRobotFace } from "./ui/RobotFace";
+import {
+  drawRobotFace,
+  drawRobotFaceTransition,
+  hasAmbientMotion,
+  normalizeBlinkProgress,
+} from "./ui/RobotFace";
 import type { CanvasRenderingContext2D } from "nsh";
 
 function createAuditCanvas() {
@@ -16,6 +21,8 @@ function createAuditCanvas() {
   let quadCount = 0;
   let gradientCount = 0;
   const translates: Array<{ x: number; y: number }> = [];
+  const rotates: number[] = [];
+  const moveTos: Array<{ x: number; y: number }> = [];
   const arcs: Array<{ x: number; y: number; r: number; ccw: boolean }> = [];
   const quads: Array<{ cpx: number; cpy: number; x: number; y: number }> = [];
   const checkNums = (values: number[]) => {
@@ -57,11 +64,13 @@ function createAuditCanvas() {
     },
     rotate(angle: number) {
       checkNums([angle]);
+      rotates.push(angle);
     },
     beginPath() {},
     closePath() {},
     moveTo(x: number, y: number) {
       checkNums([x, y]);
+      moveTos.push({ x, y });
     },
     lineTo(x: number, y: number) {
       checkNums([x, y]);
@@ -143,6 +152,8 @@ function createAuditCanvas() {
   return {
     cx,
     translates,
+    rotates,
+    moveTos,
     arcs,
     quads,
     stats: () => ({
@@ -281,18 +292,236 @@ test("all 72 declarative expressions preserve balanced Canvas state and token-on
   );
   const puffCrease = grumpyAudit.arcs[grumpyAudit.arcs.length - 1];
   expect(puffCrease.x - puffCrease.r >= 10).toBe(true);
+
+  // Transition interpolation across continuous orb->orb and discrete shape/tint/glyph morphs
+  const cssResolver = (name: string) =>
+    name.endsWith("-zero") ? "rgba(232,218,195,0)" : "#E8DAC3";
+  const pairs: Array<[typeof FACE_EXPRESSION_IDS[number], typeof FACE_EXPRESSION_IDS[number]]> = [
+    ["neutral", "angry_glare"],
+    ["angry_glare", "sad_droop"],
+    ["neutral", "love_eyes"],
+    ["love_eyes", "happy_squint"],
+    ["wake_spark", "coffee_sip"],
+    ["neutral", "sleeping"],
+    ["alarmed", "task_verified"],
+  ];
+  for (const [fromExpr, toExpr] of pairs) {
+    for (const p of [0, 0.2, 0.42, 0.65, 0.88, 1]) {
+      const transAudit = createAuditCanvas();
+      drawRobotFaceTransition(
+        transAudit.cx,
+        { width: 844, height: 390 },
+        { expression: fromExpr, gaze: { x: -0.4, y: 0.2 }, blinkProgress: 0 },
+        { expression: toExpr, gaze: { x: 0.5, y: -0.3 }, blinkProgress: 0 },
+        p,
+        { dx: 0, dy: 0 },
+        cssResolver,
+      );
+      expect(transAudit.stats().saveDepth).toBe(0);
+      expect(transAudit.stats().arcCount > 0).toBe(true);
+    }
+  }
+
+  // Ambient motion discipline: calm idle states stop the JS ticker; special expressions animate
+  for (const calm of [
+    "neutral",
+    "listening",
+    "thinking",
+    "speaking",
+    "sleeping",
+    "privacy_shield",
+    "night_watch",
+    "shy_blush",
+    "focus_glasses",
+  ] as const) {
+    expect(hasAmbientMotion(calm)).toBe(false);
+  }
+  for (const lively of [
+    "dizzy_spiral",
+    "deep_snore",
+    "coffee_sip",
+    "munching",
+    "sipping_straw",
+    "music_vibe",
+    "reading_scan",
+    "pomodoro_timer",
+    "celebrate_party",
+    "coding_terminal",
+    "searching_radar",
+    "memory_recall",
+    "sync_pulse",
+    "dock_snap",
+    "charging_pulse",
+    "home_command",
+    "weather_sunny",
+    "weather_rain_chill",
+    "love_eyes",
+    "starry_eyed",
+    "laughing",
+    "yawning",
+  ] as const) {
+    expect(hasAmbientMotion(lively)).toBe(true);
+  }
+
+  // Every expression preserves balanced save/restore and finite geometry across live timeSec ticks
+  for (const expression of FACE_EXPRESSION_IDS) {
+    for (const timeSec of [0.37, 1.15, 2.43]) {
+      const liveAudit = createAuditCanvas();
+      drawRobotFace(
+        liveAudit.cx,
+        { width: 844, height: 390 },
+        { expression, gaze: { x: 0.2, y: -0.15 }, blinkProgress: 0 },
+        { dx: 0, dy: 0 },
+        cssResolver,
+        undefined,
+        timeSec,
+      );
+      expect(liveAudit.stats().saveDepth).toBe(0);
+    }
+  }
+
+  // dizzy_spiral counter-rotates left & right spiral eyes when timeSec > 0
+  const spiralLive = createAuditCanvas();
+  drawRobotFace(
+    spiralLive.cx,
+    { width: 844, height: 390 },
+    { expression: "dizzy_spiral", gaze: { x: 0, y: 0 }, blinkProgress: 0 },
+    { dx: 0, dy: 0 },
+    cssResolver,
+    undefined,
+    0.5,
+  );
+  expect(spiralLive.rotates.length).toBe(2);
+  expect(Math.abs(spiralLive.rotates[0] + spiralLive.rotates[1]) < 1e-9).toBe(true);
+  expect(Math.abs(spiralLive.rotates[0]) > 1).toBe(true);
+
+  // deep_snore ZZZ glyphs continuously drift upward across timeSec frames
+  const snoreEarly = createAuditCanvas();
+  drawRobotFace(
+    snoreEarly.cx,
+    { width: 844, height: 390 },
+    { expression: "deep_snore", gaze: { x: 0, y: 0 }, blinkProgress: 0 },
+    { dx: 0, dy: 0 },
+    cssResolver,
+    undefined,
+    0.1,
+  );
+  const snoreLater = createAuditCanvas();
+  drawRobotFace(
+    snoreLater.cx,
+    { width: 844, height: 390 },
+    { expression: "deep_snore", gaze: { x: 0, y: 0 }, blinkProgress: 0 },
+    { dx: 0, dy: 0 },
+    cssResolver,
+    undefined,
+    0.6,
+  );
+  expect(snoreLater.moveTos[0].y < snoreEarly.moveTos[0].y).toBe(true);
+
+  // Browed orb expressions keep drawing both eyebrows during full blink (u = 0.5 and u = 1.0)
+  const thinkingBlinkMid = createAuditCanvas();
+  drawRobotFaceTransition(
+    thinkingBlinkMid.cx,
+    { width: 844, height: 390 },
+    { expression: "thinking", gaze: { x: 0, y: 0 }, blinkProgress: 1 },
+    { expression: "thinking", gaze: { x: 0, y: 0 }, blinkProgress: 1 },
+    0.5,
+    { dx: 0, dy: 0 },
+    cssResolver,
+  );
+  const thinkingBlinkEnd = createAuditCanvas();
+  drawRobotFaceTransition(
+    thinkingBlinkEnd.cx,
+    { width: 844, height: 390 },
+    { expression: "thinking", gaze: { x: 0, y: 0 }, blinkProgress: 1 },
+    { expression: "thinking", gaze: { x: 0, y: 0 }, blinkProgress: 1 },
+    1,
+    { dx: 0, dy: 0 },
+    cssResolver,
+  );
+  // 1 horizon circle + 2 eyebrow arcs when eyes are closed lines (mouth is flat)
+  expect(thinkingBlinkMid.stats().arcCount).toBe(3);
+  expect(thinkingBlinkEnd.stats().arcCount).toBe(3);
+  expect(thinkingBlinkEnd.rotates.length).toBe(2);
+
+  // Non-orb expressions clamp blinkProgress=1 to 0 so wake interruptions never squash orb eyes
+  expect(
+    normalizeBlinkProgress({
+      expression: "sleeping",
+      gaze: { x: 0, y: 0 },
+      blinkProgress: 1,
+    }),
+  ).toBe(0);
+  expect(
+    normalizeBlinkProgress({
+      expression: "neutral",
+      gaze: { x: 0, y: 0 },
+      blinkProgress: 0.65,
+    }),
+  ).toBe(0.65);
+
+  // Zero-to-live continuity: t = 0 -> t = 0.001 has no jump in primitive counts or coordinates
+  for (const expression of FACE_EXPRESSION_IDS) {
+    const t0 = createAuditCanvas();
+    drawRobotFace(
+      t0.cx,
+      { width: 844, height: 390 },
+      { expression, gaze: { x: 0, y: 0 }, blinkProgress: 0 },
+      { dx: 0, dy: 0 },
+      cssResolver,
+      undefined,
+      0,
+    );
+    const tEps = createAuditCanvas();
+    drawRobotFace(
+      tEps.cx,
+      { width: 844, height: 390 },
+      { expression, gaze: { x: 0, y: 0 }, blinkProgress: 0 },
+      { dx: 0, dy: 0 },
+      cssResolver,
+      undefined,
+      0.001,
+    );
+    expect(tEps.moveTos.length).toBe(t0.moveTos.length);
+    for (let i = 0; i < t0.moveTos.length; i++) {
+      expect(Math.abs(tEps.moveTos[i].x - t0.moveTos[i].x) < 0.5).toBe(true);
+      expect(Math.abs(tEps.moveTos[i].y - t0.moveTos[i].y) < 0.5).toBe(true);
+    }
+  }
 });
 
-test("native NSH Canvas mounts and replays all 72 expressions across frames", async () => {
-  const app = await open("./FaceProbe.tsx");
+test("native NSH Canvas mounts and replays all 72 expressions, transitions, and ambient loops", async () => {
+  const app = await open("./FaceProbe.tsx", {
+    width: 844,
+    height: 390,
+    clock: {},
+  });
   expect(app.texts()).toContain("Expression 1/72: neutral");
 
   for (let step = 1; step < FACE_EXPRESSION_IDS.length; step++) {
     await app.press("face-next");
+    if (step === 32 || step === 38) {
+      // Exercise mid-transition interpolation (130ms) + steady-state ambient motion (420ms)
+      // on #33 dizzy_spiral and #39 deep_snore inside native NSH Canvas
+      await app.wait(130);
+      await app.wait(420);
+    }
   }
   expect(app.texts()).toContain("Expression 72/72: weather_rain_chill");
+  await app.wait(400);
 
   await app.press("face-blink");
+  await app.wait(120);
   await app.press("face-next");
+  await app.wait(300);
   expect(app.texts()).toContain("Expression 1/72: neutral");
+
+  // Mid-flight interruption across closedRest (#06 sleeping -> #01 neutral -> #02 listening)
+  await app.press("face-pick-sleeping");
+  await app.wait(300);
+  await app.press("face-pick-neutral");
+  await app.wait(120);
+  await app.press("face-pick-listening");
+  await app.wait(300);
+  expect(app.texts()).toContain("Expression 2/72: listening");
 });

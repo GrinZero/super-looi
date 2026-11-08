@@ -233,6 +233,21 @@ if (command === "wake-ios") {
   const grant = spawnSync("xcrun", ["simctl", "privacy", "booted", "grant", "microphone", bundleId], { stdio: "inherit" });
   if (grant.status !== 0) throw new Error("Cannot grant simulator microphone to wake probe");
 }
+const optionFlags = new Set([
+  "--target",
+  "--port",
+  "--device",
+  "--limits",
+  "--name",
+  "--window-size",
+  "--display",
+  "--out",
+  "-o",
+]);
+const hasCustomEntry = args.some(
+  (arg, idx) =>
+    !arg.startsWith("-") && (idx === 0 || !optionFlags.has(args[idx - 1] ?? "")),
+);
 const result = scripted
   ? spawnSync(
       binary,
@@ -269,7 +284,7 @@ const result = scripted
             : 'await app.waitFor("Native bridge verified", {timeout:20000})\n',
       },
     )
-  : spawnSync(binary, [command, app, ...args], {
+  : spawnSync(binary, hasCustomEntry ? [command, ...args] : [command, app, ...args], {
       cwd: app,
       env: nativeEnvironment,
       stdio: "inherit",

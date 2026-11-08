@@ -14,6 +14,7 @@
     "test:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-ios",
     "test:android": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-android",
     "ios": "node --import tsx scripts/nsh.ts run --target ios",
+    "ios:faces": "node --import tsx scripts/nsh.ts run --target ios FaceProbe.tsx",
     "test:ui:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts ui-ios",
     "test:ui:android": "node scripts/verify-android-ui.mjs",
     "test:live:ios": "node --import tsx scripts/verify-live.ts ios",
