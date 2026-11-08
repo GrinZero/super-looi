@@ -1,19 +1,13 @@
 import { createEndConversation } from "./end-conversation.js";
 import { createRunAgentTask } from "./run-agent-task.js";
 import type { VoiceToolHost } from "./types.js";
+import type { RealtimeProtocolAdapter } from "../protocol.js";
 
-export function createVoiceTools(host: VoiceToolHost) {
+export function createVoiceTools(host: VoiceToolHost, protocol: RealtimeProtocolAdapter) {
   const context = {
     ...host,
-    reply(callId: string, output: unknown, generation: number) {
-      return host.send({
-        type: "conversation.item.create",
-        items: [{
-          call_id: callId,
-          role: "tool",
-          content: [{ type: "input_text", text: JSON.stringify(output) }],
-        }],
-      }, generation);
+    async reply(callId: string, output: unknown, generation: number) {
+      for (const message of protocol.encodeToolReply(callId, output)) await host.send(message, generation);
     },
   };
   const task = createRunAgentTask(context);
