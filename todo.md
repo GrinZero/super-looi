@@ -41,9 +41,9 @@
 
 ## 4. 远程生产力副驾与执行环境
 
-- [x] **官方 DSH 执行引擎替换与版本锁定（2026-11-05）**
-  - 见 [实现与验收](docs/dsh-engine-integration.md)：同版 SDK/runtime `0.2.2-rc.1`，自研循环已删除，真实命令/文件/MCP记忆/会话恢复/审批与提问/取消8项实测通过。
-  - 独立任务worker与持久session、生产力账本、手机/Web应答和停止入口已接通；模型completed不替代命令退出证据。
+- [x] **进程内极简 `pi-agent` 执行引擎替换（2026-11-06）**
+  - 已由 `@earendil-works/pi-agent-core@1.5.0` + `@earendil-works/pi-ai@1.5.0`（`PiAgentExecutor`）替换原 `@deepseek-ai/dsh-sdk-client` 子进程方案，移除 329 个 `@deepseek-ai/dsh*` 传递依赖包，消除 `~1s` 子进程冷启动与 JSON-RPC/Cordis patch 开销。
+  - 进程内 `bash` / `read_file` / `write_file` / `ask_user_question` 工具、工作区真实路径沙箱、`beforeToolCall` 审批拦截、进程组信号强杀取消与会话恢复 6 项真网实测通过。
 - [ ] **正式部署的执行隔离与状态范围**
   - [ ] 专用执行身份/容器与Hub任务级身份授权；同用户worker不能声称与Hub混合`.env`安全隔离。
   - [ ] 外部SSH/后台job独立停止回执；未知时保留unknown。
@@ -180,3 +180,80 @@
 
 - [ ] 当前 iPhone 16e 本机语音未读到 Key，需显式配置手机 SecureStore 后再验真实语音。根因与实测证据见 `docs/live-voice-missing-local-key-diagnosis.md`。
 - [ ] 本机语音配置允许缺 Key，连接时具体原因被通用错误覆盖；后续增加凭据校验与错误透传。本轮仅排查，未修改产品或凭据。
+
+
+## 智能唤醒与事件介入（2026-11-06 规划，尚未实施）
+
+方案见 [智能唤醒设计](docs/intelligent-wake-design.md)。历史“VAD 唤醒完成”不代表待机唤醒词已实现；当前仍需手动开启 LIVE。
+
+- [ ] **W0：本地唤醒词选型 PoC**
+  - [ ] 固定 LOOI 目标读音与中英候选词；比较 sherpa-onnx / Porcupine 的实际命中、误触发、初始化条件与许可。
+  - [ ] 验证 iPhone 原生单一采集、PCM 帧序/采样率/时间戳及 KWS 桥接；测包体、CPU、内存和热状态。
+- [ ] **W1：前台驻座唤醒与会话闭环**
+  - [ ] 共享触发策略、音频所有权、上游 ready + 采集回执、提示后说、超时与隐私代际；连说增强需本地端点、有界首句 FIFO 与排空/恢复实时证据。
+  - [ ] 复用本机直连及 Hub 两种会话；修正缺 Key 提示和无效的 Hey LOOI 引导。
+  - [ ] 真机验连续首句、续聊、切账号/模式/后台/来电等竞态；点击打断保底。
+- [ ] **W2：确定性事件与介入策略**
+  - [ ] 接任务/审批、前台提醒及一个真实家居阈值规则；新增真实事件适配器和规则持久运行服务。
+  - [ ] 去重/TTL/迟滞/勿扰/队列上限/过期处理；仅输出播报不能调用默认开麦入口。
+  - [ ] 明确规则执行宿主和唯一播报设备，App 挂起不承诺 JS 调度与家居轮询准时。
+- [ ] **W3 / W4：可选能力，单独验收**
+  - [ ] 主动搭话默认关闭；影子模式评估在场证据、误打扰与预算。
+  - [ ] 真机验证 AEC 与外放语音打断，当前 speakerUntil 抑制不等于可靠双工插话。
+  - [ ] Android microphone 前台服务、iOS 后台录音 PoC、Web 和多设备协调各自记录支持范围。
+
+
+## 工业设计实物推进（2026-11-06）
+
+外观与结构开发定义见 [工业设计开发稿](docs/super-looi-industrial-design.md)。本轮已交付整体效果图与六分区拆解板，以下是进入工程样机的剩余工作。
+
+- [ ] 固定目标手机（裸机／保护壳）、LOOI 型号与固件，实测手机包络、质量、底座三轴、磁吸中心、俯仰轴与窗口／接口位置。
+- [ ] 将厂商 110 × 98 × 110 mm 标称值映射到实际测量轴向与姿态，补齐全装配包络、支撑区和运动避让区。
+- [ ] 完成磁吸装取／静态滑移／俯仰干涉／供电走线的实物验证，记录热与长时驻留表现。
+- [ ] 通过固定机身测试后，在保护区域验证真实 BLE 身体、断连、脱座与停止；未通过的执行器保持禁用。
+- [ ] 依据测绘建立参数化装配 CAD／STEP 与实测三视图；若新做附件，再补零件图、公差链、材料工艺与采购 BOM。
+
+
+## 手机端 Agent loop / 去 Hub（2026-11-06）
+
+调研与验收边界见 [手机端 Agent loop 调研](docs/mobile-agent-loop-research.md)。以下尚未实施，历史 Hub/DSH 接入记录不等于完成本机迁移。
+
+- [ ] Expo 56 / RN 0.85 / Hermes 上验证 pi-agent-core@1.5.0 的 Metro 打包、两轮工具闭环、流式输出、abort、预算与参数校验；确认 Node-only 模块未进入移动 bundle 的可达依赖图或执行路径。失败时记录最小适配成本，并对同一验收集比较 AI SDK Core。
+- [ ] 接手机直连模型配置（用户凭据进 SecureStore）、本地工具注册和运行时事件，复用记忆/米家/HA能力；电脑/Hub 关闭后跑真实多轮任务。
+- [ ] 本地任务/会话/审批/问答/取消与工具意图/回执持久化；强退、断网、配置切换和未知副作用恢复不得盲目重放。
+- [ ] 文字与实时语音统一任务/权限边界，避免两个循环重复派发家居动作。
+- [ ] 盘点 Hub 全部 API、规则/生产力/记忆/设备职责与已有数据，完成迁移、替代或明确停用后，才能移除 Hub 部署依赖。
+- [ ] iOS 用户发起长任务的 BGContinuedProcessingTask 单独 PoC；Android 前台服务另验。原生修改经 Expo module / config plugin，不改 prebuild 产物。
+- [ ] 本地模型为后续可选项：固定兼容 provider 版本，真机测中文工具可靠性、内存/热/延迟；不作为首轮去 Hub 前提。
+
+
+## Native Shell 迁移验证（2026-11-06）
+
+源码级结论已归档至 [Android / iOS 无 Hub 迁移调研](docs/nsh-mobile-migration-research.md)。用户已确认允许手机直连云 API；以下均为实施/真机待办，不能按调研完成勾选。
+
+- [ ] **双端宿主 PoC**：固定 NSH v0.4.0，验证 iOS / Android embedding、host call/event、原生组件、权限配置、Release 无调试服务器启动及签名发布路径；Android AAB 与 target API 36+ 兼容（v0.4.0 CLI 默认仍为 API 35）。
+- [ ] **Pi / QuickJS 兼容性**：独立同版本 VM 的四包、实际 SDK 七工具、原生 codemode、SSE、abort/预算与真实网关已通过，见兼容层实施记录；仍需 NSH 手机真实挂载及领域工具闭环验收。
+- [ ] **实时媒体**：原生 PCM / AEC / 播放 / 音频焦点；豆包 X-* WS 真实握手、节拍、打断、断线零重放；Bearer WS 的宿主适配按需验证。
+- [ ] **存储与恢复**：系统安全凭据、SQLite/受控文件、工具意图/回执事务、强退 unknown 核验与旧数据迁入；不得用 5 MiB KV 代替全部持久存储。
+- [ ] **机器人视觉**：按全屏/头像及全部状态比图，验证渐变、内外阴影、点阵、裁剪、真实音量条；双端真机 LIVE 并发帧时/电量/热观察。
+- [ ] **家居与硬件**：米家 OAuth / MIoT 真实回读、BLE 重连与急停、相机采集、前台保持唤醒/热策略；模拟器不能替代硬件验收。
+- [ ] **功能与后台范围**：为原桌面 shell/CLI 工具确定手机替代；逐项退出旧 Hub API、隐藏页面和状态；明确锁屏/后台/强退后的规则、任务与感知支持范围。
+
+
+## dsh-Go iOS 分支验证（2026-11-06）
+
+源码、issue 与 CI 结论见 [iOS 分支调研](docs/dsh-go-ios-branch-research.md)。以下是本项目后续可选验证，不表示采用 DSH 或已完成迁移。
+
+- [ ] 比较 NSH QuickJS / 内嵌 NodeMobile 对 Pi 1.5.0 的适配成本；若引入双 JS 引擎，实测事件桥接、内存、取消与停止后重启。
+- [ ] 若借鉴 NodeMobile host，验证 Release 真机签名、addon framework 布局、真实云模型闭环、堆与原生内存/fd管理、强退 unknown 恢复及后台继续；模拟器脚本模型 CI 不替代这些验收。
+- [ ] 若确有 Linux CLI 需求，再验证 arm64 iSH / Alpine guest 的实际程序、审批/路径、取消清理、DNS/网络、真机性能与分发/许可条件；不能默认宣称 Python、任意原生子进程或其他 App 控制可用。
+
+
+## NSH Node 兼容层实施（2026-11-06）
+
+实施证据与范围见 [兼容层实施记录](docs/nsh-node-compat-implementation.md)。已交付独立 Rust/QuickJS 包、八组测试（含实际 SDK 与 native codemode）、真实模型 SSE 与强杀恢复验证。
+
+- [ ] 实际 SDK 手机验证：原生 fetch/SSE、安全凭据、预编译扩展/深链 OAuth 与图片处理；独立 runner 七工具通过，不能替代这些手机宿主能力。桌面根 barrel 的透明构建审计仍保持单独失败状态。
+- [ ] NSH native module / 双端 embedding、app sandbox 与 tokio 作业生命周期、通知权限/资源释放、iOS/Android Release 编译和签名验收；目前有同 VM Ctx 注入、macOS runner 与 iOS 模拟器 Rust lib cargo check，尚无手机 App 链接/运行。
+- [ ] 独立文件命名空间/私有 SQLite 迁入迁出、未知副作用恢复、手机安全凭据/任务/审批/记忆/家居/媒体/BLE/UI 接线；满足所有 Hub 职责替代后才能移除 Hub。
+- [ ] 兼容层后续覆盖：Rust 原生行扫描、真正异步 FS/有界输出流、更多明确的 Node API/命令参数；当前 JSON 桥接和上游 JS 行扫描不等于零拷贝。native notify 需双端实测。

@@ -5,7 +5,6 @@ import { it } from "node:test";
 import type { VoiceDownMessage, VoiceUpMessage } from "@super-looi/contracts";
 import { buildApp } from "../src/app.js";
 import type { AgentExecutor } from "../src/agent/executor.js";
-import { PersonalMemoryStore } from "../src/agent/personal-memory.js";
 import { VoiceProviderRegistry, type VoiceSessionHandle } from "../src/voice/provider.js";
 
 function delayedProvider() {
@@ -130,22 +129,21 @@ it("dispatches queued barge-in and mute controls while a queued text task is run
   }
 });
 
-it("remembers a final-only speech turn after a previous turn used a tool", async () => {
+it("dispatches a final-only speech agent task after a previous turn used a tool", async () => {
   const provider = delayedProvider();
-  const personalMemory = new PersonalMemoryStore({ persistToDisk: false, seedDefaultsIfEmpty: false });
-  const app = buildApp({ voiceRegistry: provider.voiceRegistry, agentExecutor: provider.agentExecutor, personalMemory });
+  const app = buildApp({ voiceRegistry: provider.voiceRegistry, agentExecutor: provider.agentExecutor });
   await app.ready();
   const socket = await app.injectWS("/ws/voice");
   try {
     provider.ready();
     await setImmediate();
-    provider.emit({ type: "tool_call", call_id: "recall-1", name: "recall_memory", arguments: { query: "钥匙" } });
+    provider.emit({ type: "tool_call", call_id: "task-1", name: "run_agent_task", arguments: { task: "查看状态" } });
     await setImmediate();
     provider.emit({ type: "state_change", state: "listening" });
-    provider.emit({ type: "transcript", role: "user", text: "记住，钥匙在抽屉。", is_final: true });
+    provider.emit({ type: "transcript", role: "user", text: "检查当前目录", is_final: true });
     provider.emit({ type: "state_change", state: "listening" });
     await setImmediate();
-    assert.deepEqual(personalMemory.listAll().map((entry) => entry.fact), ["钥匙在抽屉"]);
+    assert.deepEqual(provider.prompts, ["查看状态", "检查当前目录"]);
   } finally {
     const closed = once(socket, "close");
     socket.close();

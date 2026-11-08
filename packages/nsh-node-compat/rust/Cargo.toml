@@ -1,0 +1,40 @@
+[package]
+name = "nsh-node-compat-rs"
+version = "0.1.0"
+edition = "2024"
+autobins = false
+license = "MIT"
+
+[lib]
+name = "nsh_node_compat"
+
+[[bin]]
+name = "qjs_runner"
+path = "src/bin/qjs_runner.rs"
+
+[dependencies]
+rquickjs = { package = "quickjs-jit", version = "=0.14.1", default-features = false, features = ["std", "futures", "loader", "macro"] }
+quickjs-jit-stdlib = { version = "=0.14.1", default-features = false, features = ["buffer", "path", "crypto", "url", "zlib"] }
+rusqlite = { version = "0.38", features = ["bundled", "hooks", "limits"] }
+cap-std = "4.0.3"
+cap-fs-ext = "4.0.3"
+deno_task_shell = { version = "=0.33.3", default-features = false }
+serde_json = "1"
+regex = "1"
+ignore = "0.4"
+globset = "0.4"
+icu_segmenter = "=2.3.0"
+notify = "8"
+tokio = { version = "1", features = ["rt", "time", "macros", "io-util", "sync"] }
+crc32fast = "1"
+uuid = { version = "1", features = ["v4"] }
+
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+# quickjs-jit 0.14.1 does not ship pre-generated iOS-simulator bindings.
+# Generate bindings for mobile targets without changing the host VM version.
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+rquickjs = { package = "quickjs-jit", version = "=0.14.1", default-features = false, features = ["bindgen"] }

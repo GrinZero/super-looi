@@ -6,7 +6,6 @@ import {
   LoopbackSuppressionManager,
   DoubaoVoiceProvider,
   ModularVoiceProvider,
-  DEFAULT_LOOI_INSTRUCTIONS,
 } from "./voice/provider.js";
 import { VisionProviderRegistry } from "./vision/provider.js";
 import { MemoryLedgerService } from "./memory/ledger.js";
@@ -20,7 +19,7 @@ import { BoundedActiveLookCoordinator } from "./vision/active-look.js";
 import { BodySupervisor, SimulatedBleTransport } from "@super-looi/looi-driver";
 import { getConsoleHtml } from "./console-html.js";
 import { PersonalMemoryStore, type PersonalMemoryCategory } from "./agent/personal-memory.js";
-import { DshAgentExecutor } from "./agent/dsh-executor.js";
+import { PiAgentExecutor } from "./agent/pi-executor.js";
 import { type AgentExecutor, type AgentInteractionAnswer, AgentExecutionError } from "./agent/executor.js";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -266,7 +265,7 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
       ledger: options.persistState === true ? memoryLedger : undefined,
       seedDefaultsIfEmpty: options.seedDemo === true,
     });
-  const agentExecutor = options.agentExecutor ?? new DshAgentExecutor({ memoryStore: personalMemory });
+  const agentExecutor = options.agentExecutor ?? new PiAgentExecutor();
   app.addHook("onClose", async () => { await agentExecutor.close(); });
 
   const voiceRegistry =
@@ -276,10 +275,7 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
         const result = await agentExecutor.run(prompt, { mode: "voice", onStep: options?.onStep });
         yield { text: result.answer };
       } } }),
-      doubaoProvider: new DoubaoVoiceProvider({
-        buildInstructions: () =>
-          `${DEFAULT_LOOI_INSTRUCTIONS}\n\n<personal_memory>\n${personalMemory.buildSystemPromptBlock(12)}\n</personal_memory>`,
-      }),
+      doubaoProvider: new DoubaoVoiceProvider(),
     });
   const visionRegistry = options.visionRegistry ?? new VisionProviderRegistry();
   const taskSupervisor = options.taskSupervisor ?? new HubTaskSupervisor(options.persistState ? { filePath: path.resolve("data/tasks.json") } : {});
@@ -778,7 +774,6 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
 
       let session: any = null;
       let pendingSpeechTask: string | null = null;
-      let pendingRememberFact: string | null = null;
       let agentBusy = false;
       let turnToolHandled = false;
       let agentAbort: AbortController | null = null;
@@ -813,7 +808,6 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
             phase: "done",
             tool: "agent",
             summary: result.answer,
-            memories: personalMemory.listAll(),
           });
           await session?.sendUpMessage({
             type: "speak_text",
@@ -838,7 +832,6 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
         args: Record<string, unknown>
       ) => {
         pendingSpeechTask = null;
-        pendingRememberFact = null;
         turnToolHandled = true;
         try {
           if (name === "list_home_devices" || name === "control_home_device") {
@@ -849,73 +842,12 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
               summary: name === "list_home_devices" ? "已读取家居设备状态" : String(output.instruction) });
             return;
           }
-          if (name === "remember_fact") {
-            const fact = String(args.fact ?? "").trim();
-            sendSafe({
-              type: "agent_status",
-              phase: "tool_start",
-              tool: name,
-              summary: `正在记住: ${fact.slice(0, 36)}`,
-            });
-            const entry = await personalMemory.remember({
-              fact,
-              subject: args.subject ? String(args.subject) : undefined,
-              location: args.location ? String(args.location) : undefined,
-              source: "voice",
-            });
-            await session?.sendUpMessage({
-              type: "tool_result",
-              call_id: callId,
-              output: { ok: true, entry },
-            });
-            sendSafe({
-              type: "agent_status",
-              phase: "done",
-              tool: name,
-              summary: `已记住: ${entry.fact}`,
-              memories: personalMemory.listAll(),
-            });
-            return;
-          }
-
-          if (name === "recall_memory") {
-            const query = String(args.query ?? "").trim();
-            sendSafe({
-              type: "agent_status",
-              phase: "tool_start",
-              tool: name,
-              summary: `正在检索记忆: ${query || "最近记录"}`,
-            });
-            const items = personalMemory.recall(query, 5);
-            await session?.sendUpMessage({
-              type: "tool_result",
-              call_id: callId,
-              output: { ok: true, items },
-            });
-            const spoken =
-              items.length > 0
-                ? `我记得：${items.map((i) => i.fact).slice(0, 2).join("；")}。`
-                : `我还没有关于${query || "这个"}的记录。`;
-            if (socket.readyState === 1 && activeProvider.kind !== "doubao") {
-              await session?.sendUpMessage({
-                type: "speak_text",
-                text: spoken,
-              });
-            }
-            sendSafe({
-              type: "agent_status",
-              phase: "done",
-              tool: name,
-              summary: spoken,
-            });
-            return;
-          }
 
           if (name === "run_agent_task") {
             if (agentBusy) return;
             agentBusy = true;
             agentAbort = new AbortController();
-        activeAgentTaskId = `voice_${randomUUID()}`;
+            activeAgentTaskId = `voice_${randomUUID()}`;
             const taskPrompt = String(args.task ?? "").trim();
             sendSafe({
               type: "agent_status",
@@ -927,7 +859,7 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
               const result = await agentExecutor.run(taskPrompt, {
                 mode: "voice",
                 signal: agentAbort.signal,
-            taskId: activeAgentTaskId!,
+                taskId: activeAgentTaskId!,
                 onStep: emitAgentStep,
               });
               if (socket.readyState !== 1) return;
@@ -947,7 +879,6 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
                 phase: "done",
                 tool: name,
                 summary: result.answer,
-                memories: personalMemory.listAll(),
               });
             } finally {
               agentBusy = false;
@@ -993,7 +924,6 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
           if (parsed.type === "barge_in") {
             loopbackManager.clear(); // Explicit barge-in overrides loopback suppression
             pendingSpeechTask = null;
-            pendingRememberFact = null;
             // Barge-in only stops speech; work has a separate explicit cancel action.
             await session?.sendUpMessage(parsed);
             return;
@@ -1026,7 +956,6 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
                 phase: "done",
                 tool: "agent",
                 summary: result.answer,
-                memories: personalMemory.listAll(),
               });
               await session?.sendUpMessage({ type: "speak_text", text: result.answer });
             } finally {
@@ -1085,27 +1014,7 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
               msg.role === "user" &&
               msg.is_final
             ) {
-              // Zero-cognitive-load safeguard: if user explicitly said "记住..." in speech, persist if model didn't call remember_fact
-              const rememberMatch = msg.text.match(/(?:帮我)?记住[，,：:\s]*(.+)/);
-              const cleanedFact = rememberMatch?.[1]?.replace(/^[，,。：:\s]+|[。！!？?\s]+$/g, "").trim();
-              if (cleanedFact) {
-                if (activeProvider.kind !== "doubao") {
-                  void personalMemory
-                    .remember({ fact: cleanedFact, source: "voice" })
-                    .then((entry) => {
-                      sendSafe({
-                        type: "agent_status",
-                        phase: "done",
-                        tool: "remember_fact",
-                        summary: `已自动记住: ${entry.fact}`,
-                        memories: personalMemory.listAll(),
-                      });
-                    })
-                    .catch(() => {});
-                } else if (!turnToolHandled) {
-                  pendingRememberFact = cleanedFact;
-                }
-              } else if (
+              if (
                 activeProvider.kind === "doubao" && !turnToolHandled &&
                 /(?:目录|文件|代码|运行|执行|检查|看看.*项目|git\b|pnpm\b|npm\b|ls\b|报错|日志|分支|package\.json)/i.test(
                   msg.text
@@ -1117,24 +1026,9 @@ export function buildApp(options: HubAppOptions = {}): FastifyInstance {
               msg.type === "state_change" &&
               (msg.state === "listening" || msg.state === "idle")
             ) {
-              const factToRemember = pendingRememberFact;
               const taskToRun = pendingSpeechTask;
-              pendingRememberFact = null;
               pendingSpeechTask = null;
-              if (!turnToolHandled && factToRemember) {
-                void personalMemory
-                  .remember({ fact: factToRemember, source: "voice" })
-                  .then((entry) => {
-                    sendSafe({
-                      type: "agent_status",
-                      phase: "done",
-                      tool: "remember_fact",
-                      summary: `已自动记住: ${entry.fact}`,
-                      memories: personalMemory.listAll(),
-                    });
-                  })
-                  .catch(() => {});
-              } else if (!turnToolHandled && taskToRun) {
+              if (!turnToolHandled && taskToRun) {
                 void runSpeechAgentFollowup(taskToRun);
               }
               turnToolHandled = false;

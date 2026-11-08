@@ -1,0 +1,12 @@
+{
+  "nshVersion": "0.4.0",
+  "nshCommit": "e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3",
+  "quickjsVersion": "0.14.1",
+  "piVersion": "1.5.0",
+  "target": "pi-coding-agent actual programmatic SDK with explicit mobile platform adapters",
+  "passed": true,
+  "errorCount": 0,
+  "errors": [],
+  "migrationAllowed": false,
+  "note": "This report records bundling only. The mobile SDK profile selects real upstream programmatic exports, native codemode, precompiled extensions and explicit unsupported image/TCP/desktop facilities. Runtime tests, mobile/media/UI migration and Hub responsibility replacement remain separate gates."
+}

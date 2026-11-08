@@ -1,5 +1,90 @@
 # Super-LOOI 重构与演进进度
 
+### NSH Node 兼容层与 Pi 落地（2026-11-06）
+
+- [x] **Step 1：固定依赖与运行时事实**
+  - [x] 读取方案、仓库指令与工作树；隔离既有语音修改
+  - [x] 固定 NSH VM quickjs-jit 0.14.1 / Pi 1.5.0 / Cargo.lock，实测并记录完整 SDK 与 codemode 门禁
+- [ ] **Step 2：独立 Rust + QuickJS 兼容包**
+  - [x] cap-std 沙盒、稳定文件句柄/偏移读取、SQLite WAL/事务与预算、哈希/压缩、notify 监听（行扫描仍复用 upstream JS）
+  - [x] Deno parser + 能力内置 Shell、异步取消/退出回执、结构/时间/输出预算与不支持参数拒绝
+  - [x] JS 垫片、严格 bundler 别名与独立 QuickJS runner，Node 不参与运行被测 bundle
+  - [x] Rust 兼容库 aarch64-apple-ios-sim cargo check 通过；移动目标启用 bindgen 解决固定 VM 缺失预生成 bindings
+  - [ ] NSH 原生模块注册/双端 embedding 与发行构建；当前只完成同 VM Ctx 挂载入口
+- [ ] **Step 3：Pi 四包真实 QuickJS 验证**
+  - [x] agent-core 真 QuickJS 多轮工具、steer/follow-up 与 abort
+  - [x] pi-ai 模型/SSE/UTF-8/工具参数流；Rust HTTPS → QuickJS 上游 SDK 的真实 .env 网关调用通过
+  - [x] durable Harness / 四工具 / SQLite journal 关闭重开、真正 SIGKILL 后恢复一次生成与 requestId 去重
+  - [x] portable codemode：Rust 原生隔离 VM 适配上游 RemoteCodemodeSandbox 协议（本机进程内，不增加外部服务）
+    - [x] 复用上游 PRELUDE_SOURCE，独立线程/VM 与工具消息桥接
+    - [x] 内存/时间/取消、输出/store/异常与沙盒越权验证
+    - [x] deterministic start/deliver/replay 与 Durable Codemode 集成
+    - [x] async continuation 超时、原生入场/帧/乱序结果字节上限、饱和时停止回执与容量复用回归
+  - [x] coding-agent headless source entries 的 SessionManager JSONL 恢复与七工具（find/bash 注入 Operations）
+  - [x] coding-agent 实际 createAgentSession / ModelRuntime / DefaultResourceLoader：显式移动 SDK 适配模式，七个默认工具与 JSONL 恢复、正常退出通过
+    - [x] 默认 find/grep 接 Rust fd/rg；process.kill 只取消沙盒 actor；Unicode Segmenter 使用 ICU
+    - [x] 隔离桌面 TUI/图片处理、动态 TS 编译、本机 TCP OAuth；预编译扩展注册与原生深链适配入口
+    - [x] 修复固定 stdlib AbortSignal.any 的 Rust opaque callback 引用环，真实 QuickJS GC 退出回归通过
+    - [ ] NSH 原生网络对象、图片与默认安全凭据接入后的实际手机端 SDK 验证
+- [ ] **Step 4：业务接入与迁移门禁**
+  - [ ] 本机 Agent / 领域工具、凭据和任务持久化接线
+  - [ ] NSH 移动宿主、语音和 UI 迁移验证；满足替代条件再移除 Hub
+- [ ] **Step 5：完整目标验收与交付（持续推进）**
+  - [x] 扩展至八组真 QuickJS 套件（含 codemode 与完整 SDK），SIGKILL / runner deadline 仍通过；全仓 build/typecheck/test（307 项既有 JS 测试）、Cargo test 与独立复审通过；本轮移动 App 与去 Hub 尚未完成
+  - [x] 全仓 pnpm build/typecheck/test 通过（307 项原有 JS 测试 + 六组 QuickJS / SIGKILL / deadline）；Cargo test、公开包导出检查、独立子 agent 复审通过
+  - [x] docs/nsh-node-compat-implementation.md / todo 记录实际证据和剩余门禁；分阶段提交，不勾选完整迁移
+
+
+### dsh-Go iOS 分支与 issue #609 调研（2026-11-06）
+
+- [x] **Step 1：固定证据范围**
+  - [x] 读取 issue #609 及维护者评论，区分上游分支与个人 fork 真机反馈
+  - [x] 固定两分支 commit，追踪 iOS 引擎与 framework 修复链路
+- [x] **Step 2：运行机制与能力核验**
+  - [x] 核对内嵌 Node、DSH runtime 构建/加载、本机协议与手机工具桥接
+  - [x] 核对 fs / shell / 子进程、取消/重启、后台与模型调用边界
+  - [x] 核对 CI、真机、签名分发证据，修正先前 Android 路线泛化
+- [x] **Step 3：项目适用性与交付**
+  - [x] 完成 docs/dsh-go-ios-branch-research.md，更新相关调研的版本边界
+  - [x] 独立子 agent review，补充 todo，检查链接与提交范围并提交
+
+### Native Shell 迁移可行性调研（Android / iOS，2026-11-06）
+
+- [x] **Step 1：现状与迁移边界**
+  - [x] 核对仓库指令、依赖及未提交修改；仅提交本次调研文件
+  - [x] 盘点当前 agent loop、端侧家居/语音、机器人首页及硬件依赖
+  - [x] 区分无自建服务端、无外部服务与桌面执行能力的边界
+- [x] **Step 2：官方能力与源码核验**
+  - [x] 核验 NSH 移动打包、QuickJS/Rust 桥接和运行时兼容性
+  - [x] 核验 agent 网络流、存储、实时音频、BLE/相机与后台限制
+  - [x] 将机器人首页视觉与动画逐项映射到 NSH
+- [x] **Step 3：迁移方案与验证门槛**
+  - [x] 完成 docs/nsh-mobile-migration-research.md，给出分模块结论与分阶段 PoC
+  - [x] 将尚待实测的问题写入 todo.md
+- [x] **Step 4：独立审查与交付**
+  - [x] 子 agent 独立 review；主 agent 修订证据与结论
+  - [x] 检查文档链接、diff 和提交范围，提交调研结果
+
+### 核心架构做减法：极简 Agent Loop + 实时语音层 + 纯粹大脸交互（2026-11-06）
+
+- [x] **Step 1：极简 Agent Loop 重构 (`apps/hub/src/agent/dsh-executor.ts`, `executor.ts`)**
+  - [x] 剥离 `MemoryToolBridge` 本地 MCP Server 挂载与 `PersonalMemoryStore` 强制依赖（保留原源码文件不删除）
+  - [x] 剥离 `RECEIPTS_PLUGIN` Cordis 切面注入与 SHA-256 文件产物扫描，回归官方 `@deepseek-ai/dsh-sdk-client` (`DeepSeekHarness` + `session.run`) 典型极简用法
+  - [x] 保留核心会话执行、实时 `onStep` 通知、原生审批 (`approval/request`) 与追问 (`onUserQuestion`) 交互及取消能力
+- [x] **Step 2：双端语音层去记忆化与指令精简 (`apps/hub/src/voice/doubao-engine.ts`, `apps/hub/src/app.ts`, `apps/mobile/src/runtime/*`)**
+  - [x] 精简 `DEFAULT_LOOI_VOICE_TOOLS`：移除 `remember_fact`、`recall_memory`，仅保留 `HOME_VOICE_TOOLS` 与 `run_agent_task`
+  - [x] 精简 `DEFAULT_LOOI_INSTRUCTIONS`：去除个人记忆指令与 `<personal_memory>` 注入，聚焦自然陪伴对话、智能家居控制与 `run_agent_task`
+  - [x] 精简 Hub `/ws/voice`：移除 `remember_fact` / `recall_memory` 工具分支及用户口述“记住...”正则自动写盘逻辑
+  - [x] 精简移动端 `LocalControlCenter` 与 `LocalVoiceSocket`：移除本机语音记忆工具（`remember_fact` / `recall_memory` / `forget_memory`）与本机记忆自动同步
+- [x] **Step 3：移动端与 Web 控制台回归纯粹大脸交互（全部次级页面隐藏，保留源码文件）**
+  - [x] 重构 `apps/mobile/app/index.tsx`：移除右上角 `LAB` 按钮、隐藏 `QuickDrawerOverlay` 快捷抽屉与全部二级空间入口（回忆册、任务、家居、维修舱、SIM LAB），首屏仅呈现纯粹 `RobotFaceView` 大脸 + `LIVE 对话` + `对话` 文本输入 + 字幕/状态提示 + `停止任务` / `AgentInteractionSheet`
+  - [x] 移除 `index.tsx` 启动时拉取 `/api/agent/memories` 及同步回忆册的副作用
+  - [x] 同步隐藏 Hub Web 控制台 (`apps/hub/src/console-html.ts`) 的次级空间抽屉与 LAB 入口，聚焦全屏大脸与实时语音/Agent 交互
+- [x] **Step 4：测试套件对齐、iOS 模拟器验证与独立子 Agent Review**
+  - [x] 更新受减法影响的单元与集成测试，运行全仓 `pnpm typecheck`、`pnpm test`、`pnpm build` 确保 100% 通过
+  - [x] 在 iOS 模拟器验证纯粹大脸首屏 UI 与实时语音/对话框交互，截图留存 (`docs/artifacts/pure-face-minimal-runtime.png`)
+  - [x] 调用独立子 Agent 进行代码审查，修复发现项并归档提交
+
 ### 全部本地改动合并发布到 main（2026-11-06）
 
 - [x] **Step 1：发布范围与备份**
@@ -724,3 +809,62 @@
 - [x] Step 3: 确认根因、独立复审诊断并记录结论
   - [x] 子 agent 只读独立 review 通过；区分当前 Key 为空与历史未保存原因未知
   - [x] 结论沉淀 `docs/live-voice-missing-local-key-diagnosis.md`，后续配置/错误提示修复记录 todo；本轮仅诊断
+
+
+### 智能唤醒方案规划（2026-11-06）
+
+- [x] Step 1: 核对现有语音、触发总线、隐私与生命周期实现
+  - [x] 区分已实现链路、原型与真实硬件待验收项
+  - [x] 核实候选本地唤醒引擎及 iOS / Android 限制
+- [x] Step 2: 形成统一触发与介入策略设计
+  - [x] 定义唤醒词、显式交互、事件触发、主动搭话和运行恢复
+  - [x] 明确状态机、麦克风所有权、前后音频衔接、隐私与失效处理
+  - [x] 制定分阶段交付、验收指标和待决项，沉淀 docs / todo
+- [x] Step 3: 独立复审与交付
+  - [x] 子 agent 只读 review，主 agent 修正文档；冷启动音频积压问题修正后复审通过
+  - [x] 校验本地引用、代码围栏与 diff 空白；仅文档变更，提交规划文档
+
+
+### Super-LOOI 工业设计与拆解（2026-11-06）
+
+- [x] Step 1: 固定当前产品与视觉参考
+  - [x] 截取当前 App 横屏首页，核对表情与功能入口
+  - [x] 核对 LOOI 底座官方外观，区分现有硬件与设计提案
+- [x] Step 2: 主 agent 制作工业设计图
+  - [x] 产品整体效果图：底座 + 当前首页
+  - [x] 分解设计板：结构、CMF、装配与使用状态
+- [x] Step 3: 形成可执行设计与交付
+  - [x] 输出尺寸边界、组件划分、验证清单及生成提示词
+  - [x] 子 agent 独立 review 通过；PNG／引用／空白检查通过，更新实物待办并提交
+
+
+### 核心 Agent Runtime 降维迁移至 `pi-agent`（2026-11-06）
+
+- [x] Step 1: 组织进度计划并切换 `@super-looi/hub` 依赖至 `pi-agent`
+  - [x] 在 `apps/hub/package.json` 引入 `@earendil-works/pi-agent-core@1.5.0`、`@earendil-works/pi-ai@1.5.0`、`@earendil-works/pi-schema@1.5.0`，移除 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-sdk-client`
+  - [x] 执行 `pnpm install` 更新依赖树（移除 329 个 `@deepseek-ai/dsh*` 传递依赖包）
+- [x] Step 2: 实现进程内极简 `PiAgentExecutor` (`apps/hub/src/agent/pi-executor.ts`)
+  - [x] 基于 `@earendil-works/pi-ai` (`createModels` + `createProvider` + `openAICompletionsApi`) 对接 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`
+  - [x] 实现受 `workspaceRoot` 沙箱约束的进程内工具：`read_file`、`write_file`、`bash`（透传 `AbortSignal` 与真实 `AgentCommandEvidence` 回执）、`ask_user_question`
+  - [x] 接入 `Agent` 的 `beforeToolCall` 审批钩子、`subscribe` 实时步骤事件流、会话消息持久化恢复 (`resume`) 与真实进程取消
+- [x] Step 3: 切换 Hub 默认执行器并迁移单元/集成测试
+  - [x] `apps/hub/src/app.ts` 默认使用 `PiAgentExecutor`，`dsh-executor.ts` 保留兼容适配不删文件
+  - [x] 更新 `apps/hub/test/dsh-executor.test.ts` 与 `apps/hub/scripts/verify-dsh.ts`，验证真实进程内工具执行、审批、提问、取消与恢复
+- [x] Step 4: 全量构建测试、真网验证与独立子 Agent Review
+  - [x] `pnpm typecheck`、`pnpm test`（Hub 94 项、Mobile 154 项等全仓通过）、`pnpm build` 全部通过
+  - [x] `pnpm --filter @super-looi/hub verify:dsh` 真网模型 6 项探针（进程内 bash 退出回执、文件 SHA-256 读回、持久化会话恢复、原生提问、高危审批拦截、进程组取消）100% 通过
+  - [x] 独立子 Agent 代码审查通过（补强进程组 `detached` 强杀、stdout/stderr 内存上限、symlink 真实路径逃逸守卫、`sessionId` 合法性校验及最近修改文件产物过滤），提交 commit
+
+
+### 手机端 Agent loop 与去 Hub 调研（2026-11-06）
+
+- [x] Step 1: 核对现有执行器与手机端边界
+  - [x] 确认 pi-agent 迁移仅替换 Hub 执行引擎，记录现有未提交改动并保留
+  - [x] 梳理 loop、模型传输、工具、任务持久化与 Hub API 依赖
+- [x] Step 2: 调研社区端侧实现与平台限制
+  - [x] 核验真实手机端 loop 项目、源码与许可证，区分远程控制端
+  - [x] 核验 React Native / pi 可移植性、iOS 后台与工具边界（静态检查；运行验证仍待办）
+- [x] Step 3: 输出适用方案与迁移顺序
+  - [x] 将证据、推荐、未验证项沉淀 docs / todo
+  - [x] 补查 dsh-Go 的 PRoot/Linux 本机路线与可嵌入移动底座
+  - [x] 子 agent 独立 review 通过；主 agent 修正 dsh-Go 控制/对话链路图及移动 bundle 验收用词，固定源码引用/代码围栏/空白校验通过并提交

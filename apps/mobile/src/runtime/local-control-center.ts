@@ -191,11 +191,7 @@ export class LocalControlCenter implements HomeClient {
       if (!response.ok) throw new Error(); return await response.json();
     } catch { throw new Error("Hub 暂时无法连接"); } finally { clearTimeout(timer); }
   }
-  readonly voiceTools = [...HOME_VOICE_TOOLS,
-    { type: "function", name: "remember_fact", description: "记住用户明确提供的事实或物品位置", parameters: { type: "object", properties: { fact: { type: "string" }, subject: { type: "string" }, location: { type: "string" } }, required: ["fact"] } },
-    { type: "function", name: "recall_memory", description: "从本机记忆读取事实", parameters: { type: "object", properties: { query: { type: "string" } } } },
-    { type: "function", name: "forget_memory", description: "按用户明确要求忘记指定记忆", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
-  ];
+  readonly voiceTools = [...HOME_VOICE_TOOLS];
   async executeText(text: string): Promise<string> {
     await this.initialize();
     const input = text.trim().replace(/[。！？!?]+$/, "");

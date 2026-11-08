@@ -51,7 +51,7 @@ export class LocalVoiceSocket implements WebSocketAdapter {
       this.handshakeTimer = setTimeout(() => this.fail(), 10_000);
       socket.onopen = () => {
         this.json({ type: "session.create", session: { model: "1.2.6.1",
-          instructions: `你是 LOOI，用简短自然的中文回答，不念括号舞台提示。记忆来自本机。用户明确提供的事实用 remember_fact 保存，问旧事用 recall_memory；忘记请求用 forget_memory。家居控制前先查真实 entity_id，多个匹配先澄清。仅 verified 回执可说已确认；simulation 必须说明是演示。电脑任务需要用户切回 Hub 模式，不得声称本机执行了电脑命令。当前家居模式：${this.center.preferences.mode}。`,
+          instructions: `你是 LOOI，用简短自然的中文回答，不念括号舞台提示。家居控制前先查真实 entity_id，多个匹配先澄清。仅 verified 回执可说已确认；simulation 必须说明是演示。电脑任务需要用户切回 Hub 模式，不得声称本机执行了电脑命令。当前家居模式：${this.center.preferences.mode}。`,
           tools: this.center.voiceTools, audio: { input: { format: { type: "pcm", rate: 16000 } }, output: { format: { type: "pcm_s16le", rate: 24000 }, voice: "zh_female_vv_jupiter_bigtts" } } },
           extension: { tts: { extra: { max_length_to_filter_parenthesis: 100 } }, asr: { extra: { end_smooth_window_ms: 2500, enable_custom_vad: true } } } });
       };

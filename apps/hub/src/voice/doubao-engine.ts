@@ -39,33 +39,6 @@ export const DEFAULT_LOOI_VOICE_TOOLS: DoubaoToolDefinition[] = [
   ...HOME_VOICE_TOOLS,
   {
     type: "function",
-    name: "remember_fact",
-    description:
-      "当用户提到任何物品位置、个人偏好、待办或要记住的事情时调用。自动保存到持久记忆，无需用户手动确认。",
-    parameters: {
-      type: "object",
-      properties: {
-        fact: { type: "string", description: "完整的事实描述，如 '备用钥匙放在玄关抽屉里'" },
-        subject: { type: "string", description: "物品或主题名称，如 '备用钥匙'" },
-        location: { type: "string", description: "位置描述，如 '玄关抽屉'" },
-      },
-      required: ["fact"],
-    },
-  },
-  {
-    type: "function",
-    name: "recall_memory",
-    description: "当用户询问某样东西在哪、或者询问之前记过的事项时调用。",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "要检索的物品名称或关键词" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    type: "function",
     name: "run_agent_task",
     description:
       "当用户要求检查代码、查看目录文件、运行终端命令 (git/pnpm/ls等)、读写文件或执行复杂任务时调用。",
@@ -83,7 +56,6 @@ export const DEFAULT_LOOI_INSTRUCTIONS = `你是 LOOI，一个住在用户桌面
 
 行为准则：
 - 说话简短自然，通常一到两句完整的话，像熟悉的朋友一样直接交流，绝不念出括号里的舞台提示或格式标记。
-- 零心智负担：用户随口提到物品放哪了、个人习惯或待办时，主动调用 remember_fact 记下来；用户问东西在哪时，参考下方记忆或调用 recall_memory。
 - 家居查询和控制先用 list_home_devices 读取真实设备；匹配不唯一先澄清。控制使用 control_home_device，仅 verified 回执可说完成，禁止猜测实体 ID、读数或执行结果。
 - 当用户让你看项目状态、查文件、跑命令或处理电脑任务时，先简短答应一声（如“好，我帮你看一下”），同时调用 run_agent_task。`;
 

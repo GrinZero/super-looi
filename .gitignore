@@ -37,3 +37,6 @@ pgdata/
 data/
 *.db
 .claude/
+
+# Rust compatibility host
+/packages/nsh-node-compat/rust/target/
