@@ -1,5 +1,12 @@
 # Super-LOOI 重构与演进进度
 
+### NSH 本地 Langfuse 无对话记录修复（2026-11-08）
+
+- [x] Step 1：从 Langfuse v2 API 确认只有探针、没有用户对话观测；核对 iPhone 16e 的运行配置
+- [x] Step 2：为 NSH 增加 `localhost:3000` 的 HTTP POST 权限，导出失败时输出一次错误日志
+- [x] Step 3：iPhone 16e 中的诊断 Span 通过 5 秒定时导出写入 Langfuse；移除临时探针并重启 NSH
+- [ ] Step 4：用户再次语音对话后核对 `voice.session` 和子观测
+
 ### Langfuse v4 与多厂商 Realtime 接入（2026-11-08）
 
 - [x] Step 1：建立 Realtime 协议适配器并迁移语音运行时

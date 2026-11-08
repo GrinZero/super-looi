@@ -1,5 +1,9 @@
 # 当前待办
 
+## Langfuse 本地语音追踪（2026-11-08）
+
+- [ ] 在 iPhone 16e 修正本地 HTTP 权限后再次进行语音对话，核对 Langfuse 中的 `voice.session`、`realtime.user_turn` 与 `realtime.response`。之前那次对话没有写入 Langfuse，语音运行时也未持久化该追踪队列。
+
 ## NSH 自动语音唤醒 → 豆包 Realtime 对话（2026-11-07 规划）
 
 调研与实施方案见 [开源社区调研](docs/voice-wake-realtime-community-research.md) 与 [NSH 语音唤醒实施方案](docs/plans/nsh-voice-wake-realtime-plan.md)。

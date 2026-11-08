@@ -71,6 +71,7 @@ export function createLangfuseTracer(config?: {
   const send = config.fetch || fetch;
   const url = `${config.baseUrl.replace(/\/$/, "")}/api/public/otel/v1/traces`;
   const authorization = `Basic ${Buffer.from(`${config.publicKey}:${config.secretKey}`).toString("base64")}`;
+  let exportFailureReported = false;
   const flush = async (): Promise<void> => {
     if (flushing) return flushing;
     if (!queue.length) return;
@@ -83,7 +84,10 @@ export function createLangfuseTracer(config?: {
           body: JSON.stringify({ resourceSpans: [{ resource: { attributes: attributes({ "service.name": "super-looi" }) }, scopeSpans: [{ scope: { name: "super-looi" }, spans: batch }] }] }),
         });
         if (!response.ok) throw new Error(`Langfuse ingestion returned ${response.status}`);
-      } catch {
+        exportFailureReported = false;
+      } catch (error) {
+        if (!exportFailureReported) console.error("Langfuse OTLP export failed:", error);
+        exportFailureReported = true;
         queue.unshift(...batch.slice(0, Math.max(0, 500 - queue.length)));
       } finally {
         flushing = undefined;
