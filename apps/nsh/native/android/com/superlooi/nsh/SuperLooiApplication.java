@@ -39,10 +39,12 @@ public final class SuperLooiApplication extends Application {
         registerVm();
         registerAudioVm();
         MiotLoginDialog.registerVm();
+        LooiBleBridge.registerVm();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             public void onActivityResumed(Activity value) { activity = new WeakReference<>(value); }
             public void onActivityPaused(Activity value) {
                 MiotLoginDialog.background(value);
+                LooiBleBridge.background();
                 if (activity.get() == value) {
                     activity.clear();
                     // The native worker observes this even when JS is suspended.
@@ -50,7 +52,7 @@ public final class SuperLooiApplication extends Application {
                     focus = "lost";
                 }
             }
-            public void onActivityDestroyed(Activity value) { MiotLoginDialog.background(value); if (activity.get() == value) activity.clear(); }
+            public void onActivityDestroyed(Activity value) { MiotLoginDialog.background(value); LooiBleBridge.background(); if (activity.get() == value) activity.clear(); }
             public void onActivityCreated(Activity value, Bundle state) {}
             public void onActivityStarted(Activity value) {}
             public void onActivityStopped(Activity value) {}

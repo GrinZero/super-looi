@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { LlmBrandId } from "../generated/looi-runtime.js";
@@ -6,7 +7,9 @@ import { ActionButton, LightToast } from "./Controls";
 import { ModelsSpaceView } from "./ModelsSpaceView";
 import { VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
+import { BodySpaceView } from "./BodySpaceView";
 import { TasksSpaceView } from "./TasksSpaceView";
+import { SettingsSpaceView } from "./SettingsSpaceView";
 
 export function ManagementShell(props: {
   store: ReturnType<typeof createAppStore>;
@@ -41,47 +44,50 @@ export function ManagementShell(props: {
     }
   });
 
-  const cycleAppearance = () => {
-    const current = props.store.appearanceMode();
-    if (current === "system") props.store.setAppearance("light");
-    else if (current === "light") props.store.setAppearance("dark");
-    else props.store.setAppearance("system");
-  };
-
-  const appearanceLabel = () => {
-    const mode = props.store.appearanceMode();
-    if (mode === "light") return "外观: 日间";
-    if (mode === "dark") return "外观: 夜间";
-    return "外观: 自动";
-  };
-
   const wide = () => windowSize().width >= 600;
 
-  const renderNavButton = (space: AppSpace, label: string, testId: string) => {
+  const renderNavButton = (
+    space: AppSpace,
+    label: () => string,
+    testId: string,
+    rail = false,
+  ) => {
     const isSelected = () => props.store.activeSpace() === space;
+    const widthClass = rail ? "w-full min-h-11 px-1" : "min-h-11 min-w-11 px-2.5";
     return (
       <Button
         testID={testId}
-        accessibilityLabel={label}
+        selected={isSelected()}
+        accessibilityLabel={label()}
         onPress={() => props.store.openSpace(space)}
         class={
           isSelected()
-            ? "min-h-11 w-11 rounded-xl bg-card border border-border items-center justify-center active:opacity-75"
-            : "min-h-11 w-11 rounded-xl items-center justify-center active:opacity-75"
+            ? `${widthClass} rounded-xl bg-card border border-border items-center justify-center active:opacity-75`
+            : `${widthClass} rounded-xl items-center justify-center active:opacity-75`
         }
       >
-        <View class="items-center justify-center relative">
+        <View class="w-full items-center justify-center relative">
           <Text
             class={
               isSelected()
-                ? "text-foreground text-xs font-bold"
-                : "text-muted-foreground text-xs font-medium"
+                ? "text-foreground text-xs font-bold text-center"
+                : "text-muted-foreground text-xs font-medium text-center"
             }
+            style={{ numberOfLines: 1 }}
           >
-            {label}
+            {label()}
           </Text>
           <If when={space === "tasks" && props.store.recoveryCount() > 0}>
-            <View class="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-destructive" />
+            <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-destructive" />
+          </If>
+          <If
+            when={
+              space === "body" &&
+              props.store.bodyStatus().connected &&
+              props.store.bodyStatus().isDocked
+            }
+          >
+            <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-verified" />
           </If>
         </View>
       </Button>
@@ -92,9 +98,9 @@ export function ManagementShell(props: {
     id: "direct_miot" | "external_ha" | "simulation";
     label: string;
   }> = [
-    { id: "direct_miot", label: "米家直连" },
+    { id: "direct_miot", get label() { return t("xiaomiHome92"); } },
     { id: "external_ha", label: "Home Assistant" },
-    { id: "simulation", label: "离线演示" },
+    { id: "simulation", get label() { return t("offlineDemo"); } },
   ];
 
   const renderContextPillBar = () => (
@@ -145,7 +151,7 @@ export function ManagementShell(props: {
 
       <If when={props.store.activeSpace() === "voice"}>
         <View class="flex-row items-center gap-2 flex-1 min-w-0 h-11">
-          <Text class="text-foreground text-xs font-semibold">实时语音</Text>
+          <Text class="text-foreground text-xs font-semibold">{t("liveVoice")}</Text>
           <View class="px-2.5 py-1 rounded-full border border-border bg-muted flex-row items-center gap-1.5">
             <View
               class={
@@ -156,8 +162,8 @@ export function ManagementShell(props: {
             />
             <Text class="text-muted-foreground text-xs">
               {props.store.voiceConfigured()
-                ? `${props.store.voiceProviderLabel()}凭证就绪`
-                : "尚未配置语音凭证"}
+                ? t("providerReady", { provider: props.store.voiceProviderLabel() })
+                : t("voiceCredentialsNotConfigured")}
             </Text>
           </View>
         </View>
@@ -203,30 +209,105 @@ export function ManagementShell(props: {
               }
               class="min-h-11 px-2.5 items-center justify-center active:opacity-75"
             >
-              <Text class="text-muted-foreground text-xs">停用家居</Text>
+              <Text class="text-muted-foreground text-xs">{t("disableHome95")}</Text>
             </Button>
           </If>
         </Scroll>
       </If>
 
+      <If when={props.store.activeSpace() === "body"}>
+        <View class="flex-1 min-w-0 h-11 flex-row items-center justify-between gap-2">
+          <Scroll
+            horizontal={true}
+            scrollbar={false}
+            class="flex-1 h-11"
+            contentClass="flex-row items-center gap-1.5 h-11"
+          >
+            <Button
+              testID="body-mode-ble"
+              selected={props.store.bodyStatus().mode !== "simulation"}
+              onPress={() =>
+                void props.store.configureBody({ mode: "real_ble" })
+              }
+              class={
+                props.store.bodyStatus().mode !== "simulation"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+              }
+            >
+              <Text
+                class={
+                  props.store.bodyStatus().mode !== "simulation"
+                    ? "text-primary-foreground text-xs font-semibold"
+                    : "text-muted-foreground text-xs font-medium"
+                }
+              >
+                {t("bleDock")}
+              </Text>
+            </Button>
+            <Button
+              testID="body-mode-sim"
+              selected={props.store.bodyStatus().mode === "simulation"}
+              onPress={() =>
+                void props.store.configureBody({ mode: "simulation" })
+              }
+              class={
+                props.store.bodyStatus().mode === "simulation"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+              }
+            >
+              <Text
+                class={
+                  props.store.bodyStatus().mode === "simulation"
+                    ? "text-primary-foreground text-xs font-semibold"
+                    : "text-muted-foreground text-xs font-medium"
+                }
+              >
+                {t("simulationMode")}
+              </Text>
+            </Button>
+          </Scroll>
+          <Button
+            testID="body-scan-btn"
+            disabled={props.store.bodyStatus().scanning || props.store.bodyStatus().connecting}
+            onPress={() => void props.store.scanBodyDevices()}
+            class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-40"
+          >
+            <Text class="text-foreground text-xs font-medium">
+              {props.store.bodyStatus().scanning
+                ? t("scanningNearbyDocks")
+                : t("scanNearbyDocks")}
+            </Text>
+          </Button>
+        </View>
+      </If>
+
       <If when={props.store.activeSpace() === "tasks"}>
-        <View class="flex-row items-center gap-2 flex-1 min-w-0 h-11">
+        <Scroll horizontal={true} scrollbar={false} class="flex-1 min-w-0 h-11" contentClass="flex-row items-center gap-2 h-11 pr-2">
           <Text class="text-foreground text-xs font-semibold">
-            任务与审计记录
-          </Text>
+            {t("tasksAndActivity")}</Text>
           <ActionButton
-            label="开始新对话"
+            label={t("newConversation")}
             testID="new-conversation-btn"
             compact={true}
             disabled={props.store.busy()}
             onPress={() => props.store.newConversation()}
           />
           <ActionButton
-            label="刷新"
+            label={t("refresh")}
             testID="refresh-tasks-btn"
             compact={true}
             onPress={() => props.store.refreshTasks(props.store.tasks().offset)}
           />
+        </Scroll>
+      </If>
+
+      <If when={props.store.activeSpace() === "settings"}>
+        <View class="flex-row items-center gap-2 flex-1 min-w-0 h-11">
+          <Text class="text-foreground text-xs font-semibold">
+            {t("generalSettings")}
+          </Text>
         </View>
       </If>
     </View>
@@ -249,8 +330,14 @@ export function ManagementShell(props: {
           modeTab={() => homeModeTab()}
         />
       </If>
+      <If when={props.store.activeSpace() === "body"}>
+        <BodySpaceView store={props.store} />
+      </If>
       <If when={props.store.activeSpace() === "tasks"}>
         <TasksSpaceView store={props.store} />
+      </If>
+      <If when={props.store.activeSpace() === "settings"}>
+        <SettingsSpaceView store={props.store} />
       </If>
     </View>
   );
@@ -276,7 +363,7 @@ export function ManagementShell(props: {
           >
             <Button
               testID="back-to-face"
-              accessibilityLabel="返回桌宠主页"
+              accessibilityLabel={t("backToLooi")}
               onPress={() => props.store.backToFace()}
               class="min-h-11 px-2.5 rounded-xl bg-stage-bg border border-border flex-row items-center justify-center gap-1 active:opacity-75"
             >
@@ -285,20 +372,11 @@ export function ManagementShell(props: {
             </Button>
             {renderContextPillBar()}
             <Button
-              testID="appearance-cycle"
-              onPress={cycleAppearance}
-              class="min-h-11 px-2.5 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
-            >
-              <Text class="text-foreground text-xs font-medium">
-                {appearanceLabel()}
-              </Text>
-            </Button>
-            <Button
               testID="back-btn"
               onPress={() => props.store.backToFace()}
               class="min-h-11 px-2.5 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
             >
-              <Text class="text-foreground text-xs font-medium">返回</Text>
+              <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
             </Button>
           </View>
 
@@ -319,10 +397,12 @@ export function ManagementShell(props: {
               paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)",
             }}
           >
-            {renderNavButton("models", "模型", "nav-models")}
-            {renderNavButton("voice", "语音", "nav-voice")}
-            {renderNavButton("home", "家居", "nav-home")}
-            {renderNavButton("tasks", "任务", "nav-tasks")}
+            {renderNavButton("models", () => t("models"), "nav-models")}
+            {renderNavButton("voice", () => t("voice"), "nav-voice")}
+            {renderNavButton("home", () => t("home"), "nav-home")}
+            {renderNavButton("body", () => t("body"), "nav-body")}
+            {renderNavButton("tasks", () => t("tasks"), "nav-tasks")}
+            {renderNavButton("settings", () => t("settings"), "nav-settings")}
           </View>
         </View>
       }
@@ -331,19 +411,19 @@ export function ManagementShell(props: {
       <View
         class="flex-1 flex-row bg-background"
         style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingRight: "env(safe-area-inset-right)",
+          paddingBottom: "env(safe-area-inset-bottom)",
           paddingLeft: "env(safe-area-inset-left)",
         }}
       >
-        {/* 58pt Left Slim Rail */}
+        {/* Left Slim Rail */}
         <View
-          class="w-[58px] bg-sidebar border-r border-border pt-2.5 items-center justify-between"
-          style={{
-            paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)",
-          }}
+          class="w-20 bg-sidebar border-r border-border pt-2.5 pb-2.5 items-center justify-between"
         >
           <Button
             testID="back-to-face"
-            accessibilityLabel="返回桌宠主页"
+            accessibilityLabel={t("backToLooi")}
             onPress={() => props.store.backToFace()}
             class="w-11 h-11 rounded-xl bg-stage-bg border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
           >
@@ -351,12 +431,18 @@ export function ManagementShell(props: {
             <View class="w-2 h-2 rounded-full bg-eye-core" />
           </Button>
 
-          <View class="gap-1.5 items-center">
-            {renderNavButton("models", "模型", "nav-models")}
-            {renderNavButton("voice", "语音", "nav-voice")}
-            {renderNavButton("home", "家居", "nav-home")}
-            {renderNavButton("tasks", "任务", "nav-tasks")}
-          </View>
+          <Scroll
+            scrollbar={false}
+            class="w-full flex-1 my-1"
+            contentClass="w-full px-1.5 gap-1 items-center justify-center grow"
+          >
+            {renderNavButton("models", () => t("models"), "nav-models", true)}
+            {renderNavButton("voice", () => t("voice"), "nav-voice", true)}
+            {renderNavButton("home", () => t("home"), "nav-home", true)}
+            {renderNavButton("body", () => t("body"), "nav-body", true)}
+            {renderNavButton("tasks", () => t("tasks"), "nav-tasks", true)}
+            {renderNavButton("settings", () => t("settings"), "nav-settings", true)}
+          </Scroll>
 
           <View
             class={
@@ -371,39 +457,21 @@ export function ManagementShell(props: {
         <View class="flex-1 min-w-0 flex flex-col min-h-0">
           {/* Top 48pt Context Pill Bar */}
           <View
-            class="min-h-12 border-b border-border pl-4 py-1.5 flex-row items-center justify-between gap-3 bg-card"
-            style={{
-              paddingRight: "calc(env(safe-area-inset-right) + 16px)",
-            }}
+            class="min-h-12 border-b border-border px-4 py-1.5 flex-row items-center justify-between gap-3 bg-card"
           >
             {renderContextPillBar()}
-            <View class="flex-row items-center gap-2">
-              <Button
-                testID="appearance-cycle"
-                onPress={cycleAppearance}
-                class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
-              >
-                <Text class="text-foreground text-xs font-medium">
-                  {appearanceLabel()}
-                </Text>
-              </Button>
-              <Button
-                testID="back-btn"
-                onPress={() => props.store.backToFace()}
-                class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
-              >
-                <Text class="text-foreground text-xs font-medium">返回</Text>
-              </Button>
-            </View>
+            <Button
+              testID="back-btn"
+              onPress={() => props.store.backToFace()}
+              class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
+            >
+              <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
+            </Button>
           </View>
 
           {/* Bottom Workspace Body */}
           <View
-            class="flex-1 pl-3.5 pt-3.5 min-h-0 relative"
-            style={{
-              paddingRight: "calc(env(safe-area-inset-right) + 14px)",
-              paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)",
-            }}
+            class="flex-1 p-3.5 min-h-0 relative"
           >
             {renderActiveWorkspace()}
             <If when={props.store.toast()}>

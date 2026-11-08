@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import { Text, View, Scroll, windowSize } from "nsh";
 import type { createAppStore } from "../store";
 import { ActionButton } from "./Controls";
@@ -5,25 +6,25 @@ import { ActionButton } from "./Controls";
 export function taskStateLabel(state: string): string {
   switch (state) {
     case "queued":
-      return "等待执行";
+      return t("queued");
     case "running":
-      return "执行中";
+      return t("running");
     case "awaiting_approval":
-      return "等待允许";
+      return t("awaitingApproval182");
     case "awaiting_input":
-      return "等待回答";
+      return t("awaitingAnswer");
     case "cancelling":
-      return "正在停止";
+      return t("stopping");
     case "succeeded":
-      return "已完成";
+      return t("completed");
     case "failed":
-      return "未完成";
+      return t("incomplete");
     case "cancelled":
-      return "已停止";
+      return t("stopped");
     case "unknown":
-      return "结果待核实";
+      return t("resultUnverified");
     default:
-      return "状态待核实";
+      return t("stateUnverified");
   }
 }
 
@@ -45,16 +46,14 @@ export function TasksSpaceView(props: {
     <View class="rounded-2xl border border-border bg-card p-4 gap-3.5">
       <View class="flex-row items-center justify-between border-b border-border pb-2.5">
         <View class="gap-0.5">
-          <Text class="text-foreground text-sm font-semibold">任务审计记录</Text>
+          <Text class="text-foreground text-sm font-semibold">{t("taskActivity")}</Text>
           <Text class="text-muted-foreground text-xs">
-            共 {props.store.tasks().total} 条历史操作与 Agent 审计记录
-          </Text>
+            {t("taskCount", { count: props.store.tasks().total })}</Text>
         </View>
         <If when={props.store.recoveryCount() > 0}>
           <View class="flex-row items-center gap-1.5 px-2 py-0.5 rounded-full bg-destructive">
             <Text class="text-primary-foreground text-xs font-semibold">
-              {props.store.recoveryCount()} 条待核实
-            </Text>
+              {t("recoveryCount", { count: props.store.recoveryCount() })}</Text>
           </View>
         </If>
       </View>
@@ -63,7 +62,7 @@ export function TasksSpaceView(props: {
         when={props.store.tasks().total > 0}
         else={
           <View class="py-8 items-center justify-center">
-            <Text class="text-muted-foreground text-xs">暂无历史任务记录</Text>
+            <Text class="text-muted-foreground text-xs">{t("noTaskHistoryYet")}</Text>
           </View>
         }
       >
@@ -92,7 +91,7 @@ export function TasksSpaceView(props: {
                       {taskStateLabel(item().state)}
                     </Text>
                     <Text class="text-muted-foreground text-xs font-mono">
-                      {item().updatedAt.slice(0, 19).replace("T", " ")}
+                      {formatDate(item().updatedAt, { dateStyle: "short", timeStyle: "short" })}
                     </Text>
                   </View>
                   <Text
@@ -103,7 +102,7 @@ export function TasksSpaceView(props: {
                   </Text>
                   <View class="flex-row justify-end pt-1">
                     <ActionButton
-                      label="查看详情"
+                      label={t("viewDetails")}
                       testID={`task-${item().id}`}
                       compact={true}
                       kind={isSelected() ? "primary" : undefined}
@@ -120,7 +119,7 @@ export function TasksSpaceView(props: {
       <If when={props.store.tasks().total > 10}>
         <View class="flex-row items-center justify-between pt-2 border-t border-border">
           <ActionButton
-            label="上一页"
+            label={t("previous")}
             compact={true}
             disabled={props.store.tasks().offset === 0}
             onPress={() =>
@@ -134,7 +133,7 @@ export function TasksSpaceView(props: {
             {Math.ceil(props.store.tasks().total / 10)}
           </Text>
           <ActionButton
-            label="下一页"
+            label={t("next")}
             compact={true}
             disabled={
               props.store.tasks().offset + 10 >= props.store.tasks().total
@@ -155,12 +154,9 @@ export function TasksSpaceView(props: {
         else={
           <View class="py-12 items-center justify-center gap-2">
             <Text class="text-foreground text-sm font-semibold">
-              审计凭证检视
-            </Text>
+              {t("inspectActivityReceipts")}</Text>
             <Text class="text-muted-foreground text-xs text-center">
-              点击左侧列表中的任意任务，可在此处原地核验步骤日志、终端命令退出码、生成产物
-              SHA-256 摘要与智能家居操作回执。
-            </Text>
+              {t("selectATaskToInspectItsSteps")}</Text>
           </View>
         }
       >
@@ -181,7 +177,7 @@ export function TasksSpaceView(props: {
               </Text>
             </View>
             <ActionButton
-              label="关闭详情"
+              label={t("closeDetails")}
               compact={true}
               onPress={() => props.store.closeTask()}
             />
@@ -190,13 +186,12 @@ export function TasksSpaceView(props: {
           <If when={currentTask()?.state === "unknown"}>
             <View class="rounded-xl border border-destructive bg-muted p-3">
               <Text class="text-destructive text-xs font-medium">
-                由于此前非正常退出或超时，此任务的最终执行结果尚无法确认。请核对下方执行明细。
-              </Text>
+                {t("theTaskEndedUnexpectedlyOrTimedOut")}</Text>
             </View>
           </If>
 
           <View class="gap-1">
-            <Text class="text-muted-foreground text-xs">用户指令 (Prompt)</Text>
+            <Text class="text-muted-foreground text-xs">{t("yourRequest")}</Text>
             <View class="rounded-xl border border-border bg-muted p-3" selectable={true}>
               <Text class="text-foreground text-sm font-medium">
                 {currentTask()?.prompt}
@@ -206,7 +201,7 @@ export function TasksSpaceView(props: {
 
           <If when={Boolean(currentTask()?.result?.answer)}>
             <View class="gap-1">
-              <Text class="text-muted-foreground text-xs">Agent 回复 (Answer)</Text>
+              <Text class="text-muted-foreground text-xs">{t("agentReply")}</Text>
               <View class="rounded-xl border border-border bg-muted p-3" selectable={true}>
                 <Text class="text-foreground text-sm">
                   {currentTask()?.result?.answer}
@@ -217,13 +212,13 @@ export function TasksSpaceView(props: {
 
           <If when={(currentTask()?.steps.length ?? 0) > 0}>
             <View class="gap-1.5">
-              <Text class="text-muted-foreground text-xs">执行步骤明细</Text>
+              <Text class="text-muted-foreground text-xs">{t("executionSteps")}</Text>
               <View class="gap-1.5">
                 <Each of={currentTask()?.steps ?? []} key={(s) => String(s.step)}>
                   {(s) => (
                     <View class="rounded-xl border border-border bg-muted p-2.5 flex-row items-center justify-between">
                       <Text class="text-foreground text-xs">
-                        {s().step}. {s().summary}
+                        {s().step}. {translateMessage(s().summary)}
                       </Text>
                       <Text class="text-muted-foreground text-xs font-mono">
                         {s().phase}
@@ -237,7 +232,7 @@ export function TasksSpaceView(props: {
 
           <If when={(currentTask()?.result?.executions?.length ?? 0) > 0}>
             <View class="gap-1.5">
-              <Text class="text-muted-foreground text-xs">Shell 命令执行回执</Text>
+              <Text class="text-muted-foreground text-xs">{t("shellCommandReceipts")}</Text>
               <View class="gap-1.5">
                 <Each
                   of={currentTask()?.result?.executions ?? []}
@@ -261,7 +256,7 @@ export function TasksSpaceView(props: {
 
           <If when={(currentTask()?.result?.artifacts?.length ?? 0) > 0}>
             <View class="gap-1.5">
-              <Text class="text-muted-foreground text-xs">产物 SHA-256 完整性摘要</Text>
+              <Text class="text-muted-foreground text-xs">{t("artifactSha256Hashes")}</Text>
               <View class="gap-1.5">
                 <Each
                   of={currentTask()?.result?.artifacts ?? []}
@@ -284,7 +279,7 @@ export function TasksSpaceView(props: {
 
           <If when={(currentTask()?.homeActions.length ?? 0) > 0}>
             <View class="gap-1.5">
-              <Text class="text-muted-foreground text-xs">智能家居操作回执</Text>
+              <Text class="text-muted-foreground text-xs">{t("homeActionReceipts")}</Text>
               <View class="gap-1.5">
                 <Each
                   of={currentTask()?.homeActions ?? []}
@@ -297,6 +292,29 @@ export function TasksSpaceView(props: {
                       </Text>
                       <Text class="text-muted-foreground text-xs font-mono">
                         {JSON.stringify(ha().receipt)}
+                      </Text>
+                    </View>
+                  )}
+                </Each>
+              </View>
+            </View>
+          </If>
+
+          <If when={(currentTask()?.bodyActions?.length ?? 0) > 0}>
+            <View class="gap-1.5">
+              <Text class="text-muted-foreground text-xs">{t("bodyActionReceipts")}</Text>
+              <View class="gap-1.5">
+                <Each
+                  of={currentTask()?.bodyActions ?? []}
+                  key={(ba) => ba.requestId}
+                >
+                  {(ba) => (
+                    <View class="rounded-xl border border-border bg-muted p-3 gap-1 font-mono">
+                      <Text class="text-foreground text-xs font-mono">
+                        action: {ba().command.action} · status: {ba().status}
+                      </Text>
+                      <Text class="text-muted-foreground text-xs font-mono">
+                        {JSON.stringify(ba().receipt)}
                       </Text>
                     </View>
                   )}
@@ -319,7 +337,7 @@ export function TasksSpaceView(props: {
           <If when={Boolean(currentTask())} else={renderTaskList()}>
             <View class="gap-3">
               <ActionButton
-                label="返回任务列表"
+                label={t("backToTaskList")}
                 compact={true}
                 onPress={() => props.store.closeTask()}
               />

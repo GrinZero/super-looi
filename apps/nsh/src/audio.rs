@@ -500,7 +500,10 @@ impl VoiceAudio {
             self.native.take();
             self.capture = false;
             if let Ok(mut state) = self.shared.lock() {
+                // The KWS worker may still be waiting on this exact Condvar.
+                let kws_notify = state.kws_notify.clone();
                 *state = AudioBuffers::default();
+                state.kws_notify = kws_notify;
                 state.error = error;
             }
             self.release_owner();
@@ -602,6 +605,56 @@ mod tests {
         assert!(audio.kws_queue.is_empty());
         assert_eq!(audio.kws_epoch, epoch + 1);
         assert_eq!(audio.suppress_until_sample, audio.captured_samples + 2400);
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[test]
+    fn native_error_reset_still_wakes_waiting_kws_worker() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let shared = Arc::new(Mutex::new(AudioBuffers::default()));
+        let old_notify = shared.lock().unwrap().kws_notify.clone();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let (waiting_tx, waiting_rx) = mpsc::channel();
+        let (exited_tx, exited_rx) = mpsc::channel();
+        let worker_shared = shared.clone();
+        let worker_stopping = stopping.clone();
+        let worker = std::thread::spawn(move || {
+            let mut state = worker_shared.lock().unwrap();
+            waiting_tx.send(()).unwrap();
+            while !worker_stopping.load(Ordering::Acquire) {
+                let notify = state.kws_notify.clone();
+                state = notify.wait(state).unwrap();
+            }
+            exited_tx.send(()).unwrap();
+        });
+        waiting_rx.recv().unwrap();
+
+        {
+            let mut state = shared.lock().unwrap();
+            state.error = "Native microphone interrupted".into();
+        }
+        let mut audio = VoiceAudio {
+            shared: shared.clone(),
+            native: None,
+            capture: true,
+            owns_session: false,
+            kws_worker: None,
+            kws_directory: PathBuf::new(),
+        };
+        audio.refresh_native();
+        stopping.store(true, Ordering::Release);
+        shared.lock().unwrap().kws_notify.notify_all();
+        let woke = exited_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+        if !woke {
+            old_notify.notify_all();
+        }
+        worker.join().unwrap();
+        assert!(
+            woke,
+            "KWS worker stayed asleep on the replaced condition variable"
+        );
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "android")))]

@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import { signal, Text, View, Scroll, windowSize } from "nsh";
 import type { createAppStore } from "../store";
 import { ActionButton, TextField } from "./Controls";
@@ -17,21 +18,21 @@ export function VoiceSpaceView(props: {
   const phaseDescription = () => {
     switch (props.store.voiceState().phase) {
       case "connecting":
-        return "LIVE 连接中…";
+        return t("connectingLive");
       case "listening":
-        return props.store.voiceState().muted ? "已静音" : "聆听中…";
+        return props.store.voiceState().muted ? t("muted") : t("listening");
       case "speaking":
-        return "说话中…";
+        return t("speaking");
       case "permission":
-        return "等待麦克风权限…";
+        return t("waitingForMicrophoneAccess");
       case "error":
-        return "连接异常";
+        return t("connectionError");
       case "standby":
         return windowSize().width < 600
-          ? "本地待机 · 听 Hey LOOI"
-          : "待机监听唤醒词（本地离线 KWS）";
+          ? t("standbyListeningForHeyLooi")
+          : t("listeningForWakeWordsLocally");
       default:
-        return "待机（未占用麦克风）";
+        return t("standbyMicrophoneOff");
     }
   };
 
@@ -42,10 +43,10 @@ export function VoiceSpaceView(props: {
     try {
       props.store.configureVoice(raw);
       voiceKey.set("");
-      props.store.notify("语音配置已保存");
+      props.store.notify("@looi:voiceSettingsSaved");
     } catch (cause) {
       props.store.notify(
-        cause instanceof Error ? cause.message : "保存语音配置失败",
+        cause instanceof Error ? cause.message : "@looi:couldNotSaveVoiceSettings",
       );
     } finally {
       saving.set(false);
@@ -58,7 +59,7 @@ export function VoiceSpaceView(props: {
       props.store.configureVoiceId(voiceIdDraft());
       voiceIdDraft.set("");
     } catch (cause) {
-      props.store.notify(cause instanceof Error ? cause.message : "保存音色 ID 失败");
+      props.store.notify(cause instanceof Error ? cause.message : "@looi:couldNotSaveSpeakerId");
     }
   };
 
@@ -69,8 +70,7 @@ export function VoiceSpaceView(props: {
           <View class="flex-row items-center gap-2 border-b border-border pb-2">
             <View class="w-2 h-2 rounded-full bg-warning" />
             <Text class="text-foreground text-sm font-semibold">
-              待确认语音任务
-            </Text>
+              {t("voiceTaskAwaitingApproval")}</Text>
           </View>
           <View class="rounded-xl bg-background p-2.5" selectable={true}>
             <Text class="text-foreground font-mono text-sm">
@@ -79,13 +79,13 @@ export function VoiceSpaceView(props: {
           </View>
           <View class="flex-row justify-end gap-2">
             <ActionButton
-              label="拒绝"
+              label={t("decline")}
               kind="danger"
               compact={true}
               onPress={() => props.store.confirmVoiceTask(false)}
             />
             <ActionButton
-              label="执行"
+              label={t("run")}
               kind="primary"
               compact={true}
               onPress={() => props.store.confirmVoiceTask(true)}
@@ -97,8 +97,7 @@ export function VoiceSpaceView(props: {
       <View class="rounded-2xl border border-border bg-card p-3.5 gap-3">
         <View class="border-b border-border pb-2">
           <Text class="text-foreground text-sm font-semibold">
-            {props.store.voiceProviderLabel()}实时语音凭证
-          </Text>
+            {t("providerVoiceCredentials", { provider: props.store.voiceProviderLabel() })}</Text>
         </View>
 
         <TextField
@@ -109,15 +108,15 @@ export function VoiceSpaceView(props: {
           masked={true}
           placeholder={
             props.store.voiceConfigured()
-              ? "留空保持现有凭证"
-              : `输入${props.store.voiceProviderLabel()}实时语音 API Key`
+              ? t("leaveBlankToKeepCurrentCredentials")
+              : t("enterProviderKey", { provider: props.store.voiceProviderLabel() })
           }
           onSubmit={saveVoiceKey}
         />
 
         <View class="flex-row justify-end">
           <ActionButton
-            label={saving() ? "保存中…" : "保存凭证"}
+            label={saving() ? t("saving229") : t("saveCredentials")}
             testID="save-voice-btn"
             kind="primary"
             compact={true}
@@ -130,23 +129,23 @@ export function VoiceSpaceView(props: {
       <If when={props.store.voiceProviderId() === "doubao"}>
         <View class="rounded-2xl border border-border bg-card p-3.5 gap-3">
           <View class="border-b border-border pb-2">
-            <Text class="text-foreground text-sm font-semibold">豆包输出音色</Text>
+            <Text class="text-foreground text-sm font-semibold">{t("doubaoVoice")}</Text>
           </View>
           <Text class="text-muted-foreground text-xs">
-            当前：{props.store.voiceId() || "默认音色"}
+            {t("current")}{props.store.voiceId() || t("defaultVoice")}
           </Text>
           <TextField
-            label="Speaker ID（音色 ID）"
+            label={t("speakerId")}
             testID="voice-id"
             value={voiceIdDraft()}
             onChange={(value) => voiceIdDraft.set(value)}
-            placeholder="输入复刻音色 ID，例如 S_…"
+            placeholder={t("enterAClonedSpeakerIdEgS")}
             onSubmit={saveVoiceId}
           />
           <View class="flex-row justify-end gap-2">
             <If when={Boolean(props.store.voiceId())}>
               <ActionButton
-                label="恢复默认"
+                label={t("resetToDefault")}
                 testID="restore-voice-id-btn"
                 compact={true}
                 onPress={() => {
@@ -156,7 +155,7 @@ export function VoiceSpaceView(props: {
               />
             </If>
             <ActionButton
-              label="保存音色 ID"
+              label={t("saveSpeakerId")}
               testID="save-voice-id-btn"
               kind="primary"
               compact={true}
@@ -164,7 +163,7 @@ export function VoiceSpaceView(props: {
               onPress={saveVoiceId}
             />
           </View>
-          <Text class="text-muted-foreground text-xs">新音色从下一次 LIVE 对话开始使用。</Text>
+          <Text class="text-muted-foreground text-xs">{t("theNewVoiceAppliesToTheNext")}</Text>
         </View>
       </If>
     </View>
@@ -174,25 +173,24 @@ export function VoiceSpaceView(props: {
     <View class="rounded-2xl border border-border bg-card p-3.5 gap-3">
       <View class="flex-row items-center justify-between border-b border-border pb-2">
         <Text class="text-foreground text-sm font-semibold">
-          会话控制
-        </Text>
+          {t("sessionControls")}</Text>
         <If when={active()}>
           <View class="flex-row items-center gap-1.5">
             <View class="w-1.5 h-1.5 rounded-full bg-verified" />
-            <Text class="text-verified text-xs font-semibold">通话中</Text>
+            <Text class="text-verified text-xs font-semibold">{t("connected")}</Text>
           </View>
         </If>
       </View>
 
-      <View class="rounded-xl border border-border bg-muted px-3 py-2 flex-row items-center justify-between">
-        <Text class="text-muted-foreground text-xs">当前状态</Text>
+      <View class="rounded-xl border border-border bg-muted px-3 py-2 gap-1.5">
+        <Text class="text-muted-foreground text-xs">{t("currentState")}</Text>
         <Text class="text-foreground text-xs font-semibold">
           {phaseDescription()}
         </Text>
       </View>
 
       <ActionButton
-        label={props.store.voiceState().wakeEnabled ? "关闭 Hey LOOI 自动唤醒" : "开启 Hey LOOI 自动唤醒"}
+        label={props.store.voiceState().wakeEnabled ? t("disableHeyLooiWakeup") : t("enableHeyLooiWakeup")}
         testID="wake-toggle"
         kind="quiet"
         compact={true}
@@ -200,11 +198,10 @@ export function VoiceSpaceView(props: {
         onPress={() => props.store.setWakeEnabled(!props.store.voiceState().wakeEnabled)}
       />
       <Text class="text-muted-foreground text-xs">
-        前台待机时仅在本地检测唤醒词；进入后台后停止麦克风。
-      </Text>
+        {t("wakeWordsAreDetectedLocallyWhileThe")}</Text>
 
       <ActionButton
-        label={active() ? "结束实时语音" : "开启 LIVE 语音"}
+        label={active() ? t("endLiveVoice") : t("startLiveVoice")}
         testID="voice-space-toggle"
         kind={active() ? "danger" : "primary"}
         compact={true}
@@ -221,13 +218,13 @@ export function VoiceSpaceView(props: {
       <If when={active()}>
         <View class="flex-row gap-2 pt-1 border-t border-border">
           <ActionButton
-            label={props.store.voiceState().muted ? "解除静音" : "麦克风静音"}
+            label={props.store.voiceState().muted ? t("unmute247") : t("muteMicrophone")}
             compact={true}
             onPress={() => props.store.muteVoice(!props.store.voiceState().muted)}
           />
           <If when={props.store.voiceState().phase === "speaking"}>
             <ActionButton
-              label="打断"
+              label={t("interrupt")}
               compact={true}
               onPress={() => props.store.interruptVoice()}
             />
@@ -237,7 +234,7 @@ export function VoiceSpaceView(props: {
 
       <If when={props.store.voiceState().transcript}>
         <View class="gap-1 rounded-xl border border-border bg-muted p-2.5">
-          <Text class="text-muted-foreground text-xs font-medium">实时转写</Text>
+          <Text class="text-muted-foreground text-xs font-medium">{t("liveTranscript")}</Text>
           <Text class="text-foreground text-sm font-medium">
             {props.store.voiceState().transcript}
           </Text>

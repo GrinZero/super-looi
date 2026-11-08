@@ -44,7 +44,7 @@ export function createEndConversation(
       void context.reply(callId, {}, generation).then(() => {
         if (context.current(generation)) toolSent = true;
       }).catch(() => {
-        if (context.current(generation)) context.fail("道别回传失败");
+        if (context.current(generation)) context.fail("@looi:voiceFarewellFailed");
       });
     },
     onAudioStarted(responseId: string): void {

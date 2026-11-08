@@ -29,15 +29,15 @@ fn with_java<T>(
     }
     result.map_err(|_| "miot_browser_failed".into())
 }
-pub(super) fn open(session: &Shared, url: &str) -> Result<(), String> {
+pub(super) fn open(session: &Shared, url: &str, english: bool) -> Result<(), String> {
     let id = session.lock().unwrap().id as jlong;
     let accepted = with_java(|env, class| {
         let url = env.new_string(url)?;
         env.call_static_method(
             class,
             "open",
-            "(JLjava/lang/String;)Z",
-            &[JValue::Long(id), JValue::Object(&url)],
+            "(JLjava/lang/String;Z)Z",
+            &[JValue::Long(id), JValue::Object(&url), JValue::Bool(english as u8)],
         )?
         .z()
     })?;

@@ -34,7 +34,8 @@ export interface RealtimeProtocolAdapter {
   readonly inputSampleRate: 16000 | 24000;
   readonly outputSampleRate: 24000;
   connectTarget(apiKey: string): { url: string; headers: Record<string, string> };
-  createHandshakeMessages(tools: VoiceToolSchema[], options?: { voiceId?: string }): Record<string, unknown>[];
+  createHandshakeMessages(tools: VoiceToolSchema[], options?: { voiceId?: string; instructions?: string }): Record<string, unknown>[];
+  encodeInstructionsUpdate(instructions: string): Record<string, unknown>;
   encodeAudioAppend(pcm16k: Uint8Array): Record<string, unknown>;
   encodeMute(muted: boolean): Record<string, unknown> | null;
   encodeToolReply(callId: string, output: unknown): Record<string, unknown>[];
@@ -66,7 +67,7 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
     createHandshakeMessages: (tools, sessionOptions) => [{
       type: "session.create",
       session: {
-        model, instructions: options.instructions || "", tools,
+        model, instructions: sessionOptions?.instructions ?? options.instructions ?? "", tools,
         audio: {
           input: { format: { type: "pcm", rate: 16000 } },
           output: { format: { type: "pcm_s16le", rate: 24000 }, voice: sessionOptions?.voiceId || "zh_female_vv_jupiter_bigtts" },
@@ -78,6 +79,7 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
         dialog: { extra: { enable_user_query_exit: true } },
       },
     }],
+    encodeInstructionsUpdate: (instructions) => ({ type: "session.update", session: { instructions } }),
     encodeAudioAppend: (pcm) => ({ type: "input_audio_buffer.append", audio: Buffer.from(pcm).toString("base64") }),
     encodeMute: (muted) => ({ type: muted ? "input_audio_mute.commit" : "input_audio_unmute.commit" }),
     encodeToolReply: (callId, output) => [{ type: "conversation.item.create", items: [{ call_id: callId, role: "tool", content: [{ type: "input_text", text: reply(output) }] }] }],
@@ -136,15 +138,16 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
       url: `${options.baseUrl || "wss://api.openai.com/v1/realtime"}${(options.baseUrl || "").includes("?") ? "&" : "?"}model=${encodeURIComponent(model)}`,
       headers: { Authorization: `Bearer ${apiKey}` },
     }),
-    createHandshakeMessages: (tools) => [{
+    createHandshakeMessages: (tools, sessionOptions) => [{
       type: "session.update", session: {
-        type: "realtime", output_modalities: ["audio"], instructions: options.instructions || "",
+        type: "realtime", output_modalities: ["audio"], instructions: sessionOptions?.instructions ?? options.instructions ?? "",
         tools, audio: {
           input: { format: { type: "audio/pcm", rate: 24000 }, transcription: { model: "gpt-4o-mini-transcribe" }, turn_detection: { type: "server_vad" } },
           output: { format: { type: "audio/pcm", rate: 24000 }, voice: "marin" },
         },
       },
     }],
+    encodeInstructionsUpdate: (instructions) => ({ type: "session.update", session: { type: "realtime", instructions } }),
     encodeAudioAppend: (pcm) => ({ type: "input_audio_buffer.append", audio: Buffer.from(resamplePcm16To24k(pcm)).toString("base64") }),
     encodeMute: (muted) => muted ? { type: "input_audio_buffer.clear" } : null,
     encodeToolReply: (callId, output) => [

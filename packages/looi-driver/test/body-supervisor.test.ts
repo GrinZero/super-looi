@@ -368,4 +368,44 @@ describe("BodySupervisor and LOOI Protocol Driver (Phase 1)", () => {
     assert.equal(transport.connected, false);
     assert.equal(supervisor.getState(), "disconnected");
   });
+
+  it("supports candidate scanning, target connection, setHead, setLight, and getSnapshot", async () => {
+    const transport = new SimulatedBleTransport();
+    const supervisor = new BodySupervisor(transport);
+
+    const candidates = await transport.scanCandidates();
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0].name, "LOOI 桌面底座");
+
+    await supervisor.connect(new Date("2026-11-08T14:00:00Z"), 2, {
+      deviceId: "looi-bedroom-01",
+      deviceName: "卧室的 LOOI",
+    });
+    assert.deepEqual(transport.connectedTarget, {
+      deviceId: "looi-bedroom-01",
+      deviceName: "卧室的 LOOI",
+    });
+
+    // Light works while connected_unarmed, but head requires docked
+    await supervisor.setLight(true);
+    assert.equal(supervisor.getLightOn(), true);
+    await assert.rejects(() => supervisor.setHead("up"), /LOOI is not docked/);
+
+    transport.simulateDock(true);
+    assert.equal(supervisor.getState(), "ready");
+
+    await supervisor.setHead("up");
+    const snap = supervisor.getSnapshot();
+    assert.equal(snap.state, "ready");
+    assert.equal(snap.isDocked, true);
+    assert.equal(snap.lightOn, true);
+    assert.equal(snap.headPose, "up");
+    assert.equal(snap.headDegrees, 85);
+    assert.ok(snap.lastVerifiedAt);
+
+    await supervisor.setHead("down");
+    assert.equal(supervisor.getHeadPose(), "down");
+    assert.equal(supervisor.getHeadDegrees(), 25);
+    assert.equal(transport.writtenCommands.at(-1)?.payload, HEAD_PAYLOADS.down);
+  });
 });

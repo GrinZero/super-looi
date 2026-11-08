@@ -28,8 +28,8 @@ export class MiotLoginFlow {
   }) {}
 
   async start(region: HomeConfiguration["region"], action: UserActionRef): Promise<HomeConnection> {
-    if (this.running) throw new Error("米家登录正在进行");
-    if (!this.options.active()) throw new Error("请回到应用后重新登录");
+    if (this.running) throw new Error("@looi:runtimeXiaomiSigninIsAlreadyRunning");
+    if (!this.options.active()) throw new Error("@looi:runtimeReturnToTheAppAndSignInAgain");
     const runId = ++this.runId;
     this.running = true;
     this.options.onRunning(true);
@@ -38,16 +38,16 @@ export class MiotLoginFlow {
     const current = () => runId === this.runId && this.running && this.options.active();
     try {
       const session = await this.options.runtime.beginMiotLogin(region, action);
-      if (!current()) throw new Error("米家登录已取消");
+      if (!current()) throw new Error("@looi:runtimeXiaomiSigninCancelled");
       browser = this.options.browser();
       this.browser = browser;
       browser.open(session.authorizationUrl, session.redirectUri);
       while (current()) {
-        if (Date.now() >= session.expiresAt) throw new Error("米家登录已过期，请重试");
+        if (Date.now() >= session.expiresAt) throw new Error("@looi:runtimeXiaomiSigninExpiredTryAgain");
         const state = browser.status();
         if (state === "callback") {
           const callback = browser.takeCallback();
-          if (!callback) throw new Error("米家授权回调已失效，请重试");
+          if (!callback) throw new Error("@looi:runtimeXiaomiCallbackExpiredTryAgain");
           const ownedBrowser = browser;
           const result = await this.options.runtime.finishMiotLogin(session.attempt, callback, () => {
             try { return current() && ownedBrowser.status() === "consumed"; }
@@ -55,13 +55,13 @@ export class MiotLoginFlow {
           });
           // Token commit precedes discovery. Later cancellation never logs out the account.
           committed = true;
-          if (!current()) throw new Error("米家登录已结束，请重新查看连接状态");
+          if (!current()) throw new Error("@looi:runtimeXiaomiSigninEndedCheckTheConnectionStatus");
           return result;
         }
-        if (state !== "loading") throw new Error(state === "cancelled" ? "米家登录已取消" : "米家登录未完成，请重试");
+        if (state !== "loading") throw new Error(state === "cancelled" ? "@looi:runtimeXiaomiSigninCancelled" : "@looi:runtimeXiaomiSigninIncompleteTryAgain");
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      throw new Error("米家登录已取消");
+      throw new Error("@looi:runtimeXiaomiSigninCancelled");
     } finally {
       try { browser?.cancel(); } catch { /* native host may already be disposed */ }
       if (runId === this.runId) {

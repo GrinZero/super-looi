@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { effect, mount, signal, Text, View } from "nsh";
 import { Button, Input } from "nsh/base";
 import { createAppStore } from "./store";
@@ -24,10 +25,10 @@ function App() {
 
   const voicePillLabel = () => {
     const phase = store.voiceState().phase;
-    if (phase === "speaking") return "打断";
-    if (phase === "connecting") return "连接中";
-    if (phase === "listening") return "LIVE 中";
-    return "LIVE 对话";
+    if (phase === "speaking") return t("interrupt");
+    if (phase === "connecting") return t("connecting");
+    if (phase === "listening") return t("live");
+    return t("startLive");
   };
 
   const responseText = () =>
@@ -41,14 +42,14 @@ function App() {
     switch (details?.toolName) {
       case "write":
       case "write_file":
-        return details.willOverwrite ? "覆盖文件" : "新建文件";
+        return details.willOverwrite ? t("overwriteFile") : t("createFile");
       case "read":
       case "read_file":
-        return "读取文件";
+        return t("readFile");
       case "bash":
-        return "运行本机 Shell 命令";
+        return t("runALocalShellCommand");
       default:
-        return `执行 ${String(details?.toolName ?? "本机操作")}`;
+        return t("executeAction", { action: String(details?.toolName ?? t("localAction")) });
     }
   };
 
@@ -131,8 +132,8 @@ function App() {
             <View class="gap-2">
               <View class="flex-row items-center justify-between gap-3">
                 <View
-                  class="flex-row items-center gap-2 px-2 py-1"
-                  style={{ opacity: 0.85, minHeight: 38, maxWidth: "56%" }}
+                  class="flex-1 min-w-0 flex-row items-center gap-2 px-2 py-1"
+                  style={{ opacity: 0.85, minHeight: 38, flexShrink: 1 }}
                 >
                   <View
                     class={
@@ -154,8 +155,8 @@ function App() {
                     testID="voice-toggle"
                     accessibilityLabel={
                       voiceActive()
-                        ? "结束或打断实时对话"
-                        : `开启${store.voiceProviderLabel()}实时语音对话`
+                        ? t("endOrInterruptTheLiveConversation")
+                        : t("startProviderVoice", { provider: store.voiceProviderLabel() })
                     }
                     disabled={!store.ready()}
                     onPress={toggleLiveVoice}
@@ -187,7 +188,7 @@ function App() {
 
                   <Button
                     testID="compose"
-                    accessibilityLabel="向 LOOI 发送消息"
+                    accessibilityLabel={t("sendAMessageToLooi")}
                     onPress={() => compose.set(!compose())}
                     class="rounded-full border border-stage-pill-border bg-stage-pill-bg px-3.5 items-center justify-center active:opacity-75"
                     style={{ minHeight: 44 }}
@@ -200,13 +201,12 @@ function App() {
                       }
                       style={{ letterSpacing: 1 }}
                     >
-                      对话
-                    </Text>
+                      {t("chat")}</Text>
                   </Button>
 
                   <Button
                     testID="connection-settings"
-                    accessibilityLabel="打开管理与连接空间"
+                    accessibilityLabel={t("openConnectionsAndSettings")}
                     onPress={() => store.openSpace("models")}
                     class="rounded-full border border-stage-pill-border bg-stage-pill-bg px-3.5 items-center justify-center active:opacity-75"
                     style={{ minHeight: 44 }}
@@ -215,8 +215,7 @@ function App() {
                       class="text-stage-muted text-xs font-medium"
                       style={{ letterSpacing: 1 }}
                     >
-                      连接
-                    </Text>
+                      {t("connect")}</Text>
                   </Button>
                 </View>
               </View>
@@ -231,7 +230,7 @@ function App() {
                     autoCorrect={false}
                     autoCapitalize="none"
                     maxLength={8192}
-                    placeholder="直接对 LOOI 说（如：查看当前目录 / 帮我写一段脚本）"
+                    placeholder={t("askLooiEgListFilesOrWrite")}
                     class="flex-1 h-10 rounded-xl border border-transparent bg-transparent px-2 text-stage-fg text-sm focus:border-ring"
                   />
                   <Button
@@ -241,7 +240,7 @@ function App() {
                     class="rounded-full bg-eye-core px-4 items-center justify-center active:opacity-75 disabled:opacity-40"
                     style={{ minHeight: 44 }}
                   >
-                    <Text class="text-stage-bg text-xs font-bold">发送</Text>
+                    <Text class="text-stage-bg text-xs font-bold">{t("send")}</Text>
                   </Button>
                 </View>
               </If>
@@ -258,7 +257,7 @@ function App() {
                 <View class="w-full flex-row justify-end">
                   <Button
                     testID="stop-task"
-                    accessibilityLabel="停止当前工作任务"
+                    accessibilityLabel={t("stopTheCurrentTask")}
                     onPress={() => {
                       void store.stop();
                     }}
@@ -266,8 +265,7 @@ function App() {
                     style={{ minHeight: 44 }}
                   >
                     <Text class="text-stage-fg text-xs font-semibold">
-                      停止任务
-                    </Text>
+                      {t("stopTask")}</Text>
                   </Button>
                 </View>
               </If>
@@ -299,7 +297,7 @@ function App() {
       {/* Global View Response Modal */}
       <Panel
         open={responseOpen()}
-        title="LOOI 的回复"
+        title={t("looisReply")}
         onClose={() => responseOpen.set(false)}
         height={500}
       >
@@ -313,8 +311,8 @@ function App() {
         open={Boolean(store.interaction())}
         title={
           store.interaction()?.kind === "approval"
-            ? "允许这次操作？"
-            : "LOOI 需要你的回答"
+            ? t("allowThisAction")
+            : t("looiNeedsYourAnswer")
         }
         dismissible={false}
         onClose={() => {
@@ -361,11 +359,11 @@ function App() {
               store.interaction()?.details.command ??
                 store.interaction()?.details.path ??
                 store.interaction()?.details.toolName ??
-                "本机操作",
+                t("localAction"),
             )}
           </Text>
           <If when={store.interaction()?.details.operation === "write"}>
-            <Text class="text-muted-foreground text-sm">写入内容</Text>
+            <Text class="text-muted-foreground text-sm">{t("contentToWrite")}</Text>
             <View class="rounded-xl bg-background p-3" selectable={true}>
               <Text class="text-foreground text-sm font-mono">
                 {String(store.interaction()?.details.content ?? "")}
@@ -373,13 +371,12 @@ function App() {
             </View>
           </If>
           <Text class="text-muted-foreground text-sm">
-            仅允许当前这一次；你可以拒绝或停止任务。
-          </Text>
+            {t("allowThisActionOnceYouCanDecline")}</Text>
         </If>
         <View class="flex-row justify-end gap-3 pt-2">
           <ActionButton
             label={
-              store.interaction()?.kind === "approval" ? "拒绝" : "停止任务"
+              store.interaction()?.kind === "approval" ? t("decline") : t("stopTask")
             }
             onPress={() => {
               if (store.interaction()?.kind === "approval")
@@ -389,7 +386,7 @@ function App() {
           />
           <ActionButton
             label={
-              store.interaction()?.kind === "approval" ? "允许一次" : "提交回答"
+              store.interaction()?.kind === "approval" ? t("allowOnce") : t("submitAnswer")
             }
             kind="primary"
             disabled={

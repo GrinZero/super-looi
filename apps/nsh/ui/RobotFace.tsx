@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import {
   Canvas,
   computed,
@@ -5,6 +6,7 @@ import {
   effect,
   lifecycle,
   reduceMotion,
+  safeArea,
   token,
   type CanvasRenderingContext2D,
 } from "nsh";
@@ -103,7 +105,7 @@ export function RobotFace(props: {
   return (
     <Canvas
       testID="looi-face"
-      accessibilityLabel="LOOI 的圆眼表情"
+      accessibilityLabel={t("looisRoundeyeExpression")}
       role="image"
       class="absolute inset-0"
       style={{ minHeight: 180, opacity: breath.opacity }}
@@ -117,9 +119,14 @@ export function RobotFace(props: {
         const gazeY = -clamp(state.gaze.y, -1, 1);
         const shiftX = clamp(props.shift.dx, -6, 6);
         const shiftY = clamp(props.shift.dy, -6, 6);
+        const insets = safeArea();
+        const faceWidth = size.width - insets.left - insets.right;
+        const faceHeight = size.height - insets.top - insets.bottom;
+        const faceCenterX = insets.left + faceWidth / 2;
+        const faceCenterY = insets.top + faceHeight / 2;
         const scale = Math.max(
           0.01,
-          Math.min(1.08, (size.width - 32) / 620, (size.height - 80) / 340),
+          Math.min(1.08, (faceWidth - 32) / 620, (faceHeight - 80) / 340),
         );
 
         cx.clearRect(0, 0, size.width, size.height);
@@ -141,7 +148,7 @@ export function RobotFace(props: {
         const horizonRadiusX = Math.min(220, size.width * 0.39);
         if (horizonRadiusX > 10) {
           cx.save();
-          cx.translate(size.width / 2, size.height);
+          cx.translate(faceCenterX, insets.top + faceHeight);
           cx.scale(1, 28 / horizonRadiusX);
           const horizon = cx.createRadialGradient(
             0,
@@ -159,11 +166,11 @@ export function RobotFace(props: {
           cx.restore();
         }
 
-        // 3. 620 × 340 centered face coordinate space
+        // 3. Keep the expression centered inside the system's visible area.
         cx.save();
         cx.translate(
-          size.width / 2 - 310 * scale + shiftX,
-          size.height / 2 - 170 * scale + shiftY,
+          faceCenterX - 310 * scale + shiftX,
+          faceCenterY - 170 * scale + shiftY,
         );
         cx.scale(scale, scale);
 

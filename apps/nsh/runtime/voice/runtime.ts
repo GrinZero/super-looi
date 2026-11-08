@@ -1,3 +1,5 @@
+import { replyTextLanguage, type ConversationLanguage } from "../../../../packages/looi-runtime/src/agent/conversation-language.js";
+import { voiceInstructions } from "./prompts.js";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { createVoiceProtocol, type RealtimeProtocolAdapter } from "./protocol.js";
@@ -23,11 +25,12 @@ export class VoiceRuntime {
   private state: VoiceState = {
     phase: "idle",
     muted: false,
-    wakeEnabled: false,
+    wakeEnabled: true,
     transcript: "",
     error: "",
   };
   private generation = 0;
+  private conversationLanguage: ConversationLanguage = "zh-CN";
   private socket?: VoiceSocket;
   private timer?: ReturnType<typeof setTimeout>;
   private deadline?: ReturnType<typeof setTimeout>;
@@ -63,6 +66,7 @@ export class VoiceRuntime {
       send: (value, generation) => this.send(value, generation),
       current: (generation) => this.current(generation),
       requestTask: options.requestTask,
+      controlBody: options.controlBody,
       toolTraceContext: (callId) => this.socket?.getToolTraceContext?.(callId),
       beginFarewell: () => {
         this.outputStreamDone = false;
@@ -81,18 +85,18 @@ export class VoiceRuntime {
         if (config.apiKeys && typeof config.apiKeys === "object") this.apiKeys = { ...config.apiKeys };
         if (typeof config.apiKey === "string" && config.apiKey.trim()) this.apiKeys.doubao ??= config.apiKey.trim();
         if (typeof config.voiceId === "string") this.voiceId = config.voiceId.trim();
-        this.state.wakeEnabled = config.wakeEnabled === true;
+        this.state.wakeEnabled = config.wakeEnabled !== false;
       }
     } catch {
       this.state = {
         ...this.state,
         phase: "error",
-        error: "语音凭据不可用，请重新配置",
+        error: "@looi:runtimeVoiceCredentialsUnavailableConfigureThemAgain",
       };
     }
   }
   configuration(): { hasKey: boolean; providerId: string; providerLabel: string; voiceId: string } {
-    return { hasKey: Boolean(this.resolveApiKey()), providerId: this.protocol.providerId, providerLabel: this.protocol.providerId === "doubao" ? "豆包" : this.protocol.providerId === "openai" ? "OpenAI" : this.protocol.providerId, voiceId: this.protocol.providerId === "doubao" ? this.voiceId : "" };
+    return { hasKey: Boolean(this.resolveApiKey()), providerId: this.protocol.providerId, providerLabel: this.protocol.providerId === "doubao" ? "@looi:runtimeDoubao" : this.protocol.providerId === "openai" ? "OpenAI" : this.protocol.providerId, voiceId: this.protocol.providerId === "doubao" ? this.voiceId : "" };
   }
   private resolveApiKey(): string {
     const own = this.apiKeys[this.protocol.providerId];
@@ -124,11 +128,11 @@ export class VoiceRuntime {
       value.length > 8192 ||
       /[\r\n]/.test(value)
     )
-      throw new Error("请填写有效的语音 API Key");
+      throw new Error("@looi:runtimeEnterAValidVoiceApiKey");
     return value.trim();
   }
   configure(value: string): void {
-    if (this.closed) throw new Error("语音已关闭");
+    if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
     const next = this.validate(value);
     this.stop();
     this.apiKeys[this.protocol.providerId] = next;
@@ -137,21 +141,32 @@ export class VoiceRuntime {
     if (this.state.wakeEnabled) void this.enterStandby();
   }
   configureVoiceId(value: string): void {
-    if (this.closed) throw new Error("语音已关闭");
-    if (this.protocol.providerId !== "doubao") throw new Error("当前语音服务不支持豆包音色 ID");
+    if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
+    if (this.protocol.providerId !== "doubao") throw new Error("@looi:runtimeThisVoiceServiceDoesNotSupportDoubaoSpeaker");
     const next = value.trim();
-    if (next && !/^[A-Za-z0-9_-]{1,256}$/.test(next)) throw new Error("请输入有效的豆包音色 ID");
+    if (next && !/^[A-Za-z0-9_-]{1,256}$/.test(next)) throw new Error("@looi:runtimeEnterAValidDoubaoSpeakerId");
     this.voiceId = next;
     this.saveVault();
   }
-  setWakeEnabled(enabled: boolean): void {
+  setWakeEnabled(enabled: boolean, options: { autoStandby?: boolean } = {}): void {
     if (this.closed) return;
-    if (enabled && !this.resolveApiKey()) throw new Error(`请先配置${this.configuration().providerLabel}语音 API Key`);
     this.publish({ wakeEnabled: enabled });
     this.saveVault();
-    if (enabled && ["idle", "error", "permission"].includes(this.state.phase))
+    if (
+      enabled &&
+      options.autoStandby !== false &&
+      this.resolveApiKey() &&
+      ["idle", "error", "permission"].includes(this.state.phase)
+    ) {
       void this.enterStandby();
-    if (!enabled && this.state.phase === "standby") this.stop();
+    }
+    if (!enabled) {
+      if (["standby", "permission"].includes(this.state.phase)) {
+        this.stop();
+      } else if (this.state.phase === "error" && !this.state.error) {
+        this.publish({ phase: "idle" });
+      }
+    }
   }
   snapshot(): VoiceState {
     return { ...this.state };
@@ -175,11 +190,11 @@ export class VoiceRuntime {
         if (result !== "undetermined") {
           this.options.audio.stop();
           this.publish({ phase: "error", error: result === "cancelled"
-            ? "麦克风权限请求已取消，请重新开启语音唤醒"
-            : "麦克风权限不可用，请在系统设置中开启" });
+            ? "@looi:runtimeMicrophoneRequestCancelledEnableVoiceWakeupAgain"
+            : "@looi:runtimeMicrophoneAccessUnavailableEnableItInSystemSettings" });
           return;
         }
-        this.publish({ phase: "permission", error: "请允许麦克风权限" });
+        this.publish({ phase: "permission", error: "@looi:runtimeAllowMicrophoneAccess" });
         if (result === "undetermined") {
           const generation = this.generation;
           this.standbyTimer = setTimeout(() => {
@@ -193,19 +208,20 @@ export class VoiceRuntime {
       this.options.audio.setCaptureMode("kws");
       const status = this.options.audio.status();
       if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady)
-        throw new Error(status.error || "本地语音唤醒引擎未就绪");
+        throw new Error("");
       this.publish({ phase: "standby", muted: false, error: "" });
       this.pollStandby(this.generation);
-    } catch (error) {
+    } catch {
       this.options.audio.stop();
-      this.publish({ phase: "error", error: error instanceof Error ? error.message : String(error) });
+      this.publish({ phase: "error", muted: false, error: "" });
     }
   }
   private pollStandby(generation: number): void {
     if (!this.current(generation) || this.state.phase !== "standby") return;
     const status = this.options.audio.status();
     if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady) {
-      this.fail(status.error || "本地语音唤醒引擎未就绪");
+      this.options.audio.stop();
+      this.publish({ phase: "error", muted: false, error: "" });
       return;
     }
     if (status.wakeWord) {
@@ -215,11 +231,12 @@ export class VoiceRuntime {
     this.standbyTimer = setTimeout(() => this.pollStandby(generation), 60);
   }
   async start(options: { fromWakeWord?: boolean } = {}): Promise<void> {
-    if (this.closed) throw new Error("语音已关闭");
+    if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
     if (!["idle", "standby", "error", "permission"].includes(this.state.phase)) return;
     const key = this.resolveApiKey();
-    if (!key) throw new Error(`请先配置${this.configuration().providerLabel}语音 API Key`);
+    if (!key) throw new Error("@looi:configureVoiceKey");
     const selectedVoiceId = this.voiceId;
+    this.conversationLanguage = this.options.defaultLanguage?.() ?? "zh-CN";
     const fromStandby = this.state.phase === "standby";
     if (this.standbyTimer) clearTimeout(this.standbyTimer);
     this.standbyTimer = undefined;
@@ -229,7 +246,7 @@ export class VoiceRuntime {
       if (permission !== "granted") {
         this.publish({
           phase: "permission",
-          error: "请允许麦克风权限，然后再次点 LIVE；拒绝后可到系统设置开启。",
+          error: "@looi:runtimeAllowMicrophoneAccessThenTapLiveAgainIf",
         });
         return;
       }
@@ -239,7 +256,7 @@ export class VoiceRuntime {
     this.options.tracer?.registerSecret(key);
     this.publish({ phase: "connecting", error: "", transcript: "" });
     this.deadline = setTimeout(() => {
-      if (this.current(generation)) this.fail("语音连接超时，请重试");
+      if (this.current(generation)) this.fail("@looi:runtimeVoiceConnectionTimedOutTryAgain");
     }, 15000);
     try {
       const target = this.protocol.connectTarget(key);
@@ -252,11 +269,11 @@ export class VoiceRuntime {
         tracer: this.options.tracer, protocol: this.protocol, sessionId: randomUUID(), fromWakeWord: options.fromWakeWord === true, connectStartedAt,
       }) : rawSocket;
       this.socket = socket;
-      for (const message of this.protocol.createHandshakeMessages(this.tools.schemas, { voiceId: selectedVoiceId })) await this.send(message, generation);
+      for (const message of this.protocol.createHandshakeMessages(this.tools.schemas, { voiceId: selectedVoiceId, instructions: voiceInstructions(this.conversationLanguage) })) await this.send(message, generation);
       void this.read(socket, generation, selectedVoiceId);
     } catch {
       if (this.current(generation))
-        this.fail("语音连接失败，请检查 Key、服务权限或网络");
+        this.fail("@looi:runtimeVoiceConnectionFailedCheckTheKeyServiceAccess");
     }
   }
   private async send(
@@ -264,15 +281,15 @@ export class VoiceRuntime {
     generation = this.generation,
   ): Promise<void> {
     if (!this.current(generation) || !this.socket)
-      throw new Error("语音连接已关闭");
-    if (this.writes >= 8) throw new Error("语音发送积压");
+      throw new Error("@looi:runtimeVoiceConnectionClosed");
+    if (this.writes >= 8) throw new Error("@looi:runtimeVoiceSendQueueIsFull");
     const socket = this.socket,
       raw = JSON.stringify(value);
-    if (raw.length > 65536) throw new Error("语音消息过长");
+    if (raw.length > 65536) throw new Error("@looi:runtimeVoiceMessageIsTooLong");
     this.writes++;
     const pending = this.writeQueue.then(async () => {
       if (!this.current(generation) || this.socket !== socket)
-        throw new Error("语音连接已关闭");
+        throw new Error("@looi:runtimeVoiceConnectionClosed");
       await socket.write(raw);
     });
     this.writeQueue = pending.catch(() => {});
@@ -288,7 +305,7 @@ export class VoiceRuntime {
         const raw = await socket.read();
         if (!this.current(generation)) return;
         if (raw === null) {
-          this.fail("语音连接已结束，请重新开启");
+          this.fail("@looi:runtimeVoiceConnectionEndedStartItAgain");
           return;
         }
         if (typeof raw !== "string" || raw.length > 1_000_000)
@@ -367,7 +384,7 @@ export class VoiceRuntime {
           ) {
             this.interrupt();
             this.publish({
-              error: "回复较长，已停止朗读；可以缩短问题后重新提问。",
+              error: "@looi:runtimePlaybackStoppedBecauseTheReplyWasTooLong",
             });
             continue;
           }
@@ -385,12 +402,15 @@ export class VoiceRuntime {
               this.state.transcript + normalized.delta
             ).slice(-4096),
           });
-        else if (normalized.kind === "text_done")
-          this.publish({
-            transcript: String(normalized.text ?? this.state.transcript).slice(
-              -4096,
-            ),
-          });
+        else if (normalized.kind === "text_done") {
+          const transcript = String(normalized.text ?? this.state.transcript).slice(-4096);
+          this.publish({ transcript });
+          const language = replyTextLanguage(transcript, this.conversationLanguage);
+          if (language !== this.conversationLanguage) {
+            this.conversationLanguage = language;
+            await this.send(this.protocol.encodeInstructionsUpdate(voiceInstructions(language, true)), generation);
+          }
+        }
         else if (normalized.kind === "user_speech_started" || normalized.kind === "user_transcription_started") {
           this.turnActivity = "user_speaking";
           this.pauseIdleTimer();
@@ -410,7 +430,7 @@ export class VoiceRuntime {
             this.tools.handle({ call_id: call.callId, name: call.name, arguments: call.argumentsJson }, generation, this.responseId);
         } else if (normalized.kind === "error") {
           if (this.protocol.providerId === "doubao" && selectedVoiceId && this.state.phase === "connecting" && /speaker|voice[_ -]?(?:id|type)|音色/i.test(normalized.message)) {
-            this.fail("豆包音色 ID 无法使用，请检查 ID 与当前项目的音色权限");
+            this.fail("@looi:runtimeDoubaoSpeakerIdUnavailableCheckTheIdAnd");
             return;
           }
           throw new Error("Provider error");
@@ -418,7 +438,7 @@ export class VoiceRuntime {
       }
     } catch {
       if (this.current(generation))
-        this.fail("语音已停止，请检查网络或音频设备后重试");
+        this.fail("@looi:runtimeVoiceStoppedCheckTheNetworkOrAudioDevice");
     }
   }
   private tick(generation: number) {
@@ -455,7 +475,7 @@ export class VoiceRuntime {
         this.audioWriting = true;
         void this.send(this.protocol.encodeAudioAppend(this.frames.shift() ?? new Uint8Array(640)), generation)
           .catch(() => {
-            if (this.current(generation)) this.fail("语音网络发送失败");
+            if (this.current(generation)) this.fail("@looi:runtimeVoiceNetworkSendFailed");
           })
           .finally(() => {
             if (this.current(generation)) this.audioWriting = false;
@@ -474,7 +494,7 @@ export class VoiceRuntime {
       }
       this.timer = setTimeout(() => this.tick(generation), 20);
     } catch {
-      this.fail("音频被系统中断，请再次点 LIVE 开启");
+      this.fail("@looi:runtimeAudioWasInterruptedByTheSystemTapLive");
     }
   }
   mute(value: boolean) {
@@ -485,7 +505,7 @@ export class VoiceRuntime {
     const generation = this.generation;
     const frame = this.protocol.encodeMute(value);
     if (frame) void this.send(frame, generation).catch(() => {
-      if (this.current(generation)) this.fail("语音静音状态同步失败");
+      if (this.current(generation)) this.fail("@looi:runtimeCouldNotSyncMicrophoneMuteState");
     });
   }
   private syncPlayback() {
@@ -504,6 +524,7 @@ export class VoiceRuntime {
   }
   interrupt(trigger: "manual" | "server_vad" = "manual") {
     if (!["listening", "speaking"].includes(this.state.phase)) return;
+    void this.options.controlBody?.("stop").catch(() => {});
     if (this.discardOutput) return;
     if (
       this.state.phase !== "speaking" &&
@@ -522,7 +543,7 @@ export class VoiceRuntime {
     this.cancelEventId = cancelEventId ?? "";
     if (this.responseId) this.cancelledResponses.add(this.responseId);
     if (this.cancelledResponses.size > 128) {
-      this.fail("请重新开启语音");
+      this.fail("@looi:runtimeStartVoiceAgain");
       return;
     }
     this.outputFrames = [];
@@ -537,10 +558,10 @@ export class VoiceRuntime {
     // No-ID frames are unsafe until the peer acknowledges cancellation. If
     // this protocol variant lacks an ack, close instead of replaying old speech.
     if (this.discardOutput) this.deadline = setTimeout(() => {
-      if (this.current(generation)) this.fail("语音已打断，请再次开启继续");
+      if (this.current(generation)) this.fail("@looi:runtimeVoiceInterruptedStartItAgainToContinue");
     }, 4000);
     for (const frame of frames) void this.send(frame, generation).catch(() => {
-      if (this.current(generation)) this.fail("语音中断同步失败");
+      if (this.current(generation)) this.fail("@looi:runtimeCouldNotSyncVoiceInterruption");
     });
   }
   private fail(message: string) {

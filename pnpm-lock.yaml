@@ -26,6 +26,12 @@ importers:
       '@earendil-works/pi-schema':
         specifier: 1.5.0
         version: 1.5.0
+      '@formatjs/intl-locale':
+        specifier: 5.4.2
+        version: 5.4.2
+      '@formatjs/intl-pluralrules':
+        specifier: 7.0.2
+        version: 7.0.2
       '@super-looi/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -35,6 +41,9 @@ importers:
       '@super-looi/runtime':
         specifier: workspace:*
         version: link:../../packages/looi-runtime
+      i18next:
+        specifier: 27.0.1
+        version: 27.0.1(typescript@5.9.3)
     devDependencies:
       '@types/node':
         specifier: ^22.13.0
@@ -459,6 +468,27 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@formatjs/bigdecimal@0.2.10':
+    resolution: {integrity: sha512-npIs6UARNOg5amJY5UOVsd6HUQQfzYjet0sa0SWIqzsnVhxLSpaIx2DjoIVrr/vqmjURjvroeW6dItjfy3Uf8A==}
+
+  '@formatjs/fast-memoize@3.1.7':
+    resolution: {integrity: sha512-zXfhLpvA6T7+efdt9JLbBwZ00tT7NsBMDVnDu8rpHeNNv8KfRZAMo2gkG0k9lK/Nzc//3kJ9pImsfuJxk3KhUA==}
+
+  '@formatjs/intl-getcanonicallocales@3.3.0':
+    resolution: {integrity: sha512-ndj9jw/LHAftSe34D/A6+lj3Y7GHVfPEZ6FZP2wjd8/beYeh3d1sjlSpZSBlzegSKS3U3mUEIzLCpI0+jKNT6w==}
+
+  '@formatjs/intl-locale@5.4.2':
+    resolution: {integrity: sha512-2upVZtpzktEkLMffAk14T2HB62B7ytqrlppZuVX4StnbOHNc4qx5ovimMMMn8mkqvAwFlPX+UZygetny+quqIQ==}
+
+  '@formatjs/intl-localematcher@0.10.1':
+    resolution: {integrity: sha512-gBqglQK9rXuHsLmM8wzTMBy4Xo4d0jamirIVKuEL8F1rwbskWdpMA1kZarSkny+uvr5q/K6GSzE0Rcq1wZLl3g==}
+
+  '@formatjs/intl-pluralrules@7.0.2':
+    resolution: {integrity: sha512-PJ4+ldlqXlo3csmP02u2HqyXw09TDB/fatYpDCyWryfEQeVWl2EbMzij9SBksPaW2U//+q69lXR3IMnCRQAmrw==}
+
+  '@formatjs/intl-supportedvaluesof@3.0.0':
+    resolution: {integrity: sha512-9rG37qcIBFyX+HSyPelJKpAatFaO+ElvnWYO/FFMERVZG9e9Wj51CWAvF7+ozYd7B1uKBL2ub6aLzrkWA0UBxA==}
+
   '@google/genai@2.21.0':
     resolution: {integrity: sha512-+PDtco2/Z0ONdzCGekCoCT+O1VJS9xJQNN4XzQpXG/t3El/SWWMkCWlFRO1KmivOHPa4Q0VjUYu1HBKCZ/v33Q==}
     engines: {node: '>=20.0.0'}
@@ -838,6 +868,15 @@ packages:
   https-proxy-agent@9.1.0:
     resolution: {integrity: sha512-ag87y7cJJ9/3+GxFr8Oy4O5faDsGRGnBGsJj/YjOSsSx/5eadKLYTMPlzuR6obgoCDDm0abAAZitXXQkMOPSpA==}
     engines: {node: '>= 20'}
+
+  i18next@27.0.1:
+    resolution: {integrity: sha512-KaE5ozP8UUeVpOJIwMVbbnpRKpyYQuxd9ZbseJoDzezE3nvLnZZQn20pkzyIJwPI2Uet/Qs3WzPTG812f6F/Eg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   iconv-lite@0.7.3:
     resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
@@ -1592,6 +1631,30 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
+  '@formatjs/bigdecimal@0.2.10': {}
+
+  '@formatjs/fast-memoize@3.1.7': {}
+
+  '@formatjs/intl-getcanonicallocales@3.3.0': {}
+
+  '@formatjs/intl-locale@5.4.2':
+    dependencies:
+      '@formatjs/intl-getcanonicallocales': 3.3.0
+      '@formatjs/intl-supportedvaluesof': 3.0.0
+
+  '@formatjs/intl-localematcher@0.10.1':
+    dependencies:
+      '@formatjs/fast-memoize': 3.1.7
+
+  '@formatjs/intl-pluralrules@7.0.2':
+    dependencies:
+      '@formatjs/bigdecimal': 0.2.10
+      '@formatjs/intl-localematcher': 0.10.1
+
+  '@formatjs/intl-supportedvaluesof@3.0.0':
+    dependencies:
+      '@formatjs/fast-memoize': 3.1.7
+
   '@google/genai@2.21.0(@modelcontextprotocol/sdk@1.29.0(zod@4.6.7))':
     dependencies:
       google-auth-library: 10.9.1
@@ -2078,6 +2141,10 @@ snapshots:
     transitivePeerDependencies:
       - kerberos
       - supports-color
+
+  i18next@27.0.1(typescript@5.9.3):
+    optionalDependencies:
+      typescript: 5.9.3
 
   iconv-lite@0.7.3:
     dependencies:

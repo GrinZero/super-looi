@@ -52,6 +52,7 @@ export interface VoiceState {
 
 export interface VoiceRuntimeOptions {
   vault: Vault;
+  defaultLanguage?: () => "zh-CN" | "en-US";
   audio: VoiceAudioPort;
   connect: (
     url: string,
@@ -60,6 +61,7 @@ export interface VoiceRuntimeOptions {
   onState: (state: VoiceState) => void;
   onAudioLevel?: (level: number) => void;
   requestTask: (prompt: string, traceContext?: TraceContext) => Promise<string>;
+  controlBody?: (action: string, durationMs?: number) => Promise<unknown>;
   cancelTask: () => void;
   protocol?: RealtimeProtocolAdapter;
   tracer?: LangfuseTracer;

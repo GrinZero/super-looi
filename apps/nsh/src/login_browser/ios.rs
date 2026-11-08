@@ -97,7 +97,7 @@ fn cancel(shared: &Shared, failed: bool) {
         state.status = "failed";
     }
 }
-pub(super) fn open(shared: &Shared, auth: &str) -> Result<(), String> {
+pub(super) fn open(shared: &Shared, auth: &str, english: bool) -> Result<(), String> {
     let shared = shared.clone();
     let auth = auth.to_owned();
     let show_browser = || {
@@ -105,7 +105,7 @@ pub(super) fn open(shared: &Shared, auth: &str) -> Result<(), String> {
         if shared.lock().unwrap().status != "loading" {
             return Err("miot_login_cancelled".into());
         }
-        let result = show(shared.clone(), auth);
+        let result = show(shared.clone(), auth, english);
         if result.is_err() {
             cancel(&shared, true);
             close(id);
@@ -139,7 +139,7 @@ pub(super) fn close(id: u64) {
         } }
     });
 }
-fn show(shared: Shared, auth: String) -> Result<(), String> {
+fn show(shared: Shared, auth: String, english: bool) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("miot_browser_unavailable")?;
     if UI.with(|slot| slot.borrow().is_some()) {
         return Err("miot_login_busy".into());
@@ -174,10 +174,10 @@ fn show(shared: Shared, auth: String) -> Result<(), String> {
         let _: () = msg_send![&web, setNavigationDelegate: &*delegate];
         let _: () = msg_send![&view, addSubview: &*web];
         let nav: Retained<AnyObject> = msg_send![&root, navigationItem];
-        let title = NSString::from_str("米家登录");
+        let title = NSString::from_str(if english { "Xiaomi Home sign-in" } else { "米家登录" });
         let _: () = msg_send![&nav, setTitle: &*title];
         let button: Allocated<AnyObject> = msg_send![class(c"UIBarButtonItem")?, alloc];
-        let button: Retained<AnyObject> = msg_send![button, initWithTitle: &*NSString::from_str("取消"), style: 0isize, target: &*delegate, action: sel!(cancelLogin)];
+        let button: Retained<AnyObject> = msg_send![button, initWithTitle: &*NSString::from_str(if english { "Cancel" } else { "取消" }), style: 0isize, target: &*delegate, action: sel!(cancelLogin)];
         let _: () = msg_send![&nav, setLeftBarButtonItem: &*button];
         let controller: Allocated<AnyObject> = msg_send![class(c"UINavigationController")?, alloc];
         let controller: Retained<AnyObject> =

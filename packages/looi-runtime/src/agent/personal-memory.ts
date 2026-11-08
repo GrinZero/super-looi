@@ -264,21 +264,22 @@ export class PersonalMemoryStore {
     return [...this.entries];
   }
 
-  public buildSystemPromptBlock(maxItems = 12): string {
+  public buildSystemPromptBlock(maxItems = 12, language: "zh-CN" | "en-US" = "zh-CN"): string {
     const recent = this.entries.slice(0, maxItems);
     if (recent.length === 0) {
-      return "当前暂无已记录的个人记忆。";
+      return language === "en-US" ? "No personal memories recorded yet." : "当前暂无已记录的个人记忆。";
     }
     const lines = recent.map((m) => {
-      const time = new Date(m.updatedAt).toLocaleTimeString("zh-CN", {
+      const time = new Date(m.updatedAt).toLocaleTimeString(language, {
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
       });
       if (m.subject && m.location) {
+        if (language === "en-US") return `- [${m.subject}] Location: ${m.location} (${m.fact}, recorded at ${time})`;
         return `- [${m.subject}] 位置: ${m.location} (${m.fact}，记录于 ${time})`;
       }
-      return `- ${m.fact} (记录于 ${time})`;
+      return language === "en-US" ? `- ${m.fact} (recorded at ${time})` : `- ${m.fact} (记录于 ${time})`;
     });
     return lines.join("\n");
   }

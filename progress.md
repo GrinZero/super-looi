@@ -1,5 +1,47 @@
 # Super-LOOI 重构与演进进度
 
+### Android Task 审核模式（2026-11-08）
+
+- [x] Step 1：梳理审核链路与设置持久化
+  - [x] 确认 `PiAgentExecutor` 的工具前审核和 `SettingsSpaceView` 的偏好保存方式
+  - [x] 确定逐项确认、本机自动、YOLO 三档的执行范围
+- [x] Step 2：实现模式传递与设置界面
+  - [x] 每次 task 启动时固定审核模式，执行器按模式决定是否弹出审核
+  - [x] 设置页显示三档说明并保存选择，补齐中英文文案
+- [x] Step 3：验证与独立 review
+  - [x] 类型检查、iOS／Android 模式行为探针与设置页持久化测试通过
+  - [x] 子 agent 独立 review 无实际缺陷；本轮差异已提交
+
+### LOOI 具身底座 SDK 接入 NSH 应用（2026-11-08）
+
+对齐 [`docs/plans/nsh-looi-sdk-integration-plan.md`](docs/plans/nsh-looi-sdk-integration-plan.md) 与 Nano Banana V2 暗黑版设计稿：合并 `@sourcebug/looi-sdk` 与 `@super-looi/looi-driver`，实现 iOS / Android 双端原生 `LooiBle` 桥接与 `BodyRuntime`，接入实时语音与 Pi Agent 双通道具身工具，落地去工程化的「底座」管理空间（极简状态卡 + 经典圆形方向轮盘 + 纵向头部俯仰滑动条 + 补光灯开关）。
+
+- [x] **Step 0：产品需求文档、Nano Banana V2 设计稿与技术方案定稿 (`docs/plans/nsh-looi-sdk-integration-plan.md`)**
+  - [x] 梳理 `@super-looi/looi-driver` 与 `archive/legacy-v1` SDK 能力边界，确定 Thin Pollable Rust `LooiBle` + Deep TS `BodySupervisor` 架构
+  - [x] 使用 Nano Banana 生成并迭代去工程化 V2 设计稿，敲定以暗黑版双内嵌面板布局为准（前台桌宠主页零额外胶囊打扰，后台左栏抓大放小，右栏经典圆形方向轮盘 + 纵向头部滑动条 + 补光灯胶囊）
+- [x] **Step 1：扩展 `@super-looi/looi-driver` 扫描、定向连接与姿态/灯光高层接口 (`packages/looi-driver`)**
+  - [x] 扩展 `transport.ts`：新增 `LooiDeviceCandidate`、`LooiConnectTarget`、`scanCandidates` 与 `SimulatedBleTransport` 虚拟候选及 `simulateDock(docked)`
+  - [x] 扩展 `body-supervisor.ts`：新增 `BodySupervisorSnapshot`、`getSnapshot()`、`setHead(pose)`、`setLight(on)` 与状态变更监听
+  - [x] 扩充并通过 `packages/looi-driver/test/body-supervisor.test.ts` 单元测试（16/16 通过）
+- [x] **Step 2：实现双端原生蓝牙桥接 `LooiBle` 与权限插件 (`apps/nsh/src/ble*`, `apps/nsh/native/`)**
+  - [x] 实现 `apps/nsh/src/ble.rs`（有界事件队列、代际隔离、脱座 `06` 与退后台自动下发 `fed0:0000` 急停安全律及 Rust 单元测试）
+  - [x] 实现 iOS `CoreBluetooth` 后端 `apps/nsh/src/ble/ios.rs` 与 Android `BluetoothGatt` 后端 `apps/nsh/src/ble/android.rs` + `LooiBleBridge.java`
+  - [x] 在 `apps/nsh/src/lib.rs` 注册 `LooiBle`，更新 `apps/nsh/native/plugins.json` 与 `apps/nsh/scripts/native-plugins.mjs` 注入 iOS/Android 蓝牙权限（`cargo test` 与 `test:plugins` 通过）
+- [x] **Step 3：实现 `BodyRuntime` 并打通 Agent 与实时语音双通道具身工具 (`apps/nsh/runtime/`)**
+  - [x] 新增 `apps/nsh/runtime/body.ts`：封装 `NshNativeBleAdapter`、`BodyRuntime`（`real_ble` / `simulation` / `disabled` 模式、自动重连、脉冲与姿态控制、结构化回执）
+  - [x] 升级 `apps/nsh/runtime/application.ts`：接入 `BodyRuntime`、SQLite `body_action_evidence` 表与 `get_looi_body_status` / `control_looi_body` 工具
+  - [x] 新增 `apps/nsh/runtime/voice/tools/control-looi-body.ts` 并接入 `VoiceRuntime` 低延迟语音具身控制与打断急停联动
+  - [x] 更新 `apps/nsh/scripts/build-runtime.ts` 打包 `@super-looi/looi-driver` 并导出类型声明（`tsc -p tsconfig.runtime.json` 与 `test:voice-runtime` 通过）
+- [x] **Step 4：实现后台「底座」空间 UI 与状态管理 (`apps/nsh/store.ts`, `apps/nsh/ui/`)**
+  - [x] 升级 `apps/nsh/store.ts`：新增 `body` 空间路由、响应式状态、模式/扫描/连接/轮盘/滑轨/补光灯操作及退后台急停联动
+  - [x] 升级 `apps/nsh/ui/ManagementShell.tsx` 并新增 `apps/nsh/ui/BodySpaceView.tsx`（严格还原暗黑版双内嵌面板布局：左栏大字号设备卡 + 右栏经典圆形方向轮盘 + 纵向头部俯仰滑动条 + 补光灯胶囊）
+  - [x] 升级 `apps/nsh/ui/TasksSpaceView.tsx` 展示任务关联的 `bodyActions` 执行记录
+- [x] **Step 5：更新架构文档、全量测试、iOS 模拟器实机截图验证与独立子 Agent 审查**
+  - [x] 更新 `docs/arch/index.html`、`docs/arch/architecture.js`、`docs/arch/sources.js` 与 `todo.md`
+  - [x] 新增 `apps/nsh/tests/body-runtime-cases.ts`，通过全仓 `pnpm build`、`pnpm typecheck`、`pnpm test` 与 `cargo test`（NSH 23/23 通过）
+  - [x] 在 iOS 模拟器实机验证日间/夜间模式下的「底座」空间经典轮盘与头部滑动条交互并截图（`docs/artifacts/nsh-node-compat/ios-settings-body.png`, `ios-settings-body-light.png`）
+  - [x] 调度独立 review 子 Agent 审查，修复全部 5 项审查建议并复审通过（PASS），完成 Git 提交
+
 ### Langfuse 语音会话消息与 LLM 调用可见性（2026-11-08）
 
 - [x] Step 1：核对截图对应的 Langfuse 会话，确认用户转写和两次 `llm.chat` 已入库；定位 Session 页只呈现 AI 消息的输入输出结构问题
@@ -1184,3 +1226,35 @@
 - [x] Step 4：独立复审、文档校验并提交本轮产物
   - [x] 修正独立复审指出的 Paraglide 构建边界：现有 esbuild 不处理 NSH 界面 TSX
   - [x] 后续实施清单经独立复审，文档无空白错误，英文音频时长和文件可解码性已核对
+
+### NSH 中英双语产品落地（2026-11-08）
+
+- [x] Step 1：界面语言与词条基础
+  - [x] 保存既有 dirty baseline，核对 NSH 响应式与双 bundle 边界
+  - [x] 加入 i18next / Intl polyfill、本地词条与持久化偏好
+  - [x] 接入可即时切换的语言选择、日期与数字格式
+- [x] Step 2：迁移界面与运行时消息
+  - [x] 迁移首页、管理空间、模型、语音、家居、任务和无障碍文案
+  - [x] 状态与错误使用稳定标识，由界面翻译
+- [x] Step 3：统一文字与语音会话语言
+  - [x] 新会话读取当前界面语言，提示词统一完整问题切换与短回应沿用规则
+  - [x] 移除 Agent / 记忆提示中的固定中文输出要求
+- [x] Step 4：验证与独立复审
+  - [x] 全仓类型检查／测试、构建及语言行为测试通过；隔离基线实测 JS +539068 B、bytecode +804361 B
+  - [x] iOS 模拟器逐屏核对与真实语音验证
+  - [x] 独立 review 后修正并按本轮差异提交
+
+  - [x] NSH 全套 21 项、Node voice/model/build-env 通过；QuickJS 复数、日期、偏好恢复实测通过
+  - [x] iOS 模拟器英文主要界面与即时切换通过，修正模型／家居／语音长文本布局
+  - [x] Vivi 产品提示词单轮英文输出：29 个音频帧、575872 字节 PCM
+  - [x] Realtime session.update 真网三轮：英文→「好的」保持英文→明确中文，均有音频；更新只发生在回复语言变化时
+  - [x] 独立复审通过，既有 dirty 与本轮差异分开提交（73fdaa8，后续语言更新单独提交）
+
+### NSH 蓝牙底座连接体验优化（2026-11-08）
+
+- [x] Step 1：核对底座页面、扫描和连接状态链，定位扫描完成后状态卡住的问题
+- [x] Step 2：修正运行时状态并明确页面的扫描、连接、失败和空列表反馈
+- [x] Step 3：运行相关测试与类型检查，独立复审并提交本轮改动
+  - [x] NSH 24 项测试通过；BLE mock 覆盖首次授权等待、扫描完成和连接完成状态
+  - [x] 主 agent 修正独立 review 指出的连接控制、扫描失败、旧错误与 Android 首次授权问题；复审通过
+  - [x] 将自动连接开关文案对齐现有启动行为，真实断线重连记入待办

@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import { effect, signal, Text, View, windowSize } from "nsh";
 import { Select } from "nsh/base";
 import type { HomeConfiguration } from "../generated/looi-runtime.js";
@@ -10,9 +11,9 @@ export function HomePanel(props: {
   onClose: () => void;
 }) {
   const regions = [
-    { value: "cn", title: "中国大陆" }, { value: "de", title: "欧洲" },
-    { value: "i2", title: "印度" }, { value: "ru", title: "俄罗斯" },
-    { value: "sg", title: "新加坡" }, { value: "us", title: "美国" },
+    { value: "cn", get title() { return t("mainlandChina"); } }, { value: "de", get title() { return t("europe"); } },
+    { value: "i2", get title() { return t("india"); } }, { value: "ru", get title() { return t("russia"); } },
+    { value: "sg", get title() { return t("singapore"); } }, { value: "us", get title() { return t("unitedStates"); } },
   ];
   const region = signal<HomeConfiguration["region"]>("cn");
   const url = signal(""),
@@ -59,8 +60,8 @@ export function HomePanel(props: {
       if (logout) await props.store.logoutMiot();
       else await props.store.loginMiot(region());
     } catch (cause) {
-      error.set(cause instanceof Error && cause.message.startsWith("米家")
-        ? cause.message : "米家连接未完成，请稍后重试。");
+      error.set(cause instanceof Error && cause.message.startsWith("@looi:")
+        ? cause.message : "@looi:xiaomiHomeConnectionFailedTryAgainLater");
     } finally { working.set(false); }
   };
   const refreshMiot = async () => {
@@ -71,7 +72,7 @@ export function HomePanel(props: {
         await props.store.configureHome({ mode: "direct_miot", region: region() });
       await props.store.connectHome();
     }
-    catch { error.set("暂时无法读取米家设备，请稍后重试。"); }
+    catch { error.set("@looi:couldNotLoadXiaomiHomeDevicesTry"); }
     finally { working.set(false); }
   };
   const savedMiotSelected = () => props.store.homeConfiguration().hasMiotAccount &&
@@ -89,7 +90,7 @@ export function HomePanel(props: {
   return (
     <Panel
       open={props.open}
-      title="家居连接"
+      title={t("homeConnection")}
       height={560}
       wide={true}
       dismissible={!working()}
@@ -103,26 +104,26 @@ export function HomePanel(props: {
       >
         <View class="flex-1 gap-3" style={{ minWidth: 0 }}>
           <TextField
-            label="Home Assistant 地址"
+            label={t("homeAssistantUrl")}
             testID="home-url"
             value={url()}
             onChange={(value) => url.set(value)}
             placeholder="https://…"
           />
           <TextField
-            label="长期访问令牌"
+            label={t("longlivedAccessToken")}
             testID="home-token"
             value={token()}
             onChange={(value) => token.set(value)}
             masked={true}
             placeholder={
               props.store.homeConfiguration().hasToken
-                ? "已安全保存；相同地址可留空"
-                : "输入令牌"
+                ? t("savedSecurelyLeaveBlankForTheSame")
+                : t("enterToken")
             }
           />
           <ActionButton
-            label={working() ? "正在连接…" : "连接 Home Assistant"}
+            label={working() ? t("connecting48") : t("connectHomeAssistant")}
             testID="home-connect"
             kind="primary"
             disabled={working() || props.store.busy() || !url().trim()}
@@ -134,18 +135,18 @@ export function HomePanel(props: {
         <View class="flex-1 gap-3" style={{ minWidth: 0 }}>
           <Text class="text-foreground text-base">
             {props.store.homeConfiguration().mode === "simulation"
-              ? "离线演示 · 不控制真实设备"
+              ? t("offlineDemoNoRealDevices")
               : props.store.homeConnection()?.healthy
-                ? "已连接家居服务"
-                : "家居尚未连接"}
+                ? t("homeServiceConnected")
+                : t("homeIsNotConnected")}
           </Text>
           <View class="gap-1">
-            <Text class="text-muted-foreground text-sm">控制前需允许一次，并回读设备状态。</Text>
-            <Text class="text-muted-foreground text-sm">连接失败不会改用演示设备。</Text>
+            <Text class="text-muted-foreground text-sm">{t("deviceControlRequiresOnetimeApprovalAndA")}</Text>
+            <Text class="text-muted-foreground text-sm">{t("aFailedConnectionDoesNotSwitchTo")}</Text>
           </View>
           <View class="flex-row gap-2">
             <ActionButton
-              label="离线演示"
+              label={t("offlineDemo")}
               testID="home-simulation"
               disabled={working() || props.store.busy()}
               onPress={() => {
@@ -153,7 +154,7 @@ export function HomePanel(props: {
               }}
             />
             <ActionButton
-              label="关闭家居"
+              label={t("disableHome")}
               disabled={working() || props.store.busy()}
               onPress={() => {
                 void configure("disabled");
@@ -161,11 +162,11 @@ export function HomePanel(props: {
             />
           </View>
           <View class="gap-3 border-t border-border pt-3">
-            <Text class="text-foreground text-base">米家账号</Text>
-            <Text class="text-muted-foreground text-sm">选择与米家 App 相同的服务区域。</Text>
+            <Text class="text-foreground text-base">{t("xiaomiHomeAccount")}</Text>
+            <Text class="text-muted-foreground text-sm">{t("chooseTheSameRegionAsInThe")}</Text>
             <Select
               testID="home-miot-region"
-              accessibilityLabel="米家服务区域"
+              accessibilityLabel={t("xiaomiHomeRegion")}
               items={regions}
               value={region()}
               disabled={working() || props.store.busy()}
@@ -177,30 +178,29 @@ export function HomePanel(props: {
               trigger={<View class="min-h-12 justify-center rounded-xl border border-input bg-background px-4"><Text class="text-foreground text-base">{regions.find((item) => item.value === region())?.title}</Text></View>}
             />
             <ActionButton
-              label={props.store.homeLoggingIn() ? "等待米家授权…" : savedMiotSelected() ? "重新登录米家" : "登录米家"}
+              label={props.store.homeLoggingIn() ? t("waitingForXiaomiAuthorization") : savedMiotSelected() ? t("signInToXiaomiHomeAgain") : t("signInToXiaomiHome")}
               testID="home-miot-login"
               disabled={working() || props.store.busy()}
               onPress={() => { void login(); }}
             />
             <If when={props.store.homeLoggingIn()}>
-              <ActionButton label="取消米家登录" testID="home-miot-cancel" onPress={() => props.store.cancelHomeLogin()} />
+              <ActionButton label={t("cancelXiaomiSignin")} testID="home-miot-cancel" onPress={() => props.store.cancelHomeLogin()} />
             </If>
             <If when={savedMiotSelected()}>
-              <ActionButton label={props.store.homeConfiguration().mode === "direct_miot" ? "刷新米家设备" : "连接已保存的米家账号"} testID="home-miot-refresh" disabled={working() || props.store.busy()} onPress={() => { void refreshMiot(); }} />
+              <ActionButton label={props.store.homeConfiguration().mode === "direct_miot" ? t("refreshXiaomiDevices") : t("connectSavedXiaomiAccount")} testID="home-miot-refresh" disabled={working() || props.store.busy()} onPress={() => { void refreshMiot(); }} />
             </If>
             <If when={props.store.homeConfiguration().mode === "direct_miot" && savedMiotSelected()}>
-              <ActionButton label="退出米家账号" testID="home-miot-logout" disabled={working() || props.store.busy()} onPress={() => { void login(true); }} />
+              <ActionButton label={t("signOutOfXiaomiHome")} testID="home-miot-logout" disabled={working() || props.store.busy()} onPress={() => { void login(true); }} />
             </If>
           </View>
-          <If when={error() || props.store.homeConnection()?.error}>
+          <If when={translateMessage(error() || props.store.homeConnection()?.error || "")}>
             <Text role="alert" class="text-destructive text-sm">
-              {error() || props.store.homeConnection()?.error}
+              {translateMessage(error() || props.store.homeConnection()?.error || "")}
             </Text>
           </If>
           <If when={devices().length}>
             <Text class="text-muted-foreground text-sm">
-              设备预览 · 可在对话中查询更多设备或提出控制请求
-            </Text>
+              {t("devicePreviewAskInChatToFind")}</Text>
             <Each of={devices()} key={(item) => item.entity_id}>
               {(item) => (
                 <View class="gap-1 border-b border-border pb-2">
@@ -208,7 +208,7 @@ export function HomePanel(props: {
                     {item().friendly_name}
                   </Text>
                   <Text class="text-muted-foreground text-sm">
-                    {item().entity_id} · {item().snapshot?.state ?? "状态未知"}
+                    {item().entity_id} · {item().snapshot?.state ?? t("unknownState")}
                   </Text>
                 </View>
               )}

@@ -1,0 +1,39 @@
+{
+  "model": "1.2.6.1",
+  "voice": "zh_female_vv_jupiter_bigtts",
+  "defaultLanguage": "zh-CN",
+  "sampleRate": 24000,
+  "sessionUpdated": 1,
+  "turns": [
+    {
+      "turn": 0,
+      "input": [
+        "Hello, Louis. Please answer in English. What color is the sky on a clear day?"
+      ],
+      "text": [
+        "The sky looks blue on a clear day. That's because air molecules scatter short blue light from the sun more than longer red or yellow wavelengths."
+      ],
+      "audioBytes": 443386
+    },
+    {
+      "turn": 1,
+      "input": [
+        "好的。"
+      ],
+      "text": [
+        "Got it! Let me know if you have another question."
+      ],
+      "audioBytes": 143238
+    },
+    {
+      "turn": 2,
+      "input": [
+        "请用中文告诉我，太阳从哪边升起？"
+      ],
+      "text": [
+        "太阳从东边升起，这是因为地球自西向东自转，所以我们在地球上看太阳就会从东方慢慢升起来啦。"
+      ],
+      "audioBytes": 441640
+    }
+  ]
+}

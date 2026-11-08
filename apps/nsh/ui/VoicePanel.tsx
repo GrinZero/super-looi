@@ -1,3 +1,4 @@
+import { t, translateMessage, formatDate } from "../i18n";
 import { effect, signal, Text, View } from "nsh";
 import type { createAppStore } from "../store";
 import { ActionButton, Panel, TextField } from "./Controls";
@@ -22,7 +23,7 @@ export function VoicePanel(props: {
   return (
     <Panel
       open={props.open}
-      title="实时语音"
+      title={t("liveVoice")}
       height={520}
       onClose={props.onClose}
     >
@@ -31,21 +32,20 @@ export function VoicePanel(props: {
         else={
           <View class="gap-4">
             <Text class="text-muted-foreground text-sm">
-              手机直连豆包。开启时才申请麦克风权限；离开应用或音频中断后需要再次开启。
-            </Text>
+              {t("connectDirectlyToDoubaoMicrophoneAccessIs")}</Text>
             <TextField
-              label="豆包语音 API Key"
+              label={t("doubaoVoiceApiKey")}
               masked={true}
               value={key()}
               onChange={(value) => key.set(value)}
               placeholder={
                 props.store.voiceConfigured()
-                  ? "已安全保存，留空继续使用"
-                  : "输入语音服务 API Key"
+                  ? t("savedSecurelyLeaveBlankToKeep")
+                  : t("enterVoiceApiKey")
               }
             />
             <ActionButton
-              label="保存语音配置"
+              label={t("saveVoiceSettings")}
               disabled={!key().trim() || active()}
               onPress={() => {
                 try {
@@ -61,7 +61,7 @@ export function VoicePanel(props: {
             />
             <View class="flex-row gap-2">
               <ActionButton
-                label={active() ? "结束语音" : "开启语音"}
+                label={active() ? t("endVoice") : t("startVoice")}
                 testID="voice-start"
                 kind="primary"
                 disabled={!props.store.voiceConfigured()}
@@ -72,7 +72,7 @@ export function VoicePanel(props: {
               />
               <If when={active()}>
                 <ActionButton
-                  label={props.store.voiceState().muted ? "开麦" : "静音"}
+                  label={props.store.voiceState().muted ? t("unmute") : t("mute")}
                   onPress={() =>
                     props.store.muteVoice(!props.store.voiceState().muted)
                   }
@@ -81,7 +81,7 @@ export function VoicePanel(props: {
             </View>
             <If when={props.store.voiceState().phase === "speaking"}>
               <ActionButton
-                label="打断播放"
+                label={t("interruptPlayback")}
                 onPress={() => props.store.interruptVoice()}
               />
             </If>
@@ -90,9 +90,7 @@ export function VoicePanel(props: {
       >
         <View class="gap-4">
           <Text class="text-foreground text-base">
-            语音提出了这个任务，是否交给本机
-            Agent？设备控制或文件写入仍会单独请你允许。
-          </Text>
+            {t("runThisVoiceRequestWithTheLocal")}</Text>
           <View selectable={true}>
             <Text class="text-foreground text-base">
               {props.store.voiceTask()}
@@ -100,13 +98,13 @@ export function VoicePanel(props: {
           </View>
           <View class="flex-row gap-2">
             <ActionButton
-              label="拒绝任务"
+              label={t("declineTask")}
               onPress={() => {
                 void props.store.confirmVoiceTask(false);
               }}
             />
             <ActionButton
-              label="执行这项任务"
+              label={t("runThisTask")}
               kind="primary"
               onPress={() => {
                 void props.store.confirmVoiceTask(true);
@@ -116,9 +114,9 @@ export function VoicePanel(props: {
           </View>
         </View>
       </If>
-      <If when={error() || props.store.voiceState().error}>
+      <If when={translateMessage(error() || props.store.voiceState().error)}>
         <Text role="alert" class="text-destructive text-sm">
-          {error() || props.store.voiceState().error}
+          {translateMessage(error() || props.store.voiceState().error)}
         </Text>
       </If>
       <If when={props.store.voiceState().transcript}>
