@@ -8,6 +8,8 @@ import type {
 export interface VoiceAudioPort {
   requestPermission(): string;
   start(capture: boolean): void;
+  beginWake(): number;
+  startWake(ticket: number): Promise<boolean>;
   stop(): void;
   enqueue(pcm: Uint8Array, rate: number): void;
   clearPlayback(): void;

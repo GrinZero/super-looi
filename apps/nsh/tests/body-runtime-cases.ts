@@ -529,6 +529,7 @@ export async function verifyBodyRuntime() {
     } else incoming.push(raw);
   };
   const audio: VoiceAudioPort = {
+    beginWake: () => 0, startWake: async () => { audio.setCaptureMode("kws"); return true; },
     requestPermission: () => "granted",
     start: () => {},
     setCaptureMode: () => {},
@@ -868,6 +869,7 @@ export async function verifyBodyRuntime() {
   let cueStops = 0;
   const cueCalls: boolean[] = [];
   const cueAudio: VoiceAudioPort = {
+    beginWake: () => 0, startWake: async () => { cueAudio.setCaptureMode("kws"); return true; },
     requestPermission: () => {
       cuePermissionRequests++;
       return "granted";

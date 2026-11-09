@@ -16,7 +16,11 @@ function WakeProbe() {
           permission = audio.status().permission;
         }
         if (permission !== "granted") throw new Error("Microphone permission unavailable");
-        audio.setCaptureMode("kws");
+        const abandoned = audio.startWake(audio.beginWake());
+        audio.stop();
+        if (await abandoned || audio.status().state === "running")
+          throw new Error("Cancelled wake preparation restarted audio");
+        if (!await audio.startWake(audio.beginWake())) throw new Error("KWS preparation was cancelled");
         const standby = audio.status();
         if (standby.state !== "running" || standby.captureMode !== "kws" || !standby.kwsReady)
           throw new Error("KWS model did not load: " + standby.error);

@@ -7,7 +7,6 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    thread::JoinHandle,
 };
 
 #[cfg(target_os = "ios")]
@@ -36,14 +35,15 @@ enum CaptureMode {
 
 struct KwsWorker {
     stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
 }
 impl KwsWorker {
     fn start(shared: SharedAudio, directory: PathBuf) -> Result<Self, String> {
-        let mut spotter = kws::KeywordSpotter::new(&directory)?;
+        Self::with_spotter(shared, kws::KeywordSpotter::new(&directory)?)
+    }
+    fn with_spotter(shared: SharedAudio, mut spotter: kws::KeywordSpotter) -> Result<Self, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = stop.clone();
-        let thread = std::thread::Builder::new()
+        let _ = std::thread::Builder::new()
             .name("looi-kws".into())
             .spawn(move || {
                 let mut seen_epoch = u64::MAX;
@@ -80,19 +80,15 @@ impl KwsWorker {
                 }
             })
             .map_err(|_| "Cannot start local wake worker")?;
-        Ok(Self {
-            stop,
-            thread: Some(thread),
-        })
+        Ok(Self { stop })
     }
     fn stop(&mut self, shared: &SharedAudio) {
         self.stop.store(true, Ordering::Release);
         if let Ok(state) = shared.lock() {
             state.kws_notify.notify_all();
         }
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        // The worker owns its old session buffers and frees its model there.
+        // A route change never waits for inference or model destruction.
     }
 }
 
@@ -245,6 +241,7 @@ pub struct VoiceAudio {
     owns_session: bool,
     kws_worker: Option<KwsWorker>,
     kws_directory: PathBuf,
+    wake_generation: u32,
 }
 
 #[class]
@@ -267,6 +264,7 @@ impl VoiceAudio {
             owns_session: false,
             kws_worker: None,
             kws_directory: data.join("kws"),
+            wake_generation: 0,
         })
     }
 
@@ -350,6 +348,47 @@ impl VoiceAudio {
         }
     }
 
+    /// Reserve wake startup synchronously, before its async task is polled.
+    pub fn begin_wake(&mut self) -> u32 {
+        self.wake_generation = self.wake_generation.wrapping_add(1);
+        self.wake_generation
+    }
+
+    /// Load the wake model off the engine thread, then start local capture.
+    /// False means stop cancelled this preparation before capture began.
+    pub async fn start_wake(this: Instance<Self>, generation: u32) -> Result<bool, String> {
+        if this.with(|audio| audio.wake_generation != generation) {
+            return Ok(false);
+        }
+        let prepared = this.with_mut(|audio| -> Result<Option<PathBuf>, String> {
+            if audio.native.is_some() && audio.capture && audio.kws_worker.is_some() {
+                audio.set_capture_mode("kws".into())?;
+                return Ok(None);
+            }
+            Ok(Some(audio.kws_directory.clone()))
+        })?;
+        let Some(directory) = prepared else {
+            return Ok(true);
+        };
+        let spotter = blocking(move || kws::KeywordSpotter::new(&directory))
+            .await
+            .map_err(|_| "Cannot load local wake model")??;
+        if this.with(|audio| audio.wake_generation != generation) {
+            let _ = blocking(move || drop(spotter)).await;
+            return Ok(false);
+        }
+        this.with_mut(|audio| {
+            audio.start(true)?;
+            audio.kws_worker = Some(KwsWorker::with_spotter(audio.shared.clone(), spotter)?);
+            audio
+                .shared
+                .lock()
+                .map_err(|_| "Audio state unavailable")?
+                .switch_mode(CaptureMode::KwsStandby);
+            Ok(true)
+        })
+    }
+
     /// Change local wake listening and realtime capture without restarting devices.
     pub fn set_capture_mode(&mut self, mode: String) -> Result<(), String> {
         let next = match mode.as_str() {
@@ -425,9 +464,8 @@ impl VoiceAudio {
                     (2.0 * std::f64::consts::PI * frequency * i as f64 / 24000.0).sin();
                 let overtone =
                     (2.0 * std::f64::consts::PI * (frequency * 2.0) * i as f64 / 24000.0).sin();
-                let sample = (envelope
-                    * (0.18 * fundamental + 0.05 * overtone)
-                    * i16::MAX as f64) as i16;
+                let sample =
+                    (envelope * (0.18 * fundamental + 0.05 * overtone) * i16::MAX as f64) as i16;
                 pcm.extend_from_slice(&sample.to_le_bytes());
             }
         } else {
@@ -536,6 +574,7 @@ impl VoiceAudio {
 
     /// Idempotently stop devices, release audio focus, and discard all audio.
     pub fn stop(&mut self) {
+        self.wake_generation = self.wake_generation.wrapping_add(1);
         if let Some(mut worker) = self.kws_worker.take() {
             worker.stop(&self.shared);
         }
@@ -706,6 +745,7 @@ mod tests {
             owns_session: false,
             kws_worker: None,
             kws_directory: PathBuf::new(),
+            wake_generation: 0,
         };
         audio.refresh_native();
         stopping.store(true, Ordering::Release);
@@ -731,6 +771,7 @@ mod tests {
             owns_session: false,
             kws_worker: None,
             kws_directory: PathBuf::new(),
+            wake_generation: 0,
         };
         let idle = audio.status();
         assert_eq!(idle.state, "idle");

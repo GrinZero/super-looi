@@ -33,6 +33,7 @@ export async function verifyWakeRuntime() {
     let state = "idle", mode = "idle", permission = "granted", ready = true;
     let wakeWord = "", muted = false, playback = 0, starts = 0, stops = 0, cues = 0;
     const audio: VoiceAudioPort = {
+      beginWake: () => 0, startWake: async () => { audio.setCaptureMode("kws"); return true; },
       requestPermission: () => permission,
       start: () => { state = "running"; starts++; },
       setCaptureMode: (next) => {
@@ -194,6 +195,37 @@ export async function verifyWakeRuntime() {
     check(cancelledVoice.snapshot().phase === "error" && permissionRequests === 3,
       "cancelled microphone request stayed in permission polling");
     cancelledVoice.close();
+
+    permission = "granted";
+    ready = true;
+    const preparations: Array<(started: boolean) => void> = [];
+    const preparingVoice = new VoiceRuntime({
+      vault: { get: () => JSON.stringify({ apiKey: "test-key" }), set: () => {}, remove: () => {} },
+      audio: {
+        ...audio,
+        beginWake: () => 0, startWake: () => new Promise<boolean>((resolve) => preparations.push(resolve)),
+      },
+      connect: async () => new SocketFixture(),
+      onState: () => {},
+    });
+    const abandoned = preparingVoice.enterStandby();
+    await preparingVoice.enterStandby();
+    check(preparations.length === 1, "pending wake preparation was duplicated");
+    preparingVoice.stopStandby();
+    const current = preparingVoice.enterStandby();
+    preparations[0](true);
+    await abandoned;
+    check(preparingVoice.snapshot().phase === "idle", "leaving a route allowed stale preparation to publish standby");
+    audio.setCaptureMode("kws");
+    preparations[1](true);
+    await current;
+    check(preparingVoice.snapshot().phase === "standby", "new wake preparation was cancelled by the old completion");
+    preparingVoice.stopStandby();
+    const closing = preparingVoice.enterStandby();
+    preparingVoice.close();
+    preparations[2](true);
+    await closing;
+    check(preparingVoice.snapshot().phase === "idle", "closed runtime resumed wake after model loading");
   } finally {
     Date.now = originalNow;
     globalThis.setTimeout = originalTimeout;

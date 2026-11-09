@@ -731,10 +731,11 @@ export function createAppStore() {
   effect(() => {
     if (!ready() || !voice) return;
     if (lifecycle() !== "active" || homeLoggingIn() || oauthFlow().running) {
+      voice.stopStandby();
       if (voiceState().phase !== "idle") voice.stop();
       else voice.stopIdleCue();
     } else if (activeSpace() !== "face" && activeSpace() !== "voice") {
-      if (voiceState().phase === "standby" || voiceState().phase === "permission") voice.stop();
+      voice.stopStandby();
     } else if (voiceState().wakeEnabled && voiceState().phase === "idle") {
       void voice.enterStandby();
     }

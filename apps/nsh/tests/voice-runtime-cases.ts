@@ -19,6 +19,7 @@ export async function verifyVoiceRuntime() {
   let maxPlaybackFrame = 0,
     fullQueueChecks = 0;
   const audio: VoiceAudioPort = {
+    beginWake: () => 0, startWake: async () => { audio.setCaptureMode("kws"); return true; },
     requestPermission: () => {
       requests++;
       return permission;

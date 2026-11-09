@@ -30,6 +30,7 @@ export class VoiceRuntime {
   private standbyTimer?: ReturnType<typeof setTimeout>;
   private cueStopTimer?: ReturnType<typeof setTimeout>;
   private standbyGeneration = 0;
+  private standbyPreparing?: number;
   private closed = false;
 
   constructor(private readonly options: VoiceRuntimeOptions) {
@@ -97,9 +98,8 @@ export class VoiceRuntime {
       void this.enterStandby();
     }
     if (!enabled) {
-      if (["standby", "permission"].includes(this.state.phase)) {
-        this.stop();
-      } else if (this.state.phase === "error" && !this.state.error) {
+      this.stopStandby();
+      if (this.state.phase === "error" && !this.state.error) {
         this.publish({ phase: "idle" });
       }
     }
@@ -136,7 +136,7 @@ export class VoiceRuntime {
     ) {
       return;
     }
-    if (this.state.phase === "standby") return;
+    if (this.state.phase === "standby" || this.standbyPreparing !== undefined) return;
 
     const permission = this.options.audio.status().permission;
     if (permission !== "granted") {
@@ -169,23 +169,28 @@ export class VoiceRuntime {
       }
     }
 
+    const generation = ++this.standbyGeneration;
+    this.standbyPreparing = generation;
     try {
       if (this.cueStopTimer) {
         this.clearCueStopTimer();
         this.options.audio.stop();
       }
-      this.options.audio.setCaptureMode("kws");
+      const started = await this.options.audio.startWake(this.options.audio.beginWake());
+      if (!this.isStandbyGeneration(generation) || !started) return;
       const status = this.options.audio.status();
       if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady) {
         throw new Error("");
       }
-      const generation = ++this.standbyGeneration;
       this.clearStandbyTimer();
       this.publish({ phase: "standby", muted: false, error: "" });
       this.pollStandby(generation);
     } catch {
+      if (!this.isStandbyGeneration(generation)) return;
       this.options.audio.stop();
       this.publish({ phase: "error", muted: false, error: "" });
+    } finally {
+      if (this.standbyPreparing === generation) this.standbyPreparing = undefined;
     }
   }
 
@@ -346,8 +351,16 @@ export class VoiceRuntime {
     }
   }
 
+  /** Cancel pending or active local wake without ending a live conversation. */
+  stopStandby(): void {
+    if (this.standbyPreparing !== undefined || ["standby", "permission"].includes(this.state.phase)) {
+      this.stop();
+    }
+  }
+
   stop(): void {
     ++this.standbyGeneration;
+    this.standbyPreparing = undefined;
     this.clearStandbyTimer();
     this.clearCueStopTimer();
     const active = this.session;

@@ -29,6 +29,7 @@ export async function verifyOpenAiVoiceRuntime() {
   const vault = { get: (key: string) => slots.get(key) ?? "", set: (key: string, value: string) => { slots.set(key, value); }, remove: (key: string) => { slots.delete(key); } };
   let queuedPlaybackMs = 0, playbackClears = 0, starts = 0, mode = "idle";
   const audio: VoiceAudioPort = {
+    beginWake: () => 0, startWake: async () => { audio.setCaptureMode("kws"); return true; },
     requestPermission: () => "granted", start: () => { starts++; }, stop: () => { mode = "idle"; },
     enqueue: (pcm) => { queuedPlaybackMs += pcm.length / 48; }, clearPlayback: () => { queuedPlaybackMs = 0; playbackClears++; },
     setMuted: () => {}, setCaptureMode: (next) => { mode = next; }, playReadyCue: () => {}, drainCapture: () => [],
@@ -104,7 +105,7 @@ export async function verifyVoiceTraceFinalization() {
     };
     const voice = new VoiceRuntime({
       vault: { get: () => JSON.stringify({ apiKey: "doubao-key" }), set: () => {}, remove: () => {} },
-      audio: { requestPermission: () => "granted", start: () => {}, stop: () => {}, enqueue: () => {}, clearPlayback: () => {}, setMuted: () => {},
+      audio: { beginWake: () => 0, startWake: async () => true, requestPermission: () => "granted", start: () => {}, stop: () => {}, enqueue: () => {}, clearPlayback: () => {}, setMuted: () => {},
         setCaptureMode: () => {}, playReadyCue: () => {}, drainCapture: () => [], status: () => ({ state: "running", permission: "granted", error: "", queuedPlaybackMs: 0, captureMode: "conversation", wakeWord: "", kwsReady: true }) },
       connect: async () => raw, onState: () => {}, requestTask: async () => "", cancelTask: () => {}, tracer,
     });

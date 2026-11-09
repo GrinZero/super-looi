@@ -38,6 +38,7 @@ export async function verifyVoicePipeline(options: {
   const note = `软件验收码${Date.now()}是纸鸢`;
   await options.runtime.run(`请记住并在后续对话中直接回答：${note}（无需调用工具，直接回复“已记住”）`, action(), () => {});
   const audio: VoiceAudioPort = {
+    beginWake: () => 0, startWake: async () => { audio.setCaptureMode("kws"); return true; },
     requestPermission: () => "granted", // Synthetic-input adapter; no OS permission request.
     status: () => ({ ...options.audio.status(), permission: "granted", captureMode: "conversation", wakeWord: "", kwsReady: false }),
     start: () => options.audio.start(false),

@@ -63,6 +63,7 @@ function createMockAudio() {
   let captureMode = "idle";
   let queuedPlaybackMs = 0;
   const port: VoiceAudioPort = {
+    beginWake: () => 0, startWake: async () => { port.setCaptureMode("kws"); return true; },
     requestPermission: () => "granted",
     start: () => {
       state = "running";
