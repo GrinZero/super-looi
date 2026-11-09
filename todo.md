@@ -1,5 +1,10 @@
 # 当前待办
 
+## Pi Agent 联网搜索与任务结果
+
+- [ ] 通过现有 `additionalTools` 接入联网搜索与网页正文读取，向模型返回标题、URL 和正文；当前内置工具仅覆盖文件、Shell、提问，NSH 附加工具仅覆盖家居与底座。Android 真机 GRIN ZERO 搜索任务未调用任何工具，直接回复无法联网搜索；NSH 已允许 HTTPS GET/POST。
+- [ ] 区分执行循环结束与用户目标完成：上述真机任务 `toolCallsCount=0`，仍被保存为 `succeeded`；当前执行器只排除模型错误、取消和空回复。设计结果表达时覆盖能力不足和需要补充信息，避免通过匹配自然语言回复推断状态。
+
 ## Agent 记忆与上下文管理
 
 依据见 [社区机制调研](docs/agent-memory-context-research.md)。
