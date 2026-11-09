@@ -1,0 +1,12 @@
+PASS Linux Shell: guest default environment and overrides
+PASS Linux Shell: bidirectional workspace, separate streams, nonzero exit and ledger isolation
+PASS Linux Shell: SIGPIPE pipeline, 50000 bytes and UTF-8 streaming
+PASS Linux Shell: normal completion reaps background, setsid and reparented descendants
+PASS Linux Shell: cancellation drains more than one native read block from both streams
+PASS Linux Shell: cancel and timeout receipts, output drain and next command
+PASS Linux Shell: relative/absolute links, hardlinks and external link rejection
+PASS Linux Shell: approved apk/npm installation and executable versions
+PASS Linux Shell: installed packages available in persistent guest
+Linux Shell verified
+✓ .nsh/LinuxProbe.test.tsx › Linux Shell verified (38.6s)
+✓ 1 test: 1 passed, 0 failed (3m 18s)

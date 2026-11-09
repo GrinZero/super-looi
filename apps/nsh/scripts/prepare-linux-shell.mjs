@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { loadBuildVariables } from "./build-env.mjs";
 
 const app = resolve(import.meta.dirname, "..");
 export const linuxLock = JSON.parse(readFileSync(join(app, "native/linux/sources.lock.json"), "utf8"));
@@ -92,4 +93,4 @@ export async function prepareLinuxShell(target, buildEnvironment = process.env) 
   }
   return linuxCache;
 }
-if (process.argv[1] === import.meta.filename) await prepareLinuxShell(process.argv[2] ?? "all");
+if (process.argv[1] === import.meta.filename) await prepareLinuxShell(process.argv[2] ?? "all", { ...process.env, ...loadBuildVariables() });

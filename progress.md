@@ -1481,20 +1481,20 @@
 
 计划：`docs/plans/nsh-linux-shell-openminis-plan.md`
 
-- [ ] Step 1：固定依赖与双端构建打包
+- [x] Step 1：固定依赖与双端构建打包
   - [x] 读取计划、现有执行器和仓库设计规范，记录工作区已有修改
   - [x] 固定 Alpine / iSH / PRoot / loader，完成缓存与工具链准备脚本
   - [x] 接入 iOS 库、Android 插件资产与首次安装
-- [ ] Step 2：实现宿主 ShellRunner 与工作区路径一致性
+- [x] Step 2：实现宿主 ShellRunner 与工作区路径一致性
   - [x] 定义执行契约、guest 环境与双端实现
   - [x] 完成后代回收、输出排空和工作区链接解析
-- [ ] Step 3：兼容层流式接口、Agent 与任务界面
+- [x] Step 3：兼容层流式接口、Agent 与任务界面
   - [x] 输出队列、UTF-8 拼帧、原子尾块与超时语义
   - [x] 实时输出、全终态回执、审批与后台取消
-- [ ] Step 4：验证与交付
+- [x] Step 4：验证与交付
   - [x] 定向测试、类型检查、构建与原生插件检查
   - [x] Android ARM64 真机验收；iOS 按用户确认范围完成双 SDK 构建检查
-  - [ ] 独立子 agent review、文档及架构更新、分阶段提交
+  - [x] 独立子 agent review、文档及架构更新、分阶段提交
 
 - 验证记录：兼容层 8 项 Rust 单测、桌面 QuickJS 全套测试、结构化超时四分支测试通过；iOS 设备未签名 `.app` 已成功链接并打入 fakefs 归档，修复 ONNX Clang builtins 的设备链接阻塞。
 
@@ -1504,3 +1504,8 @@
 - 完整 Android `CompatProbe` 通过（16.3 秒），修复 Pi SDK 桌面工具缓存目录覆盖 guest PATH 的实际问题；桌面 QuickJS 全套、85 项运行时测试、NSH 26 项测试与构建通过。
 - 应用进程 force-stop / relaunch 后，在同一 guest 再次运行 Git 初始化与状态、Python、Node、pnpm、ripgrep 成功；包文件与 rootfs 版本标记保留。
 - 两位独立子 agent 分别完成原生/兼容层与 Agent/UI 终审，均通过。
+
+- 最终 Android 扩展专项通过（31.5 秒），增加双流各 24,010 字节取消尾部排空与内置 rg 显式软链接路径验证；截图已核对，日志见 `docs/artifacts/nsh-linux-shell/`。
+- 使用说明、第三方许可证、iOS 对应源码/构建说明与 `docs/arch/` 已同步；APK 与双 SDK `.app` 均确认包含 rootfs 及许可证资源。
+
+- 最终补充硬链接反向写入与外部链接不阻断后续硬链接产物扫描，Android 专项 38.6 秒通过；所有本次问题已清理，iPhone 实机运行入口保留在 `todo.md`。

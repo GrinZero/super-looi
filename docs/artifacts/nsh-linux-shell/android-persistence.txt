@@ -1,0 +1,12 @@
+After force-stop and relaunch, PRoot opened the same installed guest.
+Git init and git status exited 0. Python/Node/pnpm/ripgrep output:
+123
+v22.23.4
+12.18.0
+ripgrep 14.1.1
+
+features:+pcre2
+simd(compile):+NEON
+simd(runtime):+NEON
+
+PCRE2 10.43 is available (JIT is available)

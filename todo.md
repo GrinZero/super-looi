@@ -1,5 +1,11 @@
 # 当前待办
 
+## NSH Linux Shell 接入
+
+依据见 [双端 Linux Shell 接入计划](docs/plans/nsh-linux-shell-openminis-plan.md)。
+
+- [ ] 连接 iPhone 并配置有效开发签名后，运行 `test:ios --device <UDID>` 与 `test:linux:ios --device <UDID>`；本次用户确认 iOS 按双 SDK 构建检查交付，真机运行未执行。实现与验证见 `docs/nsh-linux-shell.md`、`docs/nsh-linux-shell-verification.md`。
+
 ## Android LIVE 音量键真机确认（2026-11-09）
 
 - [ ] 魅族 20 Pro 在 LIVE 实际播报时按实体音量键，确认改变的是语音外放响度；会话结束后确认音量键恢复原通道。开发宿主已安装，原生插件检查与 Java 编译通过。
@@ -53,7 +59,6 @@
 - [ ] iOS 真机验证前台屏幕常亮、失活释放与再次激活恢复；设备目标编译检查已通过。
 - [ ] 如需导入旧用户数据，实现旧端数据导出与 NSH 导入；旧源码见 `archive/legacy-hub-and-expo`。
 - [ ] 商店签名、Android API 36 / AAB、32 位 ABI 运行与真机发布验证。
-- [ ] iOS 真机 Release 构建：当前 ONNX 静态库链接缺少 `___chkstk_darwin`，`nsh package --target ios` 未能产出设备包；修复链接后验证横屏 `Info.plist`。
 - [ ] Pi 预编译扩展、深链 OAuth 与图片处理的手机宿主验证；完整桌面 SDK 根入口的兼容问题见既有兼容层记录。
 
 ## 模型服务认证与订阅接入（2026-11-07 调研）

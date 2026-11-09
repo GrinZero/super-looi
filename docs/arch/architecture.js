@@ -4,7 +4,7 @@ globalThis.LOOI_ARCH = {
   height: 800,
   views: [
     { id: "all", label: "架构总览", description: "手机本地运行 Agent，直接连接模型、语音、具身底座与家居服务。", nodes: [] },
-    { id: "agent", label: "任务执行", description: "文字从界面进入共享任务入口，Pi 执行工具并将结果写回界面。", nodes: ["app", "store", "runtime", "agent", "models", "compat", "native", "contracts", "body"] },
+    { id: "agent", label: "任务执行", description: "Pi 的异步 Shell 经宿主 ShellRunner 执行 Alpine 命令，流式输出进入任务详情，终态回执写入 SQLite。", nodes: ["app", "store", "runtime", "agent", "models", "compat", "native", "contracts", "body"] },
     { id: "voice", label: "语音唤醒", description: "Rust 本地 KWS 待机，命中后复用音频流建立可销毁的 LiveVoiceSession；VoiceTaskCoordinator 协同短任务直返与长任务后台 WHEN_IDLE 播报。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native", "body"] },
     { id: "telemetry", label: "可观测性", description: "Voice Socket、Agent Loop 与 LLM StreamFn 共用 TraceContext；本地 Langfuse v4 接收 OTLP 观测。", nodes: ["voice", "store", "runtime", "agent", "doubao"] },
     { id: "home", label: "家居控制", description: "管理界面与 Agent 家居工具共用 HomeRuntime，经网关访问 HA 或 MIoT。", nodes: ["app", "store", "runtime", "agent", "home", "gateway", "services", "contracts"] },
@@ -33,10 +33,11 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "agent", x: 535, y: 86, title: "Pi Agent Loop", symbol: "spark", category: "TypeScript · 任务执行", detail: "模型推理 / 文件 / Shell / 问答", path: "packages/looi-runtime/src/agent/pi-executor.ts",
-      description: "PiAgentExecutor 封装 pi-agent-core 的 Agent。执行读写文件、Shell、用户问答及家居工具，StreamFn 与工具调用生成 Langfuse 观测。",
+      description: "PiAgentExecutor 封装 pi-agent-core 的 Agent。Shell 透传五分钟超时、三秒回收宽限期；local_auto 对工作区外系统变更审批。运行输出通过 onShellOutput 进入 16 KiB 瞬态缓冲，所有终态持久化合计 8 KiB 双流尾部与命令回执。StreamFn 与工具调用生成 Langfuse 观测。",
       files: [
         { path: "packages/looi-runtime/src/agent/pi-executor.ts", entry: "export class PiAgentExecutor", anchors: [{ label: "执行器入口", match: "export class PiAgentExecutor" }, { label: "创建 Agent", match: "new Agent(" }] },
         { path: "packages/looi-runtime/src/agent/executor.ts", entry: "export interface AgentExecutor" },
+        { path: "packages/looi-runtime/src/agent/shell-output.ts", entry: "export function utf8Tail" },
         { path: "packages/looi-runtime/src/telemetry/llm-observer.ts", entry: "export function wrapStreamFnWithLangfuse" },
       ],
     },
@@ -152,11 +153,19 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "compat", x: 280, y: 676, compact: true, title: "Node 兼容层", symbol: "braces", category: "TypeScript + Rust", detail: "fs / SQLite / Shell / 构建适配", path: "packages/nsh-node-compat/src/native-host.ts",
-      description: "构建时替换 Node 模块，运行时安装 __nsh_compat 等桥接函数。NodeCompat 将 JavaScript 请求交给 Rust Bridge，执行本机文件、SQLite 与 Shell 操作。",
+      description: "NodeCompat 将请求交给 Rust Bridge。移动端 ARM64 异步命令由 ShellRunner 注入 Android PRoot / iOS iSH；只映射 /workspace，包与 /root 存入独立 Linux guest，Agent 账本保留在宿主 /home。shell.drain 与 wait 原子尾块传递双流和带外状态。同步 Shell、直接 rg/fd 与未注入宿主使用基础执行器。",
       files: [
         { path: "packages/nsh-node-compat/src/native-host.ts", entry: "export function installNshNativeCompat" },
         { path: "apps/nsh/src/compat.rs", entry: "pub struct NodeCompat" },
         { path: "packages/nsh-node-compat/rust/src/bridge.rs", entry: "pub struct Bridge" },
+        { path: "packages/nsh-node-compat/rust/src/shell_runner.rs", entry: "pub trait ShellRunner" },
+        { path: "packages/nsh-node-compat/src/pi-coding-bundler.ts", entry: "export function nshPiCodingToolsPlugin" },
+        { path: "packages/nsh-node-compat/rust/src/sandbox.rs", entry: "pub fn resolve(" },
+        { path: "apps/nsh/src/linux_shell.rs", entry: "pub struct LinuxShell" },
+        { path: "apps/nsh/src/linux_shell/android.rs", entry: "pub fn run(" },
+        { path: "apps/nsh/src/linux_shell/ios.rs", entry: "pub fn run(" },
+        { path: "apps/nsh/native/linux/ish_host.m", entry: "int looi_ish_boot(" },
+        { path: "apps/nsh/ui/TaskShellOutput.tsx", entry: "export function TaskShellOutput" },
         { path: "apps/nsh/scripts/build-runtime.ts", entry: "export async function buildRuntime" },
       ],
     },

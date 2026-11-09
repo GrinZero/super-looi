@@ -79,6 +79,9 @@ export async function verifyLinuxShell(onOutput: (event: AgentShellOutput) => vo
   }
   fs.writeFileSync("/workspace/linux-probe/absolute","changed");
   equal((await command("cat linux-probe/hardlink")).stdout,"changed");
+  fs.writeFileSync("/workspace/linux-probe/hardlink","changed-through-hardlink");
+  equal((await command("cat linux-probe/original")).stdout,"changed-through-hardlink");
+  equal((await command("ln linux-probe/original z-linux-hardlink; ln -s /usr/bin/python3 a-linux-external")).status,0);
   let denied = false;
   try { fs.readFileSync("/workspace/linux-probe/external"); } catch { denied = true; }
   assert(denied,"external guest link was exposed to file tools");
@@ -92,7 +95,7 @@ export async function verifyLinuxShell(onOutput: (event: AgentShellOutput) => vo
   pass("relative/absolute links, hardlinks and external link rejection");
   if (installPackages) {
     const faux = fauxProvider(), models = createModels(); models.setProvider(faux.provider);
-    const scripts = ["apk add git python3 nodejs npm ripgrep", "npm install -g pnpm", "git --version && python3 -c 'print(123)' && node -v && pnpm -v && rg --version"];
+    const scripts = ["apk add git python3 nodejs npm ripgrep", "npm install -g pnpm", "git --version && python3 -c 'print(123)' && node -v && pnpm -v && rg --version && printf artifact >> z-linux-hardlink"];
     faux.setResponses([...scripts.map(script=>fauxAssistantMessage(fauxToolCall("bash",{command:script}),{stopReason:"toolUse"})),fauxAssistantMessage("Packages ready")]);
     const executor = new PiAgentExecutor({stateDirectory:"/home/agent/linux-probe",workspaceRoot:"/workspace",modelSpec:faux.getModel(),streamFn:models.streamSimple.bind(models),commandTimeoutMs:300_000,deadlineMs:600_000});
     let approvals=0;
@@ -105,6 +108,8 @@ export async function verifyLinuxShell(onOutput: (event: AgentShellOutput) => vo
         assert(receipt.exitCode===0 && !receipt.timedOut,JSON.stringify(receipt));
       }
       equal(report.executions?.length,3);
+      assert(report.artifacts?.some(item=>item.path==="z-linux-hardlink"),"hardlink artifact was lost after an external symlink");
+      assert(!report.artifacts?.some(item=>item.path==="a-linux-external"),"external symlink became an artifact");
     } finally { await executor.close(); }
     pass("approved apk/npm installation and executable versions");
   }
