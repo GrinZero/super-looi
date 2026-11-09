@@ -272,3 +272,33 @@ fn navigation_preserves_model_draft_and_selection() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[test]
+fn back_traverses_home_subpages_before_leaving_management() -> Result<(), String> {
+    let data = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let mut app = open_app(data.path(), MemoryStorage::new([]), "zh-CN")?;
+    app.press("connection-settings")?;
+    app.wait_for("nav-home")?;
+    app.press("nav-home")?;
+    app.wait_for("home-tab-services")?;
+    app.press("home-tab-services")?;
+    app.wait_for("home-service-tab-simulation")?;
+    app.press("back-btn")?;
+    app.wait_for("home-empty-enable-sim")?;
+    app.press("home-empty-enable-sim")?;
+    app.wait_for("id:home-card-simulation:sim_hall_camera")?;
+    app.press("id:home-card-simulation:sim_hall_camera")?;
+    app.wait_for("home-detail-back")?;
+    app.back()?;
+    app.wait_for("id:home-card-simulation:sim_hall_camera")?;
+    assert!(!app.shows("home-detail-back"));
+    app.back()?;
+    app.wait_for("connection-settings")?;
+    app.press("connection-settings")?;
+    app.wait_for("nav-voice")?;
+    app.press("nav-voice")?;
+    app.wait_for("voice-id")?;
+    app.back()?;
+    app.wait_for("connection-settings")?;
+    Ok(())
+}

@@ -2128,13 +2128,14 @@ export function RobotFace(props: {
   state: FaceVisualState;
   shift: { dx: number; dy: number };
 }) {
+  const pageActive = computed(() => props.active !== false);
   const breath = createMotion();
   const activeBreath = computed(() => {
     const recipe =
       FACE_EXPRESSION_RECIPES[props.state.expression] ??
       FACE_EXPRESSION_RECIPES.neutral;
     return (
-      props.active !== false &&
+      pageActive() &&
       lifecycle() === "active" &&
       !reduceMotion() &&
       recipe.allowsBreath !== false
@@ -2254,7 +2255,7 @@ export function RobotFace(props: {
   };
 
   effect(() => {
-    const active = props.active !== false && lifecycle() === "active" && !reduceMotion();
+    const active = pageActive() && lifecycle() === "active" && !reduceMotion();
     const next = cloneVisualState(props.state);
     const exprChanged = toSnapshot.expression !== next.expression;
     const gazeDelta =
@@ -2319,6 +2320,7 @@ export function RobotFace(props: {
       class="absolute inset-0"
       style={{ minHeight: 180, opacity: breath.opacity }}
       draw={(cx, size) => {
+        if (!pageActive()) return;
         const currentFrame = frame();
         drawRobotFaceTransition(
           cx,

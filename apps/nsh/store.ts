@@ -1092,6 +1092,23 @@ export function createAppStore() {
       }
       activeSpace.set("face");
     },
+    goBack(): boolean {
+      const space = activeSpace();
+      if (space === "face") return false;
+      if (space === "home") {
+        if (homeInspectedApplianceId() !== null) {
+          api.setHomeInspectedApplianceId(null);
+          return true;
+        }
+        if (homeSubView() === "services") {
+          if (homeLoggingIn()) api.cancelHomeLogin();
+          api.setHomeSubView("devices");
+          return true;
+        }
+      }
+      api.backToFace();
+      return true;
+    },
     appearance: () => colorScheme(),
     appearanceMode: () => appearancePreference(),
     taskApprovalMode: () => taskApprovalMode(),

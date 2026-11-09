@@ -1,6 +1,7 @@
 import { t } from "./i18n";
 import { Canvas, effect, host, mount, signal, Text, View, token } from "nsh";
 import { Button, Input } from "nsh/base";
+import { BackHandler } from "nsh/mobile";
 import { createAppStore } from "./store";
 import {
   ActionButton,
@@ -75,6 +76,7 @@ function HomeHeaderIcon(props: { kind: "chat" | "settings"; active?: boolean }) 
 
 function App() {
   const store = createAppStore();
+  BackHandler.on("press", () => store.goBack());
   const missingCutout = signal({ left: 0, right: 0 });
   host.on<{ left: number; right: number }>("super-looi/display-cutout", (insets) => {
     if (missingCutout().left !== insets.left || missingCutout().right !== insets.right)

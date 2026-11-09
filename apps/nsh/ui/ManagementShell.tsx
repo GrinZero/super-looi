@@ -456,7 +456,7 @@ export function ManagementShell(props: {
             {renderContextPillBar()}
             <Button
               testID="back-btn"
-              onPress={() => props.store.backToFace()}
+              onPress={() => props.store.goBack()}
               class="min-h-11 px-2.5 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
             >
               <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
@@ -545,7 +545,7 @@ export function ManagementShell(props: {
             {renderContextPillBar()}
             <Button
               testID="back-btn"
-              onPress={() => props.store.backToFace()}
+              onPress={() => props.store.goBack()}
               class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
             >
               <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
