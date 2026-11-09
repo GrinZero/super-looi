@@ -1,17 +1,32 @@
 # Super LOOI NSH app
 
-固定 NSH 0.4.0 / `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`，Rust typed class + TSX。桌宠主页提供圆眼表情、文字对话、LIVE 语音、任务停止与连接入口；管理空间分为模型、语音、家居和任务。Pi Agent Loop 提供文件读写、Shell、用户问答与家居工具；模型由手机直连，模型与语音凭证存系统安全存储。任务与会话保存在本机，支持重开恢复。
+固定 NSH 0.4.0 / `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`，Rust typed class + TSX。桌宠主页提供圆眼表情、文字对话、LIVE 语音、任务停止与连接入口；管理空间分为模型、语音、家居、底座、任务与设置。Pi Agent Loop 提供文件读写、Shell、用户问答与家居工具；模型由手机直连，模型与语音凭证存系统安全存储。任务与会话保存在本机，支持重开恢复。
 
 应用图标使用 [`assets/brand/super-looi-app-icon.png`](../../assets/brand/super-looi-app-icon.png)；`nsh.json` 的 `icon` 字段供 NSH 打包时生成 iOS `AppIcon` asset catalog 和 Android launcher 图标。[iOS 模拟器桌面截图](../../docs/artifacts/app-icon/ios-home.png)展示安装后的图标。
 
-需要安装带项目图标的 iOS 模拟器应用或生成 Android APK 时运行：
+## 真机运行与打包
+
+根目录安装依赖并执行 `pnpm build` 后，使用连接的手机运行开发版本：
 
 ```sh
-pnpm --filter @super-looi/nsh exec node --import tsx scripts/nsh.ts package --target ios-simulator --run
-pnpm --filter @super-looi/nsh exec node --import tsx scripts/nsh.ts package --target android
+# Android：序列号由 adb devices 查看。
+pnpm --filter @super-looi/nsh exec node --import tsx scripts/nsh.ts run --target android --device "<ADB_SERIAL>"
+# iPhone：设备标识由 xcrun devicectl list devices 查看。
+pnpm ios --device "<IPHONE_UDID>"
 ```
 
-`pnpm ios` 启动的是 NSH 通用开发宿主 `NshDev`；主屏幕上的 `Super LOOI` 图标对应上面打包安装的应用。
+iPhone 在根目录 `.env` 配置 `IOS_SIGN_IDENTITY` 与 `IOS_PROVISIONING_PROFILE`。脚本会打包签名，再通过 `devicectl` 安装和运行；无设备参数的 `pnpm ios` / `pnpm mobile` 会提示指定真机。Android 运行使用 NSH 开发宿主。
+
+生成带项目图标的应用包：
+
+```sh
+pnpm --filter @super-looi/nsh exec node --import tsx scripts/nsh.ts package --target android
+pnpm --filter @super-looi/nsh exec node --import tsx scripts/nsh.ts package --target ios --sign "<SIGN_IDENTITY>" --profile "/absolute/path/to/profile.mobileprovision"
+```
+
+Linux Shell 的构建依赖和平台实现见 [Linux Shell 说明](../../docs/nsh-linux-shell.md)。
+
+## 构建与验证命令
 
 ```sh
 pnpm --filter @super-looi/nsh build
@@ -20,15 +35,15 @@ pnpm --filter @super-looi/nsh test
 pnpm --filter @super-looi/nsh test:voice-runtime
 pnpm --filter @super-looi/nsh test:wake:ios
 pnpm --filter @super-looi/nsh test:plugins
-pnpm --filter @super-looi/nsh test:ios
-pnpm --filter @super-looi/nsh test:android
+pnpm --filter @super-looi/nsh test:ios --device "<IPHONE_UDID>"
+pnpm --filter @super-looi/nsh test:android --device "<ADB_SERIAL>"
 pnpm --filter @super-looi/nsh test:live:ios
 pnpm --filter @super-looi/nsh test:live:android
 pnpm --filter @super-looi/nsh test:live:sdk:ios
 pnpm --filter @super-looi/nsh test:live:sdk:android
 pnpm --filter @super-looi/nsh test:ui:ios
 pnpm --filter @super-looi/nsh test:ui:android
-pnpm --filter @super-looi/nsh ios
+pnpm --filter @super-looi/nsh ios --device "<IPHONE_UDID>"
 ```
 
 在「语音」空间保存当前 Realtime 服务的 API Key 后，Hey LOOI 自动唤醒默认开启（仍可在「会话控制」手动关闭）。默认服务为豆包 Duplex V3；在根目录 `.env` 设置 `VOICE_PROVIDER=openai` 后构建，可使用 OpenAI Realtime 协议适配器。前台待机时，Rust 音频线程把 16 kHz PCM 交给本机 sherpa-onnx KWS 工作线程；命中后沿用同一硬件音频流建立 Realtime 会话，播放就绪双音，再开始上行。会话在回复真正播完后继续聆听，12 秒无人说话便关闭 WebSocket 并回到本地待机。进入后台或米家登录时停止麦克风，返回前台后恢复已启用的自动唤醒。
@@ -46,3 +61,19 @@ pnpm --filter @super-looi/nsh ios
 十组测试及凭据 CRUD 已在 iOS 26.3 / iPhone 16e 与 Android 14 / API 34 ARM64 模拟器通过。NSH hardened engine 配私有临时目录、256 MiB 配额。`App.tsx` 整页测试在 `tests/app_ui.rs` 中通过 Rust `Headless` 配置私有临时目录；普通 TSX headless `open()` 不提供数据目录，`App.test.tsx` 仅测试不依赖原生存储的国际化格式化。Android 固定 test driver 忽略 Dialog 的焦点，UI 验证采用独立系统 UiAutomation instrumentation，实际点击、中文输入和回读已通过。
 
 当前应用不依赖 Hub 或 Expo。旧端归档于 `archive/legacy-hub-and-expo`。LOOI 底座已通过 iOS / Android 原生 BLE 桥接接入；双端媒体/AEC、相机与商店签名等后续工作见根目录 [todo.md](../../todo.md)。模拟器 Release 冷启动和持久化记录见 [原生网络与版本复验](../../docs/nsh-native-live-verification.md)。
+
+## 家居连接
+
+在管理空间「家居」的服务绑定面板中配置：
+
+- **米家直连**：选择账号所属地区，在登录页完成小米账号授权，再刷新设备。手机直接访问 MIoT 服务。
+- **Home Assistant**：填写手机可访问的 **HTTPS** 实例地址，以及在 Home Assistant「个人资料 → 安全」创建的长期访问令牌，点击连接。地址和令牌在应用内保存。
+- **离线演示**：启用演示设备后即可体验房间分类与设备卡片；操作改变本地演示状态。
+
+如需在本机部署 Home Assistant，可运行 `docker compose -f docker-compose.home.yml up -d`，并为手机提供可访问的 HTTPS 入口。使用 HA 接入米家时，在 HA 中添加 Xiaomi Home 集成。米家直连与 HA 的设备由应用聚合到家居空间。
+
+## 开发观测
+
+在根目录 `.env` 设置 `LOOI_DEBUG_TELEMETRY=1`、`LANGFUSE_BASE_URL`、`LANGFUSE_PUBLIC_KEY` 与 `LANGFUSE_SECRET_KEY`。开发运行将语音会话、模型请求与工具执行通过 OTLP 发送到 Langfuse；语音发起的 Agent 任务通过 Trace Context（追踪上下文）关联。
+
+本地 Langfuse 可通过 `docker compose -f docker-compose.langfuse.yml up -d` 启动，`LANGFUSE_BASE_URL` 需填写手机可访问的地址，并符合 `nsh.json` 的网络能力配置。通过上面的 Android 开发运行命令或 `pnpm ios --device "<IPHONE_UDID>"` 启动。显式执行 `scripts/nsh.ts package` 的发布打包不包含开发观测凭证。
