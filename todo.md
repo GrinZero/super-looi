@@ -2,6 +2,8 @@
 
 ## 智能家居能力与视觉还原
 
+实施依据：[真机能力、拖边布局与设计还原方案](docs/plans/smart-home-device-and-design-repair-plan.md)。
+
 - [ ] 按真机调研补齐 MIoT 可写属性和动作映射、HA 风扇参数、能力元语组装；真实风扇具备 4 档风速、3 种模式、摇头及角度，但当前仅组装电源。
 - [ ] 修复布局入口重复、尺寸按钮替代拖边、窗口宽度决定列数导致卡片过窄，以及 PM2.5 和家电图标缺少语义视觉的问题。
 - [ ] 修复洗碗机误归洗衣机、监控流/分辨率占位文案和存储单位错误；证据见 `docs/artifacts/home-repair-audit/capability-inventory.json`。
