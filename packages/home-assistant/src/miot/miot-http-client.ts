@@ -1,11 +1,19 @@
 import { MIOT_CLIENT_ID, miotHost, miotJson, record, unwrapMiot, validateClientId, type MiotNetworkOptions, type MiotRegion } from "./protocol.js";
 
+/** Only action callers need the cloud rejection code to distinguish a rejected
+ * start from an unknown transport outcome. */
+export class MiotActionRequestError extends Error {
+  constructor(readonly code: number) { super("miot_action_rejected"); }
+}
+
 export interface MiotHome { id: string; name: string; dids: string[]; rooms: Array<{ id: string; name: string; dids: string[] }> }
 /** Public inventory intentionally excludes LAN tokens, IPs, network names and owner data. */
 export interface MiotDevice { did: string; name: string; model: string; urn: string; online: boolean; home?: string; room?: string }
 export interface MiotPropertyRef { did: string; siid: number; piid: number }
 export interface MiotPropertyResult extends MiotPropertyRef { code: number; value?: string | number | boolean }
 export interface MiotPropertyWrite extends MiotPropertyRef { value: number | boolean }
+export interface MiotActionCall { did: string; siid: number; aiid: number; in?: Array<string | number | boolean> }
+export interface MiotActionResult { did: string; siid: number; aiid: number; code: number; out?: unknown[] }
 export const miotPropertyKey = (property: MiotPropertyRef): string => `${property.did}/${property.siid}/${property.piid}`;
 
 function rows(value: unknown): Record<string, unknown>[] {
@@ -42,10 +50,12 @@ export class MiotHttpClient {
     try { token = await this.options.getAccessToken(); }
     catch { throw new Error("miot_auth_required"); }
     if (!token) throw new Error("miot_auth_required");
-    return unwrapMiot(await miotJson(`${miotHost(this.region)}/app/v2/${path}`, {
+    const response = await miotJson(`${miotHost(this.region)}/app/v2/${path}`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer${token}`,
         "X-Client-BizId": "haapi", "X-Client-AppId": this.clientId }, body: JSON.stringify(data),
-    }, this.options));
+    }, this.options);
+    if (path === "miotspec/action" && record(response) && typeof response.code === "number" && response.code !== 0) throw new MiotActionRequestError(response.code);
+    return unwrapMiot(response);
   }
 
   async listHomes(): Promise<MiotHome[]> {
@@ -130,6 +140,27 @@ export class MiotHttpClient {
       if (typeof property.value !== "boolean" && !(typeof property.value === "number" && Number.isFinite(property.value))) throw new Error("miot_invalid_property");
     }
     return this.propertyResults(await this.post("miotspec/prop/set", { params: properties }), properties);
+  }
+
+  async callAction(action: MiotActionCall): Promise<MiotActionResult> {
+    if (typeof action.did !== "string" || !action.did || !Number.isSafeInteger(action.siid) || action.siid <= 0
+      || !Number.isSafeInteger(action.aiid) || action.aiid <= 0) throw new Error("miot_invalid_action");
+    const args = action.in ?? [];
+    if (!Array.isArray(args) || args.some((item) => typeof item !== "boolean" && typeof item !== "string" && !(typeof item === "number" && Number.isFinite(item)))) {
+      throw new Error("miot_invalid_action");
+    }
+    const result = await this.post("miotspec/action", {
+      params: { did: action.did, siid: action.siid, aiid: action.aiid, in: args },
+    });
+    if (!record(result)) throw new Error("miot_invalid_response");
+    const code = typeof result.code === "number" && Number.isFinite(result.code) ? result.code : 0;
+    return {
+      did: action.did,
+      siid: action.siid,
+      aiid: action.aiid,
+      code,
+      ...(Array.isArray(result.out) ? { out: result.out } : {}),
+    };
   }
 
   private propertyResults(value: unknown, requested: MiotPropertyRef[]): MiotPropertyResult[] {

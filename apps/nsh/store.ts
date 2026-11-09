@@ -397,6 +397,27 @@ export function createAppStore() {
   const homeSelectedRoom = signal<string>("all");
   const homeLayoutEditing = signal<boolean>(false);
   const homeInspectedApplianceId = signal<string | null>(null);
+  const homeCamera = signal<{
+    phase: "idle" | "loading" | "prepared" | "playing" | "error";
+    url: string | null;
+    seconds: number;
+    buffering: boolean;
+    width?: number;
+    height?: number;
+    error?: string;
+    requestedAt?: number;
+    preparedAt?: number;
+    progressAt?: number;
+  }>({ phase: "idle", url: null, seconds: 0, buffering: false });
+  const cameraRetry = signal(0);
+  let cameraKey = "";
+  let cameraAttempt = 0;
+  function stopHomeCamera() {
+    ++cameraAttempt;
+    homeCamera.set({ phase: "idle", url: null, seconds: 0, buffering: false });
+    void runtime?.stopHomeCamera().catch(() => {});
+  }
+  cleanup(stopHomeCamera);
   const homeLoggingIn = signal(false);
   const homeLoading = signal(true);
   const homeRefreshing = signal(false);
@@ -452,6 +473,73 @@ export function createAppStore() {
       homeSyncInFlight = undefined;
     }
   };
+  effect(() => {
+    const appliance = homeDashboard().allAppliances.find(
+      (item) => item.id === homeInspectedApplianceId(),
+    );
+    const visible =
+      ready() &&
+      lifecycle() === "active" &&
+      activeSpace() === "home" &&
+      homeSubView() === "devices" &&
+      appliance?.icon === "camera";
+    const kind = appliance?.capabilities.visionStream?.playbackKind;
+    const off = appliance?.capabilities.visionStream?.cameraOn === false;
+    const key = visible
+      ? JSON.stringify([
+          appliance.id,
+          kind,
+          off,
+          homeConnection()?.connectionId,
+          cameraRetry(),
+        ])
+      : "";
+    // The dashboard object is replaced by polling; its playback identity isn't.
+    if (key === cameraKey) return;
+    cameraKey = key;
+    stopHomeCamera();
+    if (!visible || !runtime) return;
+    if (appliance.source !== "direct_miot" || kind !== "hls" || off) {
+      homeCamera.set({
+        phase: "error",
+        url: null,
+        seconds: 0,
+        buffering: false,
+        error: off ? "miot_camera_off" : "miot_camera_unsupported",
+      });
+      return;
+    }
+    const attempt = cameraAttempt;
+    homeCamera.set({
+      phase: "loading",
+      url: null,
+      seconds: 0,
+      buffering: true,
+      requestedAt: Date.now(),
+    });
+    void runtime.startHomeCamera(appliance.deviceId).then(
+      (playback) => {
+        if (!alive || attempt !== cameraAttempt) return;
+        homeCamera.update((state) => ({ ...state, url: playback.url }));
+      },
+      (error: unknown) => {
+        if (!alive || attempt !== cameraAttempt) return;
+        const message = error instanceof Error ? error.message : "";
+        homeCamera.set({
+          phase: "error",
+          url: null,
+          seconds: 0,
+          buffering: false,
+          error:
+            /^miot_camera_(unsupported|off|busy|auth|network|action|unavailable)$/.test(
+              message,
+            )
+              ? message
+              : "miot_camera_network",
+        });
+      },
+    );
+  });
   const canAutoStandby = () =>
     ready() &&
     lifecycle() === "active" &&
@@ -1293,11 +1381,51 @@ export function createAppStore() {
     setHomeInspectedApplianceId(id: string | null) {
       homeInspectedApplianceId.set(id);
     },
+    homeCamera: () => homeCamera(),
+    retryHomeCamera() {
+      cameraRetry.update((value) => value + 1);
+    },
+    homeCameraLoaded(url: string, size: { width: number; height: number }) {
+      if (homeCamera().url !== url) return;
+      homeCamera.update((state) => ({
+        ...state,
+        phase: "prepared",
+        width: size.width,
+        height: size.height,
+        preparedAt: Date.now(),
+      }));
+    },
+    homeCameraProgress(url: string, seconds: number) {
+      if (homeCamera().url !== url || seconds <= homeCamera().seconds) return;
+      homeCamera.update((state) => ({
+        ...state,
+        phase: "playing",
+        seconds,
+        buffering: false,
+        progressAt: state.progressAt ?? Date.now(),
+      }));
+    },
+    homeCameraBuffer(url: string, buffering: boolean) {
+      if (homeCamera().url === url)
+        homeCamera.update((state) => ({ ...state, buffering }));
+    },
+    homeCameraFailed(url: string) {
+      if (homeCamera().url !== url) return;
+      stopHomeCamera();
+      homeCamera.set({
+        phase: "error",
+        url: null,
+        seconds: 0,
+        buffering: false,
+        error: "miot_camera_playback",
+      });
+    },
     homeLoggingIn: () => homeLoggingIn(),
     cancelHomeLogin() {
       homeLogin?.cancel();
     },
     async loginMiot(region: HomeConfiguration["region"]) {
+      stopHomeCamera();
       if (!runtime || !homeLogin) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       homeLoggingIn.set(true);
       voice?.stop();
@@ -1317,6 +1445,7 @@ export function createAppStore() {
       }
     },
     async logoutMiot() {
+      stopHomeCamera();
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       homeLogin?.cancel();
       await runtime.logoutMiot(action());
@@ -1324,6 +1453,7 @@ export function createAppStore() {
       await syncHomeDashboard();
     },
     async configureHome(value: Parameters<NativeRuntime["configureHome"]>[0]) {
+      stopHomeCamera();
       homeLogin?.cancel();
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       homeDevices.set({});
@@ -1334,6 +1464,7 @@ export function createAppStore() {
       }
     },
     async connectHome() {
+      stopHomeCamera();
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       await withHomeLoading(async () => {
         homeDevices.set({});
@@ -1363,6 +1494,7 @@ export function createAppStore() {
       }
     },
     async setHomeSourceEnabled(source: HomeSourceId, enabled: boolean) {
+      stopHomeCamera();
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       await withHomeLoading(async () => {
         try {
@@ -1407,6 +1539,15 @@ export function createAppStore() {
       service_data?: Record<string, unknown>;
     }) {
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
+      const inspected = homeDashboard().allAppliances.find(
+        (appliance) => appliance.id === homeInspectedApplianceId(),
+      );
+      if (
+        command.service === "turn_off" &&
+        inspected?.icon === "camera" &&
+        inspected.capabilities.power?.entityId === command.entity_id
+      )
+        stopHomeCamera();
       try {
         return await homePowerState.control(
           command,

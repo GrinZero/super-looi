@@ -8,6 +8,9 @@ import type {
 } from "@super-looi/contracts";
 import {
   defineHaEntity,
+  createMiotCameraSession,
+  MiotCameraError,
+  type MiotCameraSession,
   DirectMiotTransportAdapter,
   executeHomeVoiceTool,
   HomeAssistantGateway,
@@ -126,7 +129,14 @@ interface ConnectionOwner {
   id: string;
   gateway: HomeAssistantGateway;
   uiGateway: HomeAssistantGateway;
-  dashboardEntities: Array<HomeEntityDefinition & { source: HomeSourceId; device_model?: string; original_name?: string }>;
+  directMiot?: DirectMiotTransportAdapter;
+  dashboardEntities: Array<
+    HomeEntityDefinition & {
+      source: HomeSourceId;
+      device_model?: string;
+      original_name?: string;
+    }
+  >;
   transport: HaTransportAdapter;
 }
 const modes: HomeMode[] = [
@@ -201,6 +211,9 @@ export class HomeRuntime {
   private sockets = new Set<HomeRegistrySocket>();
   private actions = new Set<string>();
   private commandQueue: Promise<unknown> = Promise.resolve();
+  private cameraGeneration = 0;
+  private cameraSession?: MiotCameraSession;
+  private cameraQueue: Promise<unknown> = Promise.resolve();
   private readonly sessionId: string;
   private readonly crypto: MiotCryptoProvider;
 
@@ -322,6 +335,7 @@ export class HomeRuntime {
     this.saved = next;
   }
   private invalidate() {
+    void this.stopCamera().catch(() => {});
     ++this.generation;
     this.oauth?.cancelAuthSession();
     this.oauth = undefined;
@@ -442,6 +456,69 @@ export class HomeRuntime {
     next.config.layout = layout;
     this.commit(next);
     return layout;
+  }
+
+  /** The native view detaches immediately; this queue finishes the previous
+   * account's bounded cleanup before another camera may start. */
+  stopCamera(): Promise<void> {
+    ++this.cameraGeneration;
+    const closing = this.cameraSession?.close();
+    this.cameraSession = undefined;
+    const pending = this.cameraQueue
+      .catch(() => {})
+      .then(async () => {
+        await closing;
+      });
+    this.cameraQueue = pending;
+    return pending;
+  }
+
+  startCamera(did: string) {
+    this.assertOpen();
+    const generation = ++this.cameraGeneration;
+    const connectionGeneration = this.generation;
+    const closing = this.cameraSession?.close();
+    this.cameraSession = undefined;
+    const current = () =>
+      !this.closed &&
+      generation === this.cameraGeneration &&
+      connectionGeneration === this.generation;
+    const pending = this.cameraQueue
+      .catch(() => {})
+      .then(async () => {
+        await closing;
+        if (!current()) throw new MiotCameraError("cancelled");
+        const capability = this.owner?.directMiot
+          ?.listCameraCapabilities()
+          .find((camera) => camera.did === did);
+        if (!capability) throw new MiotCameraError("unsupported");
+        const region = this.saved.config.region;
+        const token = await this.auth(true).tokens.getAccessToken();
+        if (!current()) throw new MiotCameraError("cancelled");
+        // This client belongs only to this viewing attempt. Unlike dashboard
+        // requests it must survive generation invalidation to stop a late start.
+        const client = new MiotHttpClient({
+          region,
+          getAccessToken: async () => token,
+          fetch: this.options.fetch ?? fetch,
+          timeoutMs: 7000,
+        });
+        const session = createMiotCameraSession({ client, capability });
+        this.cameraSession = session;
+        try {
+          const playback = await session.ready;
+          if (!current()) {
+            await session.close();
+            throw new MiotCameraError("cancelled");
+          }
+          return playback;
+        } catch (error) {
+          if (this.cameraSession === session) this.cameraSession = undefined;
+          throw error;
+        }
+      });
+    this.cameraQueue = pending;
+    return pending;
   }
 
   private network(generation: number): typeof fetch {
@@ -785,6 +862,9 @@ export class HomeRuntime {
             initialEntities: dashboardEntities,
           }),
           dashboardEntities,
+          ...(transport instanceof DirectMiotTransportAdapter
+            ? { directMiot: transport }
+            : {}),
         };
         this.entityCount = definitions.length;
         return this.connection();
@@ -965,6 +1045,9 @@ export class HomeRuntime {
           initialEntities: allDashboardEntities,
         }),
         dashboardEntities: allDashboardEntities,
+        directMiot: subTransports.get("direct_miot") as
+          | DirectMiotTransportAdapter
+          | undefined,
       };
       this.entityCount = allDashboardEntities.length;
       if (subTransports.size > 0) this.lastError = null;
@@ -983,7 +1066,9 @@ export class HomeRuntime {
     }
   }
 
-  async dashboard(lang: "zh-CN" | "en-US" = "zh-CN"): Promise<HomeDashboardModel> {
+  async dashboard(
+    lang: "zh-CN" | "en-US" = "zh-CN",
+  ): Promise<HomeDashboardModel> {
     this.assertOpen();
     if (!this.owner && this.saved.config.mode !== "disabled") {
       await (this.connecting ?? this.connect());
@@ -999,7 +1084,39 @@ export class HomeRuntime {
       ...ent,
       snapshot: snapshotMap.get(ent.entity_id) ?? null,
     }));
-    return buildHomeDashboardModel(rawRecords, this.saved.config.layout, lang);
+    const dashboard = buildHomeDashboardModel(
+      rawRecords,
+      this.saved.config.layout,
+      lang,
+    );
+    const cameras = owner.directMiot?.listCameraCapabilities() ?? [];
+    for (const appliance of dashboard.allAppliances) {
+      if (
+        appliance.source !== "direct_miot" ||
+        !appliance.capabilities.visionStream
+      )
+        continue;
+      const vision = appliance.capabilities.visionStream;
+      vision.playbackKind =
+        cameras.find((camera) => camera.did === appliance.deviceId)?.kind ??
+        "unsupported";
+      const powerState = rawRecords.find(
+        (record) => record.entity_id === appliance.capabilities.power?.entityId,
+      )?.snapshot?.state;
+      if (powerState === "on" || powerState === "off")
+        vision.cameraOn = powerState === "on";
+      vision.streamActive = false;
+      delete vision.resolutionBadge;
+      vision.statusText =
+        vision.playbackKind === "hls"
+          ? lang === "en-US"
+            ? "Open to view"
+            : "打开详情查看画面"
+          : lang === "en-US"
+            ? "Video not connected"
+            : "实时视频暂未接通";
+    }
+    return dashboard;
   }
 
   async list(query = "", offset = 0): Promise<JsonObject> {

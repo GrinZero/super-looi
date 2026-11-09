@@ -361,6 +361,13 @@ export class MobileRuntime {
     return this.home.setApplianceLayout(applianceId, patch);
   }
 
+  startHomeCamera(did: string) {
+    return this.home.startCamera(did);
+  }
+  stopHomeCamera() {
+    return this.home.stopCamera();
+  }
+
   async controlHomeAppliance(
     command: {
       entity_id: string;

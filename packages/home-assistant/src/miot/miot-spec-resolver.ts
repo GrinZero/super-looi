@@ -7,7 +7,10 @@ export interface MiotSpecProperty {
   readable: boolean; writable: boolean; unit?: string; range?: [number, number, number];
   valueList?: MiotSpecValueOption[];
 }
-export interface MiotSpecService { siid: number; name: string; description: string; properties: MiotSpecProperty[] }
+export interface MiotSpecAction {
+  siid: number; aiid: number; name: string; description: string; in: number[]; out: number[];
+}
+export interface MiotSpecService { siid: number; name: string; description: string; properties: MiotSpecProperty[]; actions?: MiotSpecAction[] }
 export interface MiotSpec { urn: string; deviceType: string; services: MiotSpecService[] }
 
 function urnName(value: unknown, kind: string): string | null {
@@ -49,7 +52,37 @@ export function parseMiotSpec(value: unknown, urn: string): MiotSpec {
         ...(typeof property.unit === "string" ? { unit: property.unit } : {}), ...(range ? { range } : {}),
         ...(valueList && valueList.length > 0 ? { valueList } : {}) });
     }
-    services.push({ siid: Number(service.iid), name, description: typeof service.description === "string" ? service.description : name, properties });
+    const actions: MiotSpecAction[] = [];
+    const actionIds = new Set<number>();
+    if (Array.isArray(service.actions)) {
+      for (const action of service.actions) {
+        if (!record(action) || !Number.isSafeInteger(action.iid) || Number(action.iid) <= 0 || actionIds.has(Number(action.iid))) continue;
+        actionIds.add(Number(action.iid));
+        const actionName = urnName(action.type, "action");
+        if (!actionName) continue;
+        const inPiids = Array.isArray(action.in)
+          ? action.in.filter((n): n is number => typeof n === "number" && Number.isSafeInteger(n) && n > 0)
+          : [];
+        const outPiids = Array.isArray(action.out)
+          ? action.out.filter((n): n is number => typeof n === "number" && Number.isSafeInteger(n) && n > 0)
+          : [];
+        actions.push({
+          siid: Number(service.iid),
+          aiid: Number(action.iid),
+          name: actionName,
+          description: typeof action.description === "string" && action.description.trim() ? action.description.trim() : actionName,
+          in: inPiids,
+          out: outPiids,
+        });
+      }
+    }
+    services.push({
+      siid: Number(service.iid),
+      name,
+      description: typeof service.description === "string" ? service.description : name,
+      properties,
+      ...(actions.length > 0 ? { actions } : {}),
+    });
   }
   return { urn, deviceType, services };
 }

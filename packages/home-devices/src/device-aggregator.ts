@@ -1420,7 +1420,7 @@ export function buildHomeDashboardModel(
         conciseSubtitle = isActive ? lastMotionText : "镜头物理遮蔽中";
 
         const ptzActions: ApplianceActionTrigger[] = [];
-        if (startBtn) {
+        if (startBtn && source !== "direct_miot") {
           ptzActions.push({
             id: startBtn.entity_id,
             label: "连接实时流",

@@ -1,5 +1,5 @@
 import { t, translateMessage } from "../i18n";
-import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
+import { effect, signal, Text, View, Scroll, Video, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { createAppStore } from "../store";
 import { ActionButton, HorizontalValueSlider, LoadingIndicator, SelectField, TextField } from "./Controls";
@@ -40,6 +40,86 @@ function resolveActionIconName(trigger: ApplianceActionTrigger): ActionIconName 
   if (/定位/.test(trigger.label)) return "locate";
   if (/出粮|喂食/.test(trigger.label)) return "dispense";
   return "refresh";
+}
+
+/** The native player has its own stable source; device refreshes update controls. */
+function CameraMonitor(props: { store: ReturnType<typeof createAppStore> }) {
+  const playback = () => props.store.homeCamera();
+  return (
+    <View class="rounded-2xl border border-border bg-card p-4 gap-3">
+      <View
+        class="w-full rounded-xl overflow-hidden bg-secondary items-center justify-center"
+        style={{ aspectRatio: "16 / 9", minHeight: 210, maxHeight: 310 }}
+      >
+        <Each of={playback().url ? [playback().url!] : []} key={(url) => url}>
+          {(source) => {
+            const url = source();
+            return (
+              <Video
+                testID="home-camera-video"
+                src={url}
+                muted
+                controls={false}
+                class="absolute inset-0"
+                progressUpdateInterval={1000}
+                onLoad={(event) =>
+                  props.store.homeCameraLoaded(url, event.size)
+                }
+                onProgress={(event) =>
+                  props.store.homeCameraProgress(url, event.currentTime)
+                }
+                onBuffer={(event) =>
+                  props.store.homeCameraBuffer(url, event.isBuffering)
+                }
+                onError={() => props.store.homeCameraFailed(url)}
+                onEnd={() => props.store.homeCameraFailed(url)}
+              />
+            );
+          }}
+        </Each>
+        <If when={!playback().url}>
+          <View class="items-center gap-3 p-4">
+            <ApplianceIcon kind="camera" active={false} size="lg" />
+            <If when={playback().phase === "loading"}>
+              <LoadingIndicator label={t("cameraConnecting")} />
+            </If>
+            <If when={Boolean(playback().error)}>
+              <Text class="text-muted-foreground text-sm">
+                {translateMessage(playback().error ?? "")}
+              </Text>
+            </If>
+          </View>
+        </If>
+      </View>
+      <View class="flex-row items-center justify-between gap-3">
+        <View class="flex-1 gap-1">
+          <Text
+            testID="home-camera-status"
+            class="text-foreground text-sm font-semibold"
+          >
+            {playback().phase === "playing"
+              ? playback().buffering
+                ? t("cameraBuffering")
+                : t("cameraPlaying")
+              : playback().phase === "error"
+                ? translateMessage(playback().error ?? "")
+                : playback().phase === "idle"
+                  ? t("cameraStopped")
+                  : t("cameraWaiting")}
+          </Text>
+          <If when={Boolean(playback().width && playback().height)}>
+            <Text class="text-muted-foreground text-xs">{`${playback().width} × ${playback().height}`}</Text>
+          </If>
+        </View>
+        <ActionButton
+          testID="home-camera-retry"
+          label={t("cameraReconnect")}
+          kind="quiet"
+          onPress={() => props.store.retryHomeCamera()}
+        />
+      </View>
+    </View>
+  );
 }
 
 export function HomeSpaceView(props: {
@@ -372,7 +452,7 @@ export function HomeSpaceView(props: {
                 </Text>
               </View>
               <Text class="text-muted-foreground text-xs font-medium">
-                {vs?.resolutionBadge ?? "2K HD"}
+                {vs?.resolutionBadge ?? ""}
               </Text>
             </View>
 
@@ -888,115 +968,46 @@ export function HomeSpaceView(props: {
   // DEDICATED FULL-PAGE APPLIANCE VIEWS (Camera, Vacuum, Rice Cooker/Cycle, etc.)
   // ============================================================================
 
-  const renderCameraFullPage = (appliance: HomeAppliance) => {
-    const vs = appliance.capabilities.visionStream;
-    const isStreamActive = appliance.online && appliance.isActive;
+  const renderCameraFullPage = (appliance: () => HomeAppliance) => {
+    const vs = () => appliance().capabilities.visionStream;
 
     return (
       <View class={isWide() ? "flex-row items-start gap-4" : "gap-4"}>
         {/* Left Column: 16:9 Live Monitor Viewport + Quick Controls */}
-        <View class={isWide() ? "flex-1 gap-4" : "w-full gap-4"} style={{ minWidth: 0 }}>
-          <View
-            class="w-full rounded-3xl bg-secondary border border-border p-4 justify-between"
-            style={{ aspectRatio: "16 / 9", minHeight: 210, maxHeight: 310 }}
-          >
-            {/* Top HUD overlay */}
-            <View class="flex-row items-center justify-between gap-2">
-              <View class="flex-row items-center gap-2 px-3 py-1 rounded-full bg-card border border-border">
-                <View
-                  class={
-                    isStreamActive
-                      ? "w-2.5 h-2.5 rounded-full bg-verified"
-                      : "w-2.5 h-2.5 rounded-full bg-muted-foreground"
-                  }
-                />
-                <Text class="text-foreground text-xs font-semibold">
-                  {vs?.statusText ?? appliance.statusBadge}
-                </Text>
-              </View>
-              <View class="flex-row items-center gap-1.5">
-                <View class="px-2.5 py-1 rounded-full bg-card border border-border">
-                  <Text class="text-foreground text-xs font-semibold">
-                    {vs?.resolutionBadge ?? "2K HD"}
-                  </Text>
-                </View>
-                <View class="px-2.5 py-1 rounded-full bg-card border border-border">
-                  <Text class="text-muted-foreground text-xs">
-                    {appliance.sourceLabel}
-                  </Text>
-                </View>
-              </View>
+        <View
+          class={isWide() ? "flex-1 gap-4" : "w-full gap-4"}
+          style={{ minWidth: 0 }}
+        >
+          <CameraMonitor store={props.store} />
+          <If when={(vs()?.ptzActions.length ?? 0) > 0}>
+            <View class="flex-row flex-wrap items-center gap-2">
+              <Each of={vs()?.ptzActions ?? []} key={(action) => action.id}>
+                {(action) => (
+                  <ActionButton
+                    label={action().label}
+                    kind="quiet"
+                    onPress={() => triggerAction(action())}
+                  />
+                )}
+              </Each>
             </View>
-
-            {/* Center Viewport Stage */}
-            <View class="items-center justify-center gap-2.5 my-2">
-              <ApplianceIcon kind="camera" active={isStreamActive} size="lg" />
-              <Text class="text-foreground text-base font-semibold">
-                {isStreamActive
-                  ? vs?.lastMotionText ?? "实时监控画面就绪"
-                  : "摄像机当前处于物理休眠/遮蔽状态"}
-              </Text>
-              <If when={(vs?.ptzActions.length ?? 0) > 0}>
-                <View class="flex-row items-center gap-2 mt-1">
-                  {(vs?.ptzActions ?? []).map((act) => (
-                    <Button
-                      testID={`detail-cam-ptz-${act.id}`}
-                      onPress={() => triggerAction(act)}
-                      class={
-                        act.tone === "primary"
-                          ? "min-h-10 px-4 rounded-full bg-primary flex-row items-center justify-center gap-2 active:opacity-75"
-                          : "min-h-10 px-4 rounded-full bg-card border border-border flex-row items-center justify-center gap-2 active:opacity-75"
-                      }
-                    >
-                      <ActionIcon
-                        name={resolveActionIconName(act)}
-                        tone={act.tone === "primary" ? "primaryFg" : "foreground"}
-                        size={15}
-                      />
-                      <Text
-                        class={
-                          act.tone === "primary"
-                            ? "text-primary-foreground text-xs font-semibold"
-                            : "text-foreground text-xs font-medium"
-                        }
-                      >
-                        {act.label}
-                      </Text>
-                    </Button>
-                  ))}
-                </View>
-              </If>
-            </View>
-
-            {/* Bottom HUD bar */}
-            <View class="flex-row items-center justify-between gap-2">
-              <View class="flex-row items-center gap-1.5">
-                <ActionIcon name="shield" tone="verified" size={14} />
-                <Text class="text-muted-foreground text-xs">
-                  {vs?.storageStatusText ?? "本地与云端移动侦测守护中"}
-                </Text>
-              </View>
-              <If when={vs?.storageUsedPercent !== undefined}>
-                <Text class="text-foreground text-xs font-semibold">
-                  存储已用 {vs?.storageUsedPercent}%
-                </Text>
-              </If>
-            </View>
-          </View>
+          </If>
 
           {/* Quick Feature Toggles */}
-          <If when={(vs?.featureToggles.length ?? 0) > 0}>
+          <If when={(vs()?.featureToggles.length ?? 0) > 0}>
             <View class="rounded-2xl border border-border bg-card p-4 gap-3">
               <Text class="text-foreground text-sm font-semibold">
                 {t("primaryControls")}
               </Text>
               <View class="flex-row items-center gap-2.5 flex-wrap">
-                {(vs?.featureToggles ?? []).map((tog) => (
+                {(vs()?.featureToggles ?? []).map((tog) => (
                   <Button
                     testID={`detail-cam-tog-${tog.id}`}
                     disabled={!tog.controllable}
                     selected={tog.isOn}
-                    onPress={() => togglePower(tog.entityId, tog.domain, tog.isOn)}
+                    onPress={() =>
+                      togglePower(tog.entityId, tog.domain, tog.isOn)
+                    }
                     class={
                       tog.isOn
                         ? "flex-1 min-w-28 min-h-12 px-3.5 rounded-xl bg-primary flex-row items-center justify-between gap-2 active:opacity-75 disabled:opacity-40"
@@ -1026,12 +1037,12 @@ export function HomeSpaceView(props: {
 
         {/* Right Column: Mode Selectors (Night Vision / Sensitivity / Recording) + SD Storage */}
         <View class={isWide() ? "w-80 gap-4" : "w-full gap-4"}>
-          <If when={(vs?.modeSelectors?.length ?? 0) > 0}>
+          <If when={(vs()?.modeSelectors?.length ?? 0) > 0}>
             <View class="rounded-2xl border border-border bg-card p-4 gap-3.5">
               <Text class="text-foreground text-sm font-semibold">
                 {t("cameraStorageAndSettings")}
               </Text>
-              {(vs?.modeSelectors ?? []).map((sel) => (
+              {(vs()?.modeSelectors ?? []).map((sel) => (
                 <View class="gap-1.5">
                   <Text class="text-muted-foreground text-xs font-medium">
                     {sel.label}
@@ -1066,24 +1077,28 @@ export function HomeSpaceView(props: {
             </View>
           </If>
 
-          <If when={vs?.storageStatusText !== undefined}>
+          <If when={vs()?.storageStatusText !== undefined}>
             <View class="rounded-2xl border border-border bg-card p-4 gap-2.5">
               <View class="flex-row items-center justify-between">
-                <Text class="text-foreground text-sm font-semibold">存储卡状态</Text>
+                <Text class="text-foreground text-sm font-semibold">
+                  存储卡状态
+                </Text>
                 <Text class="text-verified text-xs font-semibold">
-                  {vs?.storageUsedPercent !== undefined ? `已用 ${vs.storageUsedPercent}%` : "正常"}
+                  {vs()?.storageUsedPercent !== undefined
+                    ? `已用 ${vs()?.storageUsedPercent}%`
+                    : "正常"}
                 </Text>
               </View>
-              <If when={vs?.storageUsedPercent !== undefined}>
+              <If when={vs()?.storageUsedPercent !== undefined}>
                 <View class="w-full h-2.5 rounded-full bg-muted overflow-hidden">
                   <View
                     class="h-full rounded-full bg-verified"
-                    style={{ width: `${vs?.storageUsedPercent ?? 0}%` }}
+                    style={{ width: `${vs()?.storageUsedPercent ?? 0}%` }}
                   />
                 </View>
               </If>
               <Text class="text-muted-foreground text-xs">
-                {vs?.storageStatusText}
+                {vs()?.storageStatusText}
               </Text>
             </View>
           </If>
@@ -1817,14 +1832,17 @@ export function HomeSpaceView(props: {
     );
   };
 
-  const renderFullPageApplianceView = (appliance: HomeAppliance) => {
-    const power = appliance.capabilities.power;
+  const renderFullPageApplianceView = (appliance: () => HomeAppliance) => {
+    const power = () => appliance().capabilities.power;
 
     return (
       <Scroll class="flex-1" contentClass="p-4 gap-4">
         {/* Top Full-Page Navigation Header */}
         <View class="rounded-2xl border border-border bg-card px-4 py-3 flex-row items-center justify-between gap-3">
-          <View class="flex-row items-center gap-3 flex-1" style={{ minWidth: 0 }}>
+          <View
+            class="flex-row items-center gap-3 flex-1"
+            style={{ minWidth: 0 }}
+          >
             <Button
               testID="home-detail-back"
               accessibilityLabel={t("backToRoom")}
@@ -1842,44 +1860,49 @@ export function HomeSpaceView(props: {
                 class="text-foreground text-lg font-bold"
                 style={{ numberOfLines: 1 }}
               >
-                {appliance.name}
+                {appliance().name}
               </Text>
-              <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 1 }}>
-                {appliance.room} · {appliance.sourceLabel} · {appliance.statusBadge}
+              <Text
+                class="text-muted-foreground text-xs"
+                style={{ numberOfLines: 1 }}
+              >
+                {appliance().room} · {appliance().sourceLabel} ·{" "}
+                {appliance().statusBadge}
               </Text>
             </View>
           </View>
 
           <If
-            when={Boolean(power && power.controllable)}
+            when={Boolean(power() && power()?.controllable)}
             else={
               <View
                 class={
-                  appliance.isActive
+                  appliance().isActive
                     ? "px-3 py-1.5 rounded-full bg-live-active-bg border border-verified"
                     : "px-3 py-1.5 rounded-full bg-muted border border-border"
                 }
               >
                 <Text
                   class={
-                    appliance.isActive
+                    appliance().isActive
                       ? "text-verified text-xs font-semibold"
                       : "text-muted-foreground text-xs"
                   }
                 >
-                  {appliance.statusBadge}
+                  {appliance().statusBadge}
                 </Text>
               </View>
             }
           >
             <PowerIconButton
-              testID={`detail-power-toggle-${appliance.id}`}
-              isOn={Boolean(power?.isOn)}
-              disabled={!power?.controllable}
+              testID={`detail-power-toggle-${appliance().id}`}
+              isOn={Boolean(power()?.isOn)}
+              disabled={!power()?.controllable}
               size="md"
-              accessibilityLabel={power?.isOn ? t("powerOff") : t("powerOn")}
+              accessibilityLabel={power()?.isOn ? t("powerOff") : t("powerOn")}
               onPress={() =>
-                power && togglePower(power.entityId, power.domain, power.isOn)
+                power() &&
+                togglePower(power()!.entityId, power()!.domain, power()!.isOn)
               }
             />
           </If>
@@ -1887,20 +1910,20 @@ export function HomeSpaceView(props: {
 
         {/* Specialized Full-Page Body by Appliance Type */}
         <If
-          when={appliance.icon === "camera"}
+          when={appliance().icon === "camera"}
           else={
             <If
-              when={appliance.icon === "vacuum"}
+              when={appliance().icon === "vacuum"}
               else={
                 <If
-                  when={appliance.archetype === "cycle_appliance"}
-                  else={renderGenericApplianceFullPage(appliance)}
+                  when={appliance().archetype === "cycle_appliance"}
+                  else={renderGenericApplianceFullPage(appliance())}
                 >
-                  {renderCycleApplianceFullPage(appliance)}
+                  {renderCycleApplianceFullPage(appliance())}
                 </If>
               }
             >
-              {renderVacuumFullPage(appliance)}
+              {renderVacuumFullPage(appliance())}
             </If>
           }
         >
@@ -2562,9 +2585,13 @@ export function HomeSpaceView(props: {
           >
             <Each
               of={inspectedAppliance() ? [inspectedAppliance()!] : []}
-              key={applianceKey}
+              key={(appliance) =>
+                appliance.icon === "camera"
+                  ? appliance.id
+                  : applianceKey(appliance)
+              }
             >
-              {(app) => renderFullPageApplianceView(app())}
+              {(app) => renderFullPageApplianceView(app)}
             </Each>
           </If>
         }

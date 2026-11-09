@@ -1,3 +1,4 @@
+import { discoverMiotCamera, type MiotCameraCapability } from "../camera/miot-camera.js";
 import type { HomeEntityDefinition, HomeStateSnapshot } from "@super-looi/contracts";
 import type { HaTransportAdapter } from "../types.js";
 import { bindingProperties, brightnessFromMiot, brightnessToMiot, mapMiotDevice, miotSnapshot, quantizeMiot, type MiotEntityBinding } from "../miot/miot-entity-mapper.js";
@@ -6,6 +7,7 @@ import { MiotSpecResolver } from "../miot/miot-spec-resolver.js";
 
 /** HTTPS cloud transport. A set acknowledgement never changes a cached device state. */
 export class DirectMiotTransportAdapter implements HaTransportAdapter {
+  private cameras: MiotCameraCapability[] = [];
   private bindings = new Map<string, MiotEntityBinding>();
   private discovering: Promise<HomeEntityDefinition[]> | null = null;
   private lastVerifiedAt: string | null = null;
@@ -33,20 +35,26 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
         const devices = await this.options.client.listDevices(homes);
         const bindings = new Map<string, MiotEntityBinding>();
         const failures: string[] = [];
+        const cameras: MiotCameraCapability[] = [];
         // Resolve schemas sequentially to bound requests; the resolver coalesces identical URNs.
         for (const device of devices) {
           try {
             const spec = await this.options.specs.resolve(device.urn);
+            const camera = discoverMiotCamera(device, spec);
+            if (camera) cameras.push(camera);
             for (const binding of mapMiotDevice(device, spec, this.allowed)) bindings.set(binding.definition.entity_id, binding);
           } catch { failures.push(device.did); }
         }
+        this.cameras = cameras;
         this.bindings = bindings; this.discoveryFailures = failures; this.error = null; this.healthy = false;
         return this.listEntities();
-      } catch { this.bindings.clear(); this.healthy = false; this.error = "miot_discovery_failed"; throw new Error(this.error); }
+      } catch { this.cameras = []; this.bindings.clear(); this.healthy = false; this.error = "miot_discovery_failed"; throw new Error(this.error); }
     })();
     this.discovering = promise;
     try { return await promise; } finally { if (this.discovering === promise) this.discovering = null; }
   }
+
+  listCameraCapabilities(): MiotCameraCapability[] { return this.cameras.map(camera => JSON.parse(JSON.stringify(camera)) as MiotCameraCapability); }
 
   listEntities(): HomeEntityDefinition[] { return [...this.bindings.values()].map((binding) => JSON.parse(JSON.stringify(binding.definition)) as HomeEntityDefinition); }
 

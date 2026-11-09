@@ -14,3 +14,5 @@ export * from "./miot/miot-entity-mapper.js";
 export { MIOT_CLIENT_ID } from "./miot/protocol.js";
 export type { MiotRegion } from "./miot/protocol.js";
 export * from "./transports/direct-miot-transport.js";
+
+export * from "./camera/miot-camera.js";
