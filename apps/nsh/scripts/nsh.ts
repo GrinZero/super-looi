@@ -4,8 +4,10 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { nativePluginEnvironment, patchIosApp } from "./native-plugins.mjs";
+import { runIosDevice } from "./ios-device.mjs";
 import { buildRuntime } from "./build-runtime.js";
 import { pickBuildVariables } from "./build-env.mjs";
+import { prepareLinuxShell } from "./prepare-linux-shell.mjs";
 import { prepareSherpaKws } from "./prepare-sherpa-kws.mjs";
 
 const app = resolve(import.meta.dirname, "..");
@@ -69,15 +71,38 @@ const buildVariables = pickBuildVariables(config);
 const target = option("--target");
 if (command === "build" || command === "package" || target === "android" || target === "ios" || target === "ios-simulator" || command.endsWith("-android") || command.endsWith("-ios"))
   await prepareSherpaKws(target === "android" || command.endsWith("-android") ? "android" : target === "ios" || target === "ios-simulator" || command.endsWith("-ios") ? "ios" : "all");
+const isIos = command.endsWith("-ios") || target === "ios" || target === "ios-simulator";
+const isAndroid = command.endsWith("-android") || target === "android";
+if (isIos || isAndroid) await prepareLinuxShell(isAndroid ? "android" : "ios", { ...process.env, ...buildVariables });
 const nativeEnvironment = nativePluginEnvironment(buildVariables, {
   android: command.endsWith("-android") || target === "android",
+  androidDevice: option("--device"),
   iosReleaseSimulator: command === "package" && target === "ios-simulator",
-  iosSimulator:
-    command.endsWith("-ios") || target === "ios" || target === "ios-simulator",
+  ios: isIos,
+  iosSimulator: isIos && (target === "ios-simulator" || (command !== "package" && !option("--device"))),
   iosDevelopment:
     command !== "package" &&
     (command.endsWith("-ios") || target === "ios" || target === "ios-simulator"),
 });
+if (isAndroid && option("--device")) {
+  const requested = option("--device")!;
+  const inventory = spawnSync("adb", ["devices"], {encoding:"utf8"}).stdout;
+  const connected = inventory.split("\n").map(line=>line.trim().split(/\s+/)).some(fields=>fields[0]===requested && fields[1]==="device");
+  if (!connected) throw new Error(`Android device is not connected: ${requested}`);
+  const index = args.indexOf("--device");
+  if (index >= 0) args.splice(index,2);
+  else args.splice(args.findIndex(arg=>arg.startsWith("--device=")),1);
+}
+if (isIos && (command === "run" || command.startsWith("probe-") || command.startsWith("linux-"))) {
+  const device = option("--device");
+  if (!device) throw new Error("Specify --device <iPhone UDID> for physical iOS runs; use package --target ios-simulator for compilation checks");
+  const probe = command.startsWith("probe-") ? {success:"Native bridge verified",timeout:60_000}
+    : command.startsWith("linux-") ? {success:"Linux Shell verified",timeout:600_000} : undefined;
+  const entry = probe ? resolve(app, command.startsWith("linux-") ? "LinuxProbe.tsx" : "CompatProbe.tsx")
+    : args.find(arg=>arg.endsWith(".tsx"));
+  await runIosDevice({binary,app,entry,device,env:nativeEnvironment,config,probe});
+  process.exit(0);
+}
 const uiTarget = command.endsWith("-android") ? "android" : "ios";
 const standardUiSteps =
   [
@@ -222,10 +247,20 @@ if (command.startsWith("ui-"))
     uiTest,
     `import {open,test} from "nsh/test";test(${JSON.stringify(uiTestName)},async()=>{const app=await open("../App.tsx", {network:${JSON.stringify(uiNetwork)}});\n${uiSteps}\n},180000);\n`,
   );
+const nativeProbe = command.startsWith("probe-") || command.startsWith("linux-");
+const probeFile = resolve(app, command.startsWith("linux-") ? ".nsh/LinuxProbe.test.tsx" : ".nsh/CompatProbe.test.tsx");
+if (nativeProbe) {
+  const linux = command.startsWith("linux-");
+  const entry = linux ? "LinuxProbe.tsx" : "CompatProbe.tsx";
+  const success = linux ? "Linux Shell verified" : "Native bridge verified";
+  const timeout = linux ? 600000 : 60000;
+  writeFileSync(probeFile, `import {open,test} from "nsh/test";test(${JSON.stringify(success)},async()=>{const app=await open(${JSON.stringify("../" + entry)});await app.waitFor(${JSON.stringify(success)},{timeout:${timeout}});},${timeout+30000});`);
+}
 const scripted =
   command.startsWith("login-") ||
   command.startsWith("wake-") ||
   command.startsWith("probe-") ||
+  command.startsWith("linux-") ||
   command.startsWith("ui-") ||
   command.startsWith("live-");
 if (command === "wake-ios") {
@@ -263,7 +298,7 @@ const result = scripted
             ? ".nsh/LiveProbe.test.tsx"
             : command.startsWith("ui-")
               ? uiTest
-              : "CompatProbe.tsx",
+              : probeFile,
         ),
         "--target",
         uiTarget,
@@ -277,11 +312,13 @@ const result = scripted
           ? 'await app.waitFor("Native login window verified", {timeout:20000})\n'
           : command.startsWith("wake-")
           ? 'await app.waitFor("Native wake pipeline verified", {timeout:40000})\n'
+          : command.startsWith("linux-")
+          ? 'await app.waitFor("Linux Shell verified", {timeout:600000})\n'
           : command.startsWith("live-")
           ? 'await app.waitFor("Native live verified", {timeout:90000})\n'
           : command.startsWith("ui-")
             ? uiSteps
-            : 'await app.waitFor("Native bridge verified", {timeout:20000})\n',
+            : 'await app.waitFor("Native bridge verified", {timeout:60000})\n',
       },
     )
   : spawnSync(binary, hasCustomEntry ? [command, ...args] : [command, app, ...args], {

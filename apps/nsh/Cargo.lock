@@ -2499,8 +2499,11 @@ name = "nsh-app-nsh"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "cc",
  "dispatch2",
+ "flate2",
  "jni",
+ "libc",
  "nsh-base",
  "nsh-core",
  "nsh-engine",
@@ -2515,6 +2518,7 @@ dependencies = [
  "rolldown_std_utils",
  "rolldown_tracing",
  "security-framework",
+ "tar",
  "tempfile",
  "url",
 ]
@@ -5293,6 +5297,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+ "xattr",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6480,6 +6495,16 @@ dependencies = [
  "curve25519-dalek 5.0.0",
  "rand_core 0.10.1",
  "zeroize",
+]
+
+[[package]]
+name = "xattr"
+version = "1.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "963d6fab92d5504b971dc8bd90ca743c2575e590bc8071ea5bc571598667ae08"
+dependencies = [
+ "libc",
+ "rustix",
 ]
 
 [[package]]

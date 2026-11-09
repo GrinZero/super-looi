@@ -57,11 +57,13 @@ class AndroidPluginTest(unittest.TestCase):
             def tree(path):
                 return subprocess.check_output([str(tools / "aapt2"), "dump", "xmltree", "--file", "AndroidManifest.xml", str(path)], text=True)
             def unchanged(text):
-                return "\n".join(line for line in text.splitlines() if "allowBackup" not in line and "usesCleartextTraffic" not in line and "screenOrientation" not in line and application not in line)
+                return "\n".join(line for line in text.splitlines() if "allowBackup" not in line and "usesCleartextTraffic" not in line and "extractNativeLibs" not in line and "screenOrientation" not in line and application not in line)
             self.assertEqual(unchanged(tree(original)), unchanged(tree(second)))
             self.assertIn(application, tree(second))
             self.assertIn("allowBackup", tree(second))
             self.assertIn("screenOrientation(0x0101001e)=0", tree(second))
+            extracted = next(line for line in tree(second).splitlines() if "extractNativeLibs" in line)
+            self.assertRegex(extracted, r"(?:true|0xffffffff)(?:\s|$)")
             cleartext = next(line for line in tree(second).splitlines() if "usesCleartextTraffic" in line)
             self.assertRegex(cleartext, r"(?:false|0x0)(?:\s|$)")
             self.assertEqual(tree(first), tree(second))

@@ -11,10 +11,13 @@ import {
   lstatSync,
   readlinkSync,
   unlinkSync,
+  copyFileSync,
+  cpSync,
 } from "node:fs";
 import { dirname, resolve, join, delimiter } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
+import { linuxCache } from "./prepare-linux-shell.mjs";
 import { cache as sherpaCache } from "./prepare-sherpa-kws.mjs";
 
 const app = resolve(import.meta.dirname, ".."),
@@ -33,9 +36,10 @@ function run(command, args, options = {}) {
 /** App-local SDK overlay registers a pre-sign plugin without editing NSH,
  * the installed SDK, or Expo prebuild outputs. */
 export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
-  const env = { ...process.env, ...buildVariables, LOOI_SHERPA_CACHE_DIR: sherpaCache };
+  const env = { ...process.env, ...buildVariables, LOOI_SHERPA_CACHE_DIR: sherpaCache, LOOI_LINUX_CACHE_DIR: linuxCache };
   if (env.JAVA_HOME)
     env.PATH = join(env.JAVA_HOME, "bin") + delimiter + env.PATH;
+  if (targets.ios) env.PATH = bin + delimiter + env.PATH;
   if (targets.iosSimulator) {
     env.PATH = bin + delimiter + env.PATH;
     if (targets.iosDevelopment) {
@@ -94,7 +98,6 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
     symlinkSync(source, target);
   };
   for (const name of [
-    "platform-tools",
     "platforms",
     "ndk",
     "cmake",
@@ -103,6 +106,11 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
     "emulator",
   ])
     if (existsSync(join(sdk, name))) link(join(sdk, name), join(overlay, name));
+  const platformTools = join(overlay, "platform-tools");
+  if (existsSync(platformTools) && lstatSync(platformTools).isSymbolicLink()) unlinkSync(platformTools);
+  mkdirSync(platformTools, {recursive:true});
+  for (const name of readdirSync(join(sdk, "platform-tools")))
+    link(name === "adb" ? join(bin,"adb") : join(sdk,"platform-tools",name), join(platformTools,name));
   mkdirSync(join(overlay, "build-tools"), { recursive: true });
   const versions = readdirSync(join(sdk, "build-tools")).filter((version) =>
     existsSync(join(sdk, "build-tools", version, "apksigner")),
@@ -132,6 +140,7 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
     ANDROID_HOME: overlay,
     ANDROID_SDK_ROOT: overlay,
     NSH_REAL_ANDROID_SDK: sdk,
+    LOOI_ANDROID_DEVICE: targets.androidDevice ?? "",
   };
 }
 
@@ -139,6 +148,10 @@ export function patchIosApp(target) {
   if (config.orientation !== "landscape")
     throw new Error("Unsupported app orientation");
   const plist = join(target, "Info.plist");
+  const archive = join(linuxCache, "ios/rootfs.tar.gz");
+  if (!existsSync(archive)) throw new Error("Prepare iSH rootfs before packaging iOS");
+  copyFileSync(archive, join(target, "alpine-fakefs.tar.gz"));
+  cpSync(join(app,"native/linux/licenses"),join(target,"ThirdPartyLicenses/LinuxShell"),{recursive:true});
   const orientations = [
     "UIInterfaceOrientationLandscapeLeft",
     "UIInterfaceOrientationLandscapeRight",
@@ -239,5 +252,20 @@ function applyAndroidPlugin(apk, sdk, tools) {
     run(join(tools, "zipalign"), ["-P", "16", "-f", "4", merged, apk]);
   } finally {
     rmSync(work, { recursive: true, force: true });
+  }
+}
+
+export function adbSelected(args) {
+  const sdk = process.env.NSH_REAL_ANDROID_SDK;
+  if (!sdk) throw new Error("Android device selection requires the original SDK");
+  const selected = process.env.LOOI_ANDROID_DEVICE;
+  if (args[0] === "devices" && selected) {
+    const result = spawnSync(join(sdk,"platform-tools/adb"), args, {encoding:"utf8"});
+    if (result.status === 0) process.stdout.write(result.stdout.split("\n").filter((line,index)=>index===0 || line.split(/\s+/)[0]===selected).join("\n")+"\n");
+    process.stderr.write(result.stderr ?? "");
+    process.exitCode = result.status ?? 1;
+  } else {
+    const result = spawnSync(join(sdk,"platform-tools/adb"), args, {stdio:"inherit"});
+    process.exitCode = result.status ?? 1;
   }
 }

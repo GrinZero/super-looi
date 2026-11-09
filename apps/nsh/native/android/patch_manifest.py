@@ -98,12 +98,12 @@ def patch(data, application, allow_backup=False, orientation="landscape", permis
         raise ValueError("Unsupported app plugin permission")
     if orientation != "landscape":
         raise ValueError("Unsupported app orientation")
-    chunks[pool_index] = extend_pool(chunks[pool_index], strings, [ANDROID, "name", "allowBackup", "usesCleartextTraffic", "screenOrientation", application] + (["uses-permission", *permissions] if permissions else []))
-    indices = {value: strings.index(value) for value in [ANDROID, "name", "allowBackup", "usesCleartextTraffic", "screenOrientation", application]}
+    chunks[pool_index] = extend_pool(chunks[pool_index], strings, [ANDROID, "name", "allowBackup", "usesCleartextTraffic", "extractNativeLibs", "screenOrientation", application] + (["uses-permission", *permissions] if permissions else []))
+    indices = {value: strings.index(value) for value in [ANDROID, "name", "allowBackup", "usesCleartextTraffic", "extractNativeLibs", "screenOrientation", application]}
     resource_index = next(i for i, chunk in enumerate(chunks) if u16(chunk, 0) == 0x180)
     resources = list(struct.unpack("<" + "I" * ((len(chunks[resource_index]) - 8) // 4), chunks[resource_index][8:]))
-    resources.extend([0] * (max(indices["name"], indices["allowBackup"], indices["usesCleartextTraffic"], indices["screenOrientation"]) + 1 - len(resources)))
-    for name, resource in [("name", NAME_ID), ("allowBackup", BACKUP_ID), ("usesCleartextTraffic", 0x010104ec), ("screenOrientation", SCREEN_ORIENTATION_ID)]:
+    resources.extend([0] * (max(indices["name"], indices["allowBackup"], indices["usesCleartextTraffic"], indices["extractNativeLibs"], indices["screenOrientation"]) + 1 - len(resources)))
+    for name, resource in [("name", NAME_ID), ("allowBackup", BACKUP_ID), ("usesCleartextTraffic", 0x010104ec), ("extractNativeLibs", 0x010104ea), ("screenOrientation", SCREEN_ORIENTATION_ID)]:
         index = indices[name]
         if resources[index] not in (0, resource):
             raise ValueError("Conflicting manifest resource ID")
@@ -124,6 +124,7 @@ def patch(data, application, allow_backup=False, orientation="landscape", permis
             indices["allowBackup"]: struct.pack("<IIIHBBI", indices[ANDROID], indices["allowBackup"], NO_INDEX, 8, 0, 0x12, int(allow_backup)),
         }
         replacement[indices["usesCleartextTraffic"]] = struct.pack("<IIIHBBI", indices[ANDROID], indices["usesCleartextTraffic"], NO_INDEX, 8, 0, 0x12, 0)
+        replacement[indices["extractNativeLibs"]] = struct.pack("<IIIHBBI", indices[ANDROID], indices["extractNativeLibs"], NO_INDEX, 8, 0, 0x12, 1)
         retained = []
         for attr in attrs:
             name = u32(attr, 4)

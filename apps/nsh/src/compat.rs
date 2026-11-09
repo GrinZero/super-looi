@@ -20,8 +20,16 @@ impl NodeCompat {
         sys.access
             .authorize_file_with_paths(data, data, &sys.paths, false)
             .map_err(|e| format!("ERR_ACCESS_DENIED: {e:?}"))?;
+        let data = data.join("node-compat");
+        #[cfg(all(any(target_os = "android", target_os = "ios"), target_arch = "aarch64"))]
+        let runner = Some(
+            std::sync::Arc::new(crate::linux_shell::LinuxShell::new(&data)?)
+                as std::sync::Arc<dyn nsh_node_compat::shell_runner::ShellRunner>,
+        );
+        #[cfg(not(all(any(target_os = "android", target_os = "ios"), target_arch = "aarch64")))]
+        let runner = None;
         Ok(Self {
-            bridge: nsh_node_compat::Bridge::new(&data.join("node-compat"))?,
+            bridge: nsh_node_compat::Bridge::with_shell_runner(&data, runner)?,
         })
     }
     /// Execute a bounded synchronous filesystem, database or utility request.

@@ -24,6 +24,7 @@ import java.lang.ref.WeakReference;
 public final class SuperLooiApplication extends Application {
     private static native void registerVm();
     private static native void registerAudioVm();
+    private static native void registerShellVm(String nativeLibraryDir);
     private static SuperLooiApplication instance;
     private static volatile WeakReference<Activity> activity = new WeakReference<>(null);
     private static volatile String focus = "lost";
@@ -48,6 +49,7 @@ public final class SuperLooiApplication extends Application {
         System.loadLibrary("nsh");
         registerVm();
         registerAudioVm();
+        if (android.os.Process.is64Bit() && Build.SUPPORTED_ABIS[0].equals("arm64-v8a")) registerShellVm(getApplicationInfo().nativeLibraryDir);
         MiotLoginDialog.registerVm();
         LooiBleBridge.registerVm();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
@@ -75,6 +77,15 @@ public final class SuperLooiApplication extends Application {
             public void onActivityStopped(Activity value) {}
             public void onActivitySaveInstanceState(Activity value, Bundle state) {}
         });
+    }
+
+    public static void copyLinuxArchive(String destination) throws java.io.IOException {
+        try (java.io.InputStream input = instance.getAssets().open("alpine-minirootfs.tar.gz");
+             java.io.OutputStream output = new java.io.FileOutputStream(destination)) {
+            byte[] buffer = new byte[65536];
+            int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+        }
     }
 
     private static void observeDisplayCutout(Activity owner) {

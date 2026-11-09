@@ -13,6 +13,11 @@ nsh-base = { git = "https://github.com/longbridge/nsh", rev = "e626a8dd8f8d8b277
 nsh-node-compat-rs = { path = "../../packages/nsh-node-compat/rust" }
 url = "=2.5.8"
 
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+libc = "0.2"
+tar = "0.4"
+flate2 = "1"
+
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 security-framework = "=3.7.0"
 
@@ -37,3 +42,6 @@ rolldown_fs = "=1.2.13"
 rolldown_tracing = "=1.2.13"
 rolldown_devtools = "=1.2.13"
 rolldown_devtools_action = "=1.2.13"
+
+[build-dependencies]
+cc = "1"

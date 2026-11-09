@@ -1,0 +1,19 @@
+{
+  "openminis": "1a71df0f381cefde80bf912b723de6f9831bc177",
+  "ish": "0fd17a135e78b7a0cf08a4f5831217bbb76ed22f",
+  "proot": "8b31a69345730692f2f49a88694fdcaec78b2031",
+  "alpine": {
+    "version": "3.21.3",
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.3-aarch64.tar.gz",
+    "sha256": "ead8a4b37867bd19e7417dd078748e2312c0aea364403d96758d63ea8ff261ea"
+  },
+  "loader": {
+    "version": "Termux proot 5.1.107-70",
+    "path": "src/android/app/src/main/jniLibs/arm64-v8a/libproot-loader.so",
+    "sha256": "44ef39c1e1a18c09f6e4c4b5d6f8bba82d30596598bd155ec162d05c5122ff04"
+  },
+  "talloc": {
+    "url": "https://download.samba.org/pub/talloc/talloc-2.4.2.tar.gz",
+    "sha256": "85ecf9e465e20f98f9950a52e9a411e14320bc555fa257d87697b7e7a9b1d8a6"
+  }
+}

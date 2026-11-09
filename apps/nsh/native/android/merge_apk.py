@@ -65,16 +65,31 @@ def merge(original, dex, out, application, backup, orientation, permissions=()):
                     source = Path(cache) / "android/jniLibs" / abi / library
                     with source.open("rb") as file:
                         native_libs[name] = hashlib.file_digest(file, "sha256").hexdigest()
+        linux = os.environ.get("LOOI_LINUX_CACHE_DIR")
+        linux_sources = {}
+        if linux and "lib/arm64-v8a/libnsh.so" in names:
+            for library in ("libproot.so", "libproot-loader.so"):
+                name = f"lib/arm64-v8a/{library}"
+                source = Path(linux) / "android/jniLibs/arm64-v8a" / library
+                linux_sources[name] = source
+                with source.open("rb") as file:
+                    native_libs[name] = hashlib.file_digest(file, "sha256").hexdigest()
+            linux_sources["assets/alpine-minirootfs.tar.gz"] = Path(linux) / "alpine-minirootfs.tar.gz"
+            for license in (Path(__file__).parents[1] / "linux/licenses").iterdir():
+                if license.is_file(): linux_sources[f"assets/licenses/linux-shell/{license.name}"] = license
         for item in src.infolist():
-            if item.filename.startswith("META-INF/") or item.filename in ("AndroidManifest.xml", marker, owned) or item.filename in native_libs:
+            if item.filename.startswith("META-INF/") or item.filename in ("AndroidManifest.xml", marker, owned) or item.filename in native_libs or item.filename in linux_sources:
                 continue
             with src.open(item) as reader, dst.open(item, "w") as writer:
                 shutil.copyfileobj(reader, writer, 1024 * 1024)
         dst.writestr("AndroidManifest.xml", patch(manifest, application, backup, orientation, permissions), compress_type=zipfile.ZIP_DEFLATED)
         dst.write(dex, dex_name, compress_type=zipfile.ZIP_DEFLATED)
         for name in native_libs:
+            if name in linux_sources: continue
             library = Path(cache) / "android/jniLibs" / name.removeprefix("lib/")
             dst.write(library, name, compress_type=zipfile.ZIP_STORED)
+        for name, source in linux_sources.items():
+            dst.write(source, name, compress_type=zipfile.ZIP_STORED)
         with open(dex, "rb") as file:
             digest = hashlib.file_digest(file, "sha256").hexdigest()
         dst.writestr(marker, json.dumps({"version": 1, "dex": dex_name, "sha256": digest, "native_libs": native_libs}), compress_type=zipfile.ZIP_DEFLATED)

@@ -6,6 +6,8 @@ mod compat;
 mod credentials;
 #[cfg(target_os = "ios")]
 mod keep_awake;
+#[cfg(all(any(target_os = "android", target_os = "ios"), target_arch = "aarch64"))]
+mod linux_shell;
 mod login_browser;
 use audio::VoiceAudio;
 use ble::LooiBle;
