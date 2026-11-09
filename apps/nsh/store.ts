@@ -1,4 +1,5 @@
 import { uiMessage } from "./runtime/messages";
+import { HomePowerState } from "./runtime/home-power-state";
 import { bindLocale, resolveLocale, translateMessage, type LanguagePreference } from "./i18n";
 import {
   cleanup,
@@ -389,6 +390,9 @@ export function createAppStore() {
     rooms: [],
     allAppliances: [],
   });
+  const homePowerState = new HomePowerState(homeDashboard(), (dashboard) => {
+    if (alive) homeDashboard.set(dashboard);
+  });
   const homeSubView = signal<"devices" | "services">("devices");
   const homeSelectedRoom = signal<string>("all");
   const homeLayoutEditing = signal<boolean>(false);
@@ -406,37 +410,46 @@ export function createAppStore() {
       if (alive) homeLoading.set(homePendingLoads > 0);
     }
   };
-  let homeSyncInFlight = false;
-  const syncHomeDashboard = async () => {
-    if (!alive || !runtime || homeSyncInFlight) return;
-    homeSyncInFlight = true;
-    await withHomeLoading(async () => {
-    homeConfiguration.set(runtime!.homeConfiguration());
-    homeConnection.set(runtime!.homeConnection());
-    try {
-      const nextDashboard = await runtime!.homeDashboard(effectiveLocale());
-      if (!alive) return;
-      homeConnection.set(runtime!.homeConnection());
-      homeDashboard.set(nextDashboard);
-      const currentRoom = homeSelectedRoom();
-      if (
-        currentRoom !== "all" &&
-        nextDashboard.rooms.length > 0 &&
-        !nextDashboard.rooms.some((r: HomeRoomSection) => r.name === currentRoom)
-      ) {
-        homeSelectedRoom.set("all");
-      }
-      const inspected = homeInspectedApplianceId();
-      if (
-        inspected &&
-        !nextDashboard.allAppliances.some((a: HomeAppliance) => a.id === inspected)
-      ) {
-        homeInspectedApplianceId.set(null);
-      }
-    } catch {} finally {
-      homeSyncInFlight = false;
+  let homeSyncInFlight: Promise<boolean> | undefined;
+  const syncHomeDashboard = async (afterCurrent = false): Promise<boolean> => {
+    if (homeSyncInFlight) {
+      const synced = await homeSyncInFlight;
+      return afterCurrent ? syncHomeDashboard(true) : synced;
     }
+    if (!alive || !runtime) return false;
+    homeSyncInFlight = withHomeLoading(async () => {
+      homeConfiguration.set(runtime!.homeConfiguration());
+      homeConnection.set(runtime!.homeConnection());
+      try {
+        const nextDashboard = await runtime!.homeDashboard(effectiveLocale());
+        if (!alive) return false;
+        homeConnection.set(runtime!.homeConnection());
+        homePowerState.replaceDashboard(nextDashboard, runtime!.homeConnection()?.connectionId ?? null);
+        const currentRoom = homeSelectedRoom();
+        if (
+          currentRoom !== "all" &&
+          nextDashboard.rooms.length > 0 &&
+          !nextDashboard.rooms.some((r: HomeRoomSection) => r.name === currentRoom)
+        ) {
+          homeSelectedRoom.set("all");
+        }
+        const inspected = homeInspectedApplianceId();
+        if (
+          inspected &&
+          !nextDashboard.allAppliances.some((a: HomeAppliance) => a.id === inspected)
+        ) {
+          homeInspectedApplianceId.set(null);
+        }
+        return true;
+      } catch {
+        return false;
+      }
     });
+    try {
+      return await homeSyncInFlight;
+    } finally {
+      homeSyncInFlight = undefined;
+    }
   };
   const canAutoStandby = () =>
     ready() &&
@@ -1388,12 +1401,11 @@ export function createAppStore() {
     }) {
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       try {
-        const result = await runtime.controlHomeAppliance(command, action());
-        if (alive) {
-          homeDevices.set(await runtime.listHome());
-          await syncHomeDashboard();
-        }
-        return result;
+        return await homePowerState.control(
+          command,
+          () => runtime!.controlHomeAppliance(command, action()),
+          () => syncHomeDashboard(true),
+        );
       } catch (error) {
         if (alive) fail(error);
         return null;

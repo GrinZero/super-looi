@@ -1539,8 +1539,7 @@ export function buildHomeDashboardModel(
   for (const [roomName, roomAppliances] of roomMap.entries()) {
     roomAppliances.sort((a, b) => {
       if (a.order !== b.order) return a.order - b.order;
-      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-      return a.name.localeCompare(b.name, "zh-CN");
+      return a.name.localeCompare(b.name, "zh-CN") || a.id.localeCompare(b.id);
     });
 
     // Aggregate room-level environment metrics
