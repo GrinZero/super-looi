@@ -124,11 +124,15 @@ function citeText(text: string, annotations: Array<UrlCitation | { type: string 
   const characters = Array.from(text);
   for (const citations of [...spans.values()].sort((a, b) => b[0].start_index - a[0].start_index)) {
     const citation = citations[0];
-    const link = citations.map((source) => {
+    const quoted = characters.slice(citation.start_index, citation.end_index).join("");
+    const missing = citations.filter((source) =>
+      !quoted.includes(`](${source.url})`) && !quoted.includes(`](<${source.url}>)`),
+    );
+    if (missing.length === 0) continue;
+    const link = missing.map((source) => {
       const label = source.title.replace(/[\\[\]]/g, "\\$&");
       return `[${label}](<${source.url}>)`;
     }).join(" ");
-    const quoted = characters.slice(citation.start_index, citation.end_index).join("");
     const replacement = /\uE200cite\uE202.*?\uE201/.test(quoted)
       ? quoted.replace(/\uE200cite\uE202.*?\uE201/g, link)
       : `${quoted} (${link})`;

@@ -22,12 +22,12 @@ const citations = [
   { type: "url_citation", start_index: Array.from(prefix).length, end_index: Array.from(text).length, title: "项目介绍", url: "https://example.com/about" },
 ];
 
-function responseBody(search = true, failure = false, refusal?: string): string {
+function responseBody(search = true, failure = false, refusal?: string, output?: { text: string; annotations: typeof citations }): string {
   const message = {
     id: "msg_search", type: "message", role: "assistant", phase: "final_answer", status: "completed",
     content: refusal
       ? [{ type: "refusal", refusal }]
-      : [{ type: "output_text", text: search ? text : "你好。", annotations: search ? citations : [] }],
+      : [{ type: "output_text", text: output?.text ?? (search ? text : "你好。"), annotations: output?.annotations ?? (search ? citations : []) }],
   };
   const call = { id: "ws_search", type: "web_search_call", status: "completed", action: { type: "search", queries: ["GRIN ZERO"] } };
   const events: unknown[] = [{ type: "response.created", response: { id: "resp_search", status: "in_progress" } }];
@@ -74,6 +74,31 @@ test("official OpenAI enables hosted search alongside local tools, records calls
     assert.equal(followUp.toolCallsCount, 0);
     assert.equal(followUp.answer, "你好。");
     assert.match(JSON.stringify(requests[1].input), /https:\/\/example.com\/grin/);
+  } finally {
+    await executor.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("provider-rendered Markdown citations stay clickable without duplicate source links", async () => {
+  const root = mkdtempSync(join(tmpdir(), "looi-search-markdown-"));
+  const url = "https://arxiv.org/abs/2409.09896?utm_source=openai";
+  const introduction = "😀这是相关论文。";
+  const citation = `([arxiv.org](${url}))`;
+  const output = {
+    text: introduction + citation,
+    annotations: [{ type: "url_citation", start_index: Array.from(introduction).length, end_index: Array.from(introduction + citation).length, title: "GRIN: Zero-Shot Metric Depth", url }],
+  };
+  const executor = new PiAgentExecutor({
+    stateDirectory: root, modelSpec: model,
+    streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
+      ...options, apiKey: "sk-test", maxRetries: 0,
+      fetch: async () => new Response(responseBody(true, false, undefined, output), { headers: { "content-type": "text/event-stream" } }),
+    }),
+  });
+  try {
+    const result = await executor.run("搜索相关论文");
+    assert.equal(result.answer, output.text);
   } finally {
     await executor.close();
     rmSync(root, { recursive: true, force: true });
