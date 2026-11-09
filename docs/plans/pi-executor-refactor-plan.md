@@ -24,24 +24,53 @@
 
 ---
 
-## 2. 模块边界与目录结构
+## 2. 模块边界与目录结构（五大正交维度分治）
+
+按 Agent 的五大正交维度（**`core/` 执行内核**、**`prompts/` 提示词与语言策略**、**`governance/` 安全门控与路径沙盒**、**`memory/` 会话与个人事实记忆**、**`tools/` 工具箱**）组织 `packages/looi-runtime/src/agent/`，并将移动端宿主专有的底座/家居工具抽离到 `apps/nsh/runtime/tools/`：
 
 ```text
 packages/looi-runtime/src/agent/
-├── executor.ts          # 对外接口契约（AgentExecutor / AgentTask / AgentRunOptions 等，保持不变）
-├── pi-executor.ts       # PiAgentExecutor 外观与准入调度器：管理任务准入、会话互斥、活跃 PiTaskRunner 映射与统一关闭
-├── pi-task-runner.ts    # PiTaskRunner：单次任务的 Agent 生命周期、预算熔断、Langfuse 追踪、错误脱敏与优雅停止
-├── interaction-gate.ts  # InteractionGate & ApprovalActionReplayGuard：交互挂起/超时结算与 UI 审批令牌防重放校验
-├── session-store.ts     # SessionTranscriptStore：会话历史 JSON 原子加载与持久化
-├── model-resolver.ts    # resolvePiModelAndStream：模型规格与 StreamFn 三路解析
-└── tools/               # Agent 内置工具集子目录（按工具职责拆分为一目了然的单文件）
-    ├── index.ts              # createWorkspaceCodingTools：组装内置工具集与附加工具
-    ├── types.ts              # WorkspaceToolsHost 与 WorkspaceArtifact 契约
-    ├── artifact-tracker.ts   # WorkspaceArtifactTracker：工作区文件包含性校验与 SHA-256 产物账本
-    ├── read-file.ts          # read_file 与 read（别名）工具
-    ├── write-file.ts         # write_file 工具
-    ├── bash.ts               # bash 工具（/bin/sh 进程组派生、双流 UTF-8 尾部截断、超时与 SIGTERM 清理追踪）
-    └── ask-user-question.ts  # ask_user_question 结构化提问挂起工具
+├── executor.ts                  # [契约] 对外接口契约（AgentExecutor / AgentTask / AgentRunOptions 等）
+├── pi-executor.ts               # [兼容重导出] 重导出 core/pi-executor.ts
+├── llm-providers.ts             # [模型目录] 多厂商渠道、VaultCredentialStore 与 Models 注册表
+├── shell-output.ts              # [基础工具] UTF-8 字节流安全截断 utf8Tail
+│
+├── core/                        # 1. [执行内核维度] 准入调度、单任务运行器与模型流路由
+│   ├── index.ts
+│   ├── pi-executor.ts           # PiAgentExecutor：任务准入、会话互斥、活跃 PiTaskRunner 调度与关闭
+│   ├── pi-task-runner.ts        # PiTaskRunner：单次任务的 Agent 循环、预算熔断、Langfuse 追踪与优雅停止
+│   └── model-resolver.ts        # resolvePiModelAndStream：模型规格与 StreamFn 三路解析
+│
+├── prompts/                     # 2. [提示词与策略维度] 系统人设、语音/文本修饰与双语对话跟随
+│   ├── index.ts
+│   ├── task-prompts.ts          # buildAgentSystemPrompt & buildAgentUserPrompt：组装人设、记忆块与语言指令
+│   └── conversation-language.ts # conversationLanguageInstructions / acknowledgementLanguage / replyTextLanguage
+│
+├── governance/                  # 3. [安全治理与门控维度] 工具审批策略、交互挂起防重放与工作区沙盒
+│   ├── index.ts
+│   ├── interaction-gate.ts      # InteractionGate & ApprovalActionReplayGuard：挂起超时与 31s 防重放校验
+│   ├── tool-approval.ts         # createToolApprovalPolicy：ask / local_auto / yolo 风险判定规则
+│   └── workspace-path.ts        # resolveWorkspacePath：符号链接穿透防护与工作区包含性校验
+│
+├── memory/                      # 4. [记忆与状态维度] 短期会话历史、任务快照与长期个人事实
+│   ├── index.ts
+│   ├── session-store.ts         # SessionTranscriptStore：短期会话 JSON 原子加载与持久化
+│   ├── task-store.ts            # AgentTaskStore：任务状态快照持久化与崩溃后 unknown 恢复
+│   └── personal-memory.ts       # PersonalMemoryStore：长期个人事实存储與 <personal_memory> 提示词块构造
+│
+└── tools/                       # 5. [内置工具箱维度]
+    ├── index.ts                 # createWorkspaceCodingTools：组装内置工具集与附加工具
+    ├── types.ts                 # WorkspaceToolsHost 与 WorkspaceArtifact 契约
+    ├── artifact-tracker.ts      # WorkspaceArtifactTracker：工作区文件包含性校验与 SHA-256 产物账本
+    ├── read-file.ts             # read_file 与 read（别名）工具
+    ├── write-file.ts            # write_file 工具
+    ├── bash.ts                  # bash 工具（/bin/sh 进程组派生、双流 UTF-8 尾部截断、超时与 SIGTERM 清理追踪）
+    └── ask-user-question.ts     # ask_user_question 结构化提问挂起工具
+
+apps/nsh/runtime/tools/          # [移动端宿主具身与智能家居工具箱]
+├── index.ts
+├── body-tools.ts                # createBodyTools：get_looi_body_status / control_looi_body
+└── home-tools.ts                # createHomeTools：list_home_devices / control_home_device
 ```
 
 ---

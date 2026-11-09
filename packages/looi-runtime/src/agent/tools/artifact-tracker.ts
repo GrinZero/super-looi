@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { resolveWorkspacePath } from "../workspace-path.js";
+import { resolveWorkspacePath } from "../governance/workspace-path.js";
 import type { WorkspaceArtifact } from "./types.js";
 
 const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;

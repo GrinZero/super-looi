@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { obj, str } from "@earendil-works/pi-schema";
-import { resolveWorkspacePath } from "../workspace-path.js";
+import { resolveWorkspacePath } from "../governance/workspace-path.js";
 import type { WorkspaceToolsHost } from "./types.js";
 
 const readParams = obj({

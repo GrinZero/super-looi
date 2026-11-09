@@ -7,10 +7,6 @@ import {
 } from "@earendil-works/pi-agent-core";
 import { contentText } from "@earendil-works/pi-ai";
 import {
-  acknowledgementLanguage,
-  conversationLanguageInstructions,
-} from "./conversation-language.js";
-import {
   AgentExecutionError,
   type AgentCommandEvidence,
   type AgentInteractionAnswer,
@@ -19,23 +15,24 @@ import {
   type AgentStepEvent,
   type AgentStopResult,
   type AgentTask,
-} from "./executor.js";
+} from "../executor.js";
 import {
   InteractionGate,
   type ApprovalActionReplayGuard,
-} from "./interaction-gate.js";
+  type ToolApprovalRule,
+} from "../governance/index.js";
+import type { SessionTranscriptStore } from "../memory/index.js";
+import { buildAgentTurnPrompts } from "../prompts/index.js";
+import {
+  WorkspaceArtifactTracker,
+  createWorkspaceCodingTools,
+} from "../tools/index.js";
 import {
   resolvePiModelAndStream,
   type ModelStreamConfig,
 } from "./model-resolver.js";
-import type { SessionTranscriptStore } from "./session-store.js";
-import type { ToolApprovalRule } from "./tool-approval.js";
-import {
-  WorkspaceArtifactTracker,
-  createWorkspaceCodingTools,
-} from "./tools/index.js";
-import type { LangfuseTracer, Observation } from "../telemetry/langfuse.js";
-import { wrapStreamFnWithLangfuse } from "../telemetry/llm-observer.js";
+import type { LangfuseTracer, Observation } from "../../telemetry/langfuse.js";
+import { wrapStreamFnWithLangfuse } from "../../telemetry/llm-observer.js";
 
 export async function awaitWithin(
   promise: Promise<unknown>,
@@ -246,26 +243,16 @@ export class PiTaskRunner {
           additionalTools: config.additionalTools,
         });
 
-      const previousAssistant = [...(restoredMessages ?? [])]
-        .reverse()
-        .find((message) => message.role === "assistant");
-      const acknowledgement = acknowledgementLanguage(
+      const { systemPrompt, userPrompt } = buildAgentTurnPrompts({
         prompt,
-        previousAssistant?.role === "assistant"
-          ? contentText(previousAssistant.content)
-          : "",
-        options.defaultLanguage ?? "zh-CN",
-      );
-      const turnLanguage = acknowledgement
-        ? `\nFor this acknowledgement, reply only in ${acknowledgement === "en-US" ? "English" : "Simplified Chinese"}. This maintains the preceding conversation language.`
-        : "";
+        mode: options.mode,
+        defaultLanguage: options.defaultLanguage,
+        restoredMessages,
+      });
 
       const agent = new Agent({
         initialState: {
-          systemPrompt:
-            "You are LOOI’s task assistant. Use real tools to complete tasks and report failures accurately. Do not start background processes or unmanaged jobs.\n" +
-            conversationLanguageInstructions(options.defaultLanguage) +
-            turnLanguage,
+          systemPrompt,
           model,
           tools,
           // Session history contains its old system message; use this run’s language policy.
@@ -408,12 +395,7 @@ export class PiTaskRunner {
       task.state = "running";
       host.updateTask(task);
 
-      const userPrompt = `${options.mode === "voice" ? "Keep the final answer brief and natural for speech, following the conversation reply language.\n" : ""}${prompt}`;
-      await agent.prompt(
-        acknowledgement
-          ? `${userPrompt}\n\nReply in ${acknowledgement === "en-US" ? "English" : "Simplified Chinese"}, continuing the conversation’s language.`
-          : userPrompt,
-      );
+      await agent.prompt(userPrompt);
 
       if (this.stopped) throw new Error(task.error ?? "Task cancelled");
       if (this.pendingShell.size > 0) {

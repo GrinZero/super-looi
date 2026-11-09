@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { UserActionRef } from "@super-looi/contracts";
-import { assertFreshUiAction } from "../productivity/authorization.js";
+import { assertFreshUiAction } from "../../productivity/authorization.js";
 import type {
   AgentInteractionAnswer,
   AgentStepEvent,
   AgentTask,
-} from "./executor.js";
+} from "../executor.js";
 
 const REPLAY_WINDOW_MS = 31_000;
 const MAX_CONSUMED_ACTIONS = 512;

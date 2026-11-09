@@ -4,8 +4,8 @@
 
 方案见 [`docs/plans/pi-executor-refactor-plan.md`](docs/plans/pi-executor-refactor-plan.md)。
 
-- [x] Step 1：提取 `session-store.ts`、`model-resolver.ts`、`interaction-gate.ts` 与 `tools/` 子文件夹（`read-file.ts`、`write-file.ts`、`bash.ts`、`ask-user-question.ts`、`artifact-tracker.ts`、`index.ts`），隔离会话 JSON 持久化、模型流解析、交互门控防重放与工作区文件/Shell 子进程工具集
-- [x] Step 2：实现一次性任务运行器 `pi-task-runner.ts`（`PiTaskRunner`），将 `pi-executor.ts` 收敛为任务准入与并发调度器，并同步更新 `docs/arch/`
+- [x] Step 1：按 Agent 五大正交维度（`core/`、`prompts/`、`governance/`、`memory/`、`tools/`）重组 `packages/looi-runtime/src/agent/` 目录，并将移动端底座/家居工具抽离至 `apps/nsh/runtime/tools/`
+- [x] Step 2：实现一次性任务运行器 `core/pi-task-runner.ts`（`PiTaskRunner`），将 `core/pi-executor.ts` 收敛为任务准入与并发调度器，并同步更新 `docs/arch/`
 - [x] Step 3：完成 `@super-looi/runtime`、`@super-looi/nsh`、`@super-looi/nsh-node-compat` 回归验证、全仓类型检查与子 agent 独立 review
   - [x] 全仓 `pnpm typecheck`、`@super-looi/runtime` 89/89 单测、`@super-looi/nsh` 语音与异步任务回归套件及 `.nsh/out` 构建全部通过
   - [x] 子 agent 独立代码审查终审 **PASS**

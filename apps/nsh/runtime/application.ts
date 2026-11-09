@@ -1,7 +1,6 @@
 import { uiMessage } from "./messages.js";
 import { DatabaseSync } from "node:sqlite";
-import { createHash, randomUUID } from "node:crypto";
-import { int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
+import { randomUUID } from "node:crypto";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { UserActionRef } from "@super-looi/contracts";
 import { PiAgentExecutor } from "@super-looi/runtime/agent/pi-executor";
@@ -39,6 +38,7 @@ import {
   type NativeBlePort,
 } from "./body.js";
 import { chooseConnectedModelId, fetchOnlineModels, type OnlineModel } from "./model-list.js";
+import { createBodyTools, createHomeTools } from "./tools/index.js";
 import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 
@@ -744,166 +744,19 @@ export class MobileRuntime {
   }
 
   private bodyTools(): AgentTool<any>[] {
-    const result = (value: unknown) => ({
-      content: [{ type: "text" as const, text: JSON.stringify(value) }],
-      details: { value },
+    return createBodyTools({
+      body: this.body,
+      database: this.database,
+      getActiveTaskId: () => this.taskId,
     });
-    return [
-      {
-        name: "get_looi_body_status",
-        label: "查看底座状态",
-        description:
-          "Read current LOOI physical dock connection, docked status, battery/external power status, head pitch angle, fill light brightness, and active motion vector.",
-        parameters: obj({}),
-        execute: async () => result(this.body.status()),
-      },
-      {
-        name: "control_looi_body",
-        label: "控制底座动作",
-        description:
-          "Control LOOI dock head pitch (head_up 85°, head_center 55°, head_down 25°, or head_set with head_degrees 25..85 where 25=down, 55=level, 85=up), bounded wheel movement (forward/backward/turn_left/turn_right or move with signed speed +1..127 forward / -1..-127 backward and turn +1..127 turn left / -1..-127 turn right), fill light (light_on/light_off or light_set with brightness 0 off, 1..255 on), power readback (read_power), or stop. A BLE connection is required; docked status does not gate control.",
-        parameters: obj({
-          action: oneOf([
-            "head_up",
-            "head_center",
-            "head_down",
-            "head_set",
-            "forward",
-            "backward",
-            "turn_left",
-            "turn_right",
-            "move",
-            "light_on",
-            "light_off",
-            "light_set",
-            "read_power",
-            "stop",
-          ]),
-          duration_ms: opt(int({ minimum: 50, maximum: 1200 })),
-          head_degrees: opt(int({ minimum: 25, maximum: 85 })),
-          brightness: opt(int({ minimum: 0, maximum: 255 })),
-          speed: opt(int({ minimum: -127, maximum: 127 })),
-          turn: opt(int({ minimum: -127, maximum: 127 })),
-        }),
-        execute: async (callId, args, signal) => {
-          if (signal?.aborted || !this.taskId) throw new Error("@looi:runtimeTaskStopped");
-          const taskId = this.taskId;
-          const requestId = createHash("sha256")
-            .update(`${taskId}:body:${callId}`)
-            .digest("hex");
-          const command: BodyControlInput = {
-            action: args.action as BodyControlAction,
-            ...(args.duration_ms !== undefined ? { durationMs: args.duration_ms } : {}),
-            ...(args.head_degrees !== undefined ? { headDegrees: args.head_degrees } : {}),
-            ...(args.brightness !== undefined ? { brightness: args.brightness } : {}),
-            ...(args.speed !== undefined ? { speed: args.speed } : {}),
-            ...(args.turn !== undefined ? { turn: args.turn } : {}),
-          };
-          const evidence = {
-            requestId,
-            command,
-            simulation: this.body.configuration().mode === "simulation",
-            recordedAt: new Date().toISOString(),
-            status: "unknown",
-            receipt: null as unknown,
-          };
-          this.database
-            .prepare(
-              "INSERT INTO body_action_evidence (request_id, task_id, evidence) VALUES (?, ?, ?)",
-            )
-            .run(requestId, taskId, JSON.stringify(evidence));
-          const receipt = await this.body.control(command, "pi_agent");
-          evidence.status = receipt.status;
-          evidence.receipt = receipt;
-          this.database
-            .prepare(
-              "UPDATE body_action_evidence SET evidence = ? WHERE request_id = ?",
-            )
-            .run(JSON.stringify(evidence), requestId);
-          return result({ status: receipt.status, receipt });
-        },
-      },
-    ];
   }
 
   private homeTools(): AgentTool<any>[] {
-    const result = (value: unknown) => ({
-      content: [{ type: "text" as const, text: JSON.stringify(value) }],
-      details: { value },
+    return createHomeTools({
+      home: this.home,
+      database: this.database,
+      getActiveTaskId: () => this.taskId,
     });
-    return [
-      {
-        name: "list_home_devices",
-        label: "查看家居设备",
-        description:
-          "Find devices and current readbacks. Use actual entity_id and connectionId for control. Simulation is explicitly labelled and never represents real devices. Ask when multiple matches exist.",
-        parameters: obj({
-          query: opt(str()),
-          offset: opt(int({ minimum: 0 })),
-        }),
-        execute: async (_, args) =>
-          result(await this.home.list(args.query, args.offset)),
-      },
-      {
-        name: "control_home_device",
-        label: "控制家居设备",
-        description:
-          "Control one device using the task's approval setting. Requires entity_id and connectionId from a recent list. Only a verified receipt confirms success; unknown must not be retried automatically. Simulation changes no real device.",
-        parameters: obj({
-          entity_id: str(),
-          connectionId: str(),
-          service: oneOf(["turn_on", "turn_off"]),
-          brightness: opt(int({ minimum: 1, maximum: 255 })),
-          color_temp_kelvin: opt(int()),
-        }),
-        execute: async (callId, args, signal) => {
-          if (signal?.aborted || !this.taskId) throw new Error("@looi:runtimeTaskStopped");
-          const service_data: Record<string, number> = {};
-          if (args.brightness !== undefined)
-            service_data.brightness = args.brightness;
-          if (args.color_temp_kelvin !== undefined)
-            service_data.color_temp_kelvin = args.color_temp_kelvin;
-          const taskId = this.taskId;
-          const requestId = createHash("sha256")
-            .update(`${taskId}:${callId}`)
-            .digest("hex");
-          const command = {
-            entity_id: args.entity_id,
-            domain: args.entity_id.split(".")[0],
-            service: args.service,
-            service_data,
-          };
-          const evidence = {
-            requestId,
-            connectionId: args.connectionId,
-            command,
-            simulation: this.home.configuration().mode === "simulation",
-            recordedAt: new Date().toISOString(),
-            status: "unknown",
-            receipt: null as unknown,
-          };
-          // Commit intent before any possible side effect; a crash retains unknown.
-          this.database
-            .prepare(
-              "INSERT INTO home_action_evidence (request_id, task_id, evidence) VALUES (?, ?, ?)",
-            )
-            .run(requestId, taskId, JSON.stringify(evidence));
-          const outcome = await this.home.control(command, {
-            connectionId: args.connectionId,
-            requestId,
-            signal,
-          });
-          evidence.status = outcome.receipt.status;
-          evidence.receipt = outcome.receipt;
-          this.database
-            .prepare(
-              "UPDATE home_action_evidence SET evidence = ? WHERE request_id = ?",
-            )
-            .run(JSON.stringify(evidence), requestId);
-          return result(outcome);
-        },
-      },
-    ];
   }
 
   async run(
