@@ -1,5 +1,11 @@
 # Super-LOOI 重构与演进进度
 
+### Android 真机开发默认启用 Langfuse（2026-11-10）
+
+- [x] Step 1：确认真机启动入口、现有遥测开关和 Langfuse 服务状态
+- [x] Step 2：真机开发启动按健康端点自动开关上报，本机服务自动配置 ADB 端口转发
+- [x] Step 3：构建环境用例 2/2、独立 review 通过；魅族 20 Pro 开发宿主覆盖安装并前台运行，上报配置已注入，ADB `3000` / `8790` 转发已建立
+
 ### 智能家居空间重构与 `@super-looi/home-devices` 组件体系（2026-11-09）
 
 方案见 [`docs/plans/smart-home-redesign-plan.md`](docs/plans/smart-home-redesign-plan.md)。

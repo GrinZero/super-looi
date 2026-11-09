@@ -6,7 +6,7 @@ import { parseEnv } from "node:util";
 import { nativePluginEnvironment, patchIosApp } from "./native-plugins.mjs";
 import { runIosDevice } from "./ios-device.mjs";
 import { buildRuntime } from "./build-runtime.js";
-import { pickBuildVariables } from "./build-env.mjs";
+import { isLangfuseRunning, pickBuildVariables } from "./build-env.mjs";
 import { prepareLinuxShell } from "./prepare-linux-shell.mjs";
 import { prepareSherpaKws } from "./prepare-sherpa-kws.mjs";
 
@@ -65,10 +65,25 @@ const option = (name: string) => {
     ? args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1)
     : args[index + 1];
 };
+const target = option("--target");
+const androidDevice = target === "android" ? option("--device") : undefined;
+if (command === "run" && androidDevice) {
+  const values = { ...config, ...process.env };
+  const enabled = await isLangfuseRunning(values);
+  process.env.LOOI_DEBUG_TELEMETRY = enabled ? "1" : "0";
+  if (enabled) {
+    const url = new URL(values.LANGFUSE_BASE_URL!);
+    if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+      const port = url.port || (url.protocol === "https:" ? "443" : "80");
+      const result = spawnSync("adb", ["-s", androidDevice, "reverse", `tcp:${port}`, `tcp:${port}`], { encoding: "utf8" });
+      if (result.status !== 0) throw new Error(`Langfuse Android port forwarding failed: ${result.stderr || result.error}`);
+    }
+  }
+  console.log(`Langfuse 上报：${enabled ? "已自动开启" : "未开启（服务不可用或未配置凭据）"}`);
+}
 // Generated business code must be fresh even for a clean checkout's direct run.
 if (command !== "--help" && command !== "--version") await buildRuntime({ release: command === "package" || command.startsWith("release-"), debugTelemetry: command === "run" });
 const buildVariables = pickBuildVariables(config);
-const target = option("--target");
 if (command === "build" || command === "package" || target === "android" || target === "ios" || target === "ios-simulator" || command.endsWith("-android") || command.endsWith("-ios"))
   await prepareSherpaKws(target === "android" || command.endsWith("-android") ? "android" : target === "ios" || target === "ios-simulator" || command.endsWith("-ios") ? "ios" : "all");
 const isIos = command.endsWith("-ios") || target === "ios" || target === "ios-simulator";

@@ -23,6 +23,13 @@ export function loadBuildVariables() {
     existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {},
   );
 }
+/** Android device runs enable tracing when the configured collector is reachable. */
+export async function isLangfuseRunning(values) {
+  if (!values.LANGFUSE_BASE_URL || !values.LANGFUSE_PUBLIC_KEY || !values.LANGFUSE_SECRET_KEY) return false;
+  return fetch(new URL("api/public/health", `${values.LANGFUSE_BASE_URL.replace(/\/$/, "")}/`), {
+    signal: AbortSignal.timeout(1500),
+  }).then(response => response.ok, () => false);
+}
 export function loadRuntimeVariables({ release = false, debugTelemetry = false } = {}) {
   const file = resolve(import.meta.dirname, "../../../.env");
   const values = { ...(existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {}), ...process.env };

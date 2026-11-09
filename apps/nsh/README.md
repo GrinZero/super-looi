@@ -74,6 +74,6 @@ pnpm --filter @super-looi/nsh ios --device "<IPHONE_UDID>"
 
 ## 开发观测
 
-在根目录 `.env` 设置 `LOOI_DEBUG_TELEMETRY=1`、`LANGFUSE_BASE_URL`、`LANGFUSE_PUBLIC_KEY` 与 `LANGFUSE_SECRET_KEY`。开发运行将语音会话、模型请求与工具执行通过 OTLP 发送到 Langfuse；语音发起的 Agent 任务通过 Trace Context（追踪上下文）关联。
+在根目录 `.env` 设置 `LANGFUSE_BASE_URL`、`LANGFUSE_PUBLIC_KEY` 与 `LANGFUSE_SECRET_KEY`。Android 真机开发运行（`run --target android --device <serial>`）会检查 Langfuse 健康端点：服务运行时自动开启上报，本机地址自动通过 ADB 转发对应端口；服务不可用时关闭本次启动的上报。其他平台的开发运行通过 `LOOI_DEBUG_TELEMETRY=1` 开启。开发运行将语音会话、模型请求与工具执行通过 OTLP 发送到 Langfuse；语音发起的 Agent 任务通过 Trace Context（追踪上下文）关联。
 
 本地 Langfuse 可通过 `docker compose -f docker-compose.langfuse.yml up -d` 启动，`LANGFUSE_BASE_URL` 需填写手机可访问的地址，并符合 `nsh.json` 的网络能力配置。通过上面的 Android 开发运行命令或 `pnpm ios --device "<IPHONE_UDID>"` 启动。显式执行 `scripts/nsh.ts package` 的发布打包不包含开发观测凭证。
