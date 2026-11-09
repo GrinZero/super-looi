@@ -46,7 +46,7 @@
   - [ ] 连续 `FED0` 心跳与头部/灯光写入并发时，真机曾显示“蓝牙特征值写入失败”：已定位 Android `BluetoothGatt.writeCharacteristic` 无应答写入在 `onCharacteristicWrite` 回调前仍占写锁，并在 `BodySupervisor` 中将 `FED0`/`FED1`/停止帧统一纳入 FIFO 30 ms 节流队列且在 `FED8`/`FED2` 60 ms 静默窗暂停无应答写入；待在物理底座上核对并发拖动摇杆、调节俯仰与灯光时是否彻底消除写忙报错。
   - [ ] 真机核对底座界面 `FED8` 电量/外接供电读取及 `FED2` 亮度滑杆（默认开灯 `50%` / `0x80`、满亮 `0xFF`）的物理效果。
   - [ ] 真机校准 `FED1` 中位 `0x87` 与对方实测 `0x5A`，同步核对 25°/85° 的抬头、低头标注；评估 `FED9` 触摸/悬崖传感器解析。
-- [ ] 蓝牙断线后自动重连：当前开关仅控制启动或切回蓝牙模式时连接上次底座；在真机验证断线事件与重连时机后，再实现持续重试。
+- [ ] 蓝牙底座二次吸附真机联调：已在 `BodyRuntime` / `store.ts` 落地已配对底座的前台静默自动重连（`retrievePeripheralsWithIdentifiers:` / `TRANSPORT_LE` + 命中即停扫描）、手动断开保持，以及首屏二次吸附四重反馈（`dock_snap` / `undock_float` 表情、`LightToast`、`playDockCue` 音效与 `67° → 55°` 云台问候）；待搭配通电的 LOOI 物理底座核对真机断连恢复时延与 `FED9` 吸合/脱座手感。
 - [ ] 双端真机麦克风、扬声器、AEC（回声消除）、后台音频和 LIVE 并发性能验证；模拟器合成 PCM 链路已有记录。
 - [ ] MIoT 完整 OAuth fixture、回调 GET / POST 307 / 子资源请求测试及真实设备回读。
 - [ ] 相机采集与视觉输入的原生接线。

@@ -14,6 +14,7 @@ export interface VoiceAudioPort {
   setMuted(muted: boolean): void;
   setCaptureMode(mode: string): void;
   playReadyCue(): void;
+  playDockCue?(docked: boolean): void;
   drainCapture(): Array<{
     pcm: Uint8Array;
     timestampMs: number;

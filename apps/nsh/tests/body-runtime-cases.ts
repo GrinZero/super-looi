@@ -630,7 +630,17 @@ export async function verifyBodyRuntime() {
       duration_ms: "60",
     }),
   });
-  await settle(160);
+  const call3Deadline = Date.now() + 1000;
+  while (
+    !writes.some(
+      (item) =>
+        item.type === "conversation.item.create" &&
+        item.items?.[0]?.call_id === "body_call_3",
+    ) &&
+    Date.now() < call3Deadline
+  ) {
+    await settle(25);
+  }
   check(
     writes.some(
       (item) =>
@@ -650,4 +660,293 @@ export async function verifyBodyRuntime() {
   voice.close();
   bleRuntime.close();
   voiceBody.close();
+
+  // 4. Silent foreground auto-reconnect watch, manual disconnect hold & physical dock greeting
+  const watchSlots = new Map<string, string>([
+    [
+      "body",
+      JSON.stringify({
+        mode: "real_ble",
+        savedDeviceId: "ble-dock-77",
+        savedDeviceName: "书房 LOOI 底座",
+        autoConnect: true,
+      }),
+    ],
+  ]);
+  const watchVault = {
+    get: (key: string) => watchSlots.get(key) ?? "",
+    set: (key: string, value: string) => {
+      watchSlots.set(key, value);
+    },
+    remove: (key: string) => {
+      watchSlots.delete(key);
+    },
+  };
+  let dockPoweredOn = false;
+  let dockAttached = true;
+  let watchConnectedId = "";
+  let watchPendingId = "";
+  const watchEvents: Array<{
+    kind: string;
+    characteristic: string;
+    payload: string;
+  }> = [];
+  const headPayloads: string[] = [];
+  const watchPort: NativeBlePort = {
+    permission: () => "granted",
+    requestPermission: () => "granted",
+    startScan: () => {},
+    stopScan: () => {},
+    scannedDevices: () =>
+      dockPoweredOn
+        ? [{ id: "ble-dock-77", name: "书房 LOOI 底座", rssi: -44 }]
+        : [],
+    connect: (deviceId: string) => {
+      if (!dockPoweredOn) {
+        watchPendingId = deviceId;
+        return;
+      }
+      watchPendingId = "";
+      watchConnectedId = deviceId;
+      watchEvents.push({ kind: "connected", characteristic: "", payload: "" });
+    },
+    disconnect: () => {
+      watchPendingId = "";
+      if (watchConnectedId) {
+        watchConnectedId = "";
+        watchEvents.push({ kind: "disconnected", characteristic: "", payload: "" });
+      }
+    },
+    subscribe: (characteristic: string) => {
+      setTimeout(() => {
+        if (characteristic === "dockNotify") {
+          watchEvents.push({
+            kind: "notification",
+            characteristic,
+            payload: dockAttached ? "05" : "06",
+          });
+        }
+        watchEvents.push({ kind: "notify_ack", characteristic, payload: "" });
+      }, 10);
+    },
+    write: (characteristic: string, hexPayload: string, withResponse: boolean) => {
+      if (characteristic === "head") {
+        headPayloads.push(hexPayload.toLowerCase());
+      }
+      if (withResponse) {
+        setTimeout(() => {
+          watchEvents.push({ kind: "write_ack", characteristic, payload: "" });
+        }, 5);
+      }
+    },
+    read: (characteristic: string) => {
+      watchEvents.push({ kind: "read_result", characteristic, payload: "5801" });
+    },
+    drainEvents: () => watchEvents.splice(0, watchEvents.length),
+    status: () => ({
+      state: watchConnectedId
+        ? "connected"
+        : watchPendingId
+          ? "connecting"
+          : "disconnected",
+      permission: "granted",
+      deviceId: watchConnectedId,
+      deviceName: watchConnectedId ? "书房 LOOI 底座" : "",
+      error: "",
+    }),
+  };
+
+  const watchRuntime = new BodyRuntime({
+    vault: watchVault,
+    reconnectBackoffMs: [40, 80],
+    silentConnectTimeoutMs: 150,
+    silentScanWindowMs: 80,
+    dockGreetingLeadMs: 25,
+    dockGreetingSettleMs: 55,
+  });
+  watchRuntime.attachNativeBle(watchPort);
+  await settle(220);
+  check(
+    !watchRuntime.status().connected &&
+      !watchRuntime.status().connecting &&
+      watchRuntime.status().error === null,
+    "silent auto-reconnect leaked connecting spinner or timeout error while dock was powered off",
+  );
+
+  // Power on the paired dock while user stays on Home Screen
+  dockPoweredOn = true;
+  const connectedDeadline = Date.now() + 1500;
+  while (!watchRuntime.status().connected && Date.now() < connectedDeadline) {
+    await settle(25);
+  }
+  check(
+    watchRuntime.status().connected &&
+      watchRuntime.status().isDocked &&
+      watchRuntime.status().deviceId === "ble-dock-77",
+    "silent auto-reconnect did not connect and arm when paired dock powered on",
+  );
+  // Wait for physical dock greeting (67° -> "51", 55° -> "87") to complete
+  await settle(150);
+  check(
+    headPayloads.includes("51") &&
+      headPayloads[headPayloads.length - 1] === "87" &&
+      watchRuntime.status().headDegrees === 55,
+    `dock rising edge did not play 67° ("51") -> 55° ("87") physical greeting (payloads: ${headPayloads.join(",")})`,
+  );
+
+  // Undock then re-attach and immediately preempt with manual head_down (25°)
+  watchEvents.push({ kind: "notification", characteristic: "dockNotify", payload: "06" });
+  await settle(30);
+  check(!watchRuntime.status().isDocked, "watchRuntime did not undock on 06");
+  watchEvents.push({ kind: "notification", characteristic: "dockNotify", payload: "05" });
+  await settle(10);
+  const manualDown = await watchRuntime.control({ action: "head_down" });
+  await settle(120);
+  check(
+    manualDown.status === "verified" && watchRuntime.status().headDegrees === 25,
+    `manual head_down was overwritten by delayed dock greeting settle (${watchRuntime.status().headDegrees})`,
+  );
+
+  // Unexpected BLE link drop should auto-reconnect silently
+  watchConnectedId = "";
+  watchEvents.push({ kind: "disconnected", characteristic: "", payload: "" });
+  await settle(20);
+  check(!watchRuntime.status().connected, "unexpected disconnect was not observed");
+  const recoveredDeadline = Date.now() + 1500;
+  while (!watchRuntime.status().connected && Date.now() < recoveredDeadline) {
+    await settle(25);
+  }
+  check(
+    watchRuntime.status().connected && watchRuntime.status().isDocked,
+    "unexpected BLE disconnect did not silently auto-reconnect",
+  );
+
+  // Explicit user disconnect() must hold disconnected and not auto-reconnect behind user's back
+  await watchRuntime.disconnect();
+  await settle(220);
+  check(
+    !watchRuntime.status().connected,
+    "explicit disconnect() was violated by background auto-reconnect",
+  );
+  watchRuntime.setForegroundActive(false);
+  watchRuntime.setForegroundActive(true);
+  await settle(160);
+  check(
+    !watchRuntime.status().connected,
+    "foreground resume bypassed manualDisconnectHold",
+  );
+
+  // Re-enabling autoConnect clears manualDisconnectHold and reconnects
+  await watchRuntime.configure({ autoConnect: true });
+  const resumedDeadline = Date.now() + 1500;
+  while (!watchRuntime.status().connected && Date.now() < resumedDeadline) {
+    await settle(25);
+  }
+  check(
+    watchRuntime.status().connected,
+    "configure({ autoConnect: true }) did not resume auto-reconnect",
+  );
+
+  // Turning off autoConnect while an unexpected-disconnect silent retry is in flight must abort immediately
+  dockPoweredOn = false;
+  watchConnectedId = "";
+  watchEvents.push({ kind: "disconnected", characteristic: "", payload: "" });
+  await settle(65); // inside the first silentConnectTimeoutMs window
+  await watchRuntime.configure({ autoConnect: false });
+  dockPoweredOn = true;
+  await settle(220);
+  check(
+    !watchRuntime.status().connected && !watchConnectedId,
+    "configure({ autoConnect: false }) did not abort in-flight silent reconnect",
+  );
+  watchRuntime.close();
+
+  // 5. VoiceRuntime.playDockCue single-stream sharing across idle / standby / speaking
+  let cueAudioState = "idle";
+  let cueCaptureArgs: Array<boolean | undefined> = [];
+  let cuePermissionRequests = 0;
+  let cueStops = 0;
+  const cueCalls: boolean[] = [];
+  const cueAudio: VoiceAudioPort = {
+    requestPermission: () => {
+      cuePermissionRequests++;
+      return "granted";
+    },
+    start: (capture?: boolean) => {
+      cueCaptureArgs.push(capture);
+      cueAudioState = "running";
+    },
+    setCaptureMode: () => {
+      cueAudioState = "running";
+    },
+    playReadyCue: () => {},
+    playDockCue: (docked: boolean) => {
+      cueCalls.push(docked);
+    },
+    stop: () => {
+      cueStops++;
+      cueAudioState = "idle";
+    },
+    enqueue: () => {},
+    clearPlayback: () => {},
+    setMuted: () => {},
+    drainCapture: () => [],
+    status: () => ({
+      state: cueAudioState,
+      permission: "granted",
+      error: "",
+      queuedPlaybackMs: 0,
+      captureMode: cueAudioState === "running" ? "kws" : "idle",
+      wakeWord: "",
+      kwsReady: true,
+    }),
+  };
+  const cueVoice = new VoiceRuntime({
+    vault: watchVault,
+    audio: cueAudio,
+    connect: async () => socket,
+    onState: () => {},
+  });
+  cueVoice.setWakeEnabled(false);
+
+  // 5a. Idle: opens output-only stream (`start(false)`), never prompts mic permission, auto-stops after drain
+  cueVoice.playDockCue(true);
+  check(
+    cuePermissionRequests === 0 &&
+      cueCaptureArgs.length === 1 &&
+      cueCaptureArgs[0] === false &&
+      cueCalls.length === 1 &&
+      cueCalls[0] === true &&
+      cueAudioState === "running",
+    "idle playDockCue(true) did not open output-only stream without mic permission prompt",
+  );
+  await settle(470);
+  check(
+    cueAudioState === "idle" && cueStops === 1,
+    "idle playDockCue did not release temporary output-only stream after playback",
+  );
+  cueVoice.playDockCue(false);
+  check(cueAudioState === "running", "second idle playDockCue did not start");
+  cueVoice.stopIdleCue();
+  check(
+    cueAudioState === "idle" && cueStops === 2,
+    "stopIdleCue() did not release temporary idle stream immediately on backgrounding",
+  );
+
+  // 5b. Standby (KWS active): shares running stream and must NOT stop KWS after drain
+  cueVoice.configure("TEST_CUE_KEY");
+  cueVoice.setWakeEnabled(true, { autoStandby: true });
+  await settle(30);
+  check(cueVoice.snapshot().phase === "standby", "cueVoice did not enter standby");
+  const stopsBeforeStandbyCue = cueStops;
+  cueVoice.playDockCue(false);
+  await settle(470);
+  check(
+    cueCalls.length === 3 &&
+      cueCalls[2] === false &&
+      cueVoice.snapshot().phase === "standby" &&
+      cueStops === stopsBeforeStandbyCue,
+    "standby playDockCue interrupted KWS stream",
+  );
+  cueVoice.close();
 }

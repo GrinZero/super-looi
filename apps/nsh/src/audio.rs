@@ -357,7 +357,7 @@ impl VoiceAudio {
             "conversation" => CaptureMode::RealtimeCapture,
             _ => return Err("Unsupported capture mode".into()),
         };
-        if self.native.is_none() {
+        if self.native.is_none() || !self.capture {
             self.start(true)?;
         }
         if next == CaptureMode::KwsStandby && self.kws_worker.is_none() {
@@ -397,6 +397,70 @@ impl VoiceAudio {
             if let Ok(mut state) = self.shared.lock() {
                 state.cue_pending_samples = state.cue_pending_samples.saturating_sub(2880);
                 state.cue_queued_samples = state.cue_queued_samples.saturating_sub(2880);
+            }
+        }
+        result
+    }
+
+    /// Tactile magnetic snap / undock cue through the 24 kHz output stream with KWS echo suppression.
+    pub fn play_dock_cue(&mut self, docked: bool) -> Result<(), String> {
+        let total_samples: usize = if docked { 3600 } else { 2640 };
+        let mut pcm = Vec::with_capacity(total_samples * 2);
+        if docked {
+            // 30 ms tactile magnetic click followed by 120 ms ascending D5 -> D6 chime
+            for n in 0..720 {
+                let progress = n as f64 / 720.0;
+                let decay = (1.0 - progress).powi(4);
+                let click = (decay
+                    * 0.22
+                    * (2.0 * std::f64::consts::PI * 220.0 * n as f64 / 24000.0).sin()
+                    * i16::MAX as f64) as i16;
+                pcm.extend_from_slice(&click.to_le_bytes());
+            }
+            for i in 0..2880 {
+                let frequency = if i < 1440 { 587.33 } else { 1174.66 };
+                let phase = (i % 1440) as f64 / 1440.0;
+                let envelope = (std::f64::consts::PI * phase).sin().powi(2);
+                let fundamental =
+                    (2.0 * std::f64::consts::PI * frequency * i as f64 / 24000.0).sin();
+                let overtone =
+                    (2.0 * std::f64::consts::PI * (frequency * 2.0) * i as f64 / 24000.0).sin();
+                let sample = (envelope
+                    * (0.18 * fundamental + 0.05 * overtone)
+                    * i16::MAX as f64) as i16;
+                pcm.extend_from_slice(&sample.to_le_bytes());
+            }
+        } else {
+            // 110 ms gentle descending A5 -> D5 float cue
+            for n in 0..2640 {
+                let frequency = if n < 1320 { 880.0 } else { 587.33 };
+                let phase = (n % 1320) as f64 / 1320.0;
+                let envelope = (std::f64::consts::PI * phase).sin().powi(2);
+                let sample = (envelope
+                    * 0.15
+                    * (2.0 * std::f64::consts::PI * frequency * n as f64 / 24000.0).sin()
+                    * i16::MAX as f64) as i16;
+                pcm.extend_from_slice(&sample.to_le_bytes());
+            }
+        }
+        let suppress_16k = ((total_samples as u64) * 16000 / 24000) + 1400;
+        {
+            let mut state = self.shared.lock().map_err(|_| "Audio state unavailable")?;
+            state.suppress_until_sample = state
+                .suppress_until_sample
+                .max(state.captured_samples + suppress_16k);
+            if state.mode == CaptureMode::KwsStandby {
+                state.kws_queue.clear();
+                state.kws_epoch = state.kws_epoch.wrapping_add(1);
+            }
+            state.cue_pending_samples += total_samples;
+            state.cue_queued_samples += total_samples;
+        }
+        let result = self.enqueue(pcm, 24000);
+        if result.is_err() {
+            if let Ok(mut state) = self.shared.lock() {
+                state.cue_pending_samples = state.cue_pending_samples.saturating_sub(total_samples);
+                state.cue_queued_samples = state.cue_queued_samples.saturating_sub(total_samples);
             }
         }
         result

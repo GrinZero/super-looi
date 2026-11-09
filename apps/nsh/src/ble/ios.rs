@@ -9,7 +9,11 @@ use objc2::{
     runtime::{AnyClass, AnyObject, Bool},
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
-use std::{cell::RefCell, collections::HashMap, ptr, slice};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    ptr, slice,
+};
 
 #[link(name = "CoreBluetooth", kind = "framework")]
 unsafe extern "C" {}
@@ -28,6 +32,7 @@ struct IosBleManager {
     delegate: Retained<BleDelegate>,
     discovered: HashMap<String, Retained<AnyObject>>,
     active_peripheral: Option<Retained<AnyObject>>,
+    cancelling: HashSet<usize>,
     characteristics: HashMap<String, Retained<AnyObject>>,
     generation: u64,
     want_scan: bool,
@@ -37,6 +42,127 @@ struct IosBleManager {
 
 struct DelegateIvars {
     shared: SharedBle,
+}
+
+fn peripheral_identifier(peripheral: &AnyObject) -> String {
+    unsafe {
+        let uuid_obj: Retained<AnyObject> = msg_send![peripheral, identifier];
+        let uuid_ns: Retained<NSString> = msg_send![&uuid_obj, UUIDString];
+        uuid_ns.to_string()
+    }
+}
+
+fn retrieve_or_cached_peripheral(
+    central: &AnyObject,
+    discovered: &mut HashMap<String, Retained<AnyObject>>,
+    target_id: &str,
+) -> Option<Retained<AnyObject>> {
+    if let Some(cached) = discovered.get(target_id).cloned() {
+        return Some(cached);
+    }
+    if let Some((_, cached)) = discovered
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(target_id))
+    {
+        return Some(cached.clone());
+    }
+    unsafe {
+        let nsuuid_cls = AnyClass::get(c"NSUUID")?;
+        let nsarray_cls = AnyClass::get(c"NSArray")?;
+        let id_str = NSString::from_str(target_id);
+        let alloc: Allocated<AnyObject> = msg_send![nsuuid_cls, alloc];
+        let uuid_obj: Option<Retained<AnyObject>> =
+            msg_send![alloc, initWithUUIDString: &*id_str];
+        let uuid_obj = uuid_obj?;
+        let canonical_ns: Retained<NSString> = msg_send![&uuid_obj, UUIDString];
+        let canonical_id = canonical_ns.to_string();
+        let identifiers: Retained<AnyObject> =
+            msg_send![nsarray_cls, arrayWithObject: &*uuid_obj];
+        let found: Option<Retained<AnyObject>> =
+            msg_send![central, retrievePeripheralsWithIdentifiers: &*identifiers];
+        let found = found?;
+        let count: usize = msg_send![&found, count];
+        if count == 0 {
+            return None;
+        }
+        let peripheral: Retained<AnyObject> = msg_send![&found, objectAtIndex: 0usize];
+        discovered.insert(canonical_id, peripheral.clone());
+        Some(peripheral)
+    }
+}
+
+fn cancel_active_peripheral(mgr: &mut IosBleManager) {
+    if let Some(prev) = mgr.active_peripheral.take() {
+        unsafe {
+            let c_state: isize = msg_send![&mgr.central, state];
+            let p_state: isize = msg_send![&prev, state];
+            if c_state == 5 && (p_state == 1 || p_state == 2 || p_state == 3) {
+                mgr.cancelling.insert((&*prev) as *const AnyObject as usize);
+                if p_state == 1 || p_state == 2 {
+                    let _: () = msg_send![&mgr.central, cancelPeripheralConnection: &*prev];
+                }
+            }
+        }
+    }
+}
+
+fn try_connect_known_peripheral(mgr: &mut IosBleManager, target_id: &str) -> bool {
+    let Some(peripheral) =
+        retrieve_or_cached_peripheral(&mgr.central, &mut mgr.discovered, target_id)
+    else {
+        return false;
+    };
+    let ptr_key = (&*peripheral) as *const AnyObject as usize;
+    unsafe {
+        if !mgr.want_scan {
+            let _: () = msg_send![&mgr.central, stopScan];
+        }
+    }
+    if mgr.cancelling.contains(&ptr_key) {
+        mgr.pending_connect_id = Some(target_id.to_owned());
+        return true;
+    }
+    mgr.pending_connect_id = None;
+    mgr.active_peripheral = Some(peripheral.clone());
+    unsafe {
+        let _: () = msg_send![&peripheral, setDelegate: &*mgr.delegate];
+        let _: () = msg_send![
+            &mgr.central,
+            connectPeripheral: &*peripheral,
+            options: ptr::null::<AnyObject>()
+        ];
+    }
+    true
+}
+
+fn finish_cancelled_or_promote(mgr: &mut IosBleManager, peripheral: &AnyObject) -> bool {
+    let ptr_key = peripheral as *const AnyObject as usize;
+    if !mgr.cancelling.remove(&ptr_key) {
+        return false;
+    }
+    if let Some(pending_id) = mgr.pending_connect_id.clone() {
+        let state: isize = unsafe { msg_send![&mgr.central, state] };
+        if state == 5 && peripheral_identifier(peripheral).eq_ignore_ascii_case(&pending_id) {
+            if let Some(retained) =
+                unsafe { Retained::retain(peripheral as *const AnyObject as *mut AnyObject) }
+            {
+                mgr.pending_connect_id = None;
+                mgr.active_peripheral = Some(retained.clone());
+                unsafe {
+                    if !mgr.want_scan {
+                        let _: () = msg_send![&mgr.central, stopScan];
+                    }
+                    let _: () = msg_send![&retained, setDelegate: &*mgr.delegate];
+                    let _: () = msg_send![
+                        &mgr.central,
+                        connectPeripheral: &*retained,
+                        options: ptr::null::<AnyObject>()
+                    ];
+                }
+            }
+        }
+    }
+    true
 }
 
 define_class!(
@@ -56,7 +182,11 @@ define_class!(
                 let Some(mgr) = borrow.as_mut() else { return };
                 if state == 5 {
                     // CBManagerStatePoweredOn == 5
-                    if mgr.want_scan || mgr.pending_connect_id.is_some() {
+                    let mut known_queued = false;
+                    if let Some(target_id) = mgr.pending_connect_id.clone() {
+                        known_queued = try_connect_known_peripheral(mgr, &target_id);
+                    }
+                    if mgr.want_scan || (mgr.pending_connect_id.is_some() && !known_queued) {
                         unsafe {
                             let _: () = msg_send![
                                 &mgr.central,
@@ -65,26 +195,15 @@ define_class!(
                             ];
                         }
                     }
-                    if let Some(target_id) = mgr.pending_connect_id.clone() {
-                        if let Some(peripheral) = mgr.discovered.get(&target_id).cloned() {
-                            mgr.pending_connect_id = None;
-                            mgr.active_peripheral = Some(peripheral.clone());
-                            unsafe {
-                                let _: () = msg_send![&peripheral, setDelegate: &*mgr.delegate];
-                                let _: () = msg_send![
-                                    &mgr.central,
-                                    connectPeripheral: &*peripheral,
-                                    options: ptr::null::<AnyObject>()
-                                ];
-                            }
+                } else {
+                    mgr.cancelling.clear();
+                    if state == 4 {
+                        // CBManagerStatePoweredOff == 4
+                        let generation = mgr.generation;
+                        mgr.want_scan = false;
+                        if let Ok(mut shared) = self.ivars().shared.lock() {
+                            shared.on_error(generation, "系统蓝牙未开启");
                         }
-                    }
-                } else if state == 4 {
-                    // CBManagerStatePoweredOff == 4
-                    let generation = mgr.generation;
-                    mgr.want_scan = false;
-                    if let Ok(mut shared) = self.ivars().shared.lock() {
-                        shared.on_error(generation, "系统蓝牙未开启");
                     }
                 }
             });
@@ -147,19 +266,29 @@ define_class!(
             BLE_MANAGER.with(|slot| {
                 if let Some(mgr) = slot.borrow_mut().as_mut() {
                     mgr.discovered.insert(id.clone(), retained_peripheral.clone());
-                    if mgr.pending_connect_id.as_deref() == Some(id.as_str()) {
-                        mgr.pending_connect_id = None;
-                        mgr.active_peripheral = Some(retained_peripheral.clone());
+                    if mgr
+                        .pending_connect_id
+                        .as_deref()
+                        .is_some_and(|pending| pending.eq_ignore_ascii_case(&id))
+                    {
+                        let ptr_key = (&*retained_peripheral) as *const AnyObject as usize;
                         unsafe {
                             if !mgr.want_scan {
                                 let _: () = msg_send![&mgr.central, stopScan];
                             }
-                            let _: () = msg_send![&retained_peripheral, setDelegate: &*mgr.delegate];
-                            let _: () = msg_send![
-                                &mgr.central,
-                                connectPeripheral: &*retained_peripheral,
-                                options: ptr::null::<AnyObject>()
-                            ];
+                        }
+                        if !mgr.cancelling.contains(&ptr_key) {
+                            mgr.pending_connect_id = None;
+                            mgr.active_peripheral = Some(retained_peripheral.clone());
+                            unsafe {
+                                let _: () =
+                                    msg_send![&retained_peripheral, setDelegate: &*mgr.delegate];
+                                let _: () = msg_send![
+                                    &mgr.central,
+                                    connectPeripheral: &*retained_peripheral,
+                                    options: ptr::null::<AnyObject>()
+                                ];
+                            }
                         }
                     }
                 }
@@ -172,6 +301,15 @@ define_class!(
 
         #[unsafe(method(centralManager:didConnectPeripheral:))]
         fn did_connect_peripheral(&self, _central: &AnyObject, peripheral: &AnyObject) {
+            let is_active = BLE_MANAGER.with(|slot| {
+                slot.borrow()
+                    .as_ref()
+                    .and_then(|mgr| mgr.active_peripheral.as_ref())
+                    .is_some_and(|active| ptr::eq(&**active, peripheral))
+            });
+            if !is_active {
+                return;
+            }
             unsafe {
                 let _: () = msg_send![peripheral, setDelegate: self];
                 let _: () = msg_send![peripheral, discoverServices: ptr::null::<AnyObject>()];
@@ -190,6 +328,9 @@ define_class!(
                 let Some(mgr) = borrow.as_mut() else {
                     return None;
                 };
+                if finish_cancelled_or_promote(mgr, peripheral) {
+                    return None;
+                }
                 let is_active = mgr
                     .active_peripheral
                     .as_ref()
@@ -221,6 +362,9 @@ define_class!(
                 let Some(mgr) = borrow.as_mut() else {
                     return None;
                 };
+                if finish_cancelled_or_promote(mgr, peripheral) {
+                    return None;
+                }
                 let is_active = mgr
                     .active_peripheral
                     .as_ref()
@@ -242,6 +386,15 @@ define_class!(
 
         #[unsafe(method(peripheral:didDiscoverServices:))]
         fn did_discover_services(&self, peripheral: &AnyObject, _error: Option<&AnyObject>) {
+            let is_active = BLE_MANAGER.with(|slot| {
+                slot.borrow()
+                    .as_ref()
+                    .and_then(|mgr| mgr.active_peripheral.as_ref())
+                    .is_some_and(|active| ptr::eq(&**active, peripheral))
+            });
+            if !is_active {
+                return;
+            }
             unsafe {
                 let services: Option<Retained<AnyObject>> = msg_send![peripheral, services];
                 let Some(services) = services else { return };
@@ -279,6 +432,13 @@ define_class!(
             BLE_MANAGER.with(|slot| {
                 let mut borrow = slot.borrow_mut();
                 let Some(mgr) = borrow.as_mut() else { return };
+                let is_active = mgr
+                    .active_peripheral
+                    .as_ref()
+                    .is_some_and(|active| ptr::eq(&**active, peripheral));
+                if !is_active {
+                    return;
+                }
                 generation = mgr.generation;
                 unsafe {
                     let chars: Option<Retained<AnyObject>> = msg_send![service, characteristics];
@@ -346,10 +506,20 @@ define_class!(
         #[unsafe(method(peripheral:didUpdateValueForCharacteristic:error:))]
         fn did_update_value(
             &self,
-            _peripheral: &AnyObject,
+            peripheral: &AnyObject,
             characteristic: &AnyObject,
             error: Option<&AnyObject>,
         ) {
+            let Some(generation) = BLE_MANAGER.with(|slot| {
+                let borrow = slot.borrow();
+                let mgr = borrow.as_ref()?;
+                mgr.active_peripheral
+                    .as_ref()
+                    .is_some_and(|active| ptr::eq(&**active, peripheral))
+                    .then_some(mgr.generation)
+            }) else {
+                return;
+            };
             if error.is_some() {
                 return;
             }
@@ -368,7 +538,6 @@ define_class!(
                 (uuid_ns.to_string(), encode_hex(bytes))
             };
 
-            let generation = BLE_MANAGER.with(|slot| slot.borrow().as_ref().map(|m| m.generation).unwrap_or(0));
             let need_stop = self.ivars().shared.lock().map(|mut s| {
                 if characteristic_key_from_uuid(&uuid_str) == Some("power") {
                     s.on_read_result(generation, &uuid_str, &hex);
@@ -386,11 +555,20 @@ define_class!(
         #[unsafe(method(peripheral:didWriteValueForCharacteristic:error:))]
         fn did_write_value(
             &self,
-            _peripheral: &AnyObject,
+            peripheral: &AnyObject,
             characteristic: &AnyObject,
             error: Option<&AnyObject>,
         ) {
-            let generation = BLE_MANAGER.with(|slot| slot.borrow().as_ref().map(|m| m.generation).unwrap_or(0));
+            let Some(generation) = BLE_MANAGER.with(|slot| {
+                let borrow = slot.borrow();
+                let mgr = borrow.as_ref()?;
+                mgr.active_peripheral
+                    .as_ref()
+                    .is_some_and(|active| ptr::eq(&**active, peripheral))
+                    .then_some(mgr.generation)
+            }) else {
+                return;
+            };
             if error.is_some() {
                 if let Ok(mut shared) = self.ivars().shared.lock() {
                     shared.on_error(generation, "蓝牙特征值写入失败");
@@ -482,6 +660,7 @@ fn ensure_manager(mtm: MainThreadMarker, shared: &SharedBle) -> Result<(), Strin
                 delegate,
                 discovered: HashMap::new(),
                 active_peripheral: None,
+                cancelling: HashSet::new(),
                 characteristics: HashMap::new(),
                 generation: 0,
                 want_scan: false,
@@ -601,37 +780,24 @@ pub(super) fn connect(shared: &SharedBle, generation: u64, device_id: &str) -> R
             mgr.did_report_connected = false;
             mgr.characteristics.clear();
 
-            if let Some(prev) = mgr.active_peripheral.take() {
-                unsafe {
-                    let _: () = msg_send![&mgr.central, cancelPeripheralConnection: &*prev];
-                }
-            }
+            cancel_active_peripheral(mgr);
 
-            if let Some(peripheral) = mgr.discovered.get(&target_id).cloned() {
-                mgr.pending_connect_id = None;
-                mgr.active_peripheral = Some(peripheral.clone());
+            let state: isize = unsafe { msg_send![&mgr.central, state] };
+            if state == 5 {
+                if try_connect_known_peripheral(mgr, &target_id) {
+                    return Ok(());
+                }
+                mgr.pending_connect_id = Some(target_id);
                 unsafe {
-                    let _: () = msg_send![&peripheral, setDelegate: &*mgr.delegate];
                     let _: () = msg_send![
                         &mgr.central,
-                        connectPeripheral: &*peripheral,
+                        scanForPeripheralsWithServices: ptr::null::<AnyObject>(),
                         options: ptr::null::<AnyObject>()
                     ];
                 }
                 Ok(())
             } else {
                 mgr.pending_connect_id = Some(target_id);
-                mgr.want_scan = true;
-                unsafe {
-                    let state: isize = msg_send![&mgr.central, state];
-                    if state == 5 {
-                        let _: () = msg_send![
-                            &mgr.central,
-                            scanForPeripheralsWithServices: ptr::null::<AnyObject>(),
-                            options: ptr::null::<AnyObject>()
-                        ];
-                    }
-                }
                 Ok(())
             }
         })
@@ -650,12 +816,7 @@ pub(super) fn disconnect() {
                 unsafe {
                     let _: () = msg_send![&mgr.central, stopScan];
                 }
-                if let Some(peripheral) = mgr.active_peripheral.take() {
-                    unsafe {
-                        let _: () =
-                            msg_send![&mgr.central, cancelPeripheralConnection: &*peripheral];
-                    }
-                }
+                cancel_active_peripheral(mgr);
             }
         });
     });

@@ -28,6 +28,7 @@ export class VoiceRuntime {
   private session?: LiveVoiceSession;
   private latestContextNote = "";
   private standbyTimer?: ReturnType<typeof setTimeout>;
+  private cueStopTimer?: ReturnType<typeof setTimeout>;
   private standbyGeneration = 0;
   private closed = false;
 
@@ -169,6 +170,10 @@ export class VoiceRuntime {
     }
 
     try {
+      if (this.cueStopTimer) {
+        this.clearCueStopTimer();
+        this.options.audio.stop();
+      }
       this.options.audio.setCaptureMode("kws");
       const status = this.options.audio.status();
       if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady) {
@@ -198,6 +203,7 @@ export class VoiceRuntime {
 
     ++this.standbyGeneration;
     this.clearStandbyTimer();
+    this.clearCueStopTimer();
     if (!fromStandby) this.stop();
 
     if (this.options.audio.status().permission !== "granted") {
@@ -247,9 +253,83 @@ export class VoiceRuntime {
     this.session?.interrupt(trigger);
   }
 
+  /**
+   * Plays a short magnetic attach / detach sound cue, sharing the active KWS/voice output
+   * stream when running or opening a temporary output-only stream (no microphone prompt) when idle.
+   */
+  playDockCue(docked: boolean): void {
+    if (
+      this.closed ||
+      this.state.phase === "speaking" ||
+      this.state.phase === "connecting" ||
+      this.state.phase === "permission"
+    ) {
+      return;
+    }
+    const audioRunning = this.options.audio.status().state === "running";
+    if (audioRunning && !this.cueStopTimer) {
+      try {
+        if (this.options.audio.playDockCue) {
+          this.options.audio.playDockCue(docked);
+        } else if (docked) {
+          this.options.audio.playReadyCue();
+        }
+      } catch {
+        // Ignore transient playback backpressure
+      }
+      return;
+    }
+
+    this.clearCueStopTimer();
+    try {
+      if (!audioRunning) {
+        this.options.audio.start(false);
+      }
+      if (this.options.audio.playDockCue) {
+        this.options.audio.playDockCue(docked);
+      } else if (docked) {
+        this.options.audio.playReadyCue();
+      }
+      const timer = setTimeout(() => {
+        if (this.cueStopTimer === timer) {
+          this.cueStopTimer = undefined;
+        }
+        if (
+          !this.closed &&
+          !this.session &&
+          this.state.phase !== "standby"
+        ) {
+          try {
+            this.options.audio.stop();
+          } catch {}
+        }
+      }, 420);
+      (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+      this.cueStopTimer = timer;
+    } catch {
+      this.clearCueStopTimer();
+      if (!this.session && this.state.phase !== "standby") {
+        try {
+          this.options.audio.stop();
+        } catch {}
+      }
+    }
+  }
+
+  stopIdleCue(): void {
+    const hadTimer = Boolean(this.cueStopTimer);
+    this.clearCueStopTimer();
+    if (hadTimer && !this.session && this.state.phase === "idle") {
+      try {
+        this.options.audio.stop();
+      } catch {}
+    }
+  }
+
   endSession(): void {
     ++this.standbyGeneration;
     this.clearStandbyTimer();
+    this.clearCueStopTimer();
     const active = this.session;
     this.session = undefined;
     if (active) {
@@ -269,6 +349,7 @@ export class VoiceRuntime {
   stop(): void {
     ++this.standbyGeneration;
     this.clearStandbyTimer();
+    this.clearCueStopTimer();
     const active = this.session;
     this.session = undefined;
     active?.dispose("immediate");
@@ -321,6 +402,11 @@ export class VoiceRuntime {
   private clearStandbyTimer(): void {
     if (this.standbyTimer) clearTimeout(this.standbyTimer);
     this.standbyTimer = undefined;
+  }
+
+  private clearCueStopTimer(): void {
+    if (this.cueStopTimer) clearTimeout(this.cueStopTimer);
+    this.cueStopTimer = undefined;
   }
 
   private publish(patch: Partial<VoiceState>): void {

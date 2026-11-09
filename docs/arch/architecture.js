@@ -167,7 +167,7 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "body", x: 790, y: 676, compact: true, title: "LOOI 具身底座", symbol: "eyes", category: "TypeScript + Rust · BLE / 模拟", detail: "BodyRuntime / LooiBle / 状态机", path: "apps/nsh/runtime/body.ts",
-      description: "封装 LooiBle 原生蓝牙桥接与 BodySupervisor 状态机，向底座管理空间、实时语音和 Pi Agent 提供统一具身控制与急停安全锁。",
+      description: "封装 LooiBle 原生蓝牙桥接与 BodySupervisor 状态机，支持已配对底座前台静默自动重连与二次吸附云台问候，向首屏、底座管理空间、实时语音和 Pi Agent 提供统一具身控制与急停安全锁。",
       files: [
         { path: "apps/nsh/runtime/body.ts", entry: "export class BodyRuntime" },
         { path: "apps/nsh/ui/BodySpaceView.tsx", entry: "export function BodySpaceView" },

@@ -182,7 +182,7 @@ public final class LooiBleBridge {
         try {
             final BluetoothDevice device = bt.getRemoteDevice(deviceId);
             activeGeneration = generation;
-            activeGatt = device.connectGatt(owner, false, new BluetoothGattCallback() {
+            final BluetoothGattCallback callback = new BluetoothGattCallback() {
                 @Override public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
                         gatt.discoverServices();
@@ -255,7 +255,10 @@ public final class LooiBleBridge {
                         onReadResult(generation, characteristic.getUuid().toString(), characteristic.getValue());
                     }
                 }
-            });
+            };
+            activeGatt = Build.VERSION.SDK_INT >= 23
+                ? device.connectGatt(owner, false, callback, BluetoothDevice.TRANSPORT_LE)
+                : device.connectGatt(owner, false, callback);
             return activeGatt != null;
         } catch (RuntimeException error) {
             return false;

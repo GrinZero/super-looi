@@ -342,6 +342,10 @@ export class MobileRuntime {
     return this.body.attachNativeBle(port);
   }
 
+  setBodyForegroundActive(active: boolean): BodyStatusSnapshot {
+    return this.body.setForegroundActive(active);
+  }
+
   async configureBody(
     input: Partial<BodyConfiguration>,
     action: UserActionRef,

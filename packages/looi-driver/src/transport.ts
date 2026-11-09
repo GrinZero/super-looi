@@ -24,6 +24,8 @@ export interface LooiDeviceCandidate {
 export interface LooiConnectTarget {
   deviceId?: string;
   deviceName?: string;
+  timeoutMs?: number;
+  silent?: boolean;
 }
 
 export interface LooiBleTransport {

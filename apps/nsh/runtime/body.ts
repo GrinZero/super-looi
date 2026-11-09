@@ -253,12 +253,66 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     }
   }
 
+  /**
+   * Silently scans up to `timeoutMs` for a specific paired `deviceId` without triggering OS permission dialogs,
+   * stopping immediately as soon as the peripheral is seen.
+   */
+  public async waitForDevice(
+    deviceId: string,
+    timeoutMs = 2200,
+  ): Promise<LooiDeviceCandidate | null> {
+    const wanted = deviceId.trim().toLowerCase();
+    if (!wanted || this.port.permission() !== "granted") {
+      return null;
+    }
+    const generation = ++this.scanGeneration;
+    try {
+      this.port.startScan();
+    } catch {
+      return null;
+    }
+    this.activeScanGeneration = generation;
+    try {
+      const deadline = Date.now() + Math.max(80, timeoutMs);
+      while (generation === this.scanGeneration) {
+        const hit = this.port
+          .scannedDevices()
+          .find((item) => item.id.trim().toLowerCase() === wanted);
+        if (hit) {
+          return {
+            id: hit.id,
+            name: hit.name || "LOOI 桌面底座",
+            rssi: typeof hit.rssi === "number" ? hit.rssi : null,
+          };
+        }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(50, remaining)));
+      }
+      return null;
+    } finally {
+      if (this.activeScanGeneration === generation) {
+        this.activeScanGeneration = null;
+        this.port.stopScan();
+      }
+    }
+  }
+
   public async scanAndConnect(serviceUuid: string, target?: LooiConnectTarget): Promise<void> {
     const generation = ++this.connectionGeneration;
-    await this.ensurePermission();
+    if (target?.silent) {
+      if (this.port.permission() !== "granted") {
+        throw new Error("body_ble_permission_denied");
+      }
+    } else {
+      await this.ensurePermission();
+    }
     if (generation !== this.connectionGeneration) throw new Error("BLE connection cancelled");
     let deviceId = target?.deviceId?.trim() ?? "";
     if (!deviceId) {
+      if (target?.silent) {
+        throw new Error("@looi:body_no_dock_found");
+      }
       const found = await this.scanCandidates(serviceUuid, 8000);
       found.sort((a, b) => (b.rssi ?? -100) - (a.rssi ?? -100));
       deviceId = found[0]?.id ?? "";
@@ -271,7 +325,8 @@ export class NshNativeBleAdapter implements NativeBleAdapter {
     this.port.connect(deviceId);
     this.startPolling();
 
-    const deadline = Date.now() + 12000;
+    const connectTimeoutMs = Math.max(150, target?.timeoutMs ?? (target?.silent ? 4500 : 12000));
+    const deadline = Date.now() + connectTimeoutMs;
     while (Date.now() < deadline) {
       if (generation !== this.connectionGeneration) throw new Error("BLE connection cancelled");
       this.pumpEvents();
@@ -489,6 +544,20 @@ const DEFAULT_SIM_CANDIDATES: LooiDeviceCandidate[] = [
   { id: "sim-looi-bedroom-02", name: "卧室的 LOOI", rssi: -65 },
 ];
 
+export interface BodyRuntimeOptions {
+  vault: Vault;
+  nativePort?: NativeBlePort | null;
+  reconnectBackoffMs?: readonly number[];
+  silentConnectTimeoutMs?: number;
+  silentScanWindowMs?: number;
+  dockGreetingLeadMs?: number;
+  dockGreetingSettleMs?: number;
+}
+
+const DEFAULT_RECONNECT_BACKOFF_MS: readonly number[] = [1200, 2500, 4500];
+const DOCK_GREETING_PERK_DEGREES = 67;
+const DOCK_GREETING_REST_DEGREES = 55;
+
 export class BodyRuntime {
   private config: BodyConfiguration = {
     mode: "real_ble",
@@ -505,6 +574,21 @@ export class BodyRuntime {
   private scanning = false;
   private scanCompleted = false;
   private connecting = false;
+  private silentConnecting = false;
+  private foregroundActive = true;
+  private manualDisconnectHold = false;
+  private closed = false;
+  private autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoReconnectAttempt = 0;
+  private activeSilentConnect: Promise<void> | null = null;
+  private greetedInCurrentDockSession = false;
+  private headCommandEpoch = 0;
+  private dockGreetingTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly reconnectBackoffMs: readonly number[];
+  private readonly silentConnectTimeoutMs: number;
+  private readonly silentScanWindowMs: number;
+  private readonly dockGreetingLeadMs: number;
+  private readonly dockGreetingSettleMs: number;
   private scanRequest = 0;
   private connectionRequest = 0;
   private activeConnect: Promise<void> | null = null;
@@ -523,8 +607,16 @@ export class BodyRuntime {
   private inFlightPowerRead: Promise<LooiPowerStatus> | null = null;
   private readonly selfEventListeners = new Set<(window: SelfEventWindow) => void>();
 
-  constructor(options: { vault: Vault; nativePort?: NativeBlePort | null }) {
+  constructor(options: BodyRuntimeOptions) {
     this.vault = options.vault;
+    this.reconnectBackoffMs =
+      options.reconnectBackoffMs && options.reconnectBackoffMs.length > 0
+        ? options.reconnectBackoffMs
+        : DEFAULT_RECONNECT_BACKOFF_MS;
+    this.silentConnectTimeoutMs = options.silentConnectTimeoutMs ?? 4500;
+    this.silentScanWindowMs = options.silentScanWindowMs ?? 2200;
+    this.dockGreetingLeadMs = options.dockGreetingLeadMs ?? 40;
+    this.dockGreetingSettleMs = options.dockGreetingSettleMs ?? 240;
     this.loadVault();
     if (options.nativePort) {
       this.nativePort = options.nativePort;
@@ -538,6 +630,8 @@ export class BodyRuntime {
       }).then(() => {
         this.setSimulatedDock(true);
       });
+    } else if (this.config.mode === "real_ble" && this.nativePort) {
+      this.scheduleAutoReconnect(true);
     }
   }
 
@@ -610,8 +704,257 @@ export class BodyRuntime {
     this.heldDriveRenewTimer = timer;
   }
 
+  private clearAutoReconnectTimer(): void {
+    if (this.autoReconnectTimer !== null) {
+      clearTimeout(this.autoReconnectTimer);
+      this.autoReconnectTimer = null;
+    }
+  }
+
+  private cancelDockGreeting(): void {
+    ++this.headCommandEpoch;
+    if (this.dockGreetingTimer !== null) {
+      clearTimeout(this.dockGreetingTimer);
+      this.dockGreetingTimer = null;
+    }
+  }
+
+  private maybeTriggerDockGreeting(): void {
+    if (
+      this.greetedInCurrentDockSession ||
+      this.closed ||
+      !this.foregroundActive ||
+      this.config.mode === "disabled"
+    ) {
+      return;
+    }
+    const snap = this.supervisor.getSnapshot();
+    if (
+      !snap.isDocked ||
+      snap.state !== "ready" ||
+      snap.activeLease !== null
+    ) {
+      return;
+    }
+    this.greetedInCurrentDockSession = true;
+    this.cancelDockGreeting();
+    const epoch = this.headCommandEpoch;
+    const leadTimer = setTimeout(() => {
+      if (this.dockGreetingTimer === leadTimer) {
+        this.dockGreetingTimer = null;
+      }
+      if (
+        epoch !== this.headCommandEpoch ||
+        this.closed ||
+        !this.foregroundActive
+      ) {
+        return;
+      }
+      const current = this.supervisor.getSnapshot();
+      if (
+        !current.isDocked ||
+        current.state === "disconnected" ||
+        current.state === "fault" ||
+        current.activeLease !== null
+      ) {
+        return;
+      }
+      void this.supervisor
+        .setHeadDegrees(DOCK_GREETING_PERK_DEGREES)
+        .then(() => {
+          if (
+            epoch !== this.headCommandEpoch ||
+            this.closed ||
+            !this.foregroundActive
+          ) {
+            return;
+          }
+          const settleTimer = setTimeout(() => {
+            if (this.dockGreetingTimer === settleTimer) {
+              this.dockGreetingTimer = null;
+            }
+            if (
+              epoch !== this.headCommandEpoch ||
+              this.closed ||
+              !this.foregroundActive
+            ) {
+              return;
+            }
+            const afterSnap = this.supervisor.getSnapshot();
+            if (
+              !afterSnap.isDocked ||
+              afterSnap.state === "disconnected" ||
+              afterSnap.state === "fault" ||
+              afterSnap.activeLease !== null
+            ) {
+              return;
+            }
+            void this.supervisor
+              .setHeadDegrees(DOCK_GREETING_REST_DEGREES)
+              .catch(() => {});
+          }, this.dockGreetingSettleMs);
+          (settleTimer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+          this.dockGreetingTimer = settleTimer;
+        })
+        .catch(() => {});
+    }, this.dockGreetingLeadMs);
+    (leadTimer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+    this.dockGreetingTimer = leadTimer;
+  }
+
+  private canRunAutoWatch(ignoreSilentFlag = false): boolean {
+    if (
+      this.closed ||
+      !this.foregroundActive ||
+      this.config.mode !== "real_ble" ||
+      !this.config.autoConnect ||
+      !this.config.savedDeviceId ||
+      this.manualDisconnectHold ||
+      !this.nativePort ||
+      !this.nativeAdapter
+    ) {
+      return false;
+    }
+    if (this.nativePort.permission() !== "granted") {
+      return false;
+    }
+    const snap = this.supervisor.getSnapshot();
+    const isConnected = snap.state !== "disconnected" && snap.state !== "fault";
+    if (isConnected || this.connecting || this.scanning) {
+      return false;
+    }
+    return ignoreSilentFlag || !this.silentConnecting;
+  }
+
+  private scheduleAutoReconnect(immediate = false): void {
+    this.clearAutoReconnectTimer();
+    if (!this.canRunAutoWatch()) {
+      return;
+    }
+    const backoffIdx = Math.min(
+      this.autoReconnectAttempt,
+      this.reconnectBackoffMs.length - 1,
+    );
+    const delayMs = immediate ? 0 : this.reconnectBackoffMs[backoffIdx]!;
+    const timer = setTimeout(() => {
+      if (this.autoReconnectTimer === timer) {
+        this.autoReconnectTimer = null;
+      }
+      void this.runSilentReconnect();
+    }, delayMs);
+    (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+    this.autoReconnectTimer = timer;
+  }
+
+  private async runSilentReconnect(): Promise<void> {
+    if (!this.canRunAutoWatch()) return;
+    const savedId = this.config.savedDeviceId;
+    const savedName = this.config.savedDeviceName || "LOOI 桌面底座";
+    const attempt = this.autoReconnectAttempt++;
+    const request = ++this.connectionRequest;
+    const pendingDisconnect = this.activeDisconnect;
+    this.silentConnecting = true;
+    const task = (async () => {
+      try {
+        await pendingDisconnect;
+        if (request !== this.connectionRequest || !this.canRunAutoWatch(true)) {
+          return;
+        }
+        let resolvedName = savedName;
+        if (attempt % 2 === 1 && this.nativeAdapter) {
+          const found = await this.nativeAdapter.waitForDevice(
+            savedId,
+            this.silentScanWindowMs,
+          );
+          if (request !== this.connectionRequest || !this.canRunAutoWatch(true)) {
+            return;
+          }
+          if (!found) {
+            return;
+          }
+          resolvedName = found.name || savedName;
+        }
+        await this.supervisor.connect(new Date(), 0, {
+          deviceId: savedId,
+          deviceName: resolvedName,
+          timeoutMs: this.silentConnectTimeoutMs,
+          silent: true,
+        });
+        if (request !== this.connectionRequest) return;
+        const nativeStatus = this.nativePort?.status();
+        this.connectedDeviceId = nativeStatus?.deviceId || savedId;
+        this.connectedDeviceName = nativeStatus?.deviceName || resolvedName;
+        this.config.savedDeviceId = this.connectedDeviceId;
+        this.config.savedDeviceName = this.connectedDeviceName;
+        this.saveVault();
+        this.autoReconnectAttempt = 0;
+        this.lastError = null;
+        void this.readPowerStatus().catch(() => {});
+      } catch {
+        // Silent background watch intentionally suppresses transient errors/timeouts,
+        // while releasing any half-open GATT session that faulted mid-handshake.
+        if (
+          request === this.connectionRequest &&
+          this.supervisor.getState() !== "disconnected"
+        ) {
+          await this.supervisor.disconnect().catch(() => {});
+        }
+      } finally {
+        if (request === this.connectionRequest) {
+          this.silentConnecting = false;
+        }
+      }
+    })();
+    this.activeSilentConnect = task;
+    await task;
+    if (this.activeSilentConnect === task) {
+      this.activeSilentConnect = null;
+    }
+    if (request === this.connectionRequest && !this.status().connected) {
+      this.scheduleAutoReconnect(false);
+    }
+  }
+
+  private async abortSilentReconnect(): Promise<void> {
+    this.clearAutoReconnectTimer();
+    if (!this.silentConnecting) return;
+    ++this.connectionRequest;
+    this.silentConnecting = false;
+    const previousSilent = this.activeSilentConnect;
+    const pendingDisconnect = this.activeDisconnect;
+    this.nativeAdapter?.cancelScan();
+    const task = (async () => {
+      await pendingDisconnect;
+      await this.supervisor.disconnect().catch(() => {});
+      await previousSilent?.catch(() => {});
+    })();
+    this.activeDisconnect = task;
+    await task;
+    if (this.activeDisconnect === task) {
+      this.activeDisconnect = null;
+    }
+  }
+
+  public setForegroundActive(active: boolean): BodyStatusSnapshot {
+    const next = Boolean(active);
+    if (this.foregroundActive === next) {
+      return this.status();
+    }
+    this.foregroundActive = next;
+    if (!next) {
+      this.cancelDockGreeting();
+      void this.abortSilentReconnect();
+    } else {
+      this.autoReconnectAttempt = 0;
+      this.scheduleAutoReconnect(true);
+    }
+    return this.status();
+  }
+
   private buildSupervisorForMode(mode: BodyConnectionMode): BodySupervisor {
     this.clearHeldDriveState();
+    this.cancelDockGreeting();
+    this.greetedInCurrentDockSession = false;
     this.inFlightPowerRead = null;
     this.bleTransport?.dispose();
     this.bleTransport = null;
@@ -623,6 +966,22 @@ export class BodyRuntime {
       onStateChange: (state: BodySupervisorState) => {
         if (state === "disconnected" || state === "fault") {
           this.clearHeldDriveState();
+          this.cancelDockGreeting();
+          this.greetedInCurrentDockSession = false;
+          if (!this.connecting && !this.silentConnecting && state === "disconnected") {
+            this.connectedDeviceId = null;
+            this.scheduleAutoReconnect(false);
+          }
+        } else if (state === "ready") {
+          this.maybeTriggerDockGreeting();
+        }
+      },
+      onDockChange: (docked: boolean) => {
+        if (docked) {
+          this.maybeTriggerDockGreeting();
+        } else {
+          this.cancelDockGreeting();
+          this.greetedInCurrentDockSession = false;
         }
       },
       onStop: (req: BodyStopRequest) => {
@@ -640,7 +999,9 @@ export class BodyRuntime {
         for (const listener of this.selfEventListeners) listener(win);
       },
       onError: (err: Error) => {
-        this.lastError = normalizeBodyErrorMessage(err.message);
+        if (!this.silentConnecting) {
+          this.lastError = normalizeBodyErrorMessage(err.message);
+        }
       },
     };
 
@@ -658,14 +1019,14 @@ export class BodyRuntime {
   }
 
   public attachNativeBle(port: NativeBlePort | null): BodyStatusSnapshot {
+    this.clearAutoReconnectTimer();
     this.nativePort = port;
+    this.manualDisconnectHold = false;
+    this.autoReconnectAttempt = 0;
     if (this.config.mode === "real_ble") {
       this.supervisor = this.buildSupervisorForMode("real_ble");
-      if (this.config.autoConnect && this.config.savedDeviceId) {
-        void this.connect({
-          deviceId: this.config.savedDeviceId,
-          deviceName: this.config.savedDeviceName,
-        }).catch(() => {});
+      if (port && this.config.autoConnect && this.config.savedDeviceId) {
+        this.scheduleAutoReconnect(true);
       }
     }
     return this.status();
@@ -688,6 +1049,7 @@ export class BodyRuntime {
     const connected =
       this.config.mode !== "disabled" &&
       !this.connecting &&
+      !this.silentConnecting &&
       snap.state !== "disconnected" &&
       snap.state !== "fault";
     const permission =
@@ -724,7 +1086,7 @@ export class BodyRuntime {
   public async configure(patch: Partial<BodyConfiguration>): Promise<BodyStatusSnapshot> {
     const modeChanged = patch.mode !== undefined && patch.mode !== this.config.mode;
     if (modeChanged) {
-      await this.disconnect();
+      await this.disconnectInternal(false);
       this.config.mode = patch.mode!;
     }
     if (patch.savedDeviceId !== undefined) {
@@ -736,6 +1098,13 @@ export class BodyRuntime {
     }
     if (patch.autoConnect !== undefined) {
       this.config.autoConnect = Boolean(patch.autoConnect);
+      if (this.config.autoConnect) {
+        this.manualDisconnectHold = false;
+        this.autoReconnectAttempt = 0;
+      }
+    }
+    if (!this.config.autoConnect || !this.config.savedDeviceId) {
+      await this.abortSilentReconnect();
     }
     this.saveVault();
 
@@ -744,6 +1113,8 @@ export class BodyRuntime {
       (this.config.mode === "simulation" && !this.status().connected)
     ) {
       this.lastError = null;
+      this.manualDisconnectHold = false;
+      this.autoReconnectAttempt = 0;
       this.candidates =
         this.config.mode === "simulation" ? [...DEFAULT_SIM_CANDIDATES] : [];
       this.scanCompleted = this.config.mode === "simulation";
@@ -760,11 +1131,15 @@ export class BodyRuntime {
         this.config.savedDeviceId &&
         this.nativePort
       ) {
-        void this.connect({
-          deviceId: this.config.savedDeviceId,
-          deviceName: this.config.savedDeviceName,
-        }).catch(() => {});
+        this.scheduleAutoReconnect(true);
       }
+    } else if (
+      this.config.mode === "real_ble" &&
+      this.config.autoConnect &&
+      this.config.savedDeviceId &&
+      this.nativePort
+    ) {
+      this.scheduleAutoReconnect(true);
     }
     return this.status();
   }
@@ -772,6 +1147,10 @@ export class BodyRuntime {
   public async scan(timeoutMs = 8000): Promise<BodyStatusSnapshot> {
     if (this.config.mode === "disabled") {
       return this.status();
+    }
+    this.clearAutoReconnectTimer();
+    if (this.silentConnecting) {
+      await this.abortSilentReconnect();
     }
     const request = ++this.scanRequest;
     this.lastError = null;
@@ -797,7 +1176,10 @@ export class BodyRuntime {
         this.lastError = normalizeBodyErrorMessage(error instanceof Error ? error.message : String(error));
       }
     } finally {
-      if (request === this.scanRequest) this.scanning = false;
+      if (request === this.scanRequest) {
+        this.scanning = false;
+        this.scheduleAutoReconnect(false);
+      }
     }
     return this.status();
   }
@@ -809,6 +1191,8 @@ export class BodyRuntime {
     if (this.config.mode === "disabled") {
       await this.configure({ mode: "real_ble" });
     }
+    this.clearAutoReconnectTimer();
+    this.manualDisconnectHold = false;
     this.lastError = null;
     const candidate =
       (target?.deviceId
@@ -827,7 +1211,9 @@ export class BodyRuntime {
 
     const request = ++this.connectionRequest;
     const previous = this.activeConnect;
+    const previousSilent = this.activeSilentConnect;
     const pendingDisconnect = this.activeDisconnect;
+    this.silentConnecting = false;
     this.connecting = true;
     ++this.scanRequest;
     this.scanning = false;
@@ -835,9 +1221,10 @@ export class BodyRuntime {
     const task = (async () => {
       try {
         await pendingDisconnect;
-        if (previous) {
+        if (previous || previousSilent) {
           await this.supervisor.disconnect();
           await previous;
+          await previousSilent;
         }
         if (request !== this.connectionRequest) return;
         if (this.config.mode === "real_ble" && !this.nativeAdapter) {
@@ -863,6 +1250,7 @@ export class BodyRuntime {
           this.config.savedDeviceId = this.connectedDeviceId;
           this.config.savedDeviceName = this.connectedDeviceName;
           this.saveVault();
+          this.autoReconnectAttempt = 0;
         } else {
           this.connectedDeviceId = resolvedId || DEFAULT_SIM_CANDIDATES[0].id;
           this.connectedDeviceName =
@@ -878,7 +1266,12 @@ export class BodyRuntime {
           this.lastError = normalizeBodyErrorMessage(error instanceof Error ? error.message : String(error));
         }
       } finally {
-        if (request === this.connectionRequest) this.connecting = false;
+        if (request === this.connectionRequest) {
+          this.connecting = false;
+          if (!this.status().connected) {
+            this.scheduleAutoReconnect(false);
+          }
+        }
       }
     })();
     this.activeConnect = task;
@@ -888,18 +1281,32 @@ export class BodyRuntime {
   }
 
   public async disconnect(): Promise<BodyStatusSnapshot> {
+    return this.disconnectInternal(true);
+  }
+
+  private async disconnectInternal(holdAutoConnect: boolean): Promise<BodyStatusSnapshot> {
+    this.clearAutoReconnectTimer();
+    if (holdAutoConnect) {
+      this.manualDisconnectHold = true;
+    }
+    this.cancelDockGreeting();
+    this.greetedInCurrentDockSession = false;
     ++this.driveGeneration;
     this.clearHeldDriveState();
     this.inFlightPowerRead = null;
     const request = ++this.connectionRequest;
+    this.silentConnecting = false;
     this.lastError = null;
     const previous = this.activeConnect;
+    const previousSilent = this.activeSilentConnect;
     const pendingDisconnect = this.activeDisconnect;
+    this.nativeAdapter?.cancelScan();
     const task = (async () => {
       try {
         await pendingDisconnect;
         await this.supervisor.disconnect();
         await previous;
+        await previousSilent;
       } catch {
         // Ignore disconnect errors during teardown
       }
@@ -915,7 +1322,9 @@ export class BodyRuntime {
   }
 
   public async forgetSavedDock(): Promise<BodyStatusSnapshot> {
-    const disconnecting = this.disconnect();
+    this.manualDisconnectHold = false;
+    this.clearAutoReconnectTimer();
+    const disconnecting = this.disconnectInternal(false);
     this.config.savedDeviceId = "";
     this.config.savedDeviceName = "LOOI 桌面底座";
     this.connectedDeviceName = "LOOI 桌面底座";
@@ -1218,6 +1627,7 @@ export class BodyRuntime {
       }
 
       if (action === "head_up" || action === "head_center" || action === "head_down") {
+        this.cancelDockGreeting();
         const pose: HeadPayloadKey =
           action === "head_up" ? "up" : action === "head_down" ? "down" : "center";
         await this.supervisor.setHead(pose);
@@ -1228,6 +1638,7 @@ export class BodyRuntime {
         if (typeof input.headDegrees !== "number" || !Number.isFinite(input.headDegrees)) {
           throw new Error("@looi:body_head_invalid");
         }
+        this.cancelDockGreeting();
         await this.supervisor.setHeadDegrees(input.headDegrees);
         return this.buildReceipt(action, "verified", recordedAt);
       }
@@ -1287,9 +1698,12 @@ export class BodyRuntime {
   }
 
   public close(): void {
+    this.closed = true;
+    this.clearAutoReconnectTimer();
+    this.cancelDockGreeting();
     ++this.driveGeneration;
     this.clearHeldDriveState();
-    void this.disconnect();
+    void this.disconnectInternal(false);
     this.bleTransport?.dispose();
     this.nativeAdapter?.dispose();
     this.selfEventListeners.clear();

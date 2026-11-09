@@ -89,7 +89,7 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
         "模拟体验",
         "扫描附近底座",
         "扫描后选择要连接的底座",
-        "启动时连接上次底座",
+        "自动重连上次底座",
         "方向轮盘",
         "拖动摇杆无极变向 · 松手即停",
         "速度 0 · 转向 0",
@@ -119,6 +119,12 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.wait_for("外接供电")?;
     app.press("body-head-down")?;
     app.wait_for("25°")?;
+    app.press("back-to-face")?;
+    app.wait_for("底座已吸合就绪")?;
+    app.press("connection-settings")?;
+    app.wait_for("底座")?;
+    app.press("nav-body")?;
+    app.wait_for("方向轮盘")?;
     app.press("body-light-toggle")?;
     app.wait_for("补光灯 · 已开启")?;
     app.wait_for("50%")?;

@@ -1451,3 +1451,27 @@
 - [x] 接入 Android Activity 与 iOS Application 的前台常亮、失活释放。
 - [x] iOS `aarch64-apple-ios` 编译检查、Android 原生插件编译和插件测试通过；独立 review 为 PASS。
 - [x] 魅族 20 Pro 开发包验证：15 秒系统熄屏设置下前台静置 25 秒仍常亮，切回桌面 25 秒后熄屏；已恢复原有 600000 ms 设置。
+
+
+## 蓝牙底座二次吸附全自动连接与首屏多模态反馈（2026-11-09）
+
+计划文档：[`docs/plans/ble-dock-auto-attach-plan.md`](docs/plans/ble-dock-auto-attach-plan.md)
+
+- [x] Step 1：梳理现有 BLE 连接、在座通知与首屏状态流断点，完成模块边界设计与实施计划 `docs/plans/ble-dock-auto-attach-plan.md`
+- [x] Step 2：优化双端原生层与传输适配器已知设备重连
+  - [x] Step 2.1：iOS `apps/nsh/src/ble/ios.rs` 支持 `retrievePeripheralsWithIdentifiers:` 已知 UUID 系统级直连与蓝牙上电挂起恢复
+  - [x] Step 2.2：Android `LooiBleBridge.java` 显式指定 `BluetoothDevice.TRANSPORT_LE`
+  - [x] Step 2.3：`NshNativeBleAdapter` 新增目标设备命中即停扫描 `waitForDevice(deviceId, timeoutMs)`
+- [x] Step 3：在 `BodyRuntime` 实现前台静默自动重连守望与在座机械抬头问候
+  - [x] Step 3.1：实现 `setForegroundActive(active)`、意外断线退避重连、`manualDisconnectHold` 手动断开保持与 `scan()` 让路恢复
+  - [x] Step 3.2：实现 `onDockChange(true)` 上升沿 `67° → 55°` 云台问候与 `headCommandEpoch` 零冲突抢占取消，并在 `NativeRuntime` / `build-runtime.ts` 导出接口
+- [x] Step 4：在 `VoiceAudio` 与 `VoiceRuntime` 实现单流共享的双频磁吸提示音 `playDockCue`
+  - [x] Step 4.1：Rust `apps/nsh/src/audio.rs` 新增 `play_dock_cue(docked: bool)`（含自激抑制窗口与测试实现）
+  - [x] Step 4.2：`VoiceRuntime` 新增 `playDockCue(docked: bool)`（兼容 `standby` 复用、`idle` 纯输出流临时启停与 `speaking` 避让）
+- [x] Step 5：打通 `store.ts` 首屏常驻状态同步、四重瞬态反馈与中英文文案
+  - [x] Step 5.1：更新 `extra-catalog.ts` 中英文词条与 `BodySpaceView.tsx` 自动重连开关文案
+  - [x] Step 5.2：在 `store.ts` 接入前后台同步、首屏守望轮询及吸合/脱座边沿触发（`dock_snap` / `undock_float` 瞬态表情、`LightToast`、音效）
+- [x] Step 6：补齐单元/UI 自动化测试、独立子 agent Review 与魅族 20 Pro 真机安装验证
+  - [x] `@super-looi/looi-driver` 26/26 单测、`@super-looi/nsh` 类型检查、全量测试（`test:voice-runtime`、`test:model-list`、`test:build-env`、Rust/QuickJS/Headless UI 26/26、`test:plugins`）、`build` 与 iOS `aarch64-apple-ios` 编译检查全部通过
+  - [x] 独立子 agent 三轮代码审查终审 **PASS**（已修复 CoreBluetooth 单例 `CBPeripheral` 重连取消竞态、`manualDisconnectHold` 切后台保持、静默重连中途异常断连回收与 `idle` 纯输出流升级录音流等边界）
+  - [x] Android 开发包已重新编译原生库并安装至魅族 20 Pro（`391QYGCN224FE`），实测首屏与底座页渲染、吸合上升沿 `67° → 55°` 云台问候、`底座已吸合就绪` Toast 及 `AAudio` 纯输出磁吸音效流正常且无异常日志
