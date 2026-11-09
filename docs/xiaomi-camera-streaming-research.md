@@ -1,5 +1,7 @@
 # 米家摄像头独立取流：一手证据
 
+运行位置约束：本项目使用手机内置的 `@super-looi/home-assistant` / `direct_miot`，摄像头实现须在手机进程内执行。下文 HA 服务器集成只作为协议参考，不是项目部署路线；实施边界见 [手机端方案](plans/xiaomi-camera-streaming-plan.md)。
+
 调研日期：2026-11-10。目标设备来自本仓真实设备清单：卧室与天台各一台 `isa.camera.hlc7`，大厅一台 `chuangmi.camera.039a01`。本文记录上游事实；集成设计见 [集成方案](plans/xiaomi-camera-streaming-plan.md)。
 
 ## 核对的源码版本

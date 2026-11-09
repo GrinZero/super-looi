@@ -2,8 +2,8 @@
 
 ## 米家摄像头取流
 
-- [ ] 按 `docs/plans/xiaomi-camera-streaming-plan.md` 在“不新增常驻进程”约束下，验证 HA 内 Python CS2/MISS 集成的 Original 模式：两台 `isa.camera.hlc7`、大厅 `chuangmi.camera.039a01` 的真实画面、Docker 网络与 HLS 延迟。
-- [ ] 将 HA `camera/stream` 客户端和固定卡片绑定接入 `packages/home-assistant`，在魅族真机验证 NSH 原生 Video 播放 H.265 HLS；替换就绪占位文案，快照复用 HA 进程内图片接口。
+- [ ] 按 `docs/plans/xiaomi-camera-streaming-plan.md`，在手机内置 `direct_miot` 会话上验证两台 `isa.camera.hlc7` 的流动作与大厅 `chuangmi.camera.039a01` 的 P2P 视频授权，记录真实返回码；不依赖外部 HA 服务器。
+- [ ] 在授权和媒体验证后落地手机进程内取流、原生解码与详情页生命周期，测量真实首帧、延迟和播放/退出内存；之前外部 HA 路线的隔离实现不合入主线。
 
 ## 智能家居能力与视觉还原
 
