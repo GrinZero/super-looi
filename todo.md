@@ -1,5 +1,10 @@
 # 当前待办
 
+## 米家摄像头取流
+
+- [ ] 按 `docs/plans/xiaomi-camera-streaming-plan.md` 用原生 macOS go2rtc 验证两台 `isa.camera.hlc7` 与大厅 `chuangmi.camera.039a01` 的真实取流、编码、首帧与 HA/手机同时观看；优先确认大厅型号及 `hlc7` 启动画质问题。
+- [ ] 将摄像头客户端和显式设备绑定接入 `packages/home-assistant`，替换电源状态推断的视频就绪文案；在魅族真机验证 NSH WebView WebRTC 播放与退出释放，iOS 内联播放另行实测。
+
 ## 智能家居能力与视觉还原
 
 实施依据：[真机能力、拖边布局与设计还原方案](docs/plans/smart-home-device-and-design-repair-plan.md)。

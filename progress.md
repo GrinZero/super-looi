@@ -2,13 +2,14 @@
 
 ### 米家摄像头取流与 HA 包集成调研（2026-11-10）
 
-- [ ] Step 1：核对两种真实摄像头型号、现有 HA 包接口与 NSH 播放能力
+- [x] Step 1：核对两种真实摄像头型号、现有 HA 包接口与 NSH 播放能力
   - [x] 确认两台 `isa.camera.hlc7` 和一台 `chuangmi.camera.039a01`；官方 Xiaomi Home 不提供视频流
-  - [ ] 追踪设备标识、摄像头能力与运行时调用边界
-- [ ] Step 2：核对 go2rtc、小米官方取流组件及社区桥接方案的一手证据
-  - [ ] 明确登录与密钥、协议与编码、Mac/容器部署和型号支持
-- [ ] Step 3：由主 agent 编写 `docs/plans/` 集成方案，比较接口与依赖成本，拆分实施步骤和真机验收条件
-- [ ] Step 4：子 agent 独立审查，修订方案、更新待办并提交本次文档
+  - [x] 追踪设备标识、摄像头能力与运行时调用边界；确认 NSH 固定版本已有 WebView/Video，当前页面仍为占位视窗
+- [x] Step 2：核对 go2rtc、小米官方取流组件及社区桥接方案的一手证据
+  - [x] 确认 go2rtc 独立小米登录、建连获取密钥和局域网媒体路径，核对公开 HTTP/WebRTC/RTSP 接口
+  - [x] 完成 Mac/容器部署、两个型号和 Miloco SDK 使用限制的证据归档，见 `docs/xiaomi-camera-streaming-research.md`
+- [x] Step 3：由主 agent 编写 `docs/plans/xiaomi-camera-streaming-plan.md`，比较接口与依赖成本，拆分实施步骤和真机验收条件
+- [x] Step 4：子 agent 独立审查，补齐持久卡片身份/控制主来源及真机 HTTPS 证书条件；更新待办，完成文档链接与 diff 检查
 
 ### 智能家居真机调研与修复方案（2026-11-10）
 
