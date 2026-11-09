@@ -42,6 +42,7 @@
     "@formatjs/intl-pluralrules": "7.0.2",
     "@super-looi/contracts": "workspace:*",
     "@super-looi/home-assistant": "workspace:*",
+    "@super-looi/home-devices": "workspace:*",
     "@super-looi/looi-driver": "workspace:*",
     "@super-looi/runtime": "workspace:*",
     "i18next": "27.0.1"

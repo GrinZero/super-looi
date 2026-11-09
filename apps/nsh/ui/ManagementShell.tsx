@@ -88,6 +88,14 @@ export function ManagementShell(props: {
           >
             <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-verified" />
           </If>
+          <If
+            when={
+              space === "home" &&
+              Boolean(props.store.homeConnection()?.healthy)
+            }
+          >
+            <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-verified" />
+          </If>
         </View>
       </Button>
     );
@@ -169,49 +177,123 @@ export function ManagementShell(props: {
       </If>
 
       <If when={props.store.activeSpace() === "home"}>
-        <Scroll
-          horizontal={true}
-          scrollbar={false}
-          class="flex-1 h-11"
-          contentClass="flex-row items-center gap-1.5 h-11"
-        >
-          <Each of={homeModes} key={(m) => m.id}>
-            {(m) => {
-              const active = () => homeModeTab() === m().id;
-              return (
-                <Button
-                  onPress={() => homeModeTab.set(m().id)}
+        <View class="flex-1 min-w-0 h-11 flex-row items-center justify-between gap-2">
+          <Scroll
+            horizontal={true}
+            scrollbar={false}
+            class="flex-1 h-11"
+            contentClass="flex-row items-center gap-1.5 h-11"
+          >
+            <Button
+              testID="home-tab-devices"
+              selected={props.store.homeSubView() === "devices"}
+              onPress={() => props.store.setHomeSubView("devices")}
+              class={
+                props.store.homeSubView() === "devices"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent flex-row items-center gap-1.5 active:opacity-75"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted flex-row items-center gap-1.5 active:opacity-75"
+              }
+            >
+              <Text
+                class={
+                  props.store.homeSubView() === "devices"
+                    ? "text-primary-foreground text-xs font-semibold"
+                    : "text-muted-foreground text-xs font-medium"
+                }
+              >
+                {props.store.homeDashboard().totalAppliances > 0
+                  ? `${t("myDevices")} · ${props.store.homeDashboard().totalAppliances}`
+                  : t("myDevices")}
+              </Text>
+            </Button>
+
+            <Button
+              testID="home-tab-services"
+              selected={props.store.homeSubView() === "services"}
+              onPress={() => props.store.setHomeSubView("services")}
+              class={
+                props.store.homeSubView() === "services"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent flex-row items-center gap-1.5 active:opacity-75"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted flex-row items-center gap-1.5 active:opacity-75"
+              }
+            >
+              <If when={props.store.homeConnection()?.healthy}>
+                <View class="w-1.5 h-1.5 rounded-full bg-verified" />
+              </If>
+              <Text
+                class={
+                  props.store.homeSubView() === "services"
+                    ? "text-primary-foreground text-xs font-semibold"
+                    : "text-muted-foreground text-xs font-medium"
+                }
+              >
+                {t("serviceBinding")}
+              </Text>
+            </Button>
+
+            <If
+              when={
+                props.store.homeSubView() === "services" &&
+                props.store.homeConfiguration().mode !== "disabled"
+              }
+            >
+              <Button
+                testID="home-disable"
+                onPress={() =>
+                  void props.store.configureHome({ mode: "disabled" })
+                }
+                class="min-h-11 px-2.5 items-center justify-center active:opacity-75"
+              >
+                <Text class="text-muted-foreground text-xs">{t("disableHome95")}</Text>
+              </Button>
+            </If>
+          </Scroll>
+
+          <If
+            when={
+              props.store.homeSubView() === "devices" &&
+              props.store.homeDashboard().totalAppliances > 0
+            }
+          >
+            <View class="flex-row items-center gap-1.5">
+              <Button
+                testID="home-layout-edit-btn"
+                selected={props.store.homeLayoutEditing()}
+                onPress={() =>
+                  props.store.setHomeLayoutEditing(
+                    !props.store.homeLayoutEditing(),
+                  )
+                }
+                class={
+                  props.store.homeLayoutEditing()
+                    ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
+                    : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+                }
+              >
+                <Text
                   class={
-                    active()
-                      ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
-                      : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+                    props.store.homeLayoutEditing()
+                      ? "text-primary-foreground text-xs font-semibold"
+                      : "text-foreground text-xs font-medium"
                   }
                 >
-                  <Text
-                    class={
-                      active()
-                        ? "text-primary-foreground text-xs font-semibold"
-                        : "text-muted-foreground text-xs font-medium"
-                    }
-                  >
-                    {m().label}
-                  </Text>
-                </Button>
-              );
-            }}
-          </Each>
-          <If when={props.store.homeConfiguration().mode !== "disabled"}>
-            <Button
-              testID="home-disable"
-              onPress={() =>
-                void props.store.configureHome({ mode: "disabled" })
-              }
-              class="min-h-11 px-2.5 items-center justify-center active:opacity-75"
-            >
-              <Text class="text-muted-foreground text-xs">{t("disableHome95")}</Text>
-            </Button>
+                  {props.store.homeLayoutEditing()
+                    ? t("doneLayout")
+                    : t("editLayout")}
+                </Text>
+              </Button>
+              <Button
+                testID="home-refresh-btn"
+                onPress={() => void props.store.connectHome()}
+                class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+              >
+                <Text class="text-foreground text-xs font-medium">
+                  {t("refresh")}
+                </Text>
+              </Button>
+            </View>
           </If>
-        </Scroll>
+        </View>
       </If>
 
       <If when={props.store.activeSpace() === "body"}>

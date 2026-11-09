@@ -14,6 +14,8 @@ export const FORBIDDEN_HIGH_RISK_DOMAINS = new Set([
   "gas",
   "water_heater",
   "garage_door",
+  "valve",
+  "siren",
 ]);
 
 export interface TargetDisambiguationResult {
@@ -252,20 +254,6 @@ export class HomeAssistantGateway implements HomeGateway {
       };
     }
 
-    if (domain !== definition.domain || domain !== command.entity_id.split(".")[0]
-      || !["turn_on", "turn_off", "toggle"].includes(command.service)
-      || (command.service !== "toggle" && !definition.supported_features.includes(command.service))
-      || !command.service_data || typeof command.service_data !== "object" || Array.isArray(command.service_data)
-      || Object.entries(command.service_data).some(([key, value]) =>
-        !["brightness", "color_temp_kelvin"].includes(key)
-        || domain !== "light" || command.service !== "turn_on"
-        || !definition.supported_features.includes(key === "color_temp_kelvin" ? "color_temp" : key)
-        || typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value))) {
-      return { schema_version: "0.2", receipt_id: receiptId, action_id: actionId, task_id: null,
-        receipt_seq: 1, executor_id: "home_assistant_gateway", recorded_at: nowIso,
-        status: "rejected", reason_code: "unsupported_home_command", readbacks: [] };
-    }
-
     // 3. No-Toggle Discipline (Reject non-idempotent toggle)
     if (command.service === "toggle") {
       return {
@@ -280,6 +268,32 @@ export class HomeAssistantGateway implements HomeGateway {
         reason_code: "non_idempotent_toggle_forbidden",
         readbacks: [],
       };
+    }
+
+    const allowedServices = new Set([
+      "turn_on",
+      "turn_off",
+      "set_temperature",
+      "set_hvac_mode",
+      "select_option",
+      "set_value",
+      "press",
+      "send_message",
+    ]);
+    const isExtendedService = ["set_temperature", "set_hvac_mode", "select_option", "set_value", "press", "send_message"].includes(command.service);
+
+    if (domain !== definition.domain || domain !== command.entity_id.split(".")[0]
+      || !allowedServices.has(command.service)
+      || !definition.supported_features.includes(command.service)
+      || !command.service_data || typeof command.service_data !== "object" || Array.isArray(command.service_data)
+      || (!isExtendedService && Object.entries(command.service_data).some(([key, value]) =>
+        !["brightness", "color_temp_kelvin"].includes(key)
+        || domain !== "light" || command.service !== "turn_on"
+        || !definition.supported_features.includes(key === "color_temp_kelvin" ? "color_temp" : key)
+        || typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)))) {
+      return { schema_version: "0.2", receipt_id: receiptId, action_id: actionId, task_id: null,
+        receipt_seq: 1, executor_id: "home_assistant_gateway", recorded_at: nowIso,
+        status: "rejected", reason_code: "unsupported_home_command", readbacks: [] };
     }
 
     // 4. Parameter bounds check (e.g. brightness within allowed range)
@@ -307,25 +321,51 @@ export class HomeAssistantGateway implements HomeGateway {
 
     // Transports may quantize to the closest supported hardware step, after policy validation.
     const targetData = this.transport.normalizeServiceData?.(command.entity_id, command.service_data) ?? command.service_data;
-    if (Object.keys(targetData).length !== Object.keys(command.service_data).length
+    if (!isExtendedService && (Object.keys(targetData).length !== Object.keys(command.service_data).length
       || Object.keys(command.service_data).some((key) => {
         const value = targetData[key];
         const range = definition.allowed_range?.[key];
         return typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)
           || (range && (value < range[0] || value > range[1]));
-      })) {
+      }))) {
       return { schema_version: "0.2", receipt_id: receiptId, action_id: actionId, task_id: null,
         receipt_seq: 1, executor_id: "home_assistant_gateway", recorded_at: nowIso,
         status: "rejected", reason_code: "unsupported_home_command", readbacks: [] };
     }
     // State and requested attributes must both match, including on-to-on adjustments.
     const current = await this.transport.fetchState(command.entity_id);
-    const targetState = command.service === "turn_on" ? "on" : command.service === "turn_off" ? "off" : undefined;
-    const matchesTarget = (snapshot: HomeStateSnapshot): boolean =>
-      snapshot.state === targetState &&
-      Object.entries(targetData).every(([key, value]) =>
-        key === "entity_id" || jsonValuesEqual(snapshot.attributes[key], value)
+    const targetState =
+      command.service === "turn_on"
+        ? "on"
+        : command.service === "turn_off"
+          ? "off"
+          : command.service === "set_hvac_mode" && typeof targetData.hvac_mode === "string"
+            ? targetData.hvac_mode
+            : command.service === "select_option" && typeof targetData.option === "string"
+              ? targetData.option
+              : command.service === "set_value" && targetData.value !== undefined
+                ? String(targetData.value)
+                : undefined;
+    const matchesTarget = (snapshot: HomeStateSnapshot): boolean => {
+      if (command.service === "press" || command.service === "send_message") {
+        return !current || snapshot.last_updated !== current.last_updated;
+      }
+      if (command.service === "set_temperature") {
+        return jsonValuesEqual(snapshot.attributes.temperature, targetData.temperature);
+      }
+      if (command.service === "set_hvac_mode" || command.service === "select_option" || command.service === "set_value") {
+        return snapshot.state === targetState;
+      }
+      if (domain === "climate" && command.service === "turn_on") {
+        return snapshot.state !== "off" && snapshot.state !== "unavailable";
+      }
+      return (
+        snapshot.state === targetState &&
+        Object.entries(targetData).every(
+          ([key, value]) => key === "entity_id" || jsonValuesEqual(snapshot.attributes[key], value),
+        )
       );
+    };
 
     // 5. Fresh No-op check
     if (current && targetState && matchesTarget(current)) {
@@ -382,7 +422,7 @@ export class HomeAssistantGateway implements HomeGateway {
     const deadline = Date.now() + Math.max(0, Math.min(command.timeout_ms ?? 2000, 5000));
     let after = await this.transport.fetchState(command.entity_id);
     const verified = (snapshot: HomeStateSnapshot | null): boolean => {
-      if (!snapshot || !targetState || !matchesTarget(snapshot)) return false;
+      if (!snapshot || !matchesTarget(snapshot)) return false;
       const age = Date.now() - Date.parse(snapshot.last_updated);
       return age >= -5000 && age <= (definition.max_state_age_ms ?? 15000)
         && (!current || snapshot.last_updated !== current.last_updated || snapshot.state !== current.state

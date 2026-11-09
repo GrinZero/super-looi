@@ -28,6 +28,18 @@ import {
   type MiotCryptoProvider,
   type MiotRegion,
 } from "@super-looi/home-assistant";
+import {
+  buildHomeDashboardModel,
+  createEmptyLayoutPreferences,
+  createRichSimulationCatalog,
+  updateApplianceOrder,
+  updateApplianceSpan,
+  type HomeDashboardModel,
+  type HomeLayoutPreferences,
+  type HomeSourceId,
+  type RawHomeEntityRecord,
+  type TileSpan,
+} from "@super-looi/home-devices";
 
 export type HomeMode =
   | "disabled"
@@ -44,13 +56,23 @@ export interface HomeSettings {
   haUrl?: string;
   haToken?: string;
   region?: MiotRegion;
+  enabledSources?: Partial<Record<HomeSourceId, boolean>>;
 }
+export type HomeSourceStatus = {
+  enabled: boolean;
+  configured: boolean;
+  healthy: boolean;
+  entityCount: number;
+  error: string | null;
+};
 export interface HomeConfiguration {
   mode: HomeMode;
   haUrl: string;
   region: MiotRegion;
   hasToken: boolean;
   hasMiotAccount: boolean;
+  enabledSources?: Record<HomeSourceId, boolean>;
+  layout?: HomeLayoutPreferences;
 }
 export interface HomeConnection {
   mode: HomeMode;
@@ -61,6 +83,7 @@ export interface HomeConnection {
   lastVerifiedAt: string | null;
   error: string | null;
   entityCount: number;
+  sources?: Record<HomeSourceId, HomeSourceStatus>;
 }
 export interface HomeControlResult {
   receipt: ActionReceipt;
@@ -81,6 +104,8 @@ interface SavedHome {
     haUrl: string;
     region: MiotRegion;
     callbackId: string;
+    enabledSources?: Partial<Record<HomeSourceId, boolean>>;
+    layout?: HomeLayoutPreferences;
   };
   credentials: Record<string, string>;
 }
@@ -100,6 +125,8 @@ interface ConnectionOwner {
   generation: number;
   id: string;
   gateway: HomeAssistantGateway;
+  uiGateway: HomeAssistantGateway;
+  dashboardEntities: Array<HomeEntityDefinition & { source: HomeSourceId; device_model?: string; original_name?: string }>;
   transport: HaTransportAdapter;
 }
 const modes: HomeMode[] = [
@@ -140,6 +167,21 @@ function copy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function resolveEnabledSources(config: SavedHome["config"]): Record<HomeSourceId, boolean> {
+  if (config.enabledSources) {
+    return {
+      direct_miot: Boolean(config.enabledSources.direct_miot),
+      external_ha: Boolean(config.enabledSources.external_ha),
+      simulation: Boolean(config.enabledSources.simulation),
+    };
+  }
+  return {
+    direct_miot: config.mode === "direct_miot",
+    external_ha: config.mode === "external_ha",
+    simulation: config.mode === "simulation",
+  };
+}
+
 /** Foreground-only home owner. Secrets are held in the native encrypted `home`
  * slot, never in NodeCompat files or public state. No commands are retried. */
 export class HomeRuntime {
@@ -150,6 +192,11 @@ export class HomeRuntime {
   private connecting?: Promise<HomeConnection>;
   private oauth?: MiotOAuthClient;
   private lastError: string | null = null;
+  private sourceStatuses: Record<HomeSourceId, HomeSourceStatus> = {
+    direct_miot: { enabled: false, configured: false, healthy: false, entityCount: 0, error: null },
+    external_ha: { enabled: false, configured: false, healthy: false, entityCount: 0, error: null },
+    simulation: { enabled: false, configured: true, healthy: false, entityCount: 0, error: null },
+  };
   private controllers = new Set<AbortController>();
   private sockets = new Set<HomeRegistrySocket>();
   private actions = new Set<string>();
@@ -194,32 +241,60 @@ export class HomeRuntime {
     }
   }
 
+  private hasMiotCredential(region = this.saved.config.region): boolean {
+    const key = `super-looi.miot.${region}.${MIOT_CLIENT_ID}.${encodeURIComponent(`http://homeassistant.local:8123/api/webhook/${this.saved.config.callbackId}`)}`;
+    return Boolean(this.saved.credentials[key]);
+  }
+
   configuration(): HomeConfiguration {
-    const { mode, haUrl, region } = this.saved.config;
+    const { mode, haUrl, region, layout } = this.saved.config;
+    const enabledSources = resolveEnabledSources(this.saved.config);
     return {
       mode,
       haUrl,
       region,
       hasToken: Boolean(this.saved.credentials[credentialKey(haUrl)]),
-      hasMiotAccount: Boolean(this.saved.credentials[`super-looi.miot.${region}.${MIOT_CLIENT_ID}.${encodeURIComponent(`http://homeassistant.local:8123/api/webhook/${this.saved.config.callbackId}`)}`]),
+      hasMiotAccount: this.hasMiotCredential(region),
+      enabledSources,
+      layout: layout ?? createEmptyLayoutPreferences(),
     };
   }
   connection(): HomeConnection {
-    const { mode, haUrl } = this.saved.config,
+    const { mode, haUrl, region } = this.saved.config,
       owner = this.owner;
+    const enabledSources = resolveEnabledSources(this.saved.config);
+    const hasHaToken = Boolean(haUrl && this.saved.credentials[credentialKey(haUrl)]);
+    const hasMiot = this.hasMiotCredential(region);
     return {
       mode,
-      simulation: mode === "simulation",
+      simulation: mode === "simulation" && !enabledSources.direct_miot && !enabledSources.external_ha,
       configured:
         mode === "simulation" ||
         (mode === "external_ha"
-          ? Boolean(haUrl && this.saved.credentials[credentialKey(haUrl)])
+          ? hasHaToken
           : Boolean(owner)),
       healthy: Boolean(!this.closed && owner?.transport.isHealthy()),
       connectionId: this.closed ? null : (owner?.id ?? null),
       lastVerifiedAt: owner?.transport.getLastVerifiedAt() ?? null,
       error: this.lastError,
       entityCount: this.entityCount,
+      sources: {
+        direct_miot: {
+          ...this.sourceStatuses.direct_miot,
+          enabled: enabledSources.direct_miot,
+          configured: hasMiot,
+        },
+        external_ha: {
+          ...this.sourceStatuses.external_ha,
+          enabled: enabledSources.external_ha,
+          configured: hasHaToken,
+        },
+        simulation: {
+          ...this.sourceStatuses.simulation,
+          enabled: enabledSources.simulation,
+          configured: true,
+        },
+      },
     };
   }
   private entityCount = 0;
@@ -240,7 +315,9 @@ export class HomeRuntime {
     try {
       this.options.vault.set("home", raw);
     } catch {
-      throw new Error("home_credential_store_failed");
+      if (Object.keys(next.credentials).length > 0) {
+        throw new Error("home_credential_store_failed");
+      }
     }
     this.saved = next;
   }
@@ -263,6 +340,11 @@ export class HomeRuntime {
     this.entityCount = 0;
     this.actions.clear();
     this.lastError = null;
+    this.sourceStatuses = {
+      direct_miot: { enabled: false, configured: false, healthy: false, entityCount: 0, error: null },
+      external_ha: { enabled: false, configured: false, healthy: false, entityCount: 0, error: null },
+      simulation: { enabled: false, configured: true, healthy: false, entityCount: 0, error: null },
+    };
     // An old queue is allowed to settle as unknown, never to hold new commands.
     this.commandQueue = Promise.resolve();
   }
@@ -290,11 +372,19 @@ export class HomeRuntime {
     )
       throw new Error("home_invalid_token");
     const next = copy(this.saved);
+    const enabledSources: Partial<Record<HomeSourceId, boolean>> | undefined = input.enabledSources
+      ? {
+          direct_miot: Boolean(input.enabledSources.direct_miot),
+          external_ha: Boolean(input.enabledSources.external_ha),
+          simulation: Boolean(input.enabledSources.simulation),
+        }
+      : undefined;
     next.config = {
       ...next.config,
       mode: input.mode,
       haUrl,
       region: input.region ?? next.config.region,
+      ...(enabledSources ? { enabledSources } : { enabledSources: undefined }),
     };
     if (input.haToken !== undefined) {
       if (!haUrl) throw new Error("home_https_url_required");
@@ -306,6 +396,52 @@ export class HomeRuntime {
     this.invalidate();
     this.commit(next);
     return this.configuration();
+  }
+
+  async setSourceEnabled(source: HomeSourceId, enabled: boolean): Promise<HomeConnection> {
+    this.assertOpen();
+    const currentSources = resolveEnabledSources(this.saved.config);
+    const nextSources: Record<HomeSourceId, boolean> = {
+      ...currentSources,
+      [source]: enabled,
+    };
+    const nextMode: HomeMode = nextSources.direct_miot
+      ? "direct_miot"
+      : nextSources.external_ha
+        ? "external_ha"
+        : nextSources.simulation
+          ? "simulation"
+          : "disabled";
+    const next = copy(this.saved);
+    next.config = {
+      ...next.config,
+      mode: nextMode,
+      enabledSources: nextSources,
+    };
+    this.invalidate();
+    this.commit(next);
+    if (nextMode === "disabled") {
+      return this.connection();
+    }
+    return this.connect();
+  }
+
+  setApplianceLayout(
+    applianceId: string,
+    patch: { span?: TileSpan; order?: number },
+  ): HomeLayoutPreferences {
+    this.assertOpen();
+    const next = copy(this.saved);
+    let layout = next.config.layout ?? createEmptyLayoutPreferences();
+    if (patch.span) {
+      layout = updateApplianceSpan(layout, applianceId, patch.span);
+    }
+    if (patch.order !== undefined) {
+      layout = updateApplianceOrder(layout, applianceId, patch.order);
+    }
+    next.config.layout = layout;
+    this.commit(next);
+    return layout;
   }
 
   private network(generation: number): typeof fetch {
@@ -397,9 +533,10 @@ export class HomeRuntime {
       },
     };
   }
-  private auth(): MiotOAuthClient {
+  private auth(allowMultiSource = false): MiotOAuthClient {
     this.assertOpen();
-    if (this.saved.config.mode !== "direct_miot")
+    const enabled = resolveEnabledSources(this.saved.config);
+    if (this.saved.config.mode !== "direct_miot" && !(allowMultiSource && enabled.direct_miot))
       throw new Error("miot_mode_required");
     return (this.oauth ??= new MiotOAuthClient({
       region: this.saved.config.region,
@@ -412,18 +549,24 @@ export class HomeRuntime {
   async beginMiotLogin(
     region: MiotRegion = this.saved.config.region,
   ): Promise<MiotAuthSession> {
-    const configured = this.configure({ mode: "direct_miot", region });
+    const prevSources = resolveEnabledSources(this.saved.config);
+    const hasOtherSources = Boolean(this.saved.config.enabledSources && (prevSources.external_ha || prevSources.simulation));
+    const configured = this.configure({
+      mode: "direct_miot",
+      region,
+      ...(hasOtherSources ? { enabledSources: { ...prevSources, direct_miot: true } } : {}),
+    });
     const generation = this.generation;
     await configured;
     this.assertCurrent(generation);
-    return this.auth().beginAuthSession();
+    return this.auth(true).beginAuthSession();
   }
   interceptMiotCallback(url: string): MiotCallbackResult {
-    return this.auth().tryInterceptCallbackUrl(url);
+    return this.auth(true).tryInterceptCallbackUrl(url);
   }
   async finishMiotLogin(code: string, isCurrent: () => boolean = () => true): Promise<HomeConnection> {
     const generation = this.generation;
-    await this.auth().completeAuthWithCode(code, () =>
+    await this.auth(true).completeAuthWithCode(code, () =>
       !this.closed && generation === this.generation &&
       this.saved.config.mode === "direct_miot" && isCurrent());
     this.assertCurrent(generation);
@@ -433,7 +576,7 @@ export class HomeRuntime {
     this.oauth?.cancelAuthSession();
   }
   async logoutMiot(): Promise<void> {
-    const auth = this.auth();
+    const auth = this.auth(true);
     const generation = this.generation;
     await auth.logout();
     this.assertCurrent(generation);
@@ -512,99 +655,319 @@ export class HomeRuntime {
     return promise;
   }
   private async openConnection(generation: number): Promise<HomeConnection> {
-    const { mode, haUrl, region } = this.saved.config;
+    const { mode, haUrl, region, enabledSources: rawMulti } = this.saved.config;
+    const enabled = resolveEnabledSources(this.saved.config);
+    const activeSources = (["direct_miot", "external_ha", "simulation"] as HomeSourceId[]).filter((s) => enabled[s]);
+
     try {
-      let transport: HaTransportAdapter, definitions: HomeEntityDefinition[];
-      if (mode === "disabled") {
+      if (mode === "disabled" || activeSources.length === 0) {
         this.lastError = "home_disabled";
         return this.connection();
       }
-      if (mode === "simulation") {
-        const now = new Date().toISOString();
-        transport = new InMemoryHaTransportAdapter({
-          "light.study_ceiling": {
+
+      // Single-source classic path (preserves exact error semantics for existing tests)
+      if (!rawMulti && activeSources.length === 1) {
+        let transport: HaTransportAdapter;
+        let definitions: HomeEntityDefinition[];
+        let dashboardEntities: Array<HomeEntityDefinition & { source: HomeSourceId; device_model?: string; original_name?: string }> = [];
+
+        if (mode === "simulation") {
+          const now = new Date().toISOString();
+          const richCatalog = createRichSimulationCatalog(now);
+          // Start study_ceiling off so existing simulation control tests verify off -> on transition
+          richCatalog.states["light.study_ceiling"] = {
             entity_id: "light.study_ceiling",
             state: "off",
-            attributes: { brightness: 128, color_temp_kelvin: 4000 },
+            attributes: { friendly_name: "演示书房吸顶灯", brightness: 128, color_temp_kelvin: 4000 },
             last_changed: now,
             last_updated: now,
-          },
-        });
-        definitions = [
-          {
-            entity_id: "light.study_ceiling",
-            friendly_name: "演示书房吸顶灯",
-            domain: "light",
-            room: "演示书房",
-            supported_features: [
-              "turn_on",
-              "turn_off",
-              "brightness",
-              "color_temp",
-            ],
-            allowed_range: {
-              brightness: [1, 255],
-              color_temp_kelvin: [2200, 6500],
+          };
+          transport = new InMemoryHaTransportAdapter(richCatalog.states);
+          definitions = [
+            {
+              entity_id: "light.study_ceiling",
+              friendly_name: "演示书房吸顶灯",
+              domain: "light",
+              room: "演示书房",
+              supported_features: [
+                "turn_on",
+                "turn_off",
+                "brightness",
+                "color_temp",
+              ],
+              allowed_range: {
+                brightness: [1, 255],
+                color_temp_kelvin: [2200, 6500],
+              },
+              is_whitelisted: true,
+              max_state_age_ms: 15000,
             },
-            is_whitelisted: true,
-            max_state_age_ms: 15000,
-          },
-        ];
-      } else if (mode === "external_ha") {
-        const token = this.saved.credentials[credentialKey(haUrl)];
-        if (!haUrl || !token) throw new Error("home_not_configured");
-        const rest = new HomeAssistantRestTransport({
-          url: haUrl,
-          token,
-          fetch: this.network(generation),
-        });
-        const states = await rest.listStates();
-        this.assertCurrent(generation);
-        let metadata = new Map<string, HomeEntityMetadata>();
-        try {
-          metadata = await (this.options.registry ?? readHomeRegistry)(
-            haUrl,
+          ];
+          dashboardEntities = richCatalog.entities.map((e) => ({ ...e, source: "simulation" as const }));
+          this.sourceStatuses.simulation = {
+            enabled: true,
+            configured: true,
+            healthy: true,
+            entityCount: dashboardEntities.length,
+            error: null,
+          };
+        } else if (mode === "external_ha") {
+          const token = this.saved.credentials[credentialKey(haUrl)];
+          if (!haUrl || !token) throw new Error("home_not_configured");
+          const rest = new HomeAssistantRestTransport({
+            url: haUrl,
             token,
-            "",
-            { createWebSocket: (url) => this.registrySocket(url, generation) },
-          );
-        } catch {
+            fetch: this.network(generation),
+          });
+          const states = await rest.listStates();
           this.assertCurrent(generation);
-          this.lastError = "ha_registry_unavailable";
+          let metadata = new Map<string, HomeEntityMetadata>();
+          try {
+            metadata = await (this.options.registry ?? readHomeRegistry)(
+              haUrl,
+              token,
+              "",
+              { createWebSocket: (url) => this.registrySocket(url, generation) },
+            );
+          } catch {
+            this.assertCurrent(generation);
+            this.lastError = "ha_registry_unavailable";
+          }
+          this.assertCurrent(generation);
+          definitions = states.map((state) =>
+            defineHaEntity(state, metadata.get(state.entity_id)),
+          );
+          dashboardEntities = definitions.map((d) => ({ ...d, source: "external_ha" as const }));
+          transport = rest;
+          this.sourceStatuses.external_ha = {
+            enabled: true,
+            configured: true,
+            healthy: true,
+            entityCount: definitions.length,
+            error: this.lastError,
+          };
+        } else {
+          const auth = this.auth(true);
+          await auth.tokens.getAccessToken();
+          this.assertCurrent(generation);
+          const direct = new DirectMiotTransportAdapter({
+            client: new MiotHttpClient({
+              region,
+              fetch: this.network(generation),
+              getAccessToken: () => auth.tokens.getAccessToken(),
+            }),
+            specs: new MiotSpecResolver({ fetch: this.network(generation) }),
+            allowedEntities: ["*"],
+          });
+          definitions = await direct.discover();
+          dashboardEntities = definitions.map((d) => ({ ...d, source: "direct_miot" as const }));
+          transport = direct;
+          this.sourceStatuses.direct_miot = {
+            enabled: true,
+            configured: true,
+            healthy: true,
+            entityCount: definitions.length,
+            error: null,
+          };
         }
         this.assertCurrent(generation);
-        definitions = states.map((state) =>
-          defineHaEntity(state, metadata.get(state.entity_id)),
-        );
-        transport = rest;
-      } else {
-        const auth = this.auth();
-        await auth.tokens.getAccessToken();
-        this.assertCurrent(generation);
-        const direct = new DirectMiotTransportAdapter({
-          client: new MiotHttpClient({
-            region,
-            fetch: this.network(generation),
-            getAccessToken: () => auth.tokens.getAccessToken(),
+        const guarded = this.guardTransport(transport, generation);
+        this.owner = {
+          generation,
+          id: `${this.sessionId}:${generation}`,
+          transport: guarded,
+          gateway: new HomeAssistantGateway({
+            transport: guarded,
+            initialEntities: definitions,
           }),
-          specs: new MiotSpecResolver({ fetch: this.network(generation) }),
-          allowedEntities: ["*"],
-        });
-        definitions = await direct.discover();
-        transport = direct;
+          uiGateway: new HomeAssistantGateway({
+            transport: guarded,
+            initialEntities: dashboardEntities,
+          }),
+          dashboardEntities,
+        };
+        this.entityCount = definitions.length;
+        return this.connection();
+      }
+
+      // Multi-source concurrent aggregation path
+      const subTransports = new Map<HomeSourceId, HaTransportAdapter>();
+      const entityOwnerMap = new Map<string, HomeSourceId>();
+      const allDefinitions: HomeEntityDefinition[] = [];
+      const allDashboardEntities: Array<HomeEntityDefinition & { source: HomeSourceId; device_model?: string; original_name?: string }> = [];
+
+      const connectSource = async (src: HomeSourceId) => {
+        try {
+          if (src === "simulation") {
+            const now = new Date().toISOString();
+            const rich = createRichSimulationCatalog(now);
+            const simTransport = new InMemoryHaTransportAdapter(rich.states);
+            subTransports.set("simulation", simTransport);
+            for (const ent of rich.entities) {
+              if (!entityOwnerMap.has(ent.entity_id)) {
+                entityOwnerMap.set(ent.entity_id, "simulation");
+                allDefinitions.push(ent);
+              }
+              allDashboardEntities.push({ ...ent, source: "simulation" });
+            }
+            this.sourceStatuses.simulation = {
+              enabled: true,
+              configured: true,
+              healthy: true,
+              entityCount: rich.entities.length,
+              error: null,
+            };
+          } else if (src === "external_ha") {
+            const token = this.saved.credentials[credentialKey(haUrl)];
+            if (!haUrl || !token) throw new Error("home_not_configured");
+            const rest = new HomeAssistantRestTransport({
+              url: haUrl,
+              token,
+              fetch: this.network(generation),
+            });
+            const states = await rest.listStates();
+            this.assertCurrent(generation);
+            let metadata = new Map<string, HomeEntityMetadata>();
+            try {
+              metadata = await (this.options.registry ?? readHomeRegistry)(
+                haUrl,
+                token,
+                "",
+                { createWebSocket: (url) => this.registrySocket(url, generation) },
+              );
+            } catch {
+              this.assertCurrent(generation);
+            }
+            this.assertCurrent(generation);
+            const defs = states.map((state) => defineHaEntity(state, metadata.get(state.entity_id)));
+            subTransports.set("external_ha", rest);
+            for (const d of defs) {
+              entityOwnerMap.set(d.entity_id, "external_ha");
+              allDefinitions.push(d);
+              allDashboardEntities.push({ ...d, source: "external_ha" });
+            }
+            this.sourceStatuses.external_ha = {
+              enabled: true,
+              configured: true,
+              healthy: true,
+              entityCount: defs.length,
+              error: null,
+            };
+          } else if (src === "direct_miot") {
+            const auth = this.auth(true);
+            await auth.tokens.getAccessToken();
+            this.assertCurrent(generation);
+            const direct = new DirectMiotTransportAdapter({
+              client: new MiotHttpClient({
+                region,
+                fetch: this.network(generation),
+                getAccessToken: () => auth.tokens.getAccessToken(),
+              }),
+              specs: new MiotSpecResolver({ fetch: this.network(generation) }),
+              allowedEntities: ["*"],
+            });
+            const defs = await direct.discover();
+            subTransports.set("direct_miot", direct);
+            for (const d of defs) {
+              entityOwnerMap.set(d.entity_id, "direct_miot");
+              allDefinitions.push(d);
+              allDashboardEntities.push({ ...d, source: "direct_miot" });
+            }
+            this.sourceStatuses.direct_miot = {
+              enabled: true,
+              configured: true,
+              healthy: true,
+              entityCount: defs.length,
+              error: null,
+            };
+          }
+        } catch (err) {
+          this.assertCurrent(generation);
+          const msg = err instanceof Error ? err.message : "";
+          const normErr = ["home_not_configured", "miot_auth_required"].includes(msg)
+            ? msg
+            : "home_connection_failed";
+          this.sourceStatuses[src] = {
+            enabled: true,
+            configured: src === "simulation",
+            healthy: false,
+            entityCount: 0,
+            error: normErr,
+          };
+          if (!this.lastError) this.lastError = normErr;
+        }
+      };
+
+      for (const src of activeSources) {
+        await connectSource(src);
       }
       this.assertCurrent(generation);
-      const guarded = this.guardTransport(transport, generation);
+
+      if (subTransports.size === 0) {
+        if (!this.lastError) this.lastError = "home_connection_failed";
+        this.owner = undefined;
+        this.entityCount = 0;
+        return this.connection();
+      }
+
+      const compositeTransport: HaTransportAdapter = {
+        fetchState: async (entityId) => {
+          const ownerSrc = entityOwnerMap.get(entityId);
+          const t = ownerSrc ? subTransports.get(ownerSrc) : subTransports.values().next().value;
+          return t ? t.fetchState(entityId) : null;
+        },
+        callService: async (domain, service, serviceData) => {
+          const entityId = String(serviceData.entity_id ?? "");
+          const ownerSrc = entityOwnerMap.get(entityId);
+          const t = ownerSrc ? subTransports.get(ownerSrc) : subTransports.values().next().value;
+          if (!t) return { success: false, error: "No transport for entity" };
+          return t.callService(domain, service, serviceData);
+        },
+        listStates: async () => {
+          const out: HomeStateSnapshot[] = [];
+          for (const t of subTransports.values()) {
+            if (t.listStates) {
+              try {
+                out.push(...(await t.listStates()));
+              } catch {
+                /* partial source failure tolerated */
+              }
+            }
+          }
+          return out;
+        },
+        normalizeServiceData: (entityId, data) => {
+          const ownerSrc = entityOwnerMap.get(entityId);
+          const t = ownerSrc ? subTransports.get(ownerSrc) : undefined;
+          return t?.normalizeServiceData ? t.normalizeServiceData(entityId, data) : data;
+        },
+        isHealthy: () => Array.from(subTransports.values()).some((t) => t.isHealthy()),
+        getLastVerifiedAt: () => {
+          for (const t of subTransports.values()) {
+            const v = t.getLastVerifiedAt();
+            if (v) return v;
+          }
+          return null;
+        },
+      };
+
+      const guarded = this.guardTransport(compositeTransport, generation);
       this.owner = {
         generation,
         id: `${this.sessionId}:${generation}`,
         transport: guarded,
         gateway: new HomeAssistantGateway({
           transport: guarded,
-          initialEntities: definitions,
+          initialEntities: allDefinitions,
         }),
+        uiGateway: new HomeAssistantGateway({
+          transport: guarded,
+          initialEntities: allDashboardEntities,
+        }),
+        dashboardEntities: allDashboardEntities,
       };
-      this.entityCount = definitions.length;
+      this.entityCount = allDashboardEntities.length;
+      if (subTransports.size > 0) this.lastError = null;
       return this.connection();
     } catch (error) {
       this.assertCurrent(generation);
@@ -618,6 +981,25 @@ export class HomeRuntime {
       this.entityCount = 0;
       return this.connection();
     }
+  }
+
+  async dashboard(lang: "zh-CN" | "en-US" = "zh-CN"): Promise<HomeDashboardModel> {
+    this.assertOpen();
+    if (!this.owner && this.saved.config.mode !== "disabled") {
+      await (this.connecting ?? this.connect());
+    }
+    const owner = this.owner;
+    if (!owner) {
+      return buildHomeDashboardModel([], this.saved.config.layout, lang);
+    }
+    const states = await owner.uiGateway.getStates();
+    this.assertCurrent(owner.generation);
+    const snapshotMap = new Map(states.map((s) => [s.entity_id, s.snapshot]));
+    const rawRecords: RawHomeEntityRecord[] = owner.dashboardEntities.map((ent) => ({
+      ...ent,
+      snapshot: snapshotMap.get(ent.entity_id) ?? null,
+    }));
+    return buildHomeDashboardModel(rawRecords, this.saved.config.layout, lang);
   }
 
   async list(query = "", offset = 0): Promise<JsonObject> {
@@ -668,8 +1050,13 @@ export class HomeRuntime {
       return Promise.reject(new Error("home_action_capacity_exceeded"));
     this.actions.add(action.requestId);
     const requestId = action.requestId;
-    const simulation = this.saved.config.mode === "simulation";
     const captured = copy(command);
+    const matchedDashboardEntity = owner.dashboardEntities.find(
+      (e) => e.entity_id === captured.entity_id,
+    );
+    const simulation =
+      this.saved.config.mode === "simulation" ||
+      matchedDashboardEntity?.source === "simulation";
     const abort = () => {
       if (owner.generation === this.generation) this.invalidate();
     };
@@ -679,7 +1066,10 @@ export class HomeRuntime {
         try {
           if (action.signal?.aborted) throw new Error("home_action_cancelled");
           this.assertCurrent(owner.generation);
-          const receipt = await owner.gateway.executeCommand(captured);
+          const targetGateway = owner.dashboardEntities.some((e) => e.entity_id === captured.entity_id)
+            ? owner.uiGateway
+            : owner.gateway;
+          const receipt = await targetGateway.executeCommand(captured);
           this.assertCurrent(owner.generation);
           return {
             receipt,

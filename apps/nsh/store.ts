@@ -32,8 +32,13 @@ import {
   type BodyConfiguration,
   type BodyControlAction,
   type BodyStatusSnapshot,
+  type HomeAppliance,
   type HomeConfiguration,
   type HomeConnection,
+  type HomeDashboardModel,
+  type HomeRoomSection,
+  type HomeSourceId,
+  type TileSpan,
   type NativeRuntime,
   type NativeStep,
   type NativeTask,
@@ -343,6 +348,7 @@ export function createAppStore() {
   let wakePreferenceTouched = false;
   let wakeGuideTouched = false;
   const llmSnapshot = signal<LlmCatalogSnapshot>(INITIAL_LLM_SNAPSHOT);
+  const modelRefreshCounts = signal<Record<string, number>>({});
   const oauthFlow = signal<{
     running: boolean;
     providerId: string;
@@ -368,10 +374,51 @@ export function createAppStore() {
     region: "cn",
     hasToken: false,
     hasMiotAccount: false,
+    enabledSources: {
+      direct_miot: false,
+      external_ha: false,
+      simulation: false,
+    },
   });
   const homeConnection = signal<HomeConnection | undefined>(undefined);
   const homeDevices = signal<Record<string, unknown>>({});
+  const homeDashboard = signal<HomeDashboardModel>({
+    homeName: "我的家",
+    totalAppliances: 0,
+    activeAppliances: 0,
+    rooms: [],
+    allAppliances: [],
+  });
+  const homeSubView = signal<"devices" | "services">("devices");
+  const homeSelectedRoom = signal<string>("all");
+  const homeLayoutEditing = signal<boolean>(false);
+  const homeInspectedApplianceId = signal<string | null>(null);
   const homeLoggingIn = signal(false);
+  const syncHomeDashboard = async () => {
+    if (!alive || !runtime) return;
+    homeConfiguration.set(runtime.homeConfiguration());
+    homeConnection.set(runtime.homeConnection());
+    try {
+      const nextDashboard = await runtime.homeDashboard(effectiveLocale());
+      if (!alive) return;
+      homeDashboard.set(nextDashboard);
+      const currentRoom = homeSelectedRoom();
+      if (
+        currentRoom !== "all" &&
+        nextDashboard.rooms.length > 0 &&
+        !nextDashboard.rooms.some((r: HomeRoomSection) => r.name === currentRoom)
+      ) {
+        homeSelectedRoom.set("all");
+      }
+      const inspected = homeInspectedApplianceId();
+      if (
+        inspected &&
+        !nextDashboard.allAppliances.some((a: HomeAppliance) => a.id === inspected)
+      ) {
+        homeInspectedApplianceId.set(null);
+      }
+    } catch {}
+  };
   const canAutoStandby = () =>
     ready() &&
     lifecycle() === "active" &&
@@ -807,6 +854,18 @@ export function createAppStore() {
       });
       homeConfiguration.set(opened.homeConfiguration());
       homeConnection.set(opened.homeConnection());
+      await syncHomeDashboard();
+      if (opened.homeConfiguration().mode !== "disabled") {
+        void (async () => {
+          try {
+            await opened.connectHome();
+            if (alive) {
+              homeDevices.set(await opened.listHome());
+              await syncHomeDashboard();
+            }
+          } catch {}
+        })();
+      }
       recoveryCount.set(opened.recoveryCount());
       ready.set(true);
       status.set(recoveryCount() ? "@looi:runtimePreviousTaskResultUnverified" : "@looi:runtimeStandingBy");
@@ -839,6 +898,7 @@ export function createAppStore() {
     async setLanguagePreference(value: LanguagePreference) {
       languagePreferenceTouched = true;
       languagePreference.set(value);
+      syncHomeDashboard();
       try {
         await Storage.setItem(LANGUAGE_PREFERENCE_KEY, value);
       } catch (error) {
@@ -890,12 +950,16 @@ export function createAppStore() {
       return { ...brand, label: translateMessage(labels?.label ?? brand.label), shortLabel: translateMessage(labels?.shortLabel ?? brand.shortLabel), channels: brand.channels.map(channel => ({ ...channel, protocolLabel: translateMessage(labels?.channels.find(item => item.providerId === channel.providerId)?.protocolLabel ?? channel.protocolLabel), label: translateMessage(labels?.channels.find(item => item.providerId === channel.providerId)?.label ?? channel.label), modelsError: translateMessage(channel.modelsError ?? "") })) };
     }) }),
     oauth: () => ({ ...oauthFlow(), instructions: translateMessage(oauthFlow().instructions), error: translateMessage(oauthFlow().error) }),
+    isProviderModelsRefreshing: (providerId: string) => (modelRefreshCounts()[providerId] ?? 0) > 0,
     async refreshProviderModels(providerId: string) {
       if (!runtime) return;
+      modelRefreshCounts.set({ ...modelRefreshCounts(), [providerId]: (modelRefreshCounts()[providerId] ?? 0) + 1 });
       try {
         llmSnapshot.set(await runtime.refreshProviderModels(providerId));
       } catch {
         llmSnapshot.set(runtime.llmSnapshot());
+      } finally {
+        modelRefreshCounts.set({ ...modelRefreshCounts(), [providerId]: modelRefreshCounts()[providerId] - 1 });
       }
     },
     async saveProviderApiKey(
@@ -1152,6 +1216,27 @@ export function createAppStore() {
     homeConfiguration: () => homeConfiguration(),
     homeConnection: () => homeConnection(),
     homeDevices: () => homeDevices(),
+    homeDashboard: () => homeDashboard(),
+    homeSubView: () => homeSubView(),
+    setHomeSubView(view: "devices" | "services") {
+      homeSubView.set(view);
+      if (view !== "devices") {
+        homeLayoutEditing.set(false);
+        homeInspectedApplianceId.set(null);
+      }
+    },
+    homeSelectedRoom: () => homeSelectedRoom(),
+    setHomeSelectedRoom(room: string) {
+      homeSelectedRoom.set(room);
+    },
+    homeLayoutEditing: () => homeLayoutEditing(),
+    setHomeLayoutEditing(editing: boolean) {
+      homeLayoutEditing.set(editing);
+    },
+    homeInspectedApplianceId: () => homeInspectedApplianceId(),
+    setHomeInspectedApplianceId(id: string | null) {
+      homeInspectedApplianceId.set(id);
+    },
     homeLoggingIn: () => homeLoggingIn(),
     cancelHomeLogin() {
       homeLogin?.cancel();
@@ -1164,13 +1249,14 @@ export function createAppStore() {
       try {
         const connection = await homeLogin.start(region, action());
         homeConnection.set(connection);
-        if (connection.configured && connection.connectionId)
+        if (connection.configured && connection.connectionId) {
           homeDevices.set(await runtime.listHome());
+          homeSubView.set("devices");
+        }
       } finally {
         homeLoggingIn.set(false);
         if (alive) {
-          homeConfiguration.set(runtime.homeConfiguration());
-          homeConnection.set(runtime.homeConnection());
+          await syncHomeDashboard();
         }
       }
     },
@@ -1179,8 +1265,7 @@ export function createAppStore() {
       homeLogin?.cancel();
       await runtime.logoutMiot(action());
       homeDevices.set({});
-      homeConfiguration.set(runtime.homeConfiguration());
-      homeConnection.set(runtime.homeConnection());
+      await syncHomeDashboard();
     },
     async configureHome(value: Parameters<NativeRuntime["configureHome"]>[0]) {
       homeLogin?.cancel();
@@ -1189,7 +1274,7 @@ export function createAppStore() {
       try {
         homeConfiguration.set(await runtime.configureHome(value, action()));
       } finally {
-        homeConnection.set(runtime.homeConnection());
+        await syncHomeDashboard();
       }
     },
     async connectHome() {
@@ -1197,7 +1282,79 @@ export function createAppStore() {
       homeDevices.set({});
       homeConnection.set(await runtime.connectHome());
       homeDevices.set(await runtime.listHome());
-      homeConnection.set(runtime.homeConnection());
+      await syncHomeDashboard();
+    },
+    async setHomeSourceEnabled(source: HomeSourceId, enabled: boolean) {
+      if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
+      try {
+        homeConnection.set(await runtime.setHomeSourceEnabled(source, enabled, action()));
+        if (runtime.homeConnection()?.healthy) {
+          homeDevices.set(await runtime.listHome());
+        } else {
+          homeDevices.set({});
+        }
+      } finally {
+        await syncHomeDashboard();
+      }
+    },
+    async setHomeApplianceLayout(
+      applianceId: string,
+      patch: { span?: TileSpan; order?: number },
+    ) {
+      if (!runtime) return;
+      try {
+        runtime.setHomeApplianceLayout(applianceId, patch);
+        await syncHomeDashboard();
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    async controlHomeAppliance(command: {
+      entity_id: string;
+      domain: string;
+      service: string;
+      service_data?: Record<string, unknown>;
+    }) {
+      if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
+      try {
+        const result = await runtime.controlHomeAppliance(command, action());
+        if (alive) {
+          homeDevices.set(await runtime.listHome());
+          await syncHomeDashboard();
+        }
+        return result;
+      } catch (error) {
+        if (alive) fail(error);
+        return null;
+      }
+    },
+    async controlRoomPower(roomName: string, turnOn: boolean) {
+      if (!runtime) return;
+      const room = homeDashboard().rooms.find((r) => r.name === roomName);
+      if (!room) return;
+      const targets = turnOn
+        ? room.roomPowerEntities.turnOnIds
+        : room.roomPowerEntities.turnOffIds;
+      for (const entityId of targets) {
+        const domain = entityId.split(".")[0] || "switch";
+        try {
+          await runtime.controlHomeAppliance(
+            {
+              entity_id: entityId,
+              domain,
+              service: turnOn ? "turn_on" : "turn_off",
+              service_data: {},
+            },
+            action(),
+          );
+        } catch {}
+      }
+      if (alive) {
+        try {
+          homeDevices.set(await runtime.listHome());
+        } catch {}
+        await syncHomeDashboard();
+      }
     },
     bodyConfiguration: () => bodyConfiguration(),
     bodyStatus: () => ({

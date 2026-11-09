@@ -559,6 +559,60 @@ export async function verifyHomeRuntime(): Promise<void> {
     "raw network error leaked or simulation fallback occurred",
   );
   failing.close();
+
+  // Multi-source aggregation, rich appliance dashboard, and Bento layout persistence
+  const multiFixture = haFixture();
+  multiFixture.reflect();
+  const multiVault = vaultFixture();
+  const multi = new HomeRuntime({
+    vault: multiVault,
+    fetch: multiFixture.fetcher,
+    registry,
+  });
+  await multi.configure({
+    mode: "external_ha",
+    haUrl: "https://fixture.invalid",
+    haToken: "TEST_ONLY_HA_SECRET",
+    enabledSources: { external_ha: true, simulation: true },
+  });
+  const multiConn = await multi.connect();
+  check(
+    multiConn.healthy &&
+      Boolean(multiConn.sources?.external_ha.healthy) &&
+      Boolean(multiConn.sources?.simulation.healthy),
+    "multi-source connection failed to activate both HA and simulation",
+  );
+  const dash = await multi.dashboard("zh-CN");
+  check(
+    dash.rooms.some((r) => r.name === "大厅") &&
+      dash.allAppliances.some((a) => a.name === "电饭煲" && a.span === "2x1") &&
+      dash.allAppliances.some((a) => a.name === "大厅监控" && a.span === "2x2"),
+    "dashboard failed to aggregate multi-room complex appliances",
+  );
+  const riceCooker = dash.allAppliances.find((a) => a.name === "电饭煲")!;
+  multi.setApplianceLayout(riceCooker.id, { span: "2x2", order: 1 });
+  const dashAfter = await multi.dashboard("zh-CN");
+  const updatedCooker = dashAfter.allAppliances.find((a) => a.id === riceCooker.id)!;
+  check(
+    updatedCooker.span === "2x2" && updatedCooker.order === 1 && multiVault.slots.size === 1,
+    "Bento layout customization failed or used an extra vault slot",
+  );
+  // Control a complex simulation appliance (Rice Cooker cancel button -> 保温)
+  const cancelRes = await multi.control(
+    {
+      entity_id: "button.rice_cooker_cancel",
+      domain: "button",
+      service: "press",
+      service_data: {},
+      timeout_ms: 0,
+    },
+    { connectionId: multiConn.connectionId!, requestId: "cooker_cancel_1" },
+  );
+  check(
+    cancelRes.receipt.status === "verified",
+    "complex appliance button action failed verification",
+  );
+  multi.close();
 }
 
 async function verifyLoginRollback() {

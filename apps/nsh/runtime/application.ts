@@ -330,6 +330,74 @@ export class MobileRuntime {
     return this.home.list(query, offset);
   }
 
+  async homeDashboard(lang: "zh-CN" | "en-US" = "zh-CN") {
+    if (this.loginPending) throw new Error("@looi:runtimeFinishOrCancelXiaomiSigninFirst");
+    return this.home.dashboard(lang);
+  }
+
+  async setHomeSourceEnabled(
+    source: "direct_miot" | "external_ha" | "simulation",
+    enabled: boolean,
+    action: UserActionRef,
+  ) {
+    if (
+      this.closed ||
+      this.busy ||
+      this.loginPending ||
+      Boolean(this.llmOAuthAbort)
+    )
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId)
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
+    return this.home.setSourceEnabled(source, enabled);
+  }
+
+  setHomeApplianceLayout(
+    applianceId: string,
+    patch: { span?: "1x1" | "2x1" | "2x2"; order?: number },
+  ) {
+    if (this.closed) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
+    return this.home.setApplianceLayout(applianceId, patch);
+  }
+
+  async controlHomeAppliance(
+    command: {
+      entity_id: string;
+      domain: string;
+      service: string;
+      service_data?: Record<string, unknown>;
+      timeout_ms?: number;
+    },
+    action: UserActionRef,
+  ) {
+    if (this.closed || this.loginPending)
+      throw new Error("@looi:runtimeFinishOrCancelXiaomiSigninFirst");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId)
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
+    let conn = this.home.connection();
+    if (!conn.connectionId && this.home.configuration().mode !== "disabled") {
+      conn = await this.home.connect();
+    }
+    if (!conn.connectionId) {
+      throw new Error("home_not_configured");
+    }
+    return this.home.control(
+      {
+        entity_id: command.entity_id,
+        domain: command.domain,
+        service: command.service,
+        service_data: (command.service_data ?? {}) as Record<string, string | number | boolean | null>,
+        timeout_ms: command.timeout_ms ?? 1500,
+      },
+      {
+        connectionId: conn.connectionId,
+        requestId: action.event_id,
+      },
+    );
+  }
+
   bodyConfiguration(): BodyConfiguration {
     return this.body.configuration();
   }

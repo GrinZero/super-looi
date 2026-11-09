@@ -142,7 +142,21 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.press("body-wheel-stop")?;
 
     app.press("nav-home")?;
+    app.wait_for("我的设备")?;
+    app.wait_for("服务绑定")?;
+    app.wait_for("尚未开启家居设备源")?;
+    app.press("home-empty-enable-sim")?;
+    app.wait_for("大厅")?;
+    app.wait_for("大厅监控")?;
+    app.wait_for("电饭煲")?;
+    app.wait_for("大厅空调")?;
+    app.press("home-layout-edit-btn")?;
+    app.wait_for("完成布局")?;
+    app.wait_for("2×2 大")?;
+    app.press("home-layout-edit-btn")?;
+    app.press("home-tab-services")?;
     app.wait_for("米家直连")?;
+    app.press("home-service-tab-direct_miot")?;
     app.press("home-miot-region")?;
     app.press("新加坡")?;
     app.wait_for("新加坡")?;
@@ -203,6 +217,8 @@ fn language_and_appearance_preferences_survive_reopening() -> Result<(), String>
     restored.wait_for("Speed 0 · Turn 0")?;
     restored.wait_for("Fill Light · Off")?;
     restored.press("nav-home")?;
+    restored.wait_for("My Devices")?;
+    restored.press("home-tab-services")?;
     restored.wait_for("Connect your Xiaomi Home account")?;
     restored.press("nav-tasks")?;
     restored.wait_for("Tasks")?;

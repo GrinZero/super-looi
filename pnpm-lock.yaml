@@ -38,6 +38,9 @@ importers:
       '@super-looi/home-assistant':
         specifier: workspace:*
         version: link:../../packages/home-assistant
+      '@super-looi/home-devices':
+        specifier: workspace:*
+        version: link:../../packages/home-devices
       '@super-looi/looi-driver':
         specifier: workspace:*
         version: link:../../packages/looi-driver
@@ -74,6 +77,19 @@ importers:
         version: 5.9.3
 
   packages/home-assistant:
+    dependencies:
+      '@super-looi/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      tsx:
+        specifier: ^4.19.3
+        version: 4.23.15
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
+  packages/home-devices:
     dependencies:
       '@super-looi/contracts':
         specifier: workspace:*

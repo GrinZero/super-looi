@@ -132,10 +132,14 @@ globalThis.LOOI_ARCH = {
       ],
     },
     {
-      id: "home", x: 280, y: 462, title: "HomeRuntime", symbol: "home", category: "TypeScript · 家居业务", detail: "连接配置 / 米家登录 / 设备操作", path: "apps/nsh/runtime/home.ts",
-      description: "在 disabled、simulation、external_ha 与 direct_miot 模式间配置家居连接。封装米家 OAuth、设备发现、网关访问及操作结果回读。",
+      id: "home", x: 280, y: 462, title: "HomeRuntime + 设备聚合", symbol: "home", category: "TypeScript · 家居业务与组件模型", detail: "多源并发 / 房间 Bento / 6 大设备原型", path: "apps/nsh/runtime/home.ts",
+      description: "支持米家直连（direct_miot）、Home Assistant（external_ha）与离线演示（simulation）多源并发挂载；由 @super-looi/home-devices 将零散实体按物理设备与所属房间归一化，聚合为监控、电饭煲/洗衣机、温控、多键开关、灯光电源与传感喂食 6 大原型，并持久化 1×1 / 2×1 / 2×2 Bento 卡片布局。",
       files: [
         { path: "apps/nsh/runtime/home.ts", entry: "export class HomeRuntime" },
+        { path: "packages/home-devices/src/device-aggregator.ts", entry: "export function buildHomeDashboardModel" },
+        { path: "packages/home-devices/src/room-normalizer.ts", entry: "export function normalizeRoomName" },
+        { path: "packages/home-devices/src/layout-store.ts", entry: "export function parseLayoutPreferences" },
+        { path: "packages/home-devices/src/simulation-catalog.ts", entry: "export function createRichSimulationCatalog" },
         { path: "apps/nsh/runtime/miot-login.ts", entry: "export class MiotLoginFlow" },
         { path: "apps/nsh/ui/HomeSpaceView.tsx", entry: "export function HomeSpaceView" },
       ],

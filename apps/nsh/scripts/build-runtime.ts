@@ -55,6 +55,9 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
           builder.onResolve({ filter: /^@super-looi\/contracts$/ }, () => ({
             path: resolve(root, "../../packages/contracts/src/index.ts"),
           }));
+          builder.onResolve({ filter: /^@super-looi\/home-devices$/ }, () => ({
+            path: resolve(root, "../../packages/home-devices/src/index.ts"),
+          }));
         },
       },
       nshPiSdkPlugin(),
@@ -91,8 +94,20 @@ export interface NativeStep {step:number;phase:string;summary:string;taskId?:str
 export interface NativeTaskSummary {id:string;prompt:string;state:string;updatedAt:string}
 export interface NativeTask extends NativeTaskSummary {homeActions:Array<{requestId:string;connectionId:string;command:Record<string,unknown>;simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;bodyActions?:Array<{requestId:string;command:{action:string;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number};simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;sessionId:string;createdAt:string;error?:string;runtimeExited?:boolean;steps:NativeStep[];result?:{answer:string;executions?:Array<{callId:string;stdout?:string;stderr?:string;command:string;exitCode:number|null;signal:string|null;timedOut:boolean;aborted:boolean}>;artifacts?:Array<{path:string;sha256:string;size:number}>}}
 export interface NativeTaskPage {total:number;offset:number;items:NativeTaskSummary[]}
-export interface HomeConfiguration {mode:"disabled"|"simulation"|"external_ha"|"direct_miot";haUrl:string;region:"cn"|"de"|"i2"|"ru"|"sg"|"us";hasToken:boolean;hasMiotAccount:boolean}
-export interface HomeConnection {mode:string;simulation:boolean;configured:boolean;healthy:boolean;connectionId:string|null;lastVerifiedAt:string|null;error:string|null;entityCount:number}
+export type HomeSourceId = "direct_miot" | "external_ha" | "simulation";
+export type TileSpan = "1x1" | "2x1" | "2x2";
+export type ApplianceArchetype = "vision_security" | "cycle_appliance" | "climate" | "lighting_power" | "media" | "sensor_pet";
+export type ApplianceIconKind = "camera" | "lock" | "bell" | "cooker" | "washer" | "dishwasher" | "microwave" | "vacuum" | "kettle" | "ac" | "fan" | "purifier" | "dehumidifier" | "blanket" | "light" | "switch_gang" | "plug" | "tv" | "speaker" | "feeder" | "waterer" | "sensor" | "router";
+export interface HomeSourceStatus {enabled:boolean;configured:boolean;healthy:boolean;entityCount:number;error:string|null}
+export interface HomeLayoutPreferences {version:1;appliances:Record<string,{span?:TileSpan;order?:number}>}
+export interface HomeConfiguration {mode:"disabled"|"simulation"|"external_ha"|"direct_miot";haUrl:string;region:"cn"|"de"|"i2"|"ru"|"sg"|"us";hasToken:boolean;hasMiotAccount:boolean;enabledSources?:Record<HomeSourceId,boolean>;layout?:HomeLayoutPreferences}
+export interface HomeConnection {mode:string;simulation:boolean;configured:boolean;healthy:boolean;connectionId:string|null;lastVerifiedAt:string|null;error:string|null;entityCount:number;sources?:Record<HomeSourceId,HomeSourceStatus>}
+export interface MultiGangChannel {id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}
+export interface ModeOption {value:string;label:string}
+export interface ApplianceActionTrigger {id:string;label:string;entityId:string;domain:string;service:string;serviceData?:Record<string,unknown>;tone?:"primary"|"default"|"destructive"}
+export interface HomeAppliance {id:string;deviceId:string;source:HomeSourceId;sourceLabel:string;name:string;room:string;homeName?:string;model?:string;archetype:ApplianceArchetype;icon:ApplianceIconKind;defaultSpan:TileSpan;span:TileSpan;order:number;online:boolean;isActive:boolean;statusBadge:string;conciseSubtitle:string;entityIds:string[];capabilities:{power?:{entityId:string;domain:string;isOn:boolean;controllable:boolean};multiGang?:{channels:MultiGangChannel[]};thermostat?:{entityId:string;domain:string;currentTemp?:number;targetTemp:number;minTemp:number;maxTemp:number;step:number;unit:string;controllable:boolean};modeBar?:{entityId:string;domain:string;service:string;parameterKey:string;currentMode:string;currentLabel:string;options:ModeOption[];controllable:boolean};cycleTask?:{stageLabel:string;stages:string[];activeStageIndex:number;remainingMinutes?:number;progressPercent?:number;temperatureCelsius?:number;isRunning:boolean;subStatus?:string};actions?:ApplianceActionTrigger[];visionStream?:{streamActive:boolean;statusText:string;lastMotionText?:string;streamEntityId?:string;stopEntityId?:string;ptzActions:ApplianceActionTrigger[];featureToggles:Array<{id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}>};securityEvents?:{readOnly:boolean;lockState?:string;doorState?:string;batteryPercent?:number;events:Array<{time:string;label:string}>};dimmer?:{entityId:string;brightnessPercent?:number;colorTempKelvin?:number;colorTempRange?:[number,number];controllable:boolean};auxiliaryToggles?:Array<{id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}>;telemetry:Array<{key:string;label:string;value:string;numericValue?:number;unit?:string}>}}
+export interface HomeRoomSection {id:string;name:string;totalCount:number;activeCount:number;navSummary:string;environment:Array<{key:"temperature"|"humidity"|"co2"|"pm25"|"tvoc"|"occupancy"|"power";label:string;value:string;numericValue?:number}>;appliances:HomeAppliance[];roomPowerEntities:{turnOnIds:string[];turnOffIds:string[]}}
+export interface HomeDashboardModel {homeName:string;totalAppliances:number;activeAppliances:number;rooms:HomeRoomSection[];allAppliances:HomeAppliance[]}
 export type BodyConnectionMode = "disabled" | "real_ble" | "simulation";
 export interface BodyConfiguration {mode:BodyConnectionMode;savedDeviceId:string;savedDeviceName:string;autoConnect:boolean}
 export interface BodyCandidate {id:string;name:string;rssi:number|null}
@@ -123,13 +138,17 @@ export interface NativeRuntime {
  readonly tracer:unknown;
  homeConfiguration():HomeConfiguration;
  homeConnection():HomeConnection;
- configureHome(input:{mode:HomeConfiguration["mode"];haUrl?:string;haToken?:string;region?:HomeConfiguration["region"]},action:UiAction):Promise<HomeConfiguration>;
+ configureHome(input:{mode:HomeConfiguration["mode"];haUrl?:string;haToken?:string;region?:HomeConfiguration["region"];enabledSources?:Partial<Record<HomeSourceId,boolean>>},action:UiAction):Promise<HomeConfiguration>;
  connectHome():Promise<HomeConnection>;
  beginMiotLogin(region:HomeConfiguration["region"],action:UiAction):Promise<{authorizationUrl:string;redirectUri:string;expiresAt:number;attempt:number}>;
  finishMiotLogin(attempt:number,callback:string,isCurrent:()=>boolean):Promise<HomeConnection>;
  cancelMiotLogin():void;
  logoutMiot(action:UiAction):Promise<void>;
  listHome(query?:string,offset?:number):Promise<Record<string,unknown>>;
+ homeDashboard(lang?:"zh-CN"|"en-US"):Promise<HomeDashboardModel>;
+ setHomeSourceEnabled(source:HomeSourceId,enabled:boolean,action:UiAction):Promise<HomeConnection>;
+ setHomeApplianceLayout(applianceId:string,patch:{span?:TileSpan;order?:number}):HomeLayoutPreferences;
+ controlHomeAppliance(command:{entity_id:string;domain:string;service:string;service_data?:Record<string,unknown>;timeout_ms?:number},action:UiAction):Promise<{receipt:{status:string;outcome?:string;reason_code?:string|null};simulation:boolean;connectionId:string;instruction:string}>;
  bodyConfiguration():BodyConfiguration;
  bodyStatus():BodyStatusSnapshot;
  attachNativeBle(port:NativeBlePort|null):BodyStatusSnapshot;

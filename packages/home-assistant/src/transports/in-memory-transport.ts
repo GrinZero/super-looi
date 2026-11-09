@@ -53,9 +53,19 @@ export class InMemoryHaTransportAdapter implements HaTransportAdapter {
     const now = new Date().toISOString();
     this.lastVerifiedAt = now;
 
-    let targetState = "on";
+    let targetState = existing?.state ?? "on";
     if (service === "turn_off") {
       targetState = "off";
+    } else if (service === "turn_on") {
+      targetState = domain === "climate" ? String(existing?.attributes?.hvac_mode ?? "cool") : "on";
+    } else if (service === "set_hvac_mode" && typeof serviceData.hvac_mode === "string") {
+      targetState = serviceData.hvac_mode;
+    } else if (service === "select_option" && typeof serviceData.option === "string") {
+      targetState = serviceData.option;
+    } else if (service === "set_value" && serviceData.value !== undefined) {
+      targetState = String(serviceData.value);
+    } else if (service === "press" || service === "send_message") {
+      targetState = now;
     }
 
     this.states.set(entityId, {
@@ -65,6 +75,34 @@ export class InMemoryHaTransportAdapter implements HaTransportAdapter {
       last_changed: now,
       last_updated: now,
     });
+
+    // Update companion simulation states when pressing cycle appliance action buttons
+    if (entityId === "button.rice_cooker_start") {
+      const st = this.states.get("sensor.rice_cooker_status");
+      if (st) this.states.set("sensor.rice_cooker_status", { ...st, state: "沸腾中", last_updated: now });
+      const lt = this.states.get("sensor.rice_cooker_left_time");
+      if (lt) this.states.set("sensor.rice_cooker_left_time", { ...lt, state: "18", last_updated: now });
+    } else if (entityId === "button.rice_cooker_cancel") {
+      const st = this.states.get("sensor.rice_cooker_status");
+      if (st) this.states.set("sensor.rice_cooker_status", { ...st, state: "保温", last_updated: now });
+      const lt = this.states.get("sensor.rice_cooker_left_time");
+      if (lt) this.states.set("sensor.rice_cooker_left_time", { ...lt, state: "0", last_updated: now });
+    } else if (entityId === "button.rooftop_washer_pause") {
+      const st = this.states.get("sensor.rooftop_washer_status");
+      if (st) {
+        const nextSt = st.state === "暂停" ? "洗涤" : "暂停";
+        this.states.set("sensor.rooftop_washer_status", { ...st, state: nextSt, last_updated: now });
+      }
+    } else if (entityId === "button.rooftop_washer_shake") {
+      const st = this.states.get("sensor.rooftop_washer_status");
+      if (st) this.states.set("sensor.rooftop_washer_status", { ...st, state: "抖散", last_updated: now });
+    } else if (entityId === "button.pet_feeder_dispense") {
+      const eaten = this.states.get("sensor.pet_feeder_eaten");
+      if (eaten) {
+        const cur = Number(eaten.state) || 45;
+        this.states.set("sensor.pet_feeder_eaten", { ...eaten, state: String(cur + 10), last_updated: now });
+      }
+    }
 
     return { success: true };
   }

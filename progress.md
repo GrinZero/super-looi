@@ -1,5 +1,19 @@
 # Super-LOOI 重构与演进进度
 
+### 智能家居空间重构与 `@super-looi/home-devices` 组件体系（2026-11-09）
+
+方案见 [`docs/plans/smart-home-redesign-plan.md`](docs/plans/smart-home-redesign-plan.md)。
+
+- [x] Step 0：完成真实家庭快照（`data/home-assistant/.storage/` 45 台设备）盘点、Nano Banana 16:9 横屏多尺寸 Bento 设计稿迭代与方案定稿
+- [x] Step 1：创建 `@super-looi/home-devices`（`packages/home-devices`），实现房间净化、6 大设备原型聚合、10 类领域能力模型与多尺寸 Bento 布局持久化，通过 45 台真实设备快照单测
+- [x] Step 2：升级 `@super-looi/home-assistant` 与 `apps/nsh/runtime/home.ts`，支持多源并发挂载（`direct_miot` + `external_ha` + `simulation`）与全品类安全控制路由（45/45 网关单测与 `verifyHomeRuntime` 通过）
+- [x] Step 3：贯通 `MobileRuntime`、`store.ts`、Bento 卡片尺寸持久化（`home.layout.v1`）与双语国际化词条
+- [x] Step 4：重构 `ManagementShell.tsx` 与 `HomeSpaceView.tsx`（「我的设备」房间分栏 + 可自定义尺寸 Bento 磁贴 + 二级详情面板 +「服务绑定」独立管理页，严格控制表面文字密度）
+- [x] Step 5：完成全仓构建/类型检查/测试、魅族 20 Pro 真机安装验证、`docs/arch/` 更新与子 Agent 独立 review
+  - [x] `@super-looi/home-devices` 2/2 单测、`@super-looi/home-assistant` 45/45 单测、`@super-looi/nsh` 26/26 全量测试（含 `app_ui.rs` 2/2）与全仓 7 包 `pnpm typecheck` 全部通过
+  - [x] 子 Agent 独立代码与 UI 审查指出的 5 项问题（灯光亮度 `1..255` 换算、Bento 同优先级卡片调序归一化、`valve`/`siren`/`notify` 权限与高危域收口、房间活跃计数国际化词条、多源并发模式下模拟设备控制标记）已修复并复审 **PASS**
+  - [x] Android 开发包（`Super LOOI.apk`）已重新构建并覆盖安装至魅族 20 Pro 真机（`192.168.3.123:5555`）
+
 ### Android LIVE 外放声音偏小（2026-11-09）
 
 - [x] Step 1：魅族 20 Pro 的媒体音量 60/60、通话音量 7/7；LIVE 中实际输出为听筒，且应用未选择通信输出设备

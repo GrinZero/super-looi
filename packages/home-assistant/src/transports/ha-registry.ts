@@ -4,10 +4,21 @@ import type { HomeRegistryOptions, HomeRegistrySocket } from "../types.js";
 const PRIMARY_POWER_SWITCH_NAMES = new Set([
   "开关", "开关 开关", "开关 设备状态", "开关 开/关 灯", "电源", "电源 开关",
   "摄像机控制 开关", "洗碗机 开关", "洗衣机 开关", "禹泰电工智能插座（Mesh） 开关", "空气净化器 开关",
+  "大灯 左键", "小灯 中键", "没有用的开关 右键", "左键", "中键", "右键",
+  "上下扫风", "左右扫风", "电辅热", "睡眠模式", "移动侦测",
   "power", "onoff",
 ].map((name) => name.toLowerCase()));
 
-export interface HomeEntityMetadata { device_id?: string; device_name?: string; room?: string; entity_category?: string; power_control?: boolean; control_restricted?: boolean }
+export interface HomeEntityMetadata {
+  device_id?: string;
+  device_name?: string;
+  device_model?: string;
+  original_name?: string;
+  room?: string;
+  entity_category?: string;
+  power_control?: boolean;
+  control_restricted?: boolean;
+}
 
 /** Read only registry metadata, through the standard WebSocket event API. */
 export async function readHomeRegistry(
@@ -76,13 +87,17 @@ function joinRegistry(results: Map<number, Array<Record<string, unknown>>>, inte
     const area = areas.get(entity.area_id ?? device?.area_id);
     const name = device?.name_by_user ?? device?.name;
     const restricted = String(device?.model ?? "").split(/[.\s]/).some((part) => FORBIDDEN_HIGH_RISK_DOMAINS.has(part))
-      || /lock|gas|water[-_ ]?heater|garage[-_ ]?door|valve|门锁|燃气|煤气|热水器|水阀|车库门/i.test(`${name ?? ""} ${device?.model ?? ""}`);
+      || /lock|gas|water[-_ ]?heater|garage[-_ ]?door|valve|siren|alarm_control_panel|门锁|燃气|煤气|热水器|水阀|车库门|警笛|警报/i.test(`${name ?? ""} ${device?.model ?? ""}`);
     const originalName = String(entity.original_name ?? "").trim();
+    const normalizedOrig = originalName.replace(/\s+/g, " ").toLowerCase();
     const powerSwitch = !entity.entity_category && !originalName.startsWith("*")
-      && PRIMARY_POWER_SWITCH_NAMES.has(originalName.replace(/\s+/g, " ").toLowerCase());
+      && (PRIMARY_POWER_SWITCH_NAMES.has(normalizedOrig)
+        || (!/转无线|无线开关|防闪烁|互锁/.test(normalizedOrig) && /左键|中键|右键|扫风|辅热|移动侦测|休眠|巡航/.test(normalizedOrig)));
     metadata.set(entity.entity_id, {
       device_id: typeof entity.device_id === "string" ? entity.device_id : undefined,
       device_name: typeof name === "string" ? name : undefined,
+      device_model: typeof device?.model === "string" ? device.model : undefined,
+      original_name: originalName || undefined,
       room: typeof area === "string" ? area : undefined,
       ...(typeof entity.entity_category === "string" ? { entity_category: entity.entity_category } : {}),
       ...(entity.entity_id.startsWith("switch.") ? { power_control: powerSwitch } : {}),
