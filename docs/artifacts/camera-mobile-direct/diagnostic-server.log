@@ -1,0 +1,28 @@
+✓ built the Rust crate nsh-app-nsh (224ms, 6 warnings: -v shows them)
+✓ built CameraMobileProbe.tsx (55.6 KB js, 186.5 KB bytecode, 65ms)
+→ dev server ws://127.0.0.1:8792/ws
+  devices on this network: ws://192.168.3.117:8792/ws
+✓ rebuilt CameraMobileProbe.tsx (125ms)
+• Android (MEIZU 20 Pro) connected, build 2
+CAMERA_MOBILE_PROBE {"step":"existing_oauth","credentialAvailable":true}
+CAMERA_MOBILE_PROBE {"step":"inventory","cameraCount":3}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"camera_state","powerCode":0,"powerOn":true,"streamStatus":[{"siid":8,"code":0,"value":1},{"siid":9,"code":0,"value":1}]}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"miotspec/action","siid":8,"aiid":3,"http":200,"apiCode":0,"actionCode":0,"out":[{"index":0,"piid":null,"type":"number","valueType":"undefined","numericValue":1,"hasValue":false},{"index":1,"piid":null,"type":"number","valueType":"undefined","numericValue":0,"hasValue":false}],"urlReturned":false}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"configuration_stream_status","value":1}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"miotspec/action","siid":9,"aiid":1,"http":200,"apiCode":0,"actionCode":0,"out":[{"index":0,"piid":null,"type":"string","valueType":"undefined","numericValue":null,"hasValue":false}],"urlReturned":true}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"stream_address","scheme":"https:","isManifestPath":true,"hasQuery":false}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"media_http_head","http":200,"contentType":"application/vnd.apple.mpegurl"}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"media_manifest","http":200,"isManifest":true,"isMaster":true,"encrypted":false,"hasMap":false,"textBytes":87}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"media_subrequest_head","kind":"child","http":200,"contentType":"application/vnd.apple.mpegurl"}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"native_media","nativeLoaded":true,"progressed":true,"width":640,"height":360}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-1","step":"miotspec/action","siid":9,"aiid":2,"http":200,"apiCode":0,"actionCode":0,"out":[],"urlReturned":false}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-2","step":"camera_state","powerCode":0,"powerOn":true,"streamStatus":[{"siid":8,"code":0,"value":1},{"siid":9,"code":0,"value":1}]}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-2","step":"miotspec/action","siid":8,"aiid":3,"http":200,"apiCode":0,"actionCode":0,"out":[{"index":0,"piid":null,"type":"number","valueType":"undefined","numericValue":1,"hasValue":false},{"index":1,"piid":null,"type":"number","valueType":"undefined","numericValue":0,"hasValue":false}],"urlReturned":false}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-2","step":"configuration_stream_status","value":1}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-2","step":"miotspec/action","siid":9,"aiid":1,"http":200,"apiCode":0,"actionCode":0,"out":[{"index":0,"piid":null,"type":"string","valueType":"undefined","numericValue":null,"hasValue":false}],"urlReturned":true}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-2","step":"stream_address","scheme":"https:","isManifestPath":true,"hasQuery":false}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-2","step":"media_http","error":"network_or_capability_error"}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-2","step":"native_media","nativeLoaded":false,"progressed":false,"errorCode":"native_media_error","nativeWhat":1,"nativeExtra":-1004}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"hlc7-2","step":"miotspec/action","siid":9,"aiid":2,"http":200,"apiCode":0,"actionCode":0,"out":[],"urlReturned":false}
+CAMERA_MOBILE_PROBE {"step":"complete"}
+• Android (MEIZU 20 Pro) disconnected

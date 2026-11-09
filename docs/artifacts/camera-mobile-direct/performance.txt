@@ -1,0 +1,3 @@
+Formal-detail measurement attempt: 2026-11-10 Asia/Taipei
+No valid PSS/RSS/CPU samples: USB was absent, verified WiFi ADB became offline, reconnect timed out.
+No sustained playback, frame, latency, or decoder performance conclusion is available.

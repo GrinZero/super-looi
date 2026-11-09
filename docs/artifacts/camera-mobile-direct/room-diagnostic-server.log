@@ -1,0 +1,75 @@
+✓ built the Rust crate nsh-app-nsh (58.1s, 6 warnings: -v shows them)
+✓ built apps/nsh/CameraMobileProbe.tsx (57.6 KB js, 195.2 KB bytecode, 70ms)
+→ dev server ws://127.0.0.1:8792/ws
+  devices on this network: ws://192.168.3.117:8792/ws
+• Android (MEIZU 20 Pro) connected, build 1
+CAMERA_MOBILE_PROBE {"step":"existing_oauth","credentialAvailable":true}
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (193ms), 1 device
+error Android: unhandled rejection: Error: Native compatibility host already installed
+          at installNshNativeCompat (camera-mobile-probe.js:469:15)
+          at probe (camera-mobile-probe.js:1006:42)
+          at Probe (CameraMobileProbe.tsx:8:225)
+          at update (native)
+          at <eval> (hot-2.js:1:10)
+CAMERA_MOBILE_PROBE {"step":"inventory","cameraCount":3}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"camera_state","powerCode":0,"powerOn":true,"streamStatus":[{"siid":8,"code":0,"value":1},{"siid":9,"code":0,"value":1}]}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"miotspec/action","siid":8,"aiid":3,"http":200,"apiCode":0,"actionCode":0,"out":[{"index":0,"piid":null,"type":"number","valueType":"undefined","numericValue":1,"hasValue":false},{"index":1,"piid":null,"type":"number","valueType":"undefined","numericValue":0,"hasValue":false}],"urlReturned":false}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"configuration_stream_status","value":1}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"miotspec/action","siid":9,"aiid":1,"http":200,"apiCode":0,"actionCode":0,"out":[{"index":0,"piid":null,"type":"string","valueType":"undefined","numericValue":null,"hasValue":false}],"urlReturned":true}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"stream_address","attempt":1,"scheme":"https:","hostname":"cn01.livestreaming.io.mi.com","isManifestPath":true}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"media_manifest_get","attempt":1,"level":"master","hostname":"cn01.livestreaming.io.mi.com","http":404,"contentType":"","isManifest":false,"isMaster":false,"codecTags":[],"mediaSequence":null,"endList":false,"segmentCount":0,"totalSeconds":0,"encryptionMethods":[],"hasMap":false,"textBytes":0}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"native_media","attempt":1,"nativeLoaded":false,"progressed":false,"width":null,"height":null}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"stream_address","attempt":2,"scheme":"https:","hostname":"cn01.livestreaming.io.mi.com","isManifestPath":true}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"media_manifest_get","attempt":2,"level":"master","hostname":"cn01.livestreaming.io.mi.com","http":404,"contentType":"","isManifest":false,"isMaster":false,"codecTags":[],"mediaSequence":null,"endList":false,"segmentCount":0,"totalSeconds":0,"encryptionMethods":[],"hasMap":false,"textBytes":0}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"native_media","attempt":2,"nativeLoaded":false,"progressed":false,"width":null,"height":null}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"卧室","step":"miotspec/action","siid":9,"aiid":2,"http":200,"apiCode":0,"actionCode":0,"out":[],"urlReturned":false}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"camera_state","powerCode":0,"powerOn":true,"streamStatus":[{"siid":8,"code":0,"value":1},{"siid":9,"code":0,"value":1}]}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"miotspec/action","siid":8,"aiid":3,"http":200,"apiCode":0,"actionCode":0,"out":[{"index":0,"piid":null,"type":"number","valueType":"undefined","numericValue":1,"hasValue":false},{"index":1,"piid":null,"type":"number","valueType":"undefined","numericValue":0,"hasValue":false}],"urlReturned":false}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"configuration_stream_status","value":1}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"miotspec/action","siid":9,"aiid":1,"http":200,"apiCode":0,"actionCode":0,"out":[{"index":0,"piid":null,"type":"string","valueType":"undefined","numericValue":null,"hasValue":false}],"urlReturned":true}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"stream_address","attempt":1,"scheme":"https:","hostname":"cn01.livestreaming.io.mi.com","isManifestPath":true}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"media_manifest_get","attempt":1,"level":"master","hostname":"cn01.livestreaming.io.mi.com","http":404,"contentType":"","isManifest":false,"isMaster":false,"codecTags":[],"mediaSequence":null,"endList":false,"segmentCount":0,"totalSeconds":0,"encryptionMethods":[],"hasMap":false,"textBytes":0}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"native_media","attempt":1,"nativeLoaded":false,"progressed":false,"width":null,"height":null}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"stream_address","attempt":2,"scheme":"https:","hostname":"cn01.livestreaming.io.mi.com","isManifestPath":true}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"media_manifest_get","attempt":2,"level":"master","hostname":"cn01.livestreaming.io.mi.com","http":404,"contentType":"","isManifest":false,"isMaster":false,"codecTags":[],"mediaSequence":null,"endList":false,"segmentCount":0,"totalSeconds":0,"encryptionMethods":[],"hasMap":false,"textBytes":0}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"native_media","attempt":2,"nativeLoaded":false,"progressed":false,"width":null,"height":null}
+CAMERA_MOBILE_PROBE {"model":"isa.camera.hlc7","camera":"天台","step":"miotspec/action","siid":9,"aiid":2,"http":200,"apiCode":0,"actionCode":0,"out":[],"urlReturned":false}
+CAMERA_MOBILE_PROBE {"step":"complete"}
+• Android (MEIZU 20 Pro) disconnected
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (70ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (71ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (71ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (89ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (76ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (67ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (66ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (77ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (66ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (70ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (279ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (87ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (78ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (87ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (126ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (95ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (76ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (78ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (74ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (67ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (86ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (91ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (69ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (77ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (68ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (71ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (71ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (99ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (85ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (75ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (89ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (67ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (103ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (73ms)
+✓ rebuilt apps/nsh/CameraMobileProbe.tsx (71ms)
+error building apps/nsh/CameraMobileProbe.tsx failed
+entry not found: /Users/bugyaluwang/project/super-looi-camera-mobile-direct/apps/nsh/CameraMobileProbe.tsx: No such file or directory (os error 2)

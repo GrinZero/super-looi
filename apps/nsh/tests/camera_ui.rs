@@ -22,6 +22,8 @@ fn camera_native_node_survives_dashboard_poll_and_unmounts_on_exit() -> Result<(
     let initial_ids = videos.lock().unwrap().clone();
     assert_eq!(initial_ids.len(), 1, "one native video is mounted");
     for _ in 0..3 { app.press("Poll dashboard")?; }
+    assert!(app.screen().texts().iter().any(|text| text.contains("Room") && text.contains("Off")),
+        "the stable camera detail must still update its device status");
     println!("after 3 dashboard replacements: Video nodes={:?}", *videos.lock().unwrap());
     assert_eq!(*videos.lock().unwrap(), initial_ids, "polling must retain the native player's node ID");
     app.press("home-detail-back")?;
