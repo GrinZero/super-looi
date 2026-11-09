@@ -1,5 +1,12 @@
 # Super-LOOI 重构与演进进度
 
+### Android LIVE 外放声音偏小（2026-11-09）
+
+- [x] Step 1：魅族 20 Pro 的媒体音量 60/60、通话音量 7/7；LIVE 中实际输出为听筒，且应用未选择通信输出设备
+- [x] Step 2：在应用自有 Android 音频插件中选择内置扬声器，保留已连接耳机通道，会话结束时释放应用选择
+- [x] Step 3：原生插件测试、Java 构建与独立 review 通过；修复版安装到魅族 20 Pro，LIVE 的 AAudio 输出由听筒 `deviceId:2` 切换至扬声器 `deviceId:3`；结束后通信设备选择清空，恢复 `MODE_NORMAL`
+- [ ] Step 4：用户试听确认实际播报响度
+
 ### `PiAgentExecutor` 模块化重构 Phase 1（2026-11-09）
 
 方案见 [`docs/plans/pi-executor-refactor-plan.md`](docs/plans/pi-executor-refactor-plan.md)。

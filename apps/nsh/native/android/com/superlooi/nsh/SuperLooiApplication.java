@@ -6,6 +6,7 @@ import android.app.Application;
 import android.app.Fragment;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Build;
@@ -34,6 +35,7 @@ public final class SuperLooiApplication extends Application {
     private static int previousVolumeStream = AudioManager.USE_DEFAULT_STREAM_TYPE;
     private static WeakReference<Activity> voiceVolumeActivity = new WeakReference<>(null);
     private static boolean ownsAudio;
+    private static boolean ownsSpeakerRoute;
     private static long audioGeneration;
     private static volatile boolean interrupted = true;
     private static volatile boolean permissionPending;
@@ -217,6 +219,7 @@ public final class SuperLooiApplication extends Application {
         }
         ownsAudio = true;
         if (capture) manager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        selectVoiceSpeaker();
         final Activity owner = activity.get();
         if (owner != null) owner.runOnUiThread(() -> {
             synchronized (SuperLooiApplication.class) {
@@ -241,6 +244,8 @@ public final class SuperLooiApplication extends Application {
         final AudioManager oldManager = manager;
         final AudioFocusRequest oldRequest = focusRequest;
         final boolean owned = ownsAudio;
+        final boolean speakerOwned = ownsSpeakerRoute;
+        ownsSpeakerRoute = false;
         ownsAudio = false; focusRequest = null; manager = null;
         final Activity volumeOwner = voiceVolumeActivity.get();
         if (volumeOwner != null) volumeOwner.runOnUiThread(() -> {
@@ -249,10 +254,32 @@ public final class SuperLooiApplication extends Application {
             }
         });
         if (oldManager != null && owned) {
+            if (speakerOwned) {
+                if (Build.VERSION.SDK_INT >= 31) oldManager.clearCommunicationDevice();
+                else oldManager.setSpeakerphoneOn(false);
+            }
             try { if (oldManager.getMode() == AudioManager.MODE_IN_COMMUNICATION) oldManager.setMode(previousMode); }
             catch (RuntimeException ignored) {}
             try { if (Build.VERSION.SDK_INT >= 26 && oldRequest != null) oldManager.abandonAudioFocusRequest(oldRequest); }
             catch (RuntimeException ignored) {}
+        }
+    }
+
+    /** Use the loudspeaker for hands-free voice; retain an active headset route. */
+    private static void selectVoiceSpeaker() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            AudioDeviceInfo current = manager.getCommunicationDevice();
+            if (current != null && current.getType() != AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                    && current.getType() != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) return;
+            for (AudioDeviceInfo device : manager.getAvailableCommunicationDevices()) {
+                if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                    ownsSpeakerRoute = manager.setCommunicationDevice(device);
+                    return;
+                }
+            }
+        } else if (!manager.isSpeakerphoneOn() && !manager.isBluetoothScoOn() && !manager.isWiredHeadsetOn()) {
+            manager.setSpeakerphoneOn(true);
+            ownsSpeakerRoute = true;
         }
     }
 
