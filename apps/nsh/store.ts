@@ -399,6 +399,7 @@ export function createAppStore() {
   const homeInspectedApplianceId = signal<string | null>(null);
   const homeLoggingIn = signal(false);
   const homeLoading = signal(true);
+  const homeRefreshing = signal(false);
   let homePendingLoads = 0;
   const withHomeLoading = async <T,>(load: () => Promise<T>): Promise<T> => {
     homePendingLoads += 1;
@@ -1271,6 +1272,7 @@ export function createAppStore() {
     homeDevices: () => homeDevices(),
     homeDashboard: () => homeDashboard(),
     homeLoading: () => homeLoading(),
+    homeRefreshing: () => homeRefreshing(),
     homeSubView: () => homeSubView(),
     setHomeSubView(view: "devices" | "services") {
       homeSubView.set(view);
@@ -1344,16 +1346,21 @@ export function createAppStore() {
       });
     },
     async refreshHomeDashboard() {
-      if (!runtime) return;
-      await withHomeLoading(async () => {
-        try {
-          if (!runtime!.homeConnection()?.healthy && runtime!.homeConfiguration().mode !== "disabled") {
-            homeConnection.set(await runtime!.connectHome());
-          }
-          homeDevices.set(await runtime!.listHome());
-        } catch {}
-        await syncHomeDashboard();
-      });
+      if (!runtime || homeRefreshing()) return;
+      homeRefreshing.set(true);
+      try {
+        await withHomeLoading(async () => {
+          try {
+            if (!runtime!.homeConnection()?.healthy && runtime!.homeConfiguration().mode !== "disabled") {
+              homeConnection.set(await runtime!.connectHome());
+            }
+            homeDevices.set(await runtime!.listHome());
+          } catch {}
+          await syncHomeDashboard();
+        });
+      } finally {
+        if (alive) homeRefreshing.set(false);
+      }
     },
     async setHomeSourceEnabled(source: HomeSourceId, enabled: boolean) {
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
