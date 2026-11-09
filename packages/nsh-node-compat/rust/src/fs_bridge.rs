@@ -20,7 +20,7 @@ pub fn call(s: &Sandbox, op: &str, v: &Value) -> Result<Value, String> {
     })
 }
 fn run(s: &Sandbox, op: &str, v: &Value) -> std::io::Result<Value> {
-    let path = s.path(text(v, "path").map_err(std::io::Error::other)?)?;
+    let path = s.resolve(text(v, "path").map_err(std::io::Error::other)?, !matches!(op, "lstat" | "rm" | "rename"))?;
     Ok(match op {
         "read" => {
             let mut file = s.dir.open(&path)?;
@@ -104,7 +104,7 @@ fn run(s: &Sandbox, op: &str, v: &Value) -> std::io::Result<Value> {
             Value::Null
         }
         "rename" | "copy" => {
-            let dest = s.path(text(v, "dest").map_err(std::io::Error::other)?)?;
+            let dest = s.resolve(text(v, "dest").map_err(std::io::Error::other)?, op == "copy")?;
             if op == "rename" {
                 s.dir.rename(path, &s.dir, dest)?;
             } else {
@@ -157,7 +157,7 @@ impl Handles {
                 return Err("EMFILE: watch limit".into());
             }
             let path = s
-                .path(v["path"].as_str().ok_or("missing watch path")?)
+                .resolve(v["path"].as_str().ok_or("missing watch path")?, true)
                 .map_err(|e| e.to_string())?;
             let path = s.dir.canonicalize(path).map_err(|e| e.to_string())?;
             let (tx, rx) = std::sync::mpsc::sync_channel(1024);
@@ -228,7 +228,7 @@ impl Handles {
         let result = (|| -> std::io::Result<Option<Value>> {
             if op == "open" {
                 if self.files.len() >= 256 { return Err(std::io::Error::other("EMFILE: too many open files")); }
-                let path = s.path(v["path"].as_str().ok_or_else(||std::io::Error::other("missing path"))?)?;
+                let path = s.resolve(v["path"].as_str().ok_or_else(||std::io::Error::other("missing path"))?, true)?;
                 let flags=v["flags"].as_str().unwrap_or("r"); let mut options=cap_std::fs::OpenOptions::new();
                 match flags {"r"=>{options.read(true);},"w"=>{options.write(true).create(true).truncate(true);},"wx"=>{options.write(true).create_new(true);},"a"=>{options.write(true).create(true).append(true);},_=>return Err(std::io::Error::other("unsupported open flag"))};
                 let f=s.dir.open_with(path,&options)?;

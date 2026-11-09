@@ -357,7 +357,7 @@ impl Shell<'_> {
                 continue;
             }
             let meta = self.fs("lstat", &path, json!({}))?;
-            if meta["file"] != true {
+            if meta["file"] != true && !(path == root && self.fs("stat", &path, json!({}))?["file"] == true) {
                 continue;
             }
             let relative = path.strip_prefix(&format!("{root}/")).unwrap_or(&path);

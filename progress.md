@@ -1475,3 +1475,25 @@
   - [x] `@super-looi/looi-driver` 26/26 单测、`@super-looi/nsh` 类型检查、全量测试（`test:voice-runtime`、`test:model-list`、`test:build-env`、Rust/QuickJS/Headless UI 26/26、`test:plugins`）、`build` 与 iOS `aarch64-apple-ios` 编译检查全部通过
   - [x] 独立子 agent 三轮代码审查终审 **PASS**（已修复 CoreBluetooth 单例 `CBPeripheral` 重连取消竞态、`manualDisconnectHold` 切后台保持、静默重连中途异常断连回收与 `idle` 纯输出流升级录音流等边界）
   - [x] Android 开发包已重新编译原生库并安装至魅族 20 Pro（`391QYGCN224FE`），实测首屏与底座页渲染、吸合上升沿 `67° → 55°` 云台问候、`底座已吸合就绪` Toast 及 `AAudio` 纯输出磁吸音效流正常且无异常日志
+
+
+## NSH 双端 Linux Shell 落地（2026-11-09）
+
+计划：`docs/plans/nsh-linux-shell-openminis-plan.md`
+
+- [ ] Step 1：固定依赖与双端构建打包
+  - [x] 读取计划、现有执行器和仓库设计规范，记录工作区已有修改
+  - [x] 固定 Alpine / iSH / PRoot / loader，完成缓存与工具链准备脚本
+  - [ ] 接入 iOS 库、Android 插件资产与首次安装
+- [ ] Step 2：实现宿主 ShellRunner 与工作区路径一致性
+  - [ ] 定义执行契约、guest 环境与双端实现
+  - [ ] 完成后代回收、输出排空和工作区链接解析
+- [ ] Step 3：兼容层流式接口、Agent 与任务界面
+  - [x] 输出队列、UTF-8 拼帧、原子尾块与超时语义
+  - [ ] 实时输出、全终态回执、审批与后台取消
+- [ ] Step 4：验证与交付
+  - [ ] 定向测试、类型检查、构建与原生插件检查
+  - [ ] Android ARM64 / iPhone 真机验收
+  - [ ] 独立子 agent review、文档及架构更新、分阶段提交
+
+- 验证记录：兼容层 8 项 Rust 单测、桌面 QuickJS 全套测试、结构化超时四分支测试通过；iOS 设备未签名 `.app` 已成功链接并打入 fakefs 归档，修复 ONNX Clang builtins 的设备链接阻塞。

@@ -2,7 +2,7 @@ use crate::{codemode_bridge, fs_bridge, sandbox, segment_bridge, shell_bridge, s
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
@@ -16,6 +16,10 @@ pub type Task = Pin<Box<dyn Future<Output = String>>>;
 struct ShellJob {
     cancelled: Arc<AtomicBool>,
     started: bool,
+    chunks: VecDeque<Value>,
+    sequence: u64,
+    last_drained_seq: u64,
+    queued_bytes: usize,
 }
 struct ShellLease {
     jobs: Arc<Mutex<HashMap<String, ShellJob>>>,
@@ -39,6 +43,17 @@ impl Drop for ShellConsumer {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 }
+fn drain_chunks(job: &mut ShellJob, after: u64) -> Value {
+    let after = after.max(job.last_drained_seq);
+    let chunks: Vec<Value> = job
+        .chunks
+        .drain(..)
+        .filter(|chunk| chunk["sequence"].as_u64().unwrap_or(0) > after)
+        .collect();
+    job.last_drained_seq = job.sequence;
+    job.queued_bytes = 0;
+    json!(chunks)
+}
 pub(crate) fn response(result: Result<Value, String>) -> String {
     match result {
         Ok(value) => json!({"value":value}),
@@ -58,12 +73,19 @@ pub struct Bridge {
     codemode: Arc<codemode_bridge::Manager>,
     tasks: RefCell<HashMap<String, Task>>,
     closed: Cell<bool>,
+    shell_runner: Option<Arc<dyn crate::shell_runner::ShellRunner>>,
     #[cfg(test)]
     shell_gate: RefCell<Option<Arc<std::sync::Barrier>>>,
 }
 impl Bridge {
     /// The trusted native app chooses a root inside its own sandbox.
     pub fn new(data_root: &Path) -> Result<Self, String> {
+        Self::with_shell_runner(data_root, None)
+    }
+    pub fn with_shell_runner(
+        data_root: &Path,
+        shell_runner: Option<Arc<dyn crate::shell_runner::ShellRunner>>,
+    ) -> Result<Self, String> {
         let fs =
             Arc::new(sandbox::Sandbox::new(&data_root.join("files")).map_err(|e| e.to_string())?);
         let db_root = data_root.join("sqlite");
@@ -81,6 +103,7 @@ impl Bridge {
             codemode: Arc::default(),
             tasks: RefCell::new(HashMap::new()),
             closed: Cell::new(false),
+            shell_runner,
             #[cfg(test)]
             shell_gate: RefCell::new(None),
         })
@@ -119,9 +142,20 @@ impl Bridge {
                     ShellJob {
                         cancelled: Arc::new(AtomicBool::new(false)),
                         started: false,
+                        chunks: VecDeque::new(),
+                        sequence: 0,
+                        last_drained_seq: 0,
+                        queued_bytes: 0,
                     },
                 );
                 Ok(json!(id))
+            }
+            "shell.drain" => {
+                let mut jobs = self.jobs.lock().map_err(|e| e.to_string())?;
+                let job = jobs
+                    .get_mut(v["id"].as_str().ok_or("missing shell id")?)
+                    .ok_or("unknown shell job")?;
+                Ok(drain_chunks(job, v["afterSequence"].as_u64().unwrap_or(0)))
             }
             "shell.cancel" => {
                 if let Some(job) = self
@@ -177,6 +211,28 @@ impl Bridge {
                     job.cancelled.clone()
                 };
                 let fs = self.fs.clone();
+                let runner = self.shell_runner.clone().filter(|_| v["builtin"] != true);
+                let jobs = self.jobs.clone();
+                let output_id = id.clone();
+                let output: crate::shell_runner::ShellOutput = Arc::new(move |stream, text| {
+                    if text.is_empty() {
+                        return;
+                    }
+                    if let Ok(mut jobs) = jobs.lock() {
+                        if let Some(job) = jobs.get_mut(&output_id) {
+                            job.sequence += 1;
+                            job.queued_bytes += text.len();
+                            job.chunks.push_back(
+                                json!({"sequence":job.sequence,"stream":stream.name(),"text":text}),
+                            );
+                            while job.queued_bytes > 1024 * 1024 {
+                                if let Some(chunk) = job.chunks.pop_front() {
+                                    job.queued_bytes -= chunk["text"].as_str().unwrap_or("").len();
+                                }
+                            }
+                        }
+                    }
+                });
                 let lease = Arc::new(ShellLease {
                     jobs: self.jobs.clone(),
                     id: id.clone(),
@@ -199,7 +255,25 @@ impl Bridge {
                         if let Some(gate) = gate {
                             gate.wait();
                         }
-                        let result = shell_bridge::execute_cancelable(&fs, &v, token);
+                        let result = if let Some(runner) = runner {
+                            crate::shell_runner::ShellRequest::parse(&v, token)
+                                .and_then(|request| runner.run(request, output.clone()))
+                                .map(|outcome| outcome.value())
+                        } else {
+                            shell_bridge::execute_cancelable(&fs, &v, token).map(|mut result| {
+                                use crate::shell_runner::ShellStream;
+                                for (key, stream) in [
+                                    ("stdout", ShellStream::Stdout),
+                                    ("stderr", ShellStream::Stderr),
+                                ] {
+                                    if let Some(text) = result[key].as_str() {
+                                        output(stream, text.into());
+                                    }
+                                    result[key] = json!("");
+                                }
+                                result
+                            })
+                        };
                         let _ = send.send(result);
                     })
                 {
@@ -211,12 +285,20 @@ impl Bridge {
                 }
                 Box::pin(async move {
                     let _consumer = consumer;
-                    response(
-                        receive
-                            .await
-                            .map_err(|_| "shell actor failed".into())
-                            .and_then(|result| result),
-                    )
+                    let result = receive
+                        .await
+                        .map_err(|_| "shell actor failed".into())
+                        .and_then(|result| result);
+                    let tail = {
+                        let mut jobs = _consumer._lease.jobs.lock().unwrap();
+                        jobs.get_mut(&_consumer._lease.id)
+                            .map(|job| drain_chunks(job, job.last_drained_seq))
+                            .unwrap_or(json!([]))
+                    };
+                    // The consumer lease holds the slot until the terminal tail is taken.
+                    let mut envelope: Value = serde_json::from_str(&response(result)).unwrap();
+                    envelope["tailChunks"] = tail;
+                    envelope.to_string()
                 })
             }
             _ => return Err("invalid native task kind".into()),
@@ -258,6 +340,7 @@ impl Drop for Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell_runner::{ShellOutcome, ShellOutput, ShellRequest, ShellRunner, ShellStream};
     use std::task::{Context, Poll, Wake, Waker};
     struct Notify(std::thread::Thread);
     impl Wake for Notify {
@@ -282,6 +365,67 @@ mod tests {
         }
     }
     #[test]
+    fn host_streaming_drains_once_and_preserves_terminal_tail() {
+        struct Runner(Arc<std::sync::Barrier>);
+        impl ShellRunner for Runner {
+            fn run(&self, _: ShellRequest, output: ShellOutput) -> Result<ShellOutcome, String> {
+                output(ShellStream::Status, "installing".into());
+                output(ShellStream::Stdout, "中文".into());
+                self.0.wait();
+                self.0.wait();
+                output(ShellStream::Stderr, "tail🌍".into());
+                Ok(ShellOutcome {
+                    status: 124,
+                    timed_out: true,
+                    cancelled: false,
+                })
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let host =
+            Bridge::with_shell_runner(temp.path(), Some(Arc::new(Runner(gate.clone())))).unwrap();
+        let id: Value = serde_json::from_str(&host.request(r#"{"op":"shell.create"}"#)).unwrap();
+        let ticket = host
+            .begin(
+                "shell",
+                json!({"id":id["value"],"command":"native"}).to_string(),
+            )
+            .unwrap();
+        gate.wait();
+        let drained: Value =
+            serde_json::from_str(&host.request(
+                &json!({"op":"shell.drain","id":id["value"],"afterSequence":0}).to_string(),
+            ))
+            .unwrap();
+        assert_eq!(drained["value"][0]["stream"], "status");
+        assert_eq!(drained["value"][1]["text"], "中文");
+        gate.wait();
+        let terminal = await_on_engine(host.wait(&ticket));
+        assert_eq!(terminal["tailChunks"].as_array().unwrap().len(), 1);
+        assert_eq!(terminal["tailChunks"][0]["sequence"], 3);
+        assert_eq!(terminal["tailChunks"][0]["text"], "tail🌍");
+        assert_eq!(terminal["value"]["timedOut"], true);
+        assert!(host.jobs.lock().unwrap().is_empty());
+        // Explicit search builtins and synchronous shell requests bypass the host.
+        assert_eq!(
+            serde_json::from_str::<Value>(&host.request(r#"{"op":"shell","command":"echo sync"}"#))
+                .unwrap()["value"]["stdout"],
+            "sync\n"
+        );
+        let id: Value = serde_json::from_str(&host.request(r#"{"op":"shell.create"}"#)).unwrap();
+        let ticket = host
+            .begin(
+                "shell",
+                json!({"id":id["value"],"command":"echo builtin","builtin":true}).to_string(),
+            )
+            .unwrap();
+        assert_eq!(
+            await_on_engine(host.wait(&ticket))["tailChunks"][0]["text"],
+            "builtin\n"
+        );
+    }
+    #[test]
     fn task_tickets_work_without_tokio_and_are_consumed_once() {
         let temp = tempfile::tempdir().unwrap();
         let host = Bridge::new(temp.path()).unwrap();
@@ -294,7 +438,7 @@ mod tests {
                 .contains("already started")
         );
         let result = await_on_engine(host.wait(&ticket));
-        assert_eq!(result["value"]["stdout"], "native-engine\n");
+        assert_eq!(result["tailChunks"][0]["text"], "native-engine\n");
         assert!(
             await_on_engine(host.wait(&ticket))["error"]
                 .as_str()

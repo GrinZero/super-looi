@@ -16,6 +16,8 @@ export interface ShellResult {
   status: number;
   stdout: string;
   stderr: string;
+  timedOut?: boolean;
+  cancelled?: boolean;
 }
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 let nextPid = 100;
@@ -91,6 +93,7 @@ export function spawn(
     pid,
     exitCode: null as number | null,
     killed: false,
+    timedOut: false,
     kill(_signal?: string | number) {
       if (settled) return false;
       child.killed = true;
@@ -102,9 +105,23 @@ export function spawn(
   const abort = () => child.kill();
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) child.kill();
+  let sequence = 0;
+  type Chunk = { sequence: number; stream: "stdout" | "stderr" | "status"; text: string };
+  const deliver = (chunks: Chunk[] = []) => {
+    for (const chunk of chunks) {
+      if (chunk.sequence <= sequence) continue;
+      sequence = chunk.sequence;
+      if (chunk.stream === "status") child.emit("status", chunk.text);
+      else child[chunk.stream].push(chunk.text);
+    }
+  };
   queueMicrotask(async () => {
+    let poll: ReturnType<typeof setInterval> | undefined;
     try {
       if (!globalThis.__nsh_shell_wait) unsupported("asynchronous shell host");
+      poll = setInterval(() => {
+        deliver(call<Chunk[]>("shell.drain", { id, afterSequence: sequence }));
+      }, 20);
       const response = JSON.parse(
         await globalThis.__nsh_shell_wait(
           JSON.stringify({
@@ -113,9 +130,12 @@ export function spawn(
             cwd: options.cwd ?? "/workspace",
             timeout: options.timeout,
             env: options.env,
+            builtin: !options.shell && (file === "rg" || file === "fd"),
           }),
         ),
-      ) as { value?: ShellResult; error?: string };
+      ) as { value?: ShellResult; error?: string; tailChunks?: Chunk[] };
+      clearInterval(poll);
+      deliver(response.tailChunks);
       if (response.error && !response.error.startsWith("ABORT_ERR"))
         throw new Error(response.error);
       const result = response.value;
@@ -123,16 +143,20 @@ export function spawn(
       if (result?.stderr) child.stderr.push(result.stderr);
       child.stdout.push(null);
       child.stderr.push(null);
-      const cancelled = child.killed || response.error?.startsWith("ABORT_ERR");
+      const cancelled = child.killed || result?.cancelled || response.error?.startsWith("ABORT_ERR");
+      child.timedOut = result?.timedOut ?? false;
       child.exitCode = cancelled ? null : result!.status;
       settled = true;
       child.emit("exit", child.exitCode, cancelled ? "SIGTERM" : null);
       child.emit("close", child.exitCode, cancelled ? "SIGTERM" : null);
     } catch (error) {
       settled = true;
+      child.stdout.push(null);
+      child.stderr.push(null);
       child.emit("error", error);
       child.emit("close", -1, null);
     } finally {
+      if (poll) clearInterval(poll);
       children.delete(pid);
       options.signal?.removeEventListener("abort", abort);
     }

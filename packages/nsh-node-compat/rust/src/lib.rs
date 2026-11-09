@@ -4,6 +4,7 @@ mod fs_bridge;
 pub mod sandbox;
 mod segment_bridge;
 mod shell_bridge;
+pub mod shell_runner;
 mod sqlite_bridge;
 pub use bridge::{Bridge, Task};
 use rquickjs::{Ctx, Function};

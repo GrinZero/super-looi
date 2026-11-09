@@ -10,8 +10,7 @@ import {
 import type { Context } from "@earendil-works/chord/context";
 import { spawn } from "../shims/child_process.js";
 /** Reuses upstream's tested file/line contracts through our Node shims. Shell
- * ownership is native, cooperative and per-command. Output is bounded and
- * delivered after execution; native streaming is a separate host capability. */
+ * ownership, streaming and process-tree cleanup are provided by the native host. */
 export class NshExecutionEnv extends NodeExecutionEnv {
   override id: string;
   private jobs = new Map<ReturnType<typeof spawn>, Promise<void>>();
@@ -69,7 +68,9 @@ export class NshExecutionEnv extends NodeExecutionEnv {
       child.on("close", (status: number | null, signal: string | null) => {
         this.jobs.delete(child);
         resolve(
-          failure
+          child.timedOut
+            ? err(new ExecutionError("timeout", "shell timeout"))
+            : failure
             ? err(failure)
             : signal
               ? err(new ExecutionError("aborted", "shell cancelled"))

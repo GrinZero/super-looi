@@ -117,3 +117,30 @@ await sandbox.close();
 console.log(
   "PASS pi-durable@1.5.0: Harness, four upstream coding tools + native codemode orchestration, SQLite journal reopen and continuation",
 );
+
+// Exercise the native receipt contract while using the real actor lifecycle.
+const originalWait = globalThis.__nsh_shell_wait!;
+try {
+  for (const sample of [
+    {reply:{error:"ETIMEDOUT: legacy executor deadline"}, expected:"timeout"},
+    {reply:{value:{status:124,timedOut:true,cancelled:false}}, expected:"timeout"},
+    {reply:{value:{status:143,timedOut:false,cancelled:true}}, expected:"aborted"},
+    {reply:{value:{status:124,timedOut:false,cancelled:false}}, expected:124},
+  ]) {
+    globalThis.__nsh_shell_wait = async (request) => {
+      await originalWait(request);
+      return JSON.stringify(sample.reply);
+    };
+    const env = new NshExecutionEnv({namespace:"receipt-contract"});
+    const receipt = await env.exec("true", undefined, context);
+    if (typeof sample.expected === "number") {
+      assert(receipt.ok);
+      equal(receipt.value.exitCode, sample.expected);
+    } else {
+      assert(!receipt.ok);
+      equal(receipt.error.code, sample.expected);
+    }
+    await env.cleanup(context);
+  }
+} finally { globalThis.__nsh_shell_wait = originalWait; }
+console.log("PASS native shell receipts: legacy and structured timeout, cancel, explicit exit 124");
