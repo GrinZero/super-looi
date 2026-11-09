@@ -16,6 +16,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
       resolveDir: root,
       contents: `
     import {installNshNativeCompat} from "../../packages/nsh-node-compat/src/native-host.ts";
+    export {utf8Tail} from "../../packages/looi-runtime/src/agent/shell-output.ts";
     export {VoiceRuntime, VoiceTaskCoordinator} from "./runtime/voice.ts";
     export {MiotLoginFlow} from "./runtime/miot-login.ts";
     export {RobotFaceController, FACE_EXPRESSION_IDS, isFaceExpression, getFaceExpressionBehavior} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
@@ -84,9 +85,11 @@ export class VoiceRuntime {
 }
 export type TraceContext = {traceId:string;parentSpanId?:string;traceName:string;sessionId?:string};
 export interface UiAction {event_id:string;ui_session_id:string;kind:"tap"|"gesture"|"voice_command";captured_at:string;expires_at:string}
+export function utf8Tail(text:string,limit:number):string;
+export interface NativeShellOutput {taskId:string;callId:string;command:string;stream:"stdout"|"stderr"|"status";chunk:string}
 export interface NativeStep {step:number;phase:string;summary:string;taskId?:string;interaction?:{id:string;kind:"approval"|"question";details:Record<string,unknown>;expiresAt:string}}
 export interface NativeTaskSummary {id:string;prompt:string;state:string;updatedAt:string}
-export interface NativeTask extends NativeTaskSummary {homeActions:Array<{requestId:string;connectionId:string;command:Record<string,unknown>;simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;bodyActions?:Array<{requestId:string;command:{action:string;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number};simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;sessionId:string;createdAt:string;error?:string;runtimeExited?:boolean;steps:NativeStep[];result?:{answer:string;executions?:Array<{command:string;exitCode:number|null;signal:string|null;timedOut:boolean;aborted:boolean}>;artifacts?:Array<{path:string;sha256:string;size:number}>}}
+export interface NativeTask extends NativeTaskSummary {homeActions:Array<{requestId:string;connectionId:string;command:Record<string,unknown>;simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;bodyActions?:Array<{requestId:string;command:{action:string;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number};simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;sessionId:string;createdAt:string;error?:string;runtimeExited?:boolean;steps:NativeStep[];result?:{answer:string;executions?:Array<{callId:string;stdout?:string;stderr?:string;command:string;exitCode:number|null;signal:string|null;timedOut:boolean;aborted:boolean}>;artifacts?:Array<{path:string;sha256:string;size:number}>}}
 export interface NativeTaskPage {total:number;offset:number;items:NativeTaskSummary[]}
 export interface HomeConfiguration {mode:"disabled"|"simulation"|"external_ha"|"direct_miot";haUrl:string;region:"cn"|"de"|"i2"|"ru"|"sg"|"us";hasToken:boolean;hasMiotAccount:boolean}
 export interface HomeConnection {mode:string;simulation:boolean;configured:boolean;healthy:boolean;connectionId:string|null;lastVerifiedAt:string|null;error:string|null;entityCount:number}
@@ -150,7 +153,7 @@ export interface NativeRuntime {
  taskDetails(id:string):NativeTask;
  newConversation(action:UiAction):void;
  configure(value:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
- run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
+ run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{onShellOutput?:(event:NativeShellOutput)=>void;agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
  respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  close():Promise<void>;

@@ -1490,13 +1490,17 @@
   - [x] 完成后代回收、输出排空和工作区链接解析
 - [ ] Step 3：兼容层流式接口、Agent 与任务界面
   - [x] 输出队列、UTF-8 拼帧、原子尾块与超时语义
-  - [ ] 实时输出、全终态回执、审批与后台取消
+  - [x] 实时输出、全终态回执、审批与后台取消
 - [ ] Step 4：验证与交付
-  - [ ] 定向测试、类型检查、构建与原生插件检查
-  - [ ] Android ARM64 / iPhone 真机验收
+  - [x] 定向测试、类型检查、构建与原生插件检查
+  - [x] Android ARM64 真机验收；iOS 按用户确认范围完成双 SDK 构建检查
   - [ ] 独立子 agent review、文档及架构更新、分阶段提交
 
 - 验证记录：兼容层 8 项 Rust 单测、桌面 QuickJS 全套测试、结构化超时四分支测试通过；iOS 设备未签名 `.app` 已成功链接并打入 fakefs 归档，修复 ONNX Clang builtins 的设备链接阻塞。
 
 - Android 魅族 20 Pro（Wi-Fi ADB `192.168.3.123:5555`）Linux 专项测试通过：guest 环境/覆盖、文件共享与账本隔离、50,000 B 管道、UTF-8 双流、正常/取消/超时后代回收、相对/绝对/硬链接、经审批安装 Git/Python/Node/npm/pnpm/ripgrep。
 - 用户确认 iOS 按构建检查交付；本机无 iPhone 与有效开发签名，未执行 iPhone 安装或运行。
+
+- 完整 Android `CompatProbe` 通过（16.3 秒），修复 Pi SDK 桌面工具缓存目录覆盖 guest PATH 的实际问题；桌面 QuickJS 全套、85 项运行时测试、NSH 26 项测试与构建通过。
+- 应用进程 force-stop / relaunch 后，在同一 guest 再次运行 Git 初始化与状态、Python、Node、pnpm、ripgrep 成功；包文件与 rootfs 版本标记保留。
+- 两位独立子 agent 分别完成原生/兼容层与 Agent/UI 终审，均通过。

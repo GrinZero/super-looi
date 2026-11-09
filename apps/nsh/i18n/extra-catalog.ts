@@ -1,4 +1,12 @@
 export const extraZh = {
+  shellLiveOutput: "命令实时输出",
+  shellCommandRunning: "命令执行中",
+  shellCommandFinished: "命令已结束",
+  shellCommandCancelled: "命令已取消",
+  shellCommandTimedOut: "命令超时",
+  shellCleanupUnconfirmed: "进程回收未确认",
+  linuxShellInstalling: "正在安装 Alpine Linux 3.21.3",
+  linuxShellReady: "Alpine Linux 已就绪",
   miot_browser_unavailable: "无法打开米家登录，请返回应用重试",
   miot_browser_failed: "米家登录页面加载失败",
   miot_login_busy: "米家登录正在进行",
@@ -140,6 +148,14 @@ export const extraZh = {
   runtimeControllingLooiBody: "正在控制底座动作",
 } as const;
 export const extraEn: Record<keyof typeof extraZh, string> = {
+  shellLiveOutput: "Live command output",
+  shellCommandRunning: "Command running",
+  shellCommandFinished: "Command finished",
+  shellCommandCancelled: "Command cancelled",
+  shellCommandTimedOut: "Command timed out",
+  shellCleanupUnconfirmed: "Process cleanup unconfirmed",
+  linuxShellInstalling: "Installing Alpine Linux 3.21.3",
+  linuxShellReady: "Alpine Linux ready",
   miot_browser_unavailable: "Could not open Xiaomi sign-in. Return to the app and try again.",
   miot_browser_failed: "Xiaomi sign-in page failed to load",
   miot_login_busy: "Xiaomi sign-in is already running",

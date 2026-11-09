@@ -1,6 +1,7 @@
 import { t, translateMessage, formatDate } from "../i18n";
 import { Text, View, Scroll, windowSize } from "nsh";
 import type { createAppStore } from "../store";
+import { TaskShellOutput } from "./TaskShellOutput";
 import { ActionButton } from "./Controls";
 
 export function taskStateLabel(state: string): string {
@@ -210,6 +211,7 @@ export function TasksSpaceView(props: {
             </View>
           </If>
 
+          <TaskShellOutput output={props.store.shellOutput()} taskId={currentTask()?.id} />
           <If when={(currentTask()?.steps.length ?? 0) > 0}>
             <View class="gap-1.5">
               <Text class="text-muted-foreground text-xs">{t("executionSteps")}</Text>
@@ -236,7 +238,7 @@ export function TasksSpaceView(props: {
               <View class="gap-1.5">
                 <Each
                   of={currentTask()?.result?.executions ?? []}
-                  key={(e) => e.command}
+                  key={(e) => e.callId}
                 >
                   {(e) => (
                     <View class="rounded-xl border border-border bg-muted p-3 gap-1 font-mono">
@@ -247,6 +249,8 @@ export function TasksSpaceView(props: {
                         exitCode: {String(e().exitCode)} · timedOut:{" "}
                         {String(e().timedOut)}
                       </Text>
+                      <If when={Boolean(e().stdout)}><Text class="text-foreground text-xs font-mono">{e().stdout}</Text></If>
+                      <If when={Boolean(e().stderr)}><Text class="text-muted-foreground text-xs font-mono">{e().stderr}</Text></If>
                     </View>
                   )}
                 </Each>

@@ -46,6 +46,8 @@ export interface AgentCommandEvidence {
   signal: string | null;
   timedOut: boolean;
   aborted: boolean;
+  stdout?: string;
+  stderr?: string;
 }
 
 export interface AgentInteraction {
@@ -70,6 +72,14 @@ export interface AgentTask {
   runtimeExited?: boolean;
 }
 
+export interface AgentShellOutput {
+  taskId: string;
+  callId: string;
+  command: string;
+  stream: "stdout" | "stderr" | "status";
+  chunk: string;
+}
+
 export interface AgentRunOptions {
   traceContext?: import("../telemetry/langfuse.js").TraceContext;
   taskId?: string;
@@ -81,6 +91,7 @@ export interface AgentRunOptions {
   approvalMode?: "ask" | "local_auto" | "yolo";
   defaultLanguage?: "zh-CN" | "en-US";
   onStep?: (event: AgentStepEvent) => void;
+  onShellOutput?: (event: AgentShellOutput) => void;
   signal?: AbortSignal;
   resume?: boolean;
 }

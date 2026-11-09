@@ -21,6 +21,8 @@ import {
 } from "super-looi/native";
 import { connect } from "websocket";
 import {
+  utf8Tail,
+  type NativeShellOutput,
   VoiceRuntime,
   VoiceTaskCoordinator,
   MiotLoginFlow,
@@ -413,6 +415,20 @@ export function createAppStore() {
   const recoveryCount = signal(0);
   const tasks = signal<NativeTaskPage>({ total: 0, offset: 0, items: [] });
   const task = signal<NativeTask | undefined>(undefined);
+  const shellOutput = signal<{taskId:string;callId:string;command:string;text:string;status:string} | undefined>(undefined);
+  const refreshInspectedTask = () => {
+    const id = task()?.id;
+    if (id && runtime) task.set(runtime.taskDetails(id));
+  };
+  const receiveShellOutput = (event: NativeShellOutput) => {
+    if (!alive) return;
+    const previous = shellOutput();
+    const current = previous?.callId === event.callId && previous.taskId === event.taskId
+      ? previous : {taskId:event.taskId,callId:event.callId,command:event.command,text:"",status:""};
+    shellOutput.set({ ...current,
+      ...(event.stream === "status" ? {status:event.chunk} : {text:utf8Tail(current.text + event.chunk, 16 * 1024),status:""}),
+    });
+  };
   const interaction = signal<
     (NonNullable<NativeStep["interaction"]> & { taskId: string }) | undefined
   >(undefined);
@@ -539,7 +555,7 @@ export function createAppStore() {
       if (driver.getState().expression !== "sleeping") {
         driver.setExpression("sleeping");
       }
-      if (busy()) void stop();
+      if (lifecycle() === "background" && busy()) void stop();
     } else if (driver.getState().expression !== next) {
       driver.setExpression(next);
     }
@@ -641,6 +657,7 @@ export function createAppStore() {
           }
           api.dismissWakeGuide();
           busy.set(true);
+          shellOutput.set(undefined);
           message.set("");
           status.set("@looi:runtimeAgentIsThinking");
           try {
@@ -650,6 +667,7 @@ export function createAppStore() {
               (event) => {
                 if (!alive) return;
                 status.set(event.summary);
+                refreshInspectedTask();
                 if (event.interaction && event.taskId) {
                   interaction.set({ ...event.interaction, taskId: event.taskId });
                 }
@@ -660,6 +678,7 @@ export function createAppStore() {
                 mode: "voice",
                 approvalMode: taskApprovalMode(),
                 traceContext,
+                onShellOutput: receiveShellOutput,
                 defaultLanguage: effectiveLocale(),
               },
             );
@@ -684,6 +703,7 @@ export function createAppStore() {
               busy.set(false);
               interaction.set(undefined);
               recoveryCount.set(runtime.recoveryCount());
+              refreshInspectedTask();
               syncBodyStatus(runtime.bodyStatus());
             }
           }
@@ -1606,6 +1626,7 @@ export function createAppStore() {
     },
     tasks: () => tasks(),
     task: () => task(),
+    shellOutput: () => shellOutput(),
     refreshTasks(offset = 0) {
       if (!runtime) return;
       try {
@@ -1654,6 +1675,7 @@ export function createAppStore() {
       if (busy() || !runtime || !prompt.trim()) return false;
       api.dismissWakeGuide();
       busy.set(true);
+      shellOutput.set(undefined);
       message.set("");
       status.set("@looi:runtimeAgentIsThinking");
       try {
@@ -1663,10 +1685,11 @@ export function createAppStore() {
           (event) => {
             if (!alive) return;
             status.set(event.summary);
+            refreshInspectedTask();
             if (event.interaction && event.taskId)
               interaction.set({ ...event.interaction, taskId: event.taskId });
           },
-          { agentOnly, mode: agentOnly ? "voice" : "text", approvalMode: taskApprovalMode(), traceContext, defaultLanguage: effectiveLocale() },
+          { onShellOutput: receiveShellOutput, agentOnly, mode: agentOnly ? "voice" : "text", approvalMode: taskApprovalMode(), traceContext, defaultLanguage: effectiveLocale() },
         );
         if (alive) {
           message.set(result.answer);
@@ -1681,6 +1704,7 @@ export function createAppStore() {
           busy.set(false);
           interaction.set(undefined);
           recoveryCount.set(runtime.recoveryCount());
+          refreshInspectedTask();
           syncBodyStatus(runtime.bodyStatus());
         }
       }

@@ -77,6 +77,21 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
       .join(" ");
   }
   if (!targets.android) return env;
+  const pluginHash = createHash("sha256").update(JSON.stringify(config));
+  for (const source of [
+    "scripts/native-plugins.mjs", "native/android/merge_apk.py", "native/android/patch_manifest.py",
+    "native/android/com/superlooi/nsh/SuperLooiApplication.java",
+    "native/android/com/superlooi/nsh/MiotLoginDialog.java", "native/android/com/superlooi/nsh/LooiBleBridge.java",
+    "native/linux/sources.lock.json",
+    ...readdirSync(join(app,"native/linux/licenses")).map(name=>`native/linux/licenses/${name}`),
+  ]) pluginHash.update(readFileSync(join(app,source)));
+  const pluginStamp = join(app,".nsh/android-plugin.stamp"), digest = pluginHash.digest("hex");
+  if (!existsSync(pluginStamp) || readFileSync(pluginStamp,"utf8") !== digest) {
+    for (const stamp of [".nsh/android/runtime.stamp", ".nsh/test/android/runtime.stamp"])
+      rmSync(join(app,stamp),{force:true});
+    mkdirSync(dirname(pluginStamp),{recursive:true});
+    writeFileSync(pluginStamp,digest);
+  }
   const sdk =
     env.NSH_REAL_ANDROID_SDK ??
     env.ANDROID_HOME ??

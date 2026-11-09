@@ -25,7 +25,9 @@
     "test:plugins": "python3 -B native/android/test_plugin.py",
     "test:login:ios": "node --import tsx scripts/nsh.ts login-ios",
     "test:wake:ios": "node --import tsx scripts/nsh.ts wake-ios",
-    "test:login:android": "node --import tsx scripts/nsh.ts login-android"
+    "test:login:android": "node --import tsx scripts/nsh.ts login-android",
+    "test:linux:android": "pnpm build:probe && node --import tsx scripts/nsh.ts linux-android",
+    "test:linux:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts linux-ios"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",

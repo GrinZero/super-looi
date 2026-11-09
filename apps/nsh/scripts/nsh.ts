@@ -254,7 +254,10 @@ if (nativeProbe) {
   const entry = linux ? "LinuxProbe.tsx" : "CompatProbe.tsx";
   const success = linux ? "Linux Shell verified" : "Native bridge verified";
   const timeout = linux ? 600000 : 60000;
-  writeFileSync(probeFile, `import {open,test} from "nsh/test";test(${JSON.stringify(success)},async()=>{const app=await open(${JSON.stringify("../" + entry)});await app.waitFor(${JSON.stringify(success)},{timeout:${timeout}});},${timeout+30000});`);
+  const artifacts = resolve(repo,"docs/artifacts/nsh-linux-shell");
+  if (linux) mkdirSync(artifacts,{recursive:true});
+  const screenshot = linux ? `await app.screenshot(${JSON.stringify(resolve(artifacts,`${uiTarget}-output.png`))});` : "";
+  writeFileSync(probeFile, `import {open,test} from "nsh/test";test(${JSON.stringify(success)},async()=>{const app=await open(${JSON.stringify("../" + entry)});await app.waitFor(${JSON.stringify(success)},{timeout:${timeout}});${screenshot}},${timeout+30000});`);
 }
 const scripted =
   command.startsWith("login-") ||

@@ -1,5 +1,7 @@
 import { acknowledgementLanguage, conversationLanguageInstructions } from "./conversation-language.js";
 import fs from "node:fs";
+import { StringDecoder } from "node:string_decoder";
+import { utf8Tail } from "./shell-output.js";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -53,7 +55,7 @@ const SAFE_SYSTEM_PREFIXES = [
   "/opt/homebrew/bin/",
   "/dev/null",
 ];
-const MAX_OUTPUT_CHARS = 16000;
+const STREAM_TAIL_BYTES = 4096;
 const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;
 
 async function awaitWithin(
@@ -91,6 +93,7 @@ export interface PiExecutorConfig {
   maxConcurrentTasks?: number;
   interactionTimeoutMs?: number;
   stopGraceMs?: number;
+  commandTimeoutMs?: number;
   streamFn?: StreamFn;
   modelSpec?: Model<Api>;
   customTools?: AgentTool<any>[];
@@ -116,21 +119,20 @@ interface Worker {
 }
 
 function resolveRealAncestor(targetPath: string): string {
-  const resolved = path.resolve(targetPath);
-  let current = resolved;
+  let current = targetPath;
   const suffix: string[] = [];
-  while (!fs.existsSync(current)) {
+  for (;;) {
+    try { fs.lstatSync(current); break; }
+    catch (error) {
+      if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+    }
     const parent = path.dirname(current);
     if (parent === current) break;
     suffix.unshift(path.basename(current));
     current = parent;
   }
-  try {
-    const realBase = fs.realpathSync(current);
-    return suffix.length > 0 ? path.join(realBase, ...suffix) : realBase;
-  } catch {
-    return resolved;
-  }
+  const realBase = (fs.realpathSync.native ?? fs.realpathSync)(current);
+  return suffix.length > 0 ? path.join(realBase, ...suffix) : realBase;
 }
 
 function resolveWorkspacePath(
@@ -138,20 +140,18 @@ function resolveWorkspacePath(
   targetPath: string,
 ): { resolved: string; relative: string; inside: boolean } {
   const root = path.resolve(workspaceRoot);
-  const resolved = path.resolve(root, targetPath);
+  const resolved = path.isAbsolute(targetPath) ? targetPath : `${root}/${targetPath}`;
   const lexicalRel = path.relative(root, resolved);
-  const lexicalInside =
-    lexicalRel === "" ||
-    (!lexicalRel.startsWith("..") && !path.isAbsolute(lexicalRel));
-  if (!lexicalInside) {
-    return { resolved, relative: lexicalRel || ".", inside: false };
+  try {
+    const realRoot = resolveRealAncestor(root);
+    const realTarget = resolveRealAncestor(resolved);
+    const realRel = path.relative(realRoot, realTarget);
+    const inside = realRel === "" || (!realRel.startsWith("..") && !path.isAbsolute(realRel));
+    return { resolved, relative: lexicalRel.startsWith("..") ? realRel : lexicalRel || ".", inside };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EACCES") return {resolved, relative:lexicalRel, inside:false};
+    throw error;
   }
-  const realRoot = resolveRealAncestor(root);
-  const realTarget = resolveRealAncestor(resolved);
-  const realRel = path.relative(realRoot, realTarget);
-  const inside =
-    realRel === "" || (!realRel.startsWith("..") && !path.isAbsolute(realRel));
-  return { resolved, relative: lexicalRel || ".", inside };
 }
 
 function commandTouchesOutsideWorkspace(
@@ -162,17 +162,16 @@ function commandTouchesOutsideWorkspace(
     return true;
   if (/(?:^|[\s"'=><;|&(`])~(?:\/|$|\s)/.test(command)) return true;
   if (/\$HOME\b|\$\{HOME\}/.test(command)) return true;
-  const matches =
-    command.match(/(?:^|[\s"'=><;|&(`:])(\/[^\s"';|&><)`]+)/g) ?? [];
-  for (const raw of matches) {
-    const token = raw.replace(/^[\s"'=><;|&(`:]+/, "");
-    if (
-      SAFE_SYSTEM_PREFIXES.some(
-        (prefix) =>
-          token === prefix.replace(/\/$/, "") || token.startsWith(prefix),
-      )
-    )
-      continue;
+  if (/\bapk\s+(?:(?:--?[^\s]+)\s+)*(?:add|del|fix|upgrade|update)\b/i.test(command)) return true;
+  if (/\b(?:npm|pnpm)\b[^;|&\n]*(?:--global\b|(?:^|\s)-[a-z]*g[a-z]*(?:\s|$))/i.test(command)) return true;
+  const matches = command.matchAll(/(?:^|[\s"'=><;|&(`:])(\/[^\s"';|&><)`]+)/g);
+  for (const match of matches) {
+    const token = match[1];
+    if (token === "/dev/null") continue;
+    const start = match.index! + match[0].indexOf("/");
+    const before = command.slice(0,start).replace(/["']$/, "");
+    const executable = /(?:^|[;|&(\n])\s*$/.test(before);
+    if (executable && SAFE_SYSTEM_PREFIXES.some(prefix => token.startsWith(prefix))) continue;
     if (!resolveWorkspacePath(workspaceRoot, token).inside) return true;
   }
   return false;
@@ -489,15 +488,26 @@ export class PiAgentExecutor implements AgentExecutor {
     executions: AgentCommandEvidence[],
     artifactsMap: Map<string, { path: string; sha256: string; size: number }>,
     emit: (event: Omit<AgentStepEvent, "taskId" | "sessionId">) => void,
+    onShellOutput: AgentRunOptions["onShellOutput"],
   ): AgentTool<any>[] {
     if (this.config.customTools) return this.config.customTools;
 
     const recordArtifact = (absPath: string, onlyIfRecent = false) => {
-      const { inside, relative } = resolveWorkspacePath(
-        task.workspaceRoot,
-        absPath,
-      );
-      if (!inside || !fs.existsSync(absPath)) return;
+      let entry: fs.Stats;
+      try { entry = fs.lstatSync(absPath); }
+      catch (error) {
+        if (["ENOENT", "ENOTDIR", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
+        throw error;
+      }
+      if (entry.isSymbolicLink()) {
+        try { (fs.realpathSync.native ?? fs.realpathSync)(absPath); }
+        catch (error) {
+          if (["EACCES", "ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
+          throw error;
+        }
+      }
+      const { inside, relative } = resolveWorkspacePath(task.workspaceRoot, absPath);
+      if (!inside) return;
       const stat = fs.statSync(absPath);
       if (!stat.isFile() || stat.size > MAX_ARTIFACT_BYTES) return;
       if (onlyIfRecent && stat.mtimeMs < taskStartMs - 50) return;
@@ -591,7 +601,7 @@ export class PiAgentExecutor implements AgentExecutor {
     const bashTool: AgentTool<typeof bashParams> = {
       name: "bash",
       label: "Run Shell Command",
-      description: "Execute a foreground shell command in the workspace. On NSH mobile, only echo, pwd, ls, cat, cd, mkdir, rm, cp, mv, head, tail, wc, grep, rg, find, fd, env, true, and false are available; date, Python, Node, and other system commands are unavailable. Use dedicated tools for device capabilities.",
+      description: "Execute a foreground command in the workspace. NSH ARM64 mobile uses Alpine Linux /bin/sh with BusyBox base commands. Additional tools can be installed with apk and persist across restarts; Git, Python, Node, pnpm, ripgrep and fd are not preinstalled. System package changes require approval. Use dedicated tools for device capabilities.",
       parameters: bashParams,
       executionMode: "sequential",
       execute: async (toolCallId, params, signal) => {
@@ -601,67 +611,64 @@ export class PiAgentExecutor implements AgentExecutor {
             cwd: task.workspaceRoot,
             detached: process.platform !== "win32",
             stdio: ["ignore", "pipe", "pipe"],
+            timeout: this.config.commandTimeoutMs ?? 300_000,
           });
           let stdout = "";
           let stderr = "";
           let aborted = false;
-
-          const killChild = () => {
-            aborted = true;
-            if (child.pid && process.platform !== "win32") {
-              try {
-                process.kill(-child.pid, "SIGKILL");
-              } catch {
-                // fallback to direct child kill
-              }
-            }
-            try {
-              child.kill("SIGKILL");
-            } catch {
-              // ignore kill errors
-            }
-            child.stdout?.destroy();
-            child.stderr?.destroy();
+          let timedOut = false;
+          const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
+          const output = (stream: "stdout" | "stderr" | "status", chunk: string) => {
+            if (!chunk) return;
+            if (stream === "stdout") stdout = utf8Tail(stdout + chunk, STREAM_TAIL_BYTES);
+            if (stream === "stderr") stderr = utf8Tail(stderr + chunk, STREAM_TAIL_BYTES);
+            onShellOutput?.({ taskId: task.id, callId: toolCallId, command: params.command, stream, chunk });
           };
-
+          output("status", "@looi:shellCommandRunning");
+          const terminateChild = () => {
+            if (child.pid && process.platform !== "win32") {
+              try { process.kill(-child.pid, "SIGTERM"); } catch {}
+            }
+            child.kill("SIGTERM");
+          };
+          const killChild = () => { aborted = true; terminateChild(); };
+          // The NSH host owns its timeout and cleanup. Node does not expose a
+          // timeout flag, so retain the corresponding deadline on desktop.
+          const timeout = String(process.platform) === "nsh" ? undefined : setTimeout(() => {
+            timedOut = true;
+            terminateChild();
+          }, this.config.commandTimeoutMs ?? 300_000);
           worker.killShells.add(killChild);
           if (signal?.aborted || worker.stopped) killChild();
           signal?.addEventListener("abort", killChild, { once: true });
+          child.stdout?.on("data", (chunk: Buffer) => output("stdout", decoders.stdout.write(chunk)));
+          child.stderr?.on("data", (chunk: Buffer) => output("stderr", decoders.stderr.write(chunk)));
+          child.on("status", (chunk: string) => output("status", chunk));
 
-          child.stdout?.on("data", (chunk: Buffer) => {
-            if (stdout.length < MAX_OUTPUT_CHARS) {
-              stdout += chunk
-                .toString("utf8")
-                .slice(0, MAX_OUTPUT_CHARS - stdout.length);
-            }
-          });
-          child.stderr?.on("data", (chunk: Buffer) => {
-            if (stderr.length < MAX_OUTPUT_CHARS) {
-              stderr += chunk
-                .toString("utf8")
-                .slice(0, MAX_OUTPUT_CHARS - stderr.length);
-            }
-          });
-
-          child.once("error", (err) => {
-            signal?.removeEventListener("abort", killChild);
-            worker.killShells.delete(killChild);
-            worker.pendingShell.delete(toolCallId);
-            reject(err);
-          });
+          let spawnError: Error | undefined;
+          child.once("error", (err) => { spawnError = err; });
 
           child.once("close", (code, sig) => {
+            if (timeout) clearTimeout(timeout);
+            output("stdout", decoders.stdout.end());
+            output("stderr", decoders.stderr.end());
+            timedOut = (child as typeof child & { timedOut?: boolean }).timedOut ?? timedOut;
+            const cleanupUnconfirmed = (child as typeof child & {cleanupUnconfirmed?:boolean}).cleanupUnconfirmed;
+            output("status", cleanupUnconfirmed ? "@looi:shellCleanupUnconfirmed" : timedOut ? "@looi:shellCommandTimedOut" : aborted ? "@looi:shellCommandCancelled" : "@looi:shellCommandFinished");
             signal?.removeEventListener("abort", killChild);
             worker.killShells.delete(killChild);
-            worker.pendingShell.delete(toolCallId);
+            if (!(child as typeof child & {cleanupUnconfirmed?:boolean}).cleanupUnconfirmed)
+              worker.pendingShell.delete(toolCallId);
 
             executions.push({
               callId: toolCallId,
               command: params.command,
               exitCode: code,
               signal: sig,
-              timedOut: false,
+              timedOut,
               aborted,
+              stdout,
+              stderr,
             });
 
             try {
@@ -672,6 +679,11 @@ export class PiAgentExecutor implements AgentExecutor {
               // ignore workspace scan errors
             }
 
+            child.stdout?.removeAllListeners();
+            child.stderr?.removeAllListeners();
+            child.stdout?.destroy();
+            child.stderr?.destroy();
+            if (spawnError) { reject(spawnError); return; }
             if (aborted) {
               reject(new Error("Command aborted"));
               return;
@@ -818,6 +830,7 @@ export class PiAgentExecutor implements AgentExecutor {
         executions,
         artifactsMap,
         emit,
+        options.onShellOutput,
       );
 
       const previousAssistant = [...(restoredMessages ?? [])].reverse().find((message) => message.role === "assistant");
@@ -857,19 +870,19 @@ export class PiAgentExecutor implements AgentExecutor {
             ...(needsApproval ? { arguments: parsedArgs } : {}),
           };
 
-          if (approvalMode === "ask" && toolCall.name === "bash") {
+          if (approvalMode !== "yolo" && toolCall.name === "bash") {
             const command = String(parsedArgs.command ?? "");
             // A shell can write via redirects, substitutions or command flags.
             // Strict mobile mode approves every shell invocation, not a regex
             // approximation of which commands might have side effects.
             if (
-              this.config.requireApprovalForAllWrites ||
+              (approvalMode === "ask" && this.config.requireApprovalForAllWrites) ||
               requiresCommandApproval(command, task.workspaceRoot)
             ) {
               needsApproval = true;
               details = { ...details, operation: "bash", command };
             }
-          } else if (approvalMode === "ask" && (
+          } else if (approvalMode !== "yolo" && (
             toolCall.name === "write_file" ||
             toolCall.name === "write"
           )) {
@@ -878,7 +891,7 @@ export class PiAgentExecutor implements AgentExecutor {
               task.workspaceRoot,
               targetPath,
             );
-            if (!inside || this.config.requireApprovalForAllWrites) {
+            if (!inside || (approvalMode === "ask" && this.config.requireApprovalForAllWrites)) {
               needsApproval = true;
               details = {
                 ...details,
@@ -991,6 +1004,7 @@ export class PiAgentExecutor implements AgentExecutor {
       await agent.prompt(acknowledgement ? `${userPrompt}\n\nReply in ${acknowledgement === "en-US" ? "English" : "Simplified Chinese"}, continuing the conversation’s language.` : userPrompt);
 
       if (worker.stopped) throw new Error(task.error ?? "Task cancelled");
+      if (worker.pendingShell.size > 0) throw new Error("Local execution exit is unconfirmed");
 
       const assistantMessages = agent.state.messages.filter(
         (msg): msg is Extract<AgentMessage, { role: "assistant" }> =>
@@ -1045,10 +1059,17 @@ export class PiAgentExecutor implements AgentExecutor {
       if (worker.stop) {
         await worker.stop;
       } else {
-        task.runtimeExited = true;
-        task.state = worker.pendingShell.size > 0 ? "unknown" : "failed";
+        task.runtimeExited = worker.pendingShell.size === 0;
+        task.state = task.runtimeExited ? "failed" : "unknown";
       }
       task.error ??= message;
+      task.result = {
+        taskId: task.id, sessionId: task.sessionId, answer: "", steps: [...task.steps],
+        toolCallsCount, durationMs: Date.now() - start,
+        finishReason: task.state === "cancelled" ? "cancelled" : "failed",
+        runtimeExited: task.runtimeExited ?? false,
+        executions: [...executions], artifacts: [...artifactsMap.values()],
+      };
       emit({ step, phase: "error", summary: task.error });
       throw new AgentExecutionError(task.error, task.id);
     } finally {
@@ -1211,11 +1232,12 @@ export class PiAgentExecutor implements AgentExecutor {
     this.update(task);
 
     worker.stop = (async () => {
-      const graceMs = this.config.stopGraceMs ?? 200;
-      const runtimeExited = worker.agent
+      const graceMs = this.config.stopGraceMs ?? 3000;
+      const agentExited = worker.agent
         ? await awaitWithin(worker.agent.waitForIdle(), graceMs)
         : true;
-      const confirmed = runtimeExited && worker.pendingShell.size === 0;
+      const runtimeExited = agentExited && worker.pendingShell.size === 0;
+      const confirmed = runtimeExited;
       task.runtimeExited = runtimeExited;
       task.state = confirmed ? "cancelled" : "unknown";
       if (!confirmed) {
@@ -1244,7 +1266,7 @@ export class PiAgentExecutor implements AgentExecutor {
       Promise.allSettled(
         [...this.workers.values()].map((worker) => worker.promise),
       ),
-      this.config.stopGraceMs ?? 200,
+      this.config.stopGraceMs ?? 3000,
     );
     if (!settled)
       throw new AgentExecutionError(

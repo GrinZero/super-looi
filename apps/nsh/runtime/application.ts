@@ -734,6 +734,7 @@ export class MobileRuntime {
       approvalUiSessionId: this.uiSessionId,
       requireApprovalForAllWrites: true,
       maxConcurrentTasks: 1,
+      deadlineMs: 600_000,
       additionalTools: [
         ...(homeEnabled ? this.homeTools() : []),
         ...(bodyEnabled ? this.bodyTools() : []),
@@ -909,7 +910,7 @@ export class MobileRuntime {
     prompt: string,
     action: UserActionRef,
     onStep: (event: AgentStepEvent) => void,
-    options: { agentOnly?: boolean; defaultLanguage?: "zh-CN" | "en-US"; mode?: "text" | "voice"; approvalMode?: "ask" | "local_auto" | "yolo"; traceContext?: TraceContext } = {},
+    options: { onShellOutput?: import("@super-looi/runtime/agent/executor").AgentRunOptions["onShellOutput"]; agentOnly?: boolean; defaultLanguage?: "zh-CN" | "en-US"; mode?: "text" | "voice"; approvalMode?: "ask" | "local_auto" | "yolo"; traceContext?: TraceContext } = {},
   ): Promise<{ answer: string; taskId: string; runtimeExited: boolean }> {
     if (
       this.closed ||
@@ -951,6 +952,7 @@ export class MobileRuntime {
         defaultLanguage: options.defaultLanguage,
         traceContext: options.traceContext,
         onStep,
+        onShellOutput: options.onShellOutput,
       });
       return {
         answer: result.answer,

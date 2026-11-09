@@ -269,3 +269,27 @@ equal(stubborn.getTask(stoppedTask)?.state, "unknown");
 console.log(
   "PASS portable LOOI runtime: 48 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite memory/task reopen, tombstone-safe restore and honest unconfirmed stop",
 );
+
+// A native cleanup failure is not evidence that the guest descendants exited.
+const shellWait = globalThis.__nsh_shell_wait!;
+const cleanupFaux = fauxProvider(), cleanupModels = createModels();
+cleanupModels.setProvider(cleanupFaux.provider);
+cleanupFaux.setResponses([
+  fauxAssistantMessage(fauxToolCall("bash",{command:"true"}),{stopReason:"toolUse"}),
+  fauxAssistantMessage("Finished"),
+]);
+const cleanupExecutor = new PiAgentExecutor({stateDirectory:"/home/cleanup-receipt-probe",workspaceRoot:"/workspace",modelSpec:cleanupFaux.getModel(),streamFn:cleanupModels.streamSimple.bind(cleanupModels)});
+try {
+  globalThis.__nsh_shell_wait = async request => {
+    await shellWait(request);
+    return JSON.stringify({error:"ERR_SHELL_CLEANUP: process cleanup was not confirmed"});
+  };
+  let rejected = false;
+  try { await cleanupExecutor.run("run",{taskId:"unconfirmed-native-cleanup",approvalMode:"yolo"}); }
+  catch { rejected = true; }
+  assert(rejected,"unconfirmed native cleanup produced a successful task");
+  equal(cleanupExecutor.getTask("unconfirmed-native-cleanup")?.state,"unknown");
+  equal(cleanupExecutor.getTask("unconfirmed-native-cleanup")?.runtimeExited,false);
+  equal(cleanupExecutor.getTask("unconfirmed-native-cleanup")?.result?.runtimeExited,false);
+} finally { globalThis.__nsh_shell_wait = shellWait; await cleanupExecutor.close(); }
+console.log("PASS native cleanup uncertainty stays unknown and runtimeExited false");

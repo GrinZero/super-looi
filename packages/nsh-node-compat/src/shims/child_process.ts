@@ -94,6 +94,7 @@ export function spawn(
     exitCode: null as number | null,
     killed: false,
     timedOut: false,
+    cleanupUnconfirmed: false,
     kill(_signal?: string | number) {
       if (settled) return false;
       child.killed = true;
@@ -136,6 +137,7 @@ export function spawn(
       ) as { value?: ShellResult; error?: string; tailChunks?: Chunk[] };
       clearInterval(poll);
       deliver(response.tailChunks);
+      child.cleanupUnconfirmed = response.error?.startsWith("ERR_SHELL_CLEANUP:") ?? false;
       if (response.error && !response.error.startsWith("ABORT_ERR"))
         throw new Error(response.error);
       const result = response.value;

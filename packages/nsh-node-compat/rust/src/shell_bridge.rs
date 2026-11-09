@@ -52,8 +52,10 @@ impl Shell<'_> {
         } else {
             format!("{}/{p}", self.cwd)
         };
-        let rel = self.fs.path(&p).map_err(|e| e.to_string())?;
-        Ok(format!("/{}", rel.display()))
+        if p.contains('\0') || p.contains('\\') {
+            return Err("EACCES: invalid sandbox path".into());
+        }
+        Ok(p)
     }
     fn fs(&self, op: &str, path: &str, args: Value) -> Result<Value, String> {
         let mut args = args;
@@ -357,7 +359,9 @@ impl Shell<'_> {
                 continue;
             }
             let meta = self.fs("lstat", &path, json!({}))?;
-            if meta["file"] != true && !(path == root && self.fs("stat", &path, json!({}))?["file"] == true) {
+            if meta["file"] != true
+                && !(path == root && self.fs("stat", &path, json!({}))?["file"] == true)
+            {
                 continue;
             }
             let relative = path.strip_prefix(&format!("{root}/")).unwrap_or(&path);

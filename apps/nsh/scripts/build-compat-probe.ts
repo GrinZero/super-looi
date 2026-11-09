@@ -54,3 +54,10 @@ export function installNshNativeCompat(host: {request(request:string):string; be
 export function verifyNativePackage(): Promise<void>;
 `,
 );
+
+await build({
+  stdin:{resolveDir:root,contents:`export {installNshNativeCompat} from "../../packages/nsh-node-compat/src/native-host.ts"; export {utf8Tail} from "../../packages/looi-runtime/src/agent/shell-output.ts"; export {verifyLinuxShell} from "../../packages/nsh-node-compat/test/native-linux-shell.ts";`},
+  tsconfig:resolve(root,"../../packages/nsh-node-compat/tsconfig.json"),bundle:true,platform:"browser",format:"esm",target:"es2022",minify:true,keepNames:true,
+  plugins:[nshPiSdkPlugin(),nshCodemodePlugin(),nshPiCodingToolsPlugin(),nshNodeCompatPlugin()],outfile:resolve(root,"generated/linux-probe.js"),
+});
+await writeFile(resolve(root,"generated/linux-probe.d.ts"),`import type {NativeShellOutput} from "./looi-runtime.js"; export function installNshNativeCompat(host:{request(request:string):string;begin(kind:string,request:string):string;wait(ticket:string):Promise<string>;close():void}):()=>void; export function utf8Tail(text:string,limit:number):string; export function verifyLinuxShell(output:(event:NativeShellOutput)=>void,installPackages?:boolean):Promise<void>;`);

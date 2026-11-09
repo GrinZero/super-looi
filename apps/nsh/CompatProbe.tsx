@@ -66,8 +66,8 @@ function CompatProbe() {
         }
       })
       .then(
-        () => status.set("Native bridge verified"),
-        (error) => status.set(`Native bridge failed: ${String(error)}`),
+        () => { console.log("Native bridge verified"); status.set("Native bridge verified"); },
+        (error) => { console.log(`Native bridge failed: ${String(error)}`); status.set(`Native bridge failed: ${String(error)}`); },
       );
   });
   return (

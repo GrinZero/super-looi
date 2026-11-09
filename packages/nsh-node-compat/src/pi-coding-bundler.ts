@@ -28,6 +28,17 @@ export function nshPiCodingToolsPlugin(): Plugin {
   return {
     name: "nsh-pi-coding-tools-1.5.0",
     setup(build) {
+      // The desktop SDK prepends its host tool-cache bin directory and, with
+      // an empty process.env, replaces guest PATH with that directory alone.
+      // Pass only explicit overrides; ShellRunner owns the Alpine defaults.
+      build.onResolve({ filter: /utils\/shell\.js$/ }, (args) => {
+        if (!args.importer.startsWith(packageRoot) || args.namespace === "nsh-pi-shell-env") return undefined;
+        return {path:join(packageRoot,"utils/shell.js"),namespace:"nsh-pi-shell-env"};
+      });
+      build.onLoad({filter:/.*/,namespace:"nsh-pi-shell-env"},args=>({
+        contents:`export * from ${JSON.stringify(args.path)}; import process from "node:process"; export function getShellEnv(){return {...process.env};}`,
+        loader:"js",resolveDir:packageRoot,
+      }));
       build.onResolve({ filter: /^pi-coding-headless\// }, (args) => {
         const path = args.path.slice("pi-coding-headless/".length);
         if (!allowed.has(path))

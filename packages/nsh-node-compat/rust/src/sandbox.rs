@@ -32,8 +32,12 @@ impl Sandbox {
         } else {
             input.to_owned()
         };
-        // Validate syntax without using the lexically collapsed path for resolution.
-        self.path(&owned)?;
+        if owned.contains('\0') || owned.contains('\\') {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "invalid sandbox path",
+            ));
+        }
         let components = |path: &Path| -> VecDeque<std::ffi::OsString> {
             path.components()
                 .filter_map(|c| match c {
@@ -44,7 +48,7 @@ impl Sandbox {
                 .collect()
         };
         let mut pending = components(Path::new(&owned));
-        let workspace = pending.front().is_some_and(|p| p == "workspace");
+        let mut workspace = false;
         let mut resolved = PathBuf::new();
         let mut links = 0;
         while let Some(part) = pending.pop_front() {
@@ -58,6 +62,7 @@ impl Sandbox {
                 continue;
             }
             resolved.push(part);
+            workspace |= resolved == Path::new("workspace");
             if pending.is_empty() && !follow_final {
                 break;
             }
@@ -189,6 +194,13 @@ mod tests {
         symlink("../home/agent", temp.path().join("workspace/ledger")).unwrap();
         assert!(s.resolve("/workspace/external", true).is_err());
         assert!(s.resolve("/workspace/ledger", true).is_err());
+        assert!(s.resolve("/tmp/../workspace/ledger/secret", true).is_err());
+        s.dir.create_dir_all("workspace/a/b/c").unwrap();
+        symlink("/workspace/a/b/c", temp.path().join("workspace/deep")).unwrap();
+        assert_eq!(
+            s.resolve("/workspace/deep/../../../target", true).unwrap(),
+            PathBuf::from("workspace/target")
+        );
         assert_eq!(
             s.resolve("/workspace/external", false).unwrap(),
             PathBuf::from("workspace/external")

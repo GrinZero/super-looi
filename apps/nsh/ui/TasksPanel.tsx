@@ -1,3 +1,4 @@
+import { TaskShellOutput } from "./TaskShellOutput";
 import { t, translateMessage, formatDate } from "../i18n";
 import { Text, View } from "nsh";
 import type { createAppStore } from "../store";
@@ -151,6 +152,7 @@ export function TasksPanel(props: {
                 {JSON.stringify(props.store.task()?.homeActions, null, 2)}
               </Text>
             </If>
+            <TaskShellOutput output={props.store.shellOutput()} taskId={props.store.task()?.id} />
             <Text class="text-muted-foreground text-sm">{t("executionLog")}</Text>
             <Text class="text-foreground text-sm">
               {props.store
@@ -159,15 +161,13 @@ export function TasksPanel(props: {
                 .join("\n") || t("noExecutionLogAvailable")}
             </Text>
             <If when={props.store.task()?.result?.executions?.length}>
-              <Text class="text-foreground text-sm font-mono">
-                {props.store
-                  .task()
-                  ?.result?.executions?.map(
-                    (item) =>
-                      t("commandReceipt", { command: item.command, code: item.exitCode ?? t("unknown"), signal: item.signal ?? t("none") }),
-                  )
-                  .join("\n\n")}
-              </Text>
+              <Each of={props.store.task()?.result?.executions ?? []} key={(e) => e.callId}>
+                {(e) => <View class="gap-1" selectable={true}>
+                  <Text class="text-foreground text-xs font-mono">{t("commandReceipt", {command:e().command,code:e().exitCode ?? t("unknown"),signal:e().signal ?? t("none")})}</Text>
+                  <If when={Boolean(e().stdout)}><Text class="text-foreground text-xs font-mono">{e().stdout}</Text></If>
+                  <If when={Boolean(e().stderr)}><Text class="text-muted-foreground text-xs font-mono">{e().stderr}</Text></If>
+                </View>}
+              </Each>
             </If>
             <If when={props.store.task()?.result?.artifacts?.length}>
               <Text class="text-foreground text-sm font-mono">
