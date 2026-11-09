@@ -25,7 +25,7 @@
 
 魅族 20 Pro 的既有 MIoT OAuth 已取得两台 `hlc7` 的 HLS 地址：`siid=9, aiid=1, in=[1]`。一台的 HTTPS master/child playlist 返回 200，原生 `Video` 加载为 640×360 并产生播放进度；另一台媒体请求失败，原生错误为 `1/-1004`（I/O）。这是播放通路证据，还没有稳定性或实际首帧耗时结论。实验序号不用于房间绑定，正式实现按 DID 关联。
 
-`039a01` 的 `siid=6` P2P 开始和停止动作成功但 `out` 为空；现有 OAuth 主机上 `device/miss_get_vendor` 返回 404，尚未取得 P2P 会话参数。
+`039a01` 的 `siid=6` P2P 开始和停止动作成功但 `out` 为空；现有 OAuth 主机上 `device/miss_get_vendor` 返回 404，尚未取得 P2P 会话参数。补查确认官方另一套 OAuth 摄像头实现使用 `mico.api.mijia.tech` 的 `device/miss_get_vendor_security`，需要额外请求/响应加密；当前 HA 客户端是否有权限还没有实证，见 [P2P 授权调查](../xiaomi-camera-mobile-p2p-authorization.md)。
 
 HLS 先复用既有系统播放器：新增成本为包内会话管理和详情状态，无新增播放器或协议 runtime。继续定位第二台 I/O 错误，并验证规格声明的 RTSP 地址；P2P 待授权实证后再决定原生协议实现。
 
