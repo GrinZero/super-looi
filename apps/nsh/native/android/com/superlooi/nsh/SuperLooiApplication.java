@@ -16,6 +16,7 @@ import android.view.DisplayCutout;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.view.WindowInsets;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import java.lang.ref.WeakReference;
 
@@ -51,10 +52,12 @@ public final class SuperLooiApplication extends Application {
         LooiBleBridge.registerVm();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             public void onActivityResumed(Activity value) {
+                value.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 activity = new WeakReference<>(value);
                 observeDisplayCutout(value);
             }
             public void onActivityPaused(Activity value) {
+                value.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 stopObservingDisplayCutout();
                 MiotLoginDialog.background(value);
                 LooiBleBridge.background();

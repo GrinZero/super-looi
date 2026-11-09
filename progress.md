@@ -1445,3 +1445,9 @@
   - [x] 在 `apps/nsh/ui/RobotFace.tsx` 实现 `drawRobotFaceTransition`（同形态直接插值、异形态带预备/过冲弹性的交叉溶解及可中断重定锚）与 `normalizeBlinkProgress` 静息态防漏眨眼守卫
   - [x] 实现 `hasAmbientMotion` 与 36 个特殊表情连续微动态（`dizzy_spiral` 双眼反向旋转、`deep_snore` `ZZZ` 持续上浮消散、`coffee_boost` 蒸汽升腾、阅读扫视、计时器走针、落雨/音波/心跳等），36 个常规表情静止时保持零定时器空闲开销，并遵守 `reduceMotion()` 与前后台生命周期守卫
   - [x] 补齐 `apps/nsh/RobotFace.test.tsx`（过渡矩阵、微动态连续性、`thinking` 满眨眼挑眉连续性、唤醒中途打断及原生 `Canvas` 72 态回放），同步更新 `docs/arch/` 快照并通过独立子 agent 两轮复审 `PASS`
+
+## 前台屏幕常亮（2026-11-09）
+
+- [x] 接入 Android Activity 与 iOS Application 的前台常亮、失活释放。
+- [x] iOS `aarch64-apple-ios` 编译检查、Android 原生插件编译和插件测试通过；独立 review 为 PASS。
+- [x] 魅族 20 Pro 开发包验证：15 秒系统熄屏设置下前台静置 25 秒仍常亮，切回桌面 25 秒后熄屏；已恢复原有 600000 ms 设置。

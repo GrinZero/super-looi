@@ -4,6 +4,8 @@ mod audio;
 mod ble;
 mod compat;
 mod credentials;
+#[cfg(target_os = "ios")]
+mod keep_awake;
 mod login_browser;
 use audio::VoiceAudio;
 use ble::LooiBle;
@@ -14,6 +16,8 @@ use login_browser::MiotLoginBrowser;
 /// Private Node-compatible sandbox and OS credential vault for Super LOOI.
 #[native_module("super-looi/native")]
 fn native(registry: &mut Registry) {
+    #[cfg(target_os = "ios")]
+    keep_awake::install();
     registry
         .class::<NodeCompat>()
         .class::<CredentialVault>()
