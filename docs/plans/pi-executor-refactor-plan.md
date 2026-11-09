@@ -31,10 +31,17 @@ packages/looi-runtime/src/agent/
 ├── executor.ts          # 对外接口契约（AgentExecutor / AgentTask / AgentRunOptions 等，保持不变）
 ├── pi-executor.ts       # PiAgentExecutor 外观与准入调度器：管理任务准入、会话互斥、活跃 PiTaskRunner 映射与统一关闭
 ├── pi-task-runner.ts    # PiTaskRunner：单次任务的 Agent 生命周期、预算熔断、Langfuse 追踪、错误脱敏与优雅停止
-├── workspace-tools.ts   # createWorkspaceCodingTools & WorkspaceArtifactTracker：文件读写、Shell 子进程监督与产物哈希采集
 ├── interaction-gate.ts  # InteractionGate & ApprovalActionReplayGuard：交互挂起/超时结算与 UI 审批令牌防重放校验
 ├── session-store.ts     # SessionTranscriptStore：会话历史 JSON 原子加载与持久化
-└── model-resolver.ts    # resolvePiModelAndStream：模型规格与 StreamFn 三路解析
+├── model-resolver.ts    # resolvePiModelAndStream：模型规格与 StreamFn 三路解析
+└── tools/               # Agent 内置工具集子目录（按工具职责拆分为一目了然的单文件）
+    ├── index.ts              # createWorkspaceCodingTools：组装内置工具集与附加工具
+    ├── types.ts              # WorkspaceToolsHost 与 WorkspaceArtifact 契约
+    ├── artifact-tracker.ts   # WorkspaceArtifactTracker：工作区文件包含性校验与 SHA-256 产物账本
+    ├── read-file.ts          # read_file 与 read（别名）工具
+    ├── write-file.ts         # write_file 工具
+    ├── bash.ts               # bash 工具（/bin/sh 进程组派生、双流 UTF-8 尾部截断、超时与 SIGTERM 清理追踪）
+    └── ask-user-question.ts  # ask_user_question 结构化提问挂起工具
 ```
 
 ---

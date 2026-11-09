@@ -37,7 +37,12 @@ globalThis.LOOI_ARCH = {
       files: [
         { path: "packages/looi-runtime/src/agent/pi-executor.ts", entry: "export class PiAgentExecutor", anchors: [{ label: "执行器入口", match: "export class PiAgentExecutor" }, { label: "任务准入", match: "run(prompt: string" }] },
         { path: "packages/looi-runtime/src/agent/pi-task-runner.ts", entry: "export class PiTaskRunner", anchors: [{ label: "单任务运行器", match: "export class PiTaskRunner" }, { label: "创建 Agent", match: "new Agent(" }, { label: "优雅停止", match: "cancel(): Promise<AgentStopResult>" }] },
-        { path: "packages/looi-runtime/src/agent/workspace-tools.ts", entry: "export function createWorkspaceCodingTools", anchors: [{ label: "产物追踪", match: "export class WorkspaceArtifactTracker" }, { label: "工作区工具集", match: "export function createWorkspaceCodingTools" }] },
+        { path: "packages/looi-runtime/src/agent/tools/index.ts", entry: "export function createWorkspaceCodingTools" },
+        { path: "packages/looi-runtime/src/agent/tools/read-file.ts", entry: "export function createReadFileTools" },
+        { path: "packages/looi-runtime/src/agent/tools/write-file.ts", entry: "export function createWriteFileTool" },
+        { path: "packages/looi-runtime/src/agent/tools/bash.ts", entry: "export function createBashTool" },
+        { path: "packages/looi-runtime/src/agent/tools/ask-user-question.ts", entry: "export function createAskUserQuestionTool" },
+        { path: "packages/looi-runtime/src/agent/tools/artifact-tracker.ts", entry: "export class WorkspaceArtifactTracker" },
         { path: "packages/looi-runtime/src/agent/interaction-gate.ts", entry: "export class InteractionGate", anchors: [{ label: "审批防重放", match: "export class ApprovalActionReplayGuard" }, { label: "交互门控", match: "export class InteractionGate" }] },
         { path: "packages/looi-runtime/src/agent/session-store.ts", entry: "export class SessionTranscriptStore" },
         { path: "packages/looi-runtime/src/agent/model-resolver.ts", entry: "export function resolvePiModelAndStream" },

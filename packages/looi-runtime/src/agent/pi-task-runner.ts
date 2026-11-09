@@ -33,7 +33,7 @@ import type { ToolApprovalRule } from "./tool-approval.js";
 import {
   WorkspaceArtifactTracker,
   createWorkspaceCodingTools,
-} from "./workspace-tools.js";
+} from "./tools/index.js";
 import type { LangfuseTracer, Observation } from "../telemetry/langfuse.js";
 import { wrapStreamFnWithLangfuse } from "../telemetry/llm-observer.js";
 
