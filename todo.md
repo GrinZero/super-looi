@@ -2,8 +2,8 @@
 
 ## 米家摄像头取流
 
-- [ ] 按 `docs/plans/xiaomi-camera-streaming-plan.md` 用原生 macOS go2rtc 验证两台 `isa.camera.hlc7` 与大厅 `chuangmi.camera.039a01` 的真实取流、编码、首帧与 HA/手机同时观看；优先确认大厅型号及 `hlc7` 启动画质问题。
-- [ ] 将摄像头客户端和显式设备绑定接入 `packages/home-assistant`，替换电源状态推断的视频就绪文案；在魅族真机验证 NSH WebView WebRTC 播放与退出释放，iOS 内联播放另行实测。
+- [ ] 按 `docs/plans/xiaomi-camera-streaming-plan.md` 在“不新增常驻进程”约束下，验证 HA 内 Python CS2/MISS 集成的 Original 模式：两台 `isa.camera.hlc7`、大厅 `chuangmi.camera.039a01` 的真实画面、Docker 网络与 HLS 延迟。
+- [ ] 将 HA `camera/stream` 客户端和固定卡片绑定接入 `packages/home-assistant`，在魅族真机验证 NSH 原生 Video 播放 H.265 HLS；替换就绪占位文案，快照复用 HA 进程内图片接口。
 
 ## 智能家居能力与视觉还原
 

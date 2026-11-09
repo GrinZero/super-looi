@@ -8,6 +8,10 @@
 
 ### 米家摄像头取流与 HA 包集成调研（2026-11-10）
 
+- [x] Step 5：按“不得新增常驻进程”修订方案
+  - [x] 核对现有 HA 内置 go2rtc 进程及模块限制，找到纯 Python CS2/MISS 进程内集成；Original 转封装与 HA 既有图片接口可避免新服务/编码器
+  - [x] 撤销独立 go2rtc/FFmpeg 服务推荐，改为 HA 进程内取流、标准 HLS 接口和 NSH 原生 Video；重写成本、型号与真机实验步骤
+  - [x] 独立审查通过；明确部署时替换上游 FFmpeg 快照覆盖，复用 HA 进程内图片接口；更新待办与文档检查
 - [x] Step 1：核对两种真实摄像头型号、现有 HA 包接口与 NSH 播放能力
   - [x] 确认两台 `isa.camera.hlc7` 和一台 `chuangmi.camera.039a01`；官方 Xiaomi Home 不提供视频流
   - [x] 追踪设备标识、摄像头能力与运行时调用边界；确认 NSH 固定版本已有 WebView/Video，当前页面仍为占位视窗
