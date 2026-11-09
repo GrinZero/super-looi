@@ -36,6 +36,11 @@ export class InMemoryHaTransportAdapter implements HaTransportAdapter {
     return this.states.get(entityId) ?? null;
   }
 
+  public async listStates(): Promise<HomeStateSnapshot[]> {
+    if (!this.healthy) return [];
+    return Array.from(this.states.values());
+  }
+
   public async callService(
     domain: string,
     service: string,
@@ -102,6 +107,24 @@ export class InMemoryHaTransportAdapter implements HaTransportAdapter {
         const cur = Number(eaten.state) || 45;
         this.states.set("sensor.pet_feeder_eaten", { ...eaten, state: String(cur + 10), last_updated: now });
       }
+    } else if (entityId === "button.vacuum_start") {
+      const st = this.states.get("sensor.vacuum_status");
+      if (st) this.states.set("sensor.vacuum_status", { ...st, state: "清扫中", last_updated: now });
+    } else if (entityId === "button.vacuum_stop") {
+      const st = this.states.get("sensor.vacuum_status");
+      if (st) this.states.set("sensor.vacuum_status", { ...st, state: "已暂停", last_updated: now });
+    } else if (entityId === "button.vacuum_charge") {
+      const st = this.states.get("sensor.vacuum_status");
+      if (st) this.states.set("sensor.vacuum_status", { ...st, state: "13", last_updated: now });
+    } else if (entityId === "button.vacuum_dust") {
+      const st = this.states.get("sensor.vacuum_status");
+      if (st) this.states.set("sensor.vacuum_status", { ...st, state: "集尘中", last_updated: now });
+    } else if (entityId === "button.vacuum_wash_mop") {
+      const st = this.states.get("sensor.vacuum_status");
+      if (st) this.states.set("sensor.vacuum_status", { ...st, state: "清洗拖布中", last_updated: now });
+    } else if (entityId === "button.vacuum_dry") {
+      const st = this.states.get("sensor.vacuum_status");
+      if (st) this.states.set("sensor.vacuum_status", { ...st, state: "烘干拖布中", last_updated: now });
     }
 
     return { success: true };

@@ -9,6 +9,7 @@ import {
   cycleTileSpan,
   parseLayoutPreferences,
   serializeLayoutPreferences,
+  swapApplianceOrderInList,
   updateApplianceOrder,
   updateApplianceSpan,
   type RawHomeEntityRecord,
@@ -148,9 +149,27 @@ describe("@super-looi/home-devices: Real Home Snapshot ('源心锁的家') & Ben
     assert.equal(cooker.archetype, "cycle_appliance");
     assert.equal(cooker.icon, "cooker");
     assert.equal(cooker.defaultSpan, "2x1");
-    assert.deepEqual(cooker.capabilities.cycleTask?.stages, ["浸泡", "升温", "沸腾", "焖饭", "保温"]);
+    assert.deepEqual(cooker.capabilities.cycleTask?.stages, ["预热", "吸水", "沸腾", "焖饭", "保温"]);
     assert.equal(cooker.capabilities.cycleTask?.remainingMinutes, 18);
     assert.ok((cooker.capabilities.actions?.length ?? 0) >= 1);
+
+    // 2b. 扫地机器人 -> never exposes raw '13' / '14' / 'Yes', populates rich VacuumCapability
+    const vacuum = dashboard.allAppliances.find((a) => a.name === "扫地机器人");
+    if (vacuum) {
+      assert.equal(vacuum.icon, "vacuum");
+      assert.ok(!/^(13|14|yes|no)$/i.test(vacuum.statusBadge));
+      assert.ok(!/^(13|14|yes|no)$/i.test(vacuum.capabilities.cycleTask?.stageLabel ?? ""));
+      assert.ok(vacuum.capabilities.vacuum);
+    }
+
+    // 2c. 大厅灯 -> binds to primary switch on_p_2_1, never to '* 辅助开关 语音功能禁用开关' (disable_p_7_2)
+    const hallLight = dashboard.allAppliances.find((a) => a.name === "大厅灯");
+    if (hallLight && hallLight.capabilities.power) {
+      assert.ok(
+        !hallLight.capabilities.power.entityId.includes("disable_p_7_2"),
+        `hallLight bound to wrong switch: ${hallLight.capabilities.power.entityId}`,
+      );
+    }
 
     // 3. 大厅空调 -> climate, ac, defaultSpan 2x1, thermostat + modeBar + auxiliaryToggles
     const ac = dashboard.allAppliances.find((a) => a.name === "空调")!;
@@ -209,5 +228,21 @@ describe("@super-looi/home-devices: Real Home Snapshot ('源心锁的家') & Ben
     // Ensure it is now first in the '大厅' room list
     const hall = updated.rooms.find((r) => r.name === "大厅")!;
     assert.equal(hall.appliances[0].id, cooker.id);
+
+    // Verify simulation Robot Vacuum translates raw '13' state into human-readable '基站待命' and exposes consumables
+    const simVacuum = updated.allAppliances.find((a) => a.name === "扫地机器人")!;
+    assert.ok(simVacuum);
+    assert.equal(simVacuum.statusBadge, "基站待命");
+    assert.equal(simVacuum.capabilities.vacuum?.batteryPercent, 100);
+    assert.equal(simVacuum.capabilities.vacuum?.cleaningAreaSqm, 16);
+    assert.equal(simVacuum.capabilities.vacuum?.consumables.length, 4);
+
+    // Verify swapApplianceOrderInList swaps two blocks in the room
+    const orderedIds = hall.appliances.map((a) => a.id);
+    const swappedPrefs = swapApplianceOrderInList(restored, orderedIds, orderedIds[0]!, orderedIds[1]!);
+    const afterSwap = buildHomeDashboardModel(simRecords, swappedPrefs);
+    const hallAfterSwap = afterSwap.rooms.find((r) => r.name === "大厅")!;
+    assert.equal(hallAfterSwap.appliances[0]!.id, orderedIds[1]);
+    assert.equal(hallAfterSwap.appliances[1]!.id, orderedIds[0]);
   });
 });

@@ -79,6 +79,37 @@ export function updateApplianceOrder(
   };
 }
 
+/**
+ * Swap or place two appliances within a room's ordered list, assigning normalized
+ * sequential order indices (`10, 20, 30, ...`) so free layout editing is deterministic.
+ */
+export function swapApplianceOrderInList(
+  prefs: HomeLayoutPreferences,
+  orderedApplianceIds: string[],
+  sourceId: string,
+  targetId: string,
+): HomeLayoutPreferences {
+  const idxA = orderedApplianceIds.indexOf(sourceId);
+  const idxB = orderedApplianceIds.indexOf(targetId);
+  if (idxA < 0 || idxB < 0 || idxA === idxB) return prefs;
+  const nextIds = [...orderedApplianceIds];
+  const temp = nextIds[idxA]!;
+  nextIds[idxA] = nextIds[idxB]!;
+  nextIds[idxB] = temp;
+  const nextAppliances = { ...prefs.appliances };
+  nextIds.forEach((id, idx) => {
+    const existing = nextAppliances[id] ?? {};
+    nextAppliances[id] = {
+      ...existing,
+      order: (idx + 1) * 10,
+    };
+  });
+  return {
+    version: 1,
+    appliances: nextAppliances,
+  };
+}
+
 export function cycleTileSpan(current: TileSpan): TileSpan {
   if (current === "1x1") return "2x1";
   if (current === "2x1") return "2x2";

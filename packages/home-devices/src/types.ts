@@ -97,10 +97,48 @@ export interface CycleTaskCapability {
   stages: string[];
   activeStageIndex: number;
   remainingMinutes?: number;
+  keepWarmMinutes?: number;
   progressPercent?: number;
   temperatureCelsius?: number;
+  targetTempCelsius?: number;
+  recipeLabel?: string;
   isRunning: boolean;
   subStatus?: string;
+}
+
+export interface VacuumConsumableMetric {
+  id: string;
+  label: string;
+  percent: number;
+  remainingHours?: number;
+  resetAction?: ApplianceActionTrigger;
+}
+
+export type VacuumStatusCode =
+  | "cleaning"
+  | "returning"
+  | "charging"
+  | "docked"
+  | "paused"
+  | "drying"
+  | "washing"
+  | "dust_collecting"
+  | "error"
+  | "idle";
+
+export interface VacuumCapability {
+  statusCode: VacuumStatusCode;
+  statusLabel: string;
+  chargingLabel?: string;
+  batteryPercent?: number;
+  cleaningAreaSqm?: number;
+  cleaningMinutes?: number;
+  totalCleanCount?: number;
+  totalCleanAreaSqm?: number;
+  totalCleanHours?: number;
+  waterBoxInstalled?: boolean;
+  mopModeBar?: ModeBarCapability;
+  consumables: VacuumConsumableMetric[];
 }
 
 export interface ApplianceActionTrigger {
@@ -111,12 +149,16 @@ export interface ApplianceActionTrigger {
   service: string;
   serviceData?: Record<string, unknown>;
   tone?: "primary" | "default" | "destructive";
+  iconKey?: "play" | "pause" | "stop" | "dock" | "dust" | "wash" | "dry" | "locate" | "dispense" | "refresh" | "power";
 }
 
 export interface VisionStreamCapability {
   streamActive: boolean;
   statusText: string;
+  resolutionBadge?: string;
   lastMotionText?: string;
+  storageStatusText?: string;
+  storageUsedPercent?: number;
   streamEntityId?: string;
   stopEntityId?: string;
   ptzActions: ApplianceActionTrigger[];
@@ -127,6 +169,11 @@ export interface VisionStreamCapability {
     domain: string;
     isOn: boolean;
     controllable: boolean;
+  }>;
+  modeSelectors?: Array<{
+    id: string;
+    label: string;
+    capability: ModeBarCapability;
   }>;
 }
 
@@ -161,6 +208,7 @@ export interface ApplianceCapabilities {
   modeBar?: ModeBarCapability;
   fanLevel?: ModeBarCapability;
   cycleTask?: CycleTaskCapability;
+  vacuum?: VacuumCapability;
   actions?: ApplianceActionTrigger[];
   visionStream?: VisionStreamCapability;
   securityEvents?: SecurityEventsCapability;

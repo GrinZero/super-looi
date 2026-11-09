@@ -2,10 +2,10 @@ import { FORBIDDEN_HIGH_RISK_DOMAINS } from "../core/gateway.js";
 import type { HomeRegistryOptions, HomeRegistrySocket } from "../types.js";
 
 const PRIMARY_POWER_SWITCH_NAMES = new Set([
-  "开关", "开关 开关", "开关 设备状态", "开关 开/关 灯", "电源", "电源 开关",
+  "开关", "开关 开关", "开关 按键", "按键", "开关 设备状态", "开关 开/关 灯", "电源", "电源 开关",
   "摄像机控制 开关", "洗碗机 开关", "洗衣机 开关", "禹泰电工智能插座（Mesh） 开关", "空气净化器 开关",
   "大灯 左键", "小灯 中键", "没有用的开关 右键", "左键", "中键", "右键",
-  "上下扫风", "左右扫风", "电辅热", "睡眠模式", "移动侦测",
+  "上下扫风", "左右扫风", "电辅热", "睡眠模式", "移动侦测", "时间水印", "自动保温",
   "power", "onoff",
 ].map((name) => name.toLowerCase()));
 
@@ -91,8 +91,9 @@ function joinRegistry(results: Map<number, Array<Record<string, unknown>>>, inte
     const originalName = String(entity.original_name ?? "").trim();
     const normalizedOrig = originalName.replace(/\s+/g, " ").toLowerCase();
     const powerSwitch = !entity.entity_category && !originalName.startsWith("*")
+      && !/转无线|无线开关|防闪烁|互锁|禁用|童锁|指示灯/.test(normalizedOrig)
       && (PRIMARY_POWER_SWITCH_NAMES.has(normalizedOrig)
-        || (!/转无线|无线开关|防闪烁|互锁/.test(normalizedOrig) && /左键|中键|右键|扫风|辅热|移动侦测|休眠|巡航/.test(normalizedOrig)));
+        || /开关$|按键$|左键|中键|右键|扫风|辅热|移动侦测|休眠|巡航|水印|保温/.test(normalizedOrig));
     metadata.set(entity.entity_id, {
       device_id: typeof entity.device_id === "string" ? entity.device_id : undefined,
       device_name: typeof name === "string" ? name : undefined,

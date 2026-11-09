@@ -1,9 +1,11 @@
 import { miotJson, record, type MiotNetworkOptions } from "./protocol.js";
 
 export interface StorageCache { get(key: string): Promise<string | null>; set(key: string, value: string): Promise<void> }
+export interface MiotSpecValueOption { value: number; description: string }
 export interface MiotSpecProperty {
   siid: number; piid: number; name: string; description: string; format: string;
   readable: boolean; writable: boolean; unit?: string; range?: [number, number, number];
+  valueList?: MiotSpecValueOption[];
 }
 export interface MiotSpecService { siid: number; name: string; description: string; properties: MiotSpecProperty[] }
 export interface MiotSpec { urn: string; deviceType: string; services: MiotSpecService[] }
@@ -35,10 +37,17 @@ export function parseMiotSpec(value: unknown, urn: string): MiotSpec {
       const range: [number, number, number] | undefined = Array.isArray(rawRange) && rawRange.length === 3
         && rawRange.every((n) => typeof n === "number" && Number.isFinite(n)) && rawRange[0] < rawRange[1] && rawRange[2] > 0
         ? [rawRange[0], rawRange[1], rawRange[2]] : undefined;
+      const rawValueList = property["value-list"];
+      const valueList: MiotSpecValueOption[] | undefined = Array.isArray(rawValueList)
+        ? rawValueList
+            .filter((item): item is Record<string, unknown> => record(item) && typeof item.value === "number" && Number.isFinite(item.value) && typeof item.description === "string" && item.description.trim().length > 0)
+            .map((item) => ({ value: item.value as number, description: (item.description as string).trim() }))
+        : undefined;
       properties.push({ siid: Number(service.iid), piid: Number(property.iid), name: propertyName,
         description: typeof property.description === "string" ? property.description : propertyName,
         format: property.format, readable: property.access.includes("read"), writable: property.access.includes("write"),
-        ...(typeof property.unit === "string" ? { unit: property.unit } : {}), ...(range ? { range } : {}) });
+        ...(typeof property.unit === "string" ? { unit: property.unit } : {}), ...(range ? { range } : {}),
+        ...(valueList && valueList.length > 0 ? { valueList } : {}) });
     }
     services.push({ siid: Number(service.iid), name, description: typeof service.description === "string" ? service.description : name, properties });
   }

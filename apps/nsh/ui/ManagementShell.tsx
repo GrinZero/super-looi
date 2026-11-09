@@ -284,11 +284,12 @@ export function ManagementShell(props: {
               </Button>
               <Button
                 testID="home-refresh-btn"
-                onPress={() => void props.store.connectHome()}
+                disabled={props.store.homeLoading()}
+                onPress={() => void props.store.refreshHomeDashboard()}
                 class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
               >
                 <Text class="text-foreground text-xs font-medium">
-                  {t("refresh")}
+                  {props.store.homeLoading() ? t("refreshing") : t("refresh")}
                 </Text>
               </Button>
             </View>

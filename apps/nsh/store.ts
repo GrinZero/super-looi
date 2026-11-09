@@ -394,13 +394,29 @@ export function createAppStore() {
   const homeLayoutEditing = signal<boolean>(false);
   const homeInspectedApplianceId = signal<string | null>(null);
   const homeLoggingIn = signal(false);
-  const syncHomeDashboard = async () => {
-    if (!alive || !runtime) return;
-    homeConfiguration.set(runtime.homeConfiguration());
-    homeConnection.set(runtime.homeConnection());
+  const homeLoading = signal(true);
+  let homePendingLoads = 0;
+  const withHomeLoading = async <T,>(load: () => Promise<T>): Promise<T> => {
+    homePendingLoads += 1;
+    homeLoading.set(true);
     try {
-      const nextDashboard = await runtime.homeDashboard(effectiveLocale());
+      return await load();
+    } finally {
+      homePendingLoads -= 1;
+      if (alive) homeLoading.set(homePendingLoads > 0);
+    }
+  };
+  let homeSyncInFlight = false;
+  const syncHomeDashboard = async () => {
+    if (!alive || !runtime || homeSyncInFlight) return;
+    homeSyncInFlight = true;
+    await withHomeLoading(async () => {
+    homeConfiguration.set(runtime!.homeConfiguration());
+    homeConnection.set(runtime!.homeConnection());
+    try {
+      const nextDashboard = await runtime!.homeDashboard(effectiveLocale());
       if (!alive) return;
+      homeConnection.set(runtime!.homeConnection());
       homeDashboard.set(nextDashboard);
       const currentRoom = homeSelectedRoom();
       if (
@@ -417,7 +433,10 @@ export function createAppStore() {
       ) {
         homeInspectedApplianceId.set(null);
       }
-    } catch {}
+    } catch {} finally {
+      homeSyncInFlight = false;
+    }
+    });
   };
   const canAutoStandby = () =>
     ready() &&
@@ -646,6 +665,23 @@ export function createAppStore() {
     }, 250);
     return () => clearInterval(timer);
   });
+  effect(() => {
+    if (
+      !ready() ||
+      lifecycle() !== "active" ||
+      activeSpace() !== "home" ||
+      homeLoggingIn()
+    ) {
+      return;
+    }
+    void syncHomeDashboard();
+    const timer = setInterval(() => {
+      if (alive && runtime && !homeLoggingIn()) {
+        void syncHomeDashboard();
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  });
   void (async () => {
     try {
       const [savedLanguage, savedAppearance, savedWakeGuide, savedTaskApprovalMode] =
@@ -856,7 +892,7 @@ export function createAppStore() {
       homeConnection.set(opened.homeConnection());
       await syncHomeDashboard();
       if (opened.homeConfiguration().mode !== "disabled") {
-        void (async () => {
+        void withHomeLoading(async () => {
           try {
             await opened.connectHome();
             if (alive) {
@@ -864,7 +900,7 @@ export function createAppStore() {
               await syncHomeDashboard();
             }
           } catch {}
-        })();
+        });
       }
       recoveryCount.set(opened.recoveryCount());
       ready.set(true);
@@ -875,6 +911,7 @@ export function createAppStore() {
         );
     } catch (error) {
       if (alive) {
+        homeLoading.set(false);
         status.set("@looi:runtimeLocalStorageUnavailable");
         fail(error);
       }
@@ -916,6 +953,9 @@ export function createAppStore() {
       activeSpace.set(space);
       if (space === "tasks" && ready()) {
         api.refreshTasks(0);
+      }
+      if (space === "home" && ready()) {
+        void syncHomeDashboard();
       }
     },
     backToFace() {
@@ -1217,6 +1257,7 @@ export function createAppStore() {
     homeConnection: () => homeConnection(),
     homeDevices: () => homeDevices(),
     homeDashboard: () => homeDashboard(),
+    homeLoading: () => homeLoading(),
     homeSubView: () => homeSubView(),
     setHomeSubView(view: "devices" | "services") {
       homeSubView.set(view);
@@ -1279,23 +1320,42 @@ export function createAppStore() {
     },
     async connectHome() {
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
-      homeDevices.set({});
-      homeConnection.set(await runtime.connectHome());
-      homeDevices.set(await runtime.listHome());
-      await syncHomeDashboard();
+      await withHomeLoading(async () => {
+        homeDevices.set({});
+        try {
+          homeConnection.set(await runtime!.connectHome());
+          homeDevices.set(await runtime!.listHome());
+        } finally {
+          await syncHomeDashboard();
+        }
+      });
+    },
+    async refreshHomeDashboard() {
+      if (!runtime) return;
+      await withHomeLoading(async () => {
+        try {
+          if (!runtime!.homeConnection()?.healthy && runtime!.homeConfiguration().mode !== "disabled") {
+            homeConnection.set(await runtime!.connectHome());
+          }
+          homeDevices.set(await runtime!.listHome());
+        } catch {}
+        await syncHomeDashboard();
+      });
     },
     async setHomeSourceEnabled(source: HomeSourceId, enabled: boolean) {
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
-      try {
-        homeConnection.set(await runtime.setHomeSourceEnabled(source, enabled, action()));
-        if (runtime.homeConnection()?.healthy) {
-          homeDevices.set(await runtime.listHome());
-        } else {
-          homeDevices.set({});
+      await withHomeLoading(async () => {
+        try {
+          homeConnection.set(await runtime!.setHomeSourceEnabled(source, enabled, action()));
+          if (runtime!.homeConnection()?.healthy) {
+            homeDevices.set(await runtime!.listHome());
+          } else {
+            homeDevices.set({});
+          }
+        } finally {
+          await syncHomeDashboard();
         }
-      } finally {
-        await syncHomeDashboard();
-      }
+      });
     },
     async setHomeApplianceLayout(
       applianceId: string,
@@ -1304,6 +1364,17 @@ export function createAppStore() {
       if (!runtime) return;
       try {
         runtime.setHomeApplianceLayout(applianceId, patch);
+        await syncHomeDashboard();
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    async reorderHomeAppliances(orders: Array<{ id: string; order: number }>) {
+      if (!runtime || orders.length === 0) return;
+      try {
+        for (const item of orders) {
+          runtime.setHomeApplianceLayout(item.id, { order: item.order });
+        }
         await syncHomeDashboard();
       } catch (error) {
         if (alive) fail(error);

@@ -7,8 +7,18 @@ export interface MiotEntityBinding {
   primary: MiotSpecProperty; brightness?: MiotSpecProperty; colorTemperature?: MiotSpecProperty;
 }
 const numericFormats = new Set(["uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64", "float"]);
-const safeDevices = new Set(["light", "fan", "outlet", "switch", "air-purifier", "ceiling-fan-light"]);
-const powerDomains: Record<string, string> = { light: "light", fan: "fan", switch: "switch", outlet: "switch" };
+const safeDevices = new Set([
+  "light", "fan", "outlet", "switch", "air-purifier", "ceiling-fan-light",
+  "vacuum", "cooker", "microwave-oven", "washer", "dishwasher", "air-conditioner",
+  "camera", "kettle", "electric-blanket", "dehumidifier", "pet-feeder", "pet-drinking-fountain",
+  "television", "speaker",
+]);
+const powerDomains: Record<string, string> = {
+  light: "light", fan: "fan", switch: "switch", outlet: "switch",
+  "air-purifier": "switch", "air-conditioner": "switch", camera: "switch",
+  washer: "switch", dishwasher: "switch", "electric-blanket": "switch",
+  dehumidifier: "switch", television: "switch",
+};
 const metrics: Record<string, string> = { "temperature": "temperature", "relative-humidity": "humidity", "pm2.5-density": "pm25", "pm2-5-density": "pm25", "carbon-dioxide-density": "co2" };
 
 /** A reversible, collision-free ASCII identifier; never merge dids such as a.b and a_b. */
@@ -39,8 +49,10 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
   const restricted = !safeDevices.has(spec.deviceType)
     || /lock|gas|water.?heater|garage|valve|门锁|燃气|煤气|热水器|水阀|车库门/i.test(`${device.model} ${device.name} ${spec.deviceType}`);
   const base = `miot_${deviceKey(device.did)}`;
-  const definition = (entityId: string, domain: string, name: string): HomeEntityDefinition => ({
+  const definition = (entityId: string, domain: string, name: string, originalName?: string): HomeEntityDefinition => ({
     entity_id: entityId, domain, friendly_name: name, device_id: device.did, device_name: device.name,
+    ...(device.model ? { device_model: device.model } : {}),
+    ...(originalName ? { original_name: originalName } : {}),
     room: device.room ?? device.home, supported_features: ["read"],
     is_whitelisted: allowedEntities.has("*") || allowedEntities.has(entityId), max_state_age_ms: 15_000,
   });
@@ -49,7 +61,7 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
     const domain = Object.hasOwn(powerDomains, service.name) ? powerDomains[service.name] : undefined;
     const power = service.properties.find((property) => property.name === "on" && property.format === "bool" && property.readable);
     if (domain && power) {
-      const entity = definition(`${domain}.${base}_s${service.siid}`, domain, `${device.name} · ${service.description}`);
+      const entity = definition(`${domain}.${base}_s${service.siid}`, domain, `${device.name} · ${service.description}`, service.description);
       const controllable = !restricted && power.writable;
       if (controllable) entity.supported_features = ["turn_on", "turn_off"];
       const binding: MiotEntityBinding = { did: device.did, definition: entity, primary: power };
@@ -77,7 +89,9 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
       if (!property.readable || consumed.has(property.piid) || !(numericFormats.has(property.format) || property.format === "bool")) continue;
       const domain = property.format === "bool" ? "binary_sensor" : "sensor";
       const metric = Object.hasOwn(metrics, property.name) ? metrics[property.name] : undefined;
-      const entity = definition(`${domain}.${base}_s${service.siid}_p${property.piid}${metric ? `_${metric}` : ""}`, domain, `${device.name} · ${property.description}`);
+      const propSlug = property.name.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "").toLowerCase();
+      const suffix = metric ? `_${metric}` : propSlug ? `_${propSlug}` : "";
+      const entity = definition(`${domain}.${base}_s${service.siid}_p${property.piid}${suffix}`, domain, `${device.name} · ${property.description}`, `${service.description} ${property.description}`.trim());
       if (!metric) entity.entity_category = "diagnostic";
       bindings.push({ did: device.did, definition: entity, primary: property });
     }
@@ -116,6 +130,19 @@ export function miotSnapshot(binding: MiotEntityBinding, values: Map<string, Mio
     const range = binding.definition.allowed_range!.color_temp_kelvin;
     attributes.min_color_temp_kelvin = range[0]; attributes.max_color_temp_kelvin = range[1];
   }
-  return { entity_id: binding.definition.entity_id, state: primary === undefined ? "unavailable" : typeof primary === "boolean" ? (primary ? "on" : "off") : String(primary),
+  const enumMatch = typeof primary === "number" && binding.primary.valueList
+    ? binding.primary.valueList.find((item) => item.value === primary)
+    : undefined;
+  if (enumMatch && typeof primary === "number") {
+    attributes.raw_value = primary;
+  }
+  const resolvedState = primary === undefined
+    ? "unavailable"
+    : typeof primary === "boolean"
+      ? (primary ? "on" : "off")
+      : enumMatch
+        ? enumMatch.description
+        : String(primary);
+  return { entity_id: binding.definition.entity_id, state: resolvedState,
     attributes, last_changed: observedAt, last_updated: observedAt };
 }

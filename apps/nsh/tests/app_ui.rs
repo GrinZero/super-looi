@@ -148,11 +148,30 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.press("home-empty-enable-sim")?;
     app.wait_for("大厅")?;
     app.wait_for("大厅监控")?;
+    app.wait_for("扫地机器人")?;
+    app.wait_for("基站待命")?;
     app.wait_for("电饭煲")?;
     app.wait_for("大厅空调")?;
+    // Open Camera dedicated full page and return
+    app.press("id:home-card-simulation:sim_hall_camera")?;
+    app.wait_for("画面与存储设置")?;
+    app.wait_for("夜视模式")?;
+    app.press("home-detail-back")?;
+    // Open Robot Vacuum dedicated full page and return
+    app.press("id:home-card-simulation:sim_robot_vacuum")?;
+    app.wait_for("耗材寿命与维护")?;
+    app.wait_for("拖地水量档位")?;
+    app.press("home-detail-back")?;
+    // Open Rice Cooker dedicated full page and return
+    app.press("id:home-card-simulation:sim_rice_cooker")?;
+    app.wait_for("工序阶段进度")?;
+    app.wait_for("快煮饭")?;
+    app.press("home-detail-back")?;
+    // Enter free layout editing mode and resize/swap controls
     app.press("home-layout-edit-btn")?;
     app.wait_for("完成布局")?;
     app.wait_for("2×2 大")?;
+    app.wait_for("选定移动")?;
     app.press("home-layout-edit-btn")?;
     app.press("home-tab-services")?;
     app.wait_for("米家直连")?;

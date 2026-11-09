@@ -256,6 +256,7 @@ export const zh = {
   "allOn": "全开",
   "allOff": "全关",
   "noHomeSourceEnabledTitle": "尚未开启家居设备源",
+  "loadingHomeDevices": "正在加载家居设备…",
   "noHomeSourceEnabledDesc": "可在「服务绑定」中同时接入米家直连与 Home Assistant，或一键开启全屋离线演示。",
   "openServiceBinding": "前往服务绑定",
   "enableFullHouseDemo": "开启全屋离线演示",
@@ -281,7 +282,19 @@ export const zh = {
   "targetTemperature": "目标温度",
   "powerOn": "开启",
   "powerOff": "关闭",
-  "activeCountSummary": "{{active}}/{{total}} 开启"
+  "activeCountSummary": "{{active}}/{{total}} 开启",
+  "backToRoom": "返回房间",
+  "longPressEditHint": "长按方块编辑布局",
+  "layoutEditBanner": "自由布局模式 · 可切换尺寸或点选两个方块互换位置",
+  "selectToMove": "选定移动",
+  "swapWithSelected": "放置到此位置",
+  "movingSelected": "已选定 · 点击目标位置",
+  "consumablesHealth": "耗材寿命与维护",
+  "cleaningStats": "清扫数据看板",
+  "waterOutputMode": "拖地水量档位",
+  "cameraStorageAndSettings": "画面与存储设置",
+  "cookingPrograms": "程序与菜谱选择",
+  "stagePipeline": "工序阶段进度"
 } as const;
 export const en: Record<keyof typeof zh, string> = {
   "interrupt": "Interrupt",
@@ -541,6 +554,7 @@ export const en: Record<keyof typeof zh, string> = {
   "allOn": "All On",
   "allOff": "All Off",
   "noHomeSourceEnabledTitle": "No Smart Home Source Active",
+  "loadingHomeDevices": "Loading home devices…",
   "noHomeSourceEnabledDesc": "Bind Xiaomi Home and Home Assistant simultaneously in Services, or enable the full-house offline demo.",
   "openServiceBinding": "Open Services",
   "enableFullHouseDemo": "Enable Full-House Demo",
@@ -566,5 +580,17 @@ export const en: Record<keyof typeof zh, string> = {
   "targetTemperature": "Target Temp",
   "powerOn": "On",
   "powerOff": "Off",
-  "activeCountSummary": "{{active}}/{{total}} Active"
+  "activeCountSummary": "{{active}}/{{total}} Active",
+  "backToRoom": "Back",
+  "longPressEditHint": "Long-press tile to edit layout",
+  "layoutEditBanner": "Free Layout Mode · Resize tiles or tap two tiles to swap positions",
+  "selectToMove": "Select to Move",
+  "swapWithSelected": "Place Here",
+  "movingSelected": "Selected · Tap target tile",
+  "consumablesHealth": "Consumables & Health",
+  "cleaningStats": "Cleaning Statistics",
+  "waterOutputMode": "Mop Water Level",
+  "cameraStorageAndSettings": "Camera & Storage Settings",
+  "cookingPrograms": "Programs & Recipes",
+  "stagePipeline": "Stage Pipeline"
 };
