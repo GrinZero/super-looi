@@ -419,7 +419,7 @@ export function createAppStore() {
   });
   const homeSubView = signal<"devices" | "services">("devices");
   const homeSelectedRoom = signal<string>("all");
-  const homeLayoutEditing = signal<boolean>(false);
+  const homeLayoutEditing = signal<string | null>(null);
   const homeInspectedApplianceId = signal<string | null>(null);
   const homeCamera = signal<{
     phase: "idle" | "loading" | "prepared" | "playing" | "error";
@@ -1402,17 +1402,21 @@ export function createAppStore() {
     setHomeSubView(view: "devices" | "services") {
       homeSubView.set(view);
       if (view !== "devices") {
-        homeLayoutEditing.set(false);
+        homeLayoutEditing.set(null);
         homeInspectedApplianceId.set(null);
       }
     },
     homeSelectedRoom: () => homeSelectedRoom(),
     setHomeSelectedRoom(room: string) {
       homeSelectedRoom.set(room);
+      const editingRoom = homeLayoutEditing();
+      if (editingRoom && room !== "all" && editingRoom !== room) {
+        homeLayoutEditing.set(null);
+      }
     },
     homeLayoutEditing: () => homeLayoutEditing(),
-    setHomeLayoutEditing(editing: boolean) {
-      homeLayoutEditing.set(editing);
+    setHomeLayoutEditing(roomName: string | null) {
+      homeLayoutEditing.set(roomName);
     },
     homeInspectedApplianceId: () => homeInspectedApplianceId(),
     setHomeInspectedApplianceId(id: string | null) {
@@ -1586,11 +1590,18 @@ export function createAppStore() {
       )
         stopHomeCamera();
       try {
-        return await homePowerState.control(
+        const res = await homePowerState.control(
           command,
           () => runtime!.controlHomeAppliance(command, action()),
           () => syncHomeDashboard(true),
         );
+        const reasonOrStatus = res?.receipt?.reason_code ?? res?.receipt?.status;
+        if (reasonOrStatus === "action_accepted_no_state_criterion") {
+          notify("动作已发送");
+        } else if (reasonOrStatus === "action_accepted_state_unverified") {
+          notify("命令已发送，等待设备状态同步");
+        }
+        return res;
       } catch (error) {
         if (alive) fail(error);
         return null;

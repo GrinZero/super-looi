@@ -7,7 +7,10 @@ import {
   createEmptyLayoutPreferences,
   createSimulationRawRecords,
   cycleTileSpan,
+  formatTileSpanDimensions,
+  moveApplianceToIndexInList,
   parseLayoutPreferences,
+  parseTileSpanDimensions,
   serializeLayoutPreferences,
   swapApplianceOrderInList,
   updateApplianceOrder,
@@ -244,5 +247,358 @@ describe("@super-looi/home-devices: Real Home Snapshot ('源心锁的家') & Ben
     const hallAfterSwap = afterSwap.rooms.find((r) => r.name === "大厅")!;
     assert.equal(hallAfterSwap.appliances[0]!.id, orderedIds[1]);
     assert.equal(hallAfterSwap.appliances[1]!.id, orderedIds[0]);
+
+    // Verify 1x2 span dimensions and moveApplianceToIndexInList
+    assert.deepEqual(parseTileSpanDimensions("1x2"), { cols: 1, rows: 2 });
+    assert.equal(formatTileSpanDimensions(1, 2), "1x2");
+    const tallPrefs = updateApplianceSpan(swappedPrefs, cooker.id, "1x2");
+    const restoredTall = parseLayoutPreferences(serializeLayoutPreferences(tallPrefs));
+    assert.equal(restoredTall.appliances[cooker.id]?.span, "1x2");
+    const movedPrefs = moveApplianceToIndexInList(restoredTall, orderedIds, orderedIds[2]!, 0);
+    const afterMove = buildHomeDashboardModel(simRecords, movedPrefs);
+    assert.equal(afterMove.rooms.find((r) => r.name === "大厅")!.appliances[0]!.id, orderedIds[2]);
+  });
+
+  it("correctly aggregates Direct MIoT fan, dishwasher, vacuum dual-brushes, idle cooker, camera KB storage, desk lamp, and same-device PM2.5 grade", () => {
+    const directRecords: RawHomeEntityRecord[] = [
+      // 1. dmaker.fan.p45
+      {
+        entity_id: "fan.miot_1092488635_s2_p1_on",
+        domain: "fan",
+        friendly_name: "米家智能直流变频循环扇 · Switch Status",
+        device_id: "1092488635",
+        device_name: "米家智能直流变频循环扇",
+        device_model: "dmaker.fan.p45",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Fan · Switch Status",
+        supported_features: ["read", "turn_on", "turn_off"],
+        snapshot: { entity_id: "fan.miot_1092488635_s2_p1_on", state: "on", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "select.miot_1092488635_s2_p2_fan_level",
+        domain: "select",
+        friendly_name: "米家智能直流变频循环扇 · Fan Level",
+        device_id: "1092488635",
+        device_name: "米家智能直流变频循环扇",
+        device_model: "dmaker.fan.p45",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Fan · Fan Level",
+        supported_features: ["read", "select_option"],
+        snapshot: {
+          entity_id: "select.miot_1092488635_s2_p2_fan_level",
+          state: "Level2",
+          attributes: { options: ["Level1", "Level2", "Level3", "Level4"] },
+          last_updated: "",
+        },
+      },
+      {
+        entity_id: "select.miot_1092488635_s2_p3_mode",
+        domain: "select",
+        friendly_name: "米家智能直流变频循环扇 · Mode",
+        device_id: "1092488635",
+        device_name: "米家智能直流变频循环扇",
+        device_model: "dmaker.fan.p45",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Fan · Mode",
+        supported_features: ["read", "select_option"],
+        snapshot: {
+          entity_id: "select.miot_1092488635_s2_p3_mode",
+          state: "Natural Wind",
+          attributes: { options: ["Straight Wind", "Natural Wind", "Sleep"] },
+          last_updated: "",
+        },
+      },
+      {
+        entity_id: "switch.miot_1092488635_s2_p4_horizontal_swing",
+        domain: "switch",
+        friendly_name: "米家智能直流变频循环扇 · Horizontal Swing",
+        device_id: "1092488635",
+        device_name: "米家智能直流变频循环扇",
+        device_model: "dmaker.fan.p45",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Fan · Horizontal Swing",
+        supported_features: ["read", "turn_on", "turn_off"],
+        snapshot: { entity_id: "switch.miot_1092488635_s2_p4_horizontal_swing", state: "on", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "select.miot_1092488635_s2_p5_horizontal_swing_included_angle",
+        domain: "select",
+        friendly_name: "米家智能直流变频循环扇 · Horizontal Swing Included Angle",
+        device_id: "1092488635",
+        device_name: "米家智能直流变频循环扇",
+        device_model: "dmaker.fan.p45",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Fan · Horizontal Swing Included Angle",
+        supported_features: ["read", "select_option"],
+        snapshot: {
+          entity_id: "select.miot_1092488635_s2_p5_horizontal_swing_included_angle",
+          state: "120",
+          attributes: { options: ["30", "60", "90", "120", "150"] },
+          last_updated: "",
+        },
+      },
+      {
+        entity_id: "button.miot_1092488635_s2_a2_turn_left",
+        domain: "button",
+        friendly_name: "米家智能直流变频循环扇 · Turn Left",
+        device_id: "1092488635",
+        device_name: "米家智能直流变频循环扇",
+        device_model: "dmaker.fan.p45",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Fan · Turn Left",
+        supported_features: ["press"],
+        snapshot: { entity_id: "button.miot_1092488635_s2_a2_turn_left", state: "ready", attributes: {}, last_updated: "" },
+      },
+      // 2. qmdq88.dishwasher.s1
+      {
+        entity_id: "switch.miot_1145020874_s2_p1_on",
+        domain: "switch",
+        friendly_name: "米家智能独嵌两用洗碗机15套S1 · Switch Status",
+        device_id: "1145020874",
+        device_name: "米家智能独嵌两用洗碗机15套S1",
+        device_model: "qmdq88.dishwasher.s1",
+        room: "厨房",
+        source: "direct_miot",
+        original_name: "Dishwasher · Switch Status",
+        supported_features: ["read", "turn_on", "turn_off"],
+        snapshot: { entity_id: "switch.miot_1145020874_s2_p1_on", state: "off", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_1145020874_s2_p2_status",
+        domain: "sensor",
+        friendly_name: "米家智能独嵌两用洗碗机15套S1 · Status",
+        device_id: "1145020874",
+        device_name: "米家智能独嵌两用洗碗机15套S1",
+        device_model: "qmdq88.dishwasher.s1",
+        room: "厨房",
+        source: "direct_miot",
+        original_name: "Dishwasher · Status",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_1145020874_s2_p2_status", state: "Off", attributes: {}, last_updated: "" },
+      },
+      // 3. xiaomi.vacuum.d103cn dual brushes
+      {
+        entity_id: "sensor.miot_845910099_s2_p1_status",
+        domain: "sensor",
+        friendly_name: "米家全能扫拖机器人M30 S · Status",
+        device_id: "845910099",
+        device_name: "米家全能扫拖机器人M30 S",
+        device_model: "xiaomi.vacuum.d103cn",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Robot Cleaner · Status",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_845910099_s2_p1_status", state: "Charging", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_845910099_s9_p1_brush_left_time",
+        domain: "sensor",
+        friendly_name: "米家全能扫拖机器人M30 S · Brush Left Time",
+        device_id: "845910099",
+        device_name: "米家全能扫拖机器人M30 S",
+        device_model: "xiaomi.vacuum.d103cn",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Main Cleaning Brush · Brush Left Time",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_845910099_s9_p1_brush_left_time", state: "258", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_845910099_s9_p2_brush_life_level",
+        domain: "sensor",
+        friendly_name: "米家全能扫拖机器人M30 S · Brush Life Level",
+        device_id: "845910099",
+        device_name: "米家全能扫拖机器人M30 S",
+        device_model: "xiaomi.vacuum.d103cn",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Main Cleaning Brush · Brush Life Level",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_845910099_s9_p2_brush_life_level", state: "86", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_845910099_s10_p1_brush_left_time",
+        domain: "sensor",
+        friendly_name: "米家全能扫拖机器人M30 S · Brush Left Time",
+        device_id: "845910099",
+        device_name: "米家全能扫拖机器人M30 S",
+        device_model: "xiaomi.vacuum.d103cn",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Side Cleaning Brush · Brush Left Time",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_845910099_s10_p1_brush_left_time", state: "106", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_845910099_s10_p2_brush_life_level",
+        domain: "sensor",
+        friendly_name: "米家全能扫拖机器人M30 S · Brush Life Level",
+        device_id: "845910099",
+        device_name: "米家全能扫拖机器人M30 S",
+        device_model: "xiaomi.vacuum.d103cn",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Side Cleaning Brush · Brush Life Level",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_845910099_s10_p2_brush_life_level", state: "58", attributes: {}, last_updated: "" },
+      },
+      // 4. chunmi.cooker.cmwy4 idle without recipe
+      {
+        entity_id: "sensor.miot_1095370281_s2_p1_status",
+        domain: "sensor",
+        friendly_name: "米家智能电饭煲 · Status",
+        device_id: "1095370281",
+        device_name: "米家智能电饭煲",
+        device_model: "chunmi.cooker.cmwy4",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Cooker · Status",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_1095370281_s2_p1_status", state: "Idle", attributes: {}, last_updated: "" },
+      },
+      // 5. isa.camera.hlc7 KB storage and placeholder stream
+      {
+        entity_id: "switch.miot_570967500_s2_p1_on",
+        domain: "switch",
+        friendly_name: "小米智能摄像机 标准版 2K · Switch Status",
+        device_id: "570967500",
+        device_name: "小米智能摄像机 标准版 2K",
+        device_model: "isa.camera.hlc7",
+        room: "天台",
+        source: "direct_miot",
+        original_name: "Camera Control · Switch Status",
+        supported_features: ["read", "turn_on", "turn_off"],
+        snapshot: { entity_id: "switch.miot_570967500_s2_p1_on", state: "on", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_570967500_s4_p2_storage_total_space",
+        domain: "sensor",
+        friendly_name: "小米智能摄像机 标准版 2K · Storage Total Space",
+        device_id: "570967500",
+        device_name: "小米智能摄像机 标准版 2K",
+        device_model: "isa.camera.hlc7",
+        room: "天台",
+        source: "direct_miot",
+        original_name: "Memory Card Management · Storage Total Space",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_570967500_s4_p2_storage_total_space", state: "30521344", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_570967500_s4_p4_storage_used_space",
+        domain: "sensor",
+        friendly_name: "小米智能摄像机 标准版 2K · Storage Used Space",
+        device_id: "570967500",
+        device_name: "小米智能摄像机 标准版 2K",
+        device_model: "isa.camera.hlc7",
+        room: "天台",
+        source: "direct_miot",
+        original_name: "Memory Card Management · Storage Used Space",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_570967500_s4_p4_storage_used_space", state: "29299392", attributes: {}, last_updated: "" },
+      },
+      // 6. zhimi.airp.rma3 with same-device PM2.5 and air quality grade
+      {
+        entity_id: "fan.miot_721125732_s2_p1_on",
+        domain: "fan",
+        friendly_name: "米家空气净化器 4 Lite · Switch Status",
+        device_id: "721125732",
+        device_name: "米家空气净化器 4 Lite",
+        device_model: "zhimi.airp.rma3",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Air Purifier · Switch Status",
+        supported_features: ["read", "turn_on", "turn_off"],
+        snapshot: { entity_id: "fan.miot_721125732_s2_p1_on", state: "on", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_721125732_s3_p4_pm2_5_density",
+        domain: "sensor",
+        friendly_name: "米家空气净化器 4 Lite · Pm2.5 Density",
+        device_id: "721125732",
+        device_name: "米家空气净化器 4 Lite",
+        device_model: "zhimi.airp.rma3",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Environment · Pm2.5 Density",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_721125732_s3_p4_pm2_5_density", state: "10", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_721125732_s3_p8_air_quality",
+        domain: "sensor",
+        friendly_name: "米家空气净化器 4 Lite · Air Quality",
+        device_id: "721125732",
+        device_name: "米家空气净化器 4 Lite",
+        device_model: "zhimi.airp.rma3",
+        room: "大厅",
+        source: "direct_miot",
+        original_name: "Environment · Air Quality",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_721125732_s3_p8_air_quality", state: "Excellent", attributes: {}, last_updated: "" },
+      },
+      // 7. philips.light.lite desk lamp
+      {
+        entity_id: "light.miot_570967591_s2_p1_on",
+        domain: "light",
+        friendly_name: "米家飞利浦台灯Lite · Switch Status",
+        device_id: "570967591",
+        device_name: "米家飞利浦台灯Lite",
+        device_model: "philips.light.lite",
+        room: "书房",
+        source: "direct_miot",
+        original_name: "Light · Switch Status",
+        supported_features: ["read", "turn_on", "turn_off", "brightness"],
+        snapshot: { entity_id: "light.miot_570967591_s2_p1_on", state: "on", attributes: { brightness: 128 }, last_updated: "" },
+      },
+    ];
+
+    const model = buildHomeDashboardModel(directRecords);
+
+    const fan = model.allAppliances.find((a) => a.model === "dmaker.fan.p45")!;
+    assert.equal(fan.icon, "fan");
+    assert.equal(fan.capabilities.modeBar?.currentLabel, "自然风");
+    assert.equal(fan.capabilities.fanLevel?.currentLabel, "2档");
+    assert.ok(fan.capabilities.auxiliaryToggles?.some((t) => t.label === "左右摆风" && t.isOn));
+    assert.ok(fan.capabilities.actions?.some((act) => act.label === "左转"));
+    assert.ok(fan.capabilities.controls?.some((c) => c.kind === "choice" && c.label === "摇头角度"));
+
+    const dishwasher = model.allAppliances.find((a) => a.model === "qmdq88.dishwasher.s1")!;
+    assert.equal(dishwasher.icon, "dishwasher");
+
+    const vacuum = model.allAppliances.find((a) => a.model === "xiaomi.vacuum.d103cn")!;
+    const mainBrush = vacuum.capabilities.vacuum?.consumables.find((c) => c.id === "main_brush");
+    const sideBrush = vacuum.capabilities.vacuum?.consumables.find((c) => c.id === "side_brush");
+    assert.equal(mainBrush?.percent, 86);
+    assert.equal(mainBrush?.remainingHours, 258);
+    assert.equal(sideBrush?.percent, 58);
+    assert.equal(sideBrush?.remainingHours, 106);
+
+    const cooker = model.allAppliances.find((a) => a.model === "chunmi.cooker.cmwy4")!;
+    assert.equal(cooker.capabilities.cycleTask?.stageLabel, "待机");
+    assert.equal(cooker.capabilities.cycleTask?.recipeLabel, undefined);
+    assert.equal(cooker.capabilities.cycleTask?.progressPercent, undefined);
+
+    const camera = model.allAppliances.find((a) => a.model === "isa.camera.hlc7")!;
+    assert.equal(camera.capabilities.visionStream?.streamActive, false);
+    assert.equal(camera.capabilities.visionStream?.resolutionBadge, undefined);
+    assert.equal(camera.capabilities.visionStream?.statusText, "暂未接入实时视频流");
+    assert.ok(camera.capabilities.visionStream?.storageStatusText?.includes("27.9 GB / 29.1 GB"));
+
+    const purifier = model.allAppliances.find((a) => a.model === "zhimi.airp.rma3")!;
+    const pmMetric = purifier.capabilities.telemetry.find((m) => m.key === "pm25");
+    assert.equal(pmMetric?.value, "10");
+    assert.equal(pmMetric?.badge, "优");
+    const hallRoom = model.rooms.find((r) => r.name === "大厅")!;
+    const roomPm = hallRoom.environment.find((e) => e.key === "pm25");
+    assert.equal(roomPm?.badge, "优");
+
+    const deskLamp = model.allAppliances.find((a) => a.model === "philips.light.lite")!;
+    assert.equal(deskLamp.icon, "desk_lamp");
   });
 });

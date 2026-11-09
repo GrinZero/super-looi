@@ -12,6 +12,23 @@ export function defineHaEntity(state: HomeStateSnapshot, metadata?: HomeEntityMe
   const supported = power ? ["turn_on", "turn_off"] : ["read"];
   if (!restricted && hasClimateModes) {
     supported.push("set_temperature", "set_hvac_mode");
+    if (Array.isArray(state.attributes.fan_modes)) supported.push("set_fan_mode");
+    if (Array.isArray(state.attributes.swing_modes)) supported.push("set_swing_mode");
+    if (Array.isArray(state.attributes.preset_modes)) supported.push("set_preset_mode");
+  } else if (!restricted && domain === "fan") {
+    const features = typeof state.attributes.supported_features === "number" ? state.attributes.supported_features : 0;
+    if ((features & 1) !== 0 || typeof state.attributes.percentage === "number" || typeof state.attributes.percentage_step === "number") {
+      supported.push("set_percentage");
+    }
+    if ((features & 2) !== 0 || typeof state.attributes.oscillating === "boolean") {
+      supported.push("oscillate");
+    }
+    if ((features & 4) !== 0 || typeof state.attributes.direction === "string") {
+      supported.push("set_direction");
+    }
+    if ((features & 8) !== 0 || Array.isArray(state.attributes.preset_modes)) {
+      supported.push("set_preset_mode");
+    }
   } else if (!restricted && domain === "button") {
     supported.push("press");
   } else if (!restricted && domain === "notify") {
@@ -24,6 +41,12 @@ export function defineHaEntity(state: HomeStateSnapshot, metadata?: HomeEntityMe
   const ranges: Record<string, [number, number]> = {};
   if (!restricted && hasClimateModes && typeof state.attributes.min_temp === "number" && typeof state.attributes.max_temp === "number") {
     ranges.temperature = [state.attributes.min_temp, state.attributes.max_temp];
+  }
+  if (!restricted && domain === "fan" && supported.includes("set_percentage")) {
+    ranges.percentage = [0, 100];
+  }
+  if (!restricted && domain === "number" && typeof state.attributes.min === "number" && typeof state.attributes.max === "number") {
+    ranges.value = [state.attributes.min, state.attributes.max];
   }
   const modes = state.attributes.supported_color_modes;
   if (power && domain === "light" && Array.isArray(modes) && modes.some((mode) => !["onoff", "unknown"].includes(String(mode)))) {

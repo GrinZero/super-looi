@@ -24,7 +24,13 @@ export type ActionIconName =
   | "minus"
   | "sun"
   | "moon"
-  | "shield";
+  | "shield"
+  | "leaf"
+  | "thermometer"
+  | "droplet"
+  | "more"
+  | "rotate_left"
+  | "rotate_right";
 
 export type IconTone =
   | "foreground"
@@ -33,7 +39,10 @@ export type IconTone =
   | "muted"
   | "verified"
   | "warning"
-  | "destructive";
+  | "destructive"
+  | "lighting"
+  | "airflow"
+  | "airQuality";
 
 function resolveToneColor(tone: IconTone): string {
   switch (tone) {
@@ -49,6 +58,12 @@ function resolveToneColor(tone: IconTone): string {
       return token("warning");
     case "destructive":
       return token("destructive");
+    case "lighting":
+      return token("lighting");
+    case "airflow":
+      return token("airflow");
+    case "airQuality":
+      return token("air-quality");
     case "foreground":
     default:
       return token("foreground");
@@ -334,6 +349,75 @@ export function ActionIcon(props: {
             cx.stroke();
             break;
           }
+          case "leaf": {
+            cx.beginPath();
+            cx.moveTo(6, 18);
+            cx.quadraticCurveTo(5.5, 8.5, 18.5, 5.5);
+            cx.quadraticCurveTo(17.5, 17.5, 6, 18);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(5.5, 18.5);
+            cx.quadraticCurveTo(10.5, 14, 15, 9.5);
+            cx.stroke();
+            break;
+          }
+          case "thermometer": {
+            cx.beginPath();
+            cx.moveTo(10, 5.5);
+            cx.arc(12, 5.5, 2, Math.PI, 0, false);
+            cx.lineTo(14, 13.5);
+            cx.arc(12, 16.5, 3.6, -Math.PI * 0.32, Math.PI * 1.32, false);
+            cx.closePath();
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 16.5, 1.5, 0, Math.PI * 2);
+            cx.fill();
+            cx.beginPath();
+            cx.moveTo(12, 9.5);
+            cx.lineTo(12, 15.5);
+            cx.stroke();
+            break;
+          }
+          case "droplet": {
+            cx.beginPath();
+            cx.moveTo(12, 4.2);
+            cx.quadraticCurveTo(17.5, 10.8, 17.5, 14.5);
+            cx.arc(12, 14.5, 5.5, 0, Math.PI, false);
+            cx.quadraticCurveTo(6.5, 10.8, 12, 4.2);
+            cx.closePath();
+            cx.stroke();
+            break;
+          }
+          case "more": {
+            for (const x of [6, 12, 18]) {
+              cx.beginPath();
+              cx.arc(x, 12, 1.6, 0, Math.PI * 2);
+              cx.fill();
+            }
+            break;
+          }
+          case "rotate_left": {
+            cx.beginPath();
+            cx.arc(12, 13, 6.2, -Math.PI * 0.25, Math.PI * 1.2, true);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(8.5, 4.8);
+            cx.lineTo(6.2, 7.8);
+            cx.lineTo(9.8, 9.2);
+            cx.stroke();
+            break;
+          }
+          case "rotate_right": {
+            cx.beginPath();
+            cx.arc(12, 13, 6.2, -Math.PI * 0.75, Math.PI * 0.2, false);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(15.5, 4.8);
+            cx.lineTo(17.8, 7.8);
+            cx.lineTo(14.2, 9.2);
+            cx.stroke();
+            break;
+          }
         }
         cx.restore();
       }}
@@ -342,8 +426,8 @@ export function ActionIcon(props: {
 }
 
 /**
- * Semantic 24x24 Canvas vector icon for each of the 23 smart home appliance categories,
- * enclosed in a subtle themed badge container.
+ * Semantic 24x24 Canvas vector icon for each of the smart home appliance categories,
+ * enclosed in a subtle themed badge container with domain-aware active colors.
  */
 export function ApplianceIcon(props: {
   kind: ApplianceIconKind;
@@ -353,6 +437,22 @@ export function ApplianceIcon(props: {
   const boxPx = () => (props.size === "lg" ? 44 : props.size === "sm" ? 28 : 34);
   const drawPx = () => (props.size === "lg" ? 24 : props.size === "sm" ? 16 : 19);
 
+  const semanticDomain = () => {
+    switch (props.kind) {
+      case "light":
+      case "desk_lamp":
+        return "lighting";
+      case "fan":
+      case "ac":
+      case "dehumidifier":
+        return "airflow";
+      case "purifier":
+        return "air-quality";
+      default:
+        return "default";
+    }
+  };
+
   const containerClass = () => {
     const dim =
       props.size === "lg"
@@ -361,6 +461,16 @@ export function ApplianceIcon(props: {
           ? "w-7 h-7 rounded-lg"
           : "w-8.5 h-8.5 rounded-xl";
     if (props.active) {
+      const domain = semanticDomain();
+      if (domain === "lighting") {
+        return `${dim} bg-lighting-bg border border-lighting-border items-center justify-center`;
+      }
+      if (domain === "airflow") {
+        return `${dim} bg-airflow-bg border border-airflow-border items-center justify-center`;
+      }
+      if (domain === "air-quality") {
+        return `${dim} bg-air-quality-bg border border-air-quality-border items-center justify-center`;
+      }
       return `${dim} bg-primary items-center justify-center`;
     }
     return `${dim} bg-muted border border-border items-center justify-center`;
@@ -376,8 +486,15 @@ export function ApplianceIcon(props: {
         draw={(cx, canvasSize) => {
           const w = canvasSize.width || drawPx();
           const h = canvasSize.height || drawPx();
+          const domain = semanticDomain();
           const color = props.active
-            ? token("primary-foreground")
+            ? domain === "lighting"
+              ? token("lighting")
+              : domain === "airflow"
+                ? token("airflow")
+                : domain === "air-quality"
+                  ? token("air-quality")
+                  : token("primary-foreground")
             : token("foreground");
 
           cx.save();
@@ -482,24 +599,31 @@ export function ApplianceIcon(props: {
               break;
             }
             case "fan": {
+              // Pedestal Fan: circular grille + 3 curved impeller blades + hub + stand & base
               cx.beginPath();
-              cx.arc(12, 12, 8, 0, Math.PI * 2);
+              cx.arc(12, 9.8, 6.2, 0, Math.PI * 2);
               cx.stroke();
               cx.beginPath();
-              cx.arc(12, 12, 1.8, 0, Math.PI * 2);
+              cx.arc(12, 9.8, 1.4, 0, Math.PI * 2);
               cx.fill();
               for (let i = 0; i < 3; i++) {
                 const a = (i * Math.PI * 2) / 3 - Math.PI / 2;
                 cx.beginPath();
-                cx.moveTo(12 + Math.cos(a) * 2, 12 + Math.sin(a) * 2);
+                cx.moveTo(12 + Math.cos(a) * 1.5, 9.8 + Math.sin(a) * 1.5);
                 cx.quadraticCurveTo(
-                  12 + Math.cos(a + 0.45) * 6.2,
-                  12 + Math.sin(a + 0.45) * 6.2,
-                  12 + Math.cos(a) * 6.2,
-                  12 + Math.sin(a) * 6.2,
+                  12 + Math.cos(a + 0.55) * 4.8,
+                  9.8 + Math.sin(a + 0.55) * 4.8,
+                  12 + Math.cos(a + 0.12) * 4.8,
+                  9.8 + Math.sin(a + 0.12) * 4.8,
                 );
                 cx.stroke();
               }
+              cx.beginPath();
+              cx.moveTo(12, 16);
+              cx.lineTo(12, 20);
+              cx.moveTo(8.2, 20);
+              cx.lineTo(15.8, 20);
+              cx.stroke();
               break;
             }
             case "purifier":
@@ -546,16 +670,34 @@ export function ApplianceIcon(props: {
               break;
             }
             case "light": {
-              // Lightbulb silhouette + base
+              // Ceiling / Ambient Lightbulb silhouette + warm rays
               cx.beginPath();
-              cx.arc(12, 10, 5.5, Math.PI * 0.78, Math.PI * 0.22, false);
-              cx.lineTo(14.2, 16);
-              cx.lineTo(9.8, 16);
+              cx.arc(12, 10, 5.2, Math.PI * 0.78, Math.PI * 0.22, false);
+              cx.lineTo(14.2, 15.8);
+              cx.lineTo(9.8, 15.8);
               cx.closePath();
               cx.stroke();
               cx.beginPath();
-              cx.moveTo(10, 19);
-              cx.lineTo(14, 19);
+              cx.moveTo(10, 18.8);
+              cx.lineTo(14, 18.8);
+              cx.stroke();
+              break;
+            }
+            case "desk_lamp": {
+              // Architect / Study Desk Lamp: angled arm + conical shade + weighted base
+              cx.beginPath();
+              cx.moveTo(6.5, 19.5);
+              cx.lineTo(15.5, 19.5);
+              cx.moveTo(10.5, 19.5);
+              cx.lineTo(7.5, 12.5);
+              cx.lineTo(13, 6.8);
+              cx.stroke();
+              cx.beginPath();
+              cx.moveTo(11.5, 5.2);
+              cx.lineTo(18.5, 8.2);
+              cx.lineTo(16.2, 11.2);
+              cx.lineTo(10.5, 8.5);
+              cx.closePath();
               cx.stroke();
               break;
             }

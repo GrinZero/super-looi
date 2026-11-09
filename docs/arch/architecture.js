@@ -132,8 +132,8 @@ globalThis.LOOI_ARCH = {
       ],
     },
     {
-      id: "home", x: 280, y: 462, title: "HomeRuntime + 设备聚合", symbol: "home", category: "TypeScript · 家居业务与组件模型", detail: "多源并发 / 房间 Bento / 6 大设备原型", path: "apps/nsh/runtime/home.ts",
-      description: "支持米家直连（direct_miot）、Home Assistant（external_ha）与离线演示（simulation）多源并发挂载；由 @super-looi/home-devices 将零散实体按物理设备与所属房间归一化，聚合为监控、电饭煲/洗衣机、温控、多键开关、灯光电源与传感喂食 6 大原型，并持久化 1×1 / 2×1 / 2×2 Bento 卡片布局。摄像头观看会话由手机持有，HLS 地址交 NSH 原生 Video；离开详情或退后台时结束会话。",
+      id: "home", x: 280, y: 462, title: "HomeRuntime + 设备聚合", symbol: "home", category: "TypeScript · 家居业务与组件模型", detail: "多源并发 / 房间 Bento / 通用控制原语", path: "apps/nsh/runtime/home.ts",
+      description: "支持米家直连（direct_miot）、Home Assistant（external_ha）与离线演示（simulation）多源并发挂载；由 @super-looi/home-devices 将零散实体按物理设备与所属房间归一化，聚合为 6 大设备原型与统一控制原语（Toggle/Range/Choice/Action/Metric），并支持房间级 1×1 / 2×1 / 1×2 / 2×2 Bento 拖边布局。摄像头观看会话由手机持有，HLS 地址交 NSH 原生 Video；离开详情或退后台时结束会话。",
       files: [
         { path: "apps/nsh/runtime/home.ts", entry: "export class HomeRuntime" },
         { path: "packages/home-devices/src/device-aggregator.ts", entry: "export function buildHomeDashboardModel" },
@@ -146,12 +146,13 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "gateway", x: 535, y: 462, title: "家居网关与传输", symbol: "network", category: "TypeScript · 协议适配", detail: "HA REST / MIoT / 状态回读", path: "packages/home-assistant/src/core/gateway.ts",
-      description: "HomeAssistantGateway 提供统一的设备控制与状态读取接口。传输适配器分别调用 Home Assistant REST 和小米 MIoT，仿真模式使用内存传输。",
+      description: "HomeAssistantGateway 提供统一的设备控制、Spec 写属性/动作下发与可验证状态回读接口。传输适配器分别调用 Home Assistant REST 和小米 MIoT，仿真模式使用内存传输。",
       files: [
         { path: "packages/home-assistant/src/core/gateway.ts", entry: "export class HomeAssistantGateway" },
         { path: "packages/home-assistant/src/transports/ha-rest-transport.ts", entry: "export class HomeAssistantRestTransport" },
         { path: "packages/home-assistant/src/transports/direct-miot-transport.ts", entry: "export class DirectMiotTransportAdapter" },
         { path: "packages/home-assistant/src/camera/miot-camera.ts", entry: "export function createMiotCameraSession" },
+        { path: "packages/home-assistant/src/miot/miot-entity-mapper.ts", entry: "export interface MiotEntityBinding" },
       ],
     },
     {

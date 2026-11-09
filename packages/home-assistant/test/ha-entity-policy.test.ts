@@ -20,4 +20,23 @@ test("HA metadata grants only identifiable safe power controls and bounded light
   }
   assert.deepEqual(defineHaEntity(state("switch.fixture", "燃气保护"), { ...metadata, power_control: true }).supported_features, ["read"]);
   assert.deepEqual(defineHaEntity(state("light.fixture"), { ...metadata, control_restricted: true }).supported_features, ["read"]);
+
+  const fanState: HomeStateSnapshot = {
+    entity_id: "fan.dmaker_p45",
+    state: "off",
+    attributes: {
+      friendly_name: "风扇",
+      percentage: 25,
+      percentage_step: 25,
+      preset_mode: "直吹风",
+      preset_modes: ["直吹风", "自然风", "睡眠风"],
+      oscillating: false,
+      supported_features: 59,
+    },
+    last_changed: new Date().toISOString(),
+    last_updated: new Date().toISOString(),
+  };
+  const fanDef = defineHaEntity(fanState, metadata);
+  assert.deepEqual(fanDef.supported_features, ["turn_on", "turn_off", "set_percentage", "oscillate", "set_preset_mode"]);
+  assert.deepEqual(fanDef.allowed_range?.percentage, [0, 100]);
 });

@@ -165,3 +165,248 @@ it("retains gateway range and target checks after transport quantization", async
   }
   assert.equal(calls, 0);
 });
+
+it("maps writable MIoT select, number, switch, and button capabilities and verifies action status criteria", async () => {
+  const fanUrn = "urn:miot-spec-v2:device:fan:0000A005:dmaker-p45:1";
+  const vacuumUrn = "urn:miot-spec-v2:device:vacuum:0000A006:xiaomi-d103cn:1";
+  const stateStore = new Map<string, boolean | number>([
+    ["fan.1/2/1", false],
+    ["fan.1/2/2", 1],
+    ["fan.1/2/3", 0],
+    ["fan.1/2/4", false],
+    ["fan.1/2/5", 90],
+    ["fan.1/2/6", 22.5],
+    ["vac.1/2/1", 13],
+  ]);
+  let applyActionStatusTransition = true;
+  const actionsCalled: Array<{ did: string; siid: number; aiid: number; in: unknown[] }> = [];
+  const network = (async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname === "miot-spec.org") {
+      const requestedType = url.searchParams.get("type");
+      if (requestedType === fanUrn) {
+        return new Response(JSON.stringify({
+          type: fanUrn,
+          services: [
+            {
+              iid: 2,
+              type: "urn:miot-spec-v2:service:fan:00007808:dmaker-p45:1",
+              description: "Fan",
+              properties: [
+                specProperty(1, "on", "bool", { access: ["read", "write"] }),
+                {
+                  iid: 2,
+                  type: "urn:miot-spec-v2:property:fan-level:00000016:dmaker-p45:1",
+                  description: "Fan Level",
+                  format: "uint8",
+                  access: ["read", "write"],
+                  "value-list": [
+                    { value: 1, description: "Level1" },
+                    { value: 2, description: "Level2" },
+                    { value: 3, description: "Level3" },
+                    { value: 4, description: "Level4" },
+                  ],
+                },
+                {
+                  iid: 3,
+                  type: "urn:miot-spec-v2:property:mode:00000008:dmaker-p45:1",
+                  description: "Mode",
+                  format: "uint8",
+                  access: ["read", "write"],
+                  "value-list": [
+                    { value: 0, description: "Straight Wind" },
+                    { value: 1, description: "Natural Wind" },
+                    { value: 2, description: "Sleep" },
+                  ],
+                },
+                specProperty(4, "horizontal-swing", "bool", { access: ["read", "write"] }),
+                {
+                  iid: 5,
+                  type: "urn:miot-spec-v2:property:horizontal-swing-included-angle:0000011B:dmaker-p45:1",
+                  description: "Horizontal Swing Included Angle",
+                  format: "uint16",
+                  access: ["read", "write"],
+                  "value-list": [
+                    { value: 30, description: "30" },
+                    { value: 60, description: "60" },
+                    { value: 90, description: "90" },
+                    { value: 120, description: "120" },
+                    { value: 150, description: "150" },
+                  ],
+                },
+                {
+                  iid: 6,
+                  type: "urn:miot-spec-v2:property:target-temperature:00000021:dmaker-p45:1",
+                  description: "Target Temperature",
+                  format: "float",
+                  access: ["read", "write"],
+                  unit: "celsius",
+                  "value-range": [16, 31, 0.5],
+                },
+              ],
+              actions: [
+                {
+                  iid: 2,
+                  type: "urn:miot-spec-v2:action:turn-left:00002886:dmaker-p45:1",
+                  description: "Turn Left",
+                  in: [],
+                  out: [],
+                },
+              ],
+            },
+          ],
+        }));
+      }
+      return new Response(JSON.stringify({
+        type: vacuumUrn,
+        services: [
+          {
+            iid: 2,
+            type: "urn:miot-spec-v2:service:vacuum:00007810:xiaomi-d103cn:1",
+            description: "Robot Cleaner",
+            properties: [
+              {
+                iid: 1,
+                type: "urn:miot-spec-v2:property:status:00000007:xiaomi-d103cn:1",
+                description: "Status",
+                format: "uint8",
+                access: ["read"],
+                "value-list": [
+                  { value: 1, description: "Sweeping" },
+                  { value: 13, description: "Charging Completed" },
+                ],
+              },
+            ],
+            actions: [
+              {
+                iid: 1,
+                type: "urn:miot-spec-v2:action:start-sweep:00002804:xiaomi-d103cn:1",
+                description: "Start Sweep",
+                in: [],
+                out: [],
+              },
+            ],
+          },
+        ],
+      }));
+    }
+    const data = JSON.parse(String(init?.body));
+    if (url.pathname.endsWith("/gethome")) {
+      return jsonResponse({ homelist: [{ id: "home1", name: "家", dids: ["fan.1", "vac.1"], roomlist: [{ id: "hall", name: "大厅", dids: ["fan.1", "vac.1"] }] }] });
+    }
+    if (url.pathname.endsWith("/device_list_page")) {
+      return jsonResponse({
+        list: [
+          { did: "fan.1", name: "风扇", model: "dmaker.fan.p45", spec_type: fanUrn, isOnline: true },
+          { did: "vac.1", name: "扫地机器人", model: "xiaomi.vacuum.d103cn", spec_type: vacuumUrn, isOnline: true },
+        ],
+      });
+    }
+    if (url.pathname.endsWith("/prop/set")) {
+      const params = data.params as Array<{ did: string; siid: number; piid: number; value: number | boolean }>;
+      for (const p of params) stateStore.set(`${p.did}/${p.siid}/${p.piid}`, p.value);
+      return jsonResponse(params.map(({ did, siid, piid }) => ({ did, siid, piid, code: 0 })));
+    }
+    if (url.pathname.endsWith("/prop/get")) {
+      const params = data.params as Array<{ did: string; siid: number; piid: number }>;
+      return jsonResponse(params.map(({ did, siid, piid }) => ({
+        did,
+        siid,
+        piid,
+        code: 0,
+        value: stateStore.get(`${did}/${siid}/${piid}`),
+      })));
+    }
+    if (url.pathname.endsWith("/action")) {
+      const p = data.params as { did: string; siid: number; aiid: number; in: unknown[] };
+      actionsCalled.push(p);
+      if (p.did === "vac.1" && p.siid === 2 && p.aiid === 1 && applyActionStatusTransition) {
+        stateStore.set("vac.1/2/1", 1);
+      }
+      return jsonResponse({ did: p.did, siid: p.siid, aiid: p.aiid, code: 0, out: [] });
+    }
+    throw new Error(`unexpected endpoint ${url.pathname}`);
+  }) as typeof fetch;
+
+  let clock = Date.now();
+  const client = new MiotHttpClient({ fetch: network, getAccessToken: async () => "token" });
+  const specs = new MiotSpecResolver({ fetch: network });
+  const transport = new DirectMiotTransportAdapter({ client, specs, allowedEntities: ["*"], now: () => (clock += 5) });
+  const definitions = await transport.discover();
+  const gateway = new HomeAssistantGateway({ transport, initialEntities: definitions });
+
+  const fanLevel = definitions.find((d) => d.domain === "select" && d.entity_id.endsWith("_fan_level"))!;
+  assert.ok(fanLevel);
+  const rLevel = await gateway.executeCommand({
+    entity_id: fanLevel.entity_id,
+    domain: "select",
+    service: "select_option",
+    service_data: { option: "3" },
+    timeout_ms: 50,
+  });
+  assert.equal(rLevel.status, "verified");
+  assert.equal(stateStore.get("fan.1/2/2"), 3);
+
+  const swingSwitch = definitions.find((d) => d.domain === "switch" && d.entity_id.endsWith("_horizontal_swing"))!;
+  assert.ok(swingSwitch);
+  const rSwing = await gateway.executeCommand({
+    entity_id: swingSwitch.entity_id,
+    domain: "switch",
+    service: "turn_on",
+    service_data: {},
+    timeout_ms: 50,
+  });
+  assert.equal(rSwing.status, "verified");
+  assert.equal(stateStore.get("fan.1/2/4"), true);
+
+  const targetTemp = definitions.find((d) => d.domain === "number" && d.entity_id.endsWith("_temperature"))!;
+  assert.ok(targetTemp);
+  const rTemp = await gateway.executeCommand({
+    entity_id: targetTemp.entity_id,
+    domain: "number",
+    service: "set_value",
+    service_data: { value: 24.5 },
+    timeout_ms: 50,
+  });
+  assert.equal(rTemp.status, "verified");
+  assert.equal(stateStore.get("fan.1/2/6"), 24.5);
+
+  // Instantaneous action (turn-left) has no status criterion: accepted without falsely claiming state verified
+  const turnLeft = definitions.find((d) => d.domain === "button" && d.entity_id.endsWith("_turn_left"))!;
+  assert.ok(turnLeft);
+  const rLeft = await gateway.executeCommand({
+    entity_id: turnLeft.entity_id,
+    domain: "button",
+    service: "press",
+    service_data: {},
+    timeout_ms: 20,
+  });
+  assert.equal(rLeft.status, "unverified");
+  assert.equal(rLeft.reason_code, "action_accepted_no_state_criterion");
+  assert.equal(actionsCalled.length, 1);
+
+  // State-transition action (start-sweep): fails verification if status stays Charging Completed, succeeds when status becomes Sweeping
+  const startSweep = definitions.find((d) => d.domain === "button" && d.entity_id.endsWith("_start_sweep"))!;
+  assert.ok(startSweep);
+  applyActionStatusTransition = false;
+  const rSweepUnverified = await gateway.executeCommand({
+    entity_id: startSweep.entity_id,
+    domain: "button",
+    service: "press",
+    service_data: {},
+    timeout_ms: 20,
+  });
+  assert.equal(rSweepUnverified.status, "unverified");
+  assert.equal(rSweepUnverified.reason_code, "action_accepted_state_unverified");
+
+  applyActionStatusTransition = true;
+  const rSweepVerified = await gateway.executeCommand({
+    entity_id: startSweep.entity_id,
+    domain: "button",
+    service: "press",
+    service_data: {},
+    timeout_ms: 20,
+  });
+  assert.equal(rSweepVerified.status, "verified");
+  assert.equal(rSweepVerified.outcome, "applied");
+});

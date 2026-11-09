@@ -8,7 +8,18 @@ import type {
 
 export const HOME_LAYOUT_VAULT_KEY = "home.layout.v1";
 
-const VALID_SPANS = new Set<TileSpan>(["1x1", "2x1", "2x2"]);
+const VALID_SPANS = new Set<TileSpan>(["1x1", "2x1", "1x2", "2x2"]);
+
+export function parseTileSpanDimensions(span: TileSpan): { cols: 1 | 2; rows: 1 | 2 } {
+  if (span === "2x2") return { cols: 2, rows: 2 };
+  if (span === "2x1") return { cols: 2, rows: 1 };
+  if (span === "1x2") return { cols: 1, rows: 2 };
+  return { cols: 1, rows: 1 };
+}
+
+export function formatTileSpanDimensions(cols: 1 | 2, rows: 1 | 2): TileSpan {
+  return `${cols}x${rows}` as TileSpan;
+}
 
 export function createEmptyLayoutPreferences(): HomeLayoutPreferences {
   return { version: 1, appliances: {} };
@@ -110,9 +121,37 @@ export function swapApplianceOrderInList(
   };
 }
 
+export function moveApplianceToIndexInList(
+  prefs: HomeLayoutPreferences,
+  orderedApplianceIds: string[],
+  sourceId: string,
+  targetIndex: number,
+): HomeLayoutPreferences {
+  const fromIdx = orderedApplianceIds.indexOf(sourceId);
+  if (fromIdx < 0) return prefs;
+  const clampedTarget = Math.max(0, Math.min(orderedApplianceIds.length - 1, targetIndex));
+  if (fromIdx === clampedTarget) return prefs;
+  const nextIds = [...orderedApplianceIds];
+  const [moved] = nextIds.splice(fromIdx, 1);
+  if (!moved) return prefs;
+  nextIds.splice(clampedTarget, 0, moved);
+  const nextAppliances = { ...prefs.appliances };
+  nextIds.forEach((id, idx) => {
+    const existing = nextAppliances[id] ?? {};
+    nextAppliances[id] = {
+      ...existing,
+      order: (idx + 1) * 10,
+    };
+  });
+  return {
+    version: 1,
+    appliances: nextAppliances,
+  };
+}
+
 export function cycleTileSpan(current: TileSpan): TileSpan {
   if (current === "1x1") return "2x1";
-  if (current === "2x1") return "2x2";
+  if (current === "2x1" || current === "1x2") return "2x2";
   return "1x1";
 }
 

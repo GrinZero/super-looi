@@ -60,7 +60,8 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
 
   private async read(bindings: MiotEntityBinding[]): Promise<HomeStateSnapshot[]> {
     try {
-      const result = await this.options.client.getProperties(bindings.flatMap(bindingProperties));
+      const requested = bindings.flatMap(bindingProperties);
+      const result = requested.length ? await this.options.client.getProperties(requested) : [];
       const values = new Map<string, MiotPropertyResult>(result.map((property) => [miotPropertyKey(property), property]));
       const observedAt = this.observedAt();
       this.lastVerifiedAt = observedAt; this.healthy = true; this.error = null;
@@ -83,13 +84,84 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
     const normalized = { ...data };
     if (typeof data.brightness === "number" && binding.brightness) normalized.brightness = brightnessFromMiot(brightnessToMiot(data.brightness, binding.brightness), binding.brightness);
     if (typeof data.color_temp_kelvin === "number" && binding.colorTemperature) normalized.color_temp_kelvin = quantizeMiot(data.color_temp_kelvin, binding.colorTemperature.range!);
+    if (binding.definition.domain === "select" && binding.primary.valueList && (typeof data.option === "string" || typeof data.option === "number")) {
+      const matched = binding.primary.valueList.find((item) => item.description === String(data.option) || String(item.value) === String(data.option));
+      if (matched) normalized.option = matched.description;
+    }
+    if (binding.definition.domain === "number" && binding.primary.range && typeof data.value === "number" && Number.isFinite(data.value)) {
+      normalized.value = quantizeMiot(data.value, binding.primary.range);
+    }
     return normalized;
   }
 
   async callService(domain: string, service: string, data: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
     const binding = typeof data.entity_id === "string" ? this.bindings.get(data.entity_id) : undefined;
-    if (!binding || !binding.definition.is_whitelisted || domain !== binding.definition.domain || !["turn_on", "turn_off"].includes(service)
-      || !binding.definition.supported_features.includes(service) || Object.keys(data).some((key) => !["entity_id", "brightness", "color_temp_kelvin"].includes(key))) {
+    if (!binding || !binding.definition.is_whitelisted || domain !== binding.definition.domain || !binding.definition.supported_features.includes(service)) {
+      return { success: false, error: "miot_unsupported_command" };
+    }
+    if (service === "press" && domain === "button" && binding.action) {
+      if (Object.keys(data).some((key) => !["entity_id", "in"].includes(key))) {
+        return { success: false, error: "miot_unsupported_command" };
+      }
+      const args = Array.isArray(data.in)
+        ? data.in.filter((item): item is string | number | boolean => typeof item === "string" || typeof item === "boolean" || (typeof item === "number" && Number.isFinite(item)))
+        : (binding.actionDefaultArgs ?? []);
+      try {
+        const result = await this.options.client.callAction({
+          did: binding.did,
+          siid: binding.action.siid,
+          aiid: binding.action.aiid,
+          in: args,
+        });
+        return result.code === 0 ? { success: true } : { success: false, error: "miot_action_failed" };
+      } catch {
+        this.healthy = false;
+        this.error = "miot_write_failed";
+        return { success: false, error: this.error };
+      }
+    }
+    if (service === "select_option" && domain === "select" && binding.primary.valueList) {
+      if (Object.keys(data).some((key) => !["entity_id", "option"].includes(key))) {
+        return { success: false, error: "miot_unsupported_command" };
+      }
+      const optionStr = typeof data.option === "string" || typeof data.option === "number" ? String(data.option) : "";
+      const matched = binding.primary.valueList.find((item) => item.description === optionStr || String(item.value) === optionStr);
+      if (!matched) {
+        return { success: false, error: "miot_invalid_parameter" };
+      }
+      try {
+        const results = await this.options.client.setProperties([
+          { did: binding.did, siid: binding.primary.siid, piid: binding.primary.piid, value: matched.value },
+        ]);
+        return results[0]?.code === 0 ? { success: true } : { success: false, error: "miot_property_write_failed" };
+      } catch {
+        this.healthy = false;
+        this.error = "miot_write_failed";
+        return { success: false, error: this.error };
+      }
+    }
+    if (service === "set_value" && domain === "number" && binding.primary.range) {
+      if (Object.keys(data).some((key) => !["entity_id", "value"].includes(key))) {
+        return { success: false, error: "miot_unsupported_command" };
+      }
+      const rawValue = typeof data.value === "number" ? data.value : Number(data.value);
+      const [min, max] = binding.primary.range;
+      if (!Number.isFinite(rawValue) || rawValue < min || rawValue > max) {
+        return { success: false, error: "miot_invalid_parameter" };
+      }
+      const quantized = quantizeMiot(rawValue, binding.primary.range);
+      try {
+        const results = await this.options.client.setProperties([
+          { did: binding.did, siid: binding.primary.siid, piid: binding.primary.piid, value: quantized },
+        ]);
+        return results[0]?.code === 0 ? { success: true } : { success: false, error: "miot_property_write_failed" };
+      } catch {
+        this.healthy = false;
+        this.error = "miot_write_failed";
+        return { success: false, error: this.error };
+      }
+    }
+    if (!["turn_on", "turn_off"].includes(service) || Object.keys(data).some((key) => !["entity_id", "brightness", "color_temp_kelvin"].includes(key))) {
       return { success: false, error: "miot_unsupported_command" };
     }
     for (const key of ["brightness", "color_temp_kelvin"]) {

@@ -167,12 +167,16 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.wait_for("工序阶段进度")?;
     app.wait_for("快煮饭")?;
     app.press("home-detail-back")?;
-    // Enter free layout editing mode and resize/swap controls
-    app.press("home-layout-edit-btn")?;
+    // Enter per-room layout editing mode and test edge-resize + swap controls
+    app.press("id:home-room-edit-大厅")?;
     app.wait_for("完成布局")?;
-    app.wait_for("2×2 大")?;
-    app.wait_for("选定移动")?;
-    app.press("home-layout-edit-btn")?;
+    app.wait_for("2x2")?;
+    app.press("id:home-resize-right-simulation:sim_hall_ac")?;
+    app.wait_for("1x1")?;
+    app.press("id:home-card-simulation:sim_hall_camera")?;
+    app.press("id:home-card-simulation:sim_hall_ac")?;
+    assert!(!app.shows("home-detail-back"));
+    app.press("id:home-room-edit-大厅")?;
     app.press("home-tab-services")?;
     app.wait_for("米家直连")?;
     app.press("home-service-tab-direct_miot")?;

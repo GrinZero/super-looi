@@ -16,14 +16,16 @@ function projectAppliance(appliance: HomeAppliance, updates: Map<string, PowerUp
     capabilities.power = { ...caps.power, isOn: powerUpdate.isOn };
     isActive = powerUpdate.isOn;
     statusBadge = isActive ? "已开启" : "已关闭";
-    if (appliance.icon === "light") {
+    if (appliance.icon === "light" || appliance.icon === "desk_lamp") {
       conciseSubtitle = !isActive ? "已关闭" : caps.dimmer?.brightnessPercent !== undefined
         ? `亮度 ${caps.dimmer.brightnessPercent}%` : "照明开启";
     } else if (appliance.icon === "plug") {
       const watts = caps.telemetry.find((metric) => metric.key === "power");
       conciseSubtitle = watts ? `${isActive ? "供电中" : "待机"} · ${watts.value}` : isActive ? "供电中" : "已关闭";
-    } else if (conciseSubtitle === appliance.statusBadge) {
-      conciseSubtitle = statusBadge;
+    } else if (!isActive) {
+      conciseSubtitle = "已关闭";
+    } else if (conciseSubtitle === appliance.statusBadge || conciseSubtitle === "已关闭") {
+      conciseSubtitle = appliance.archetype === "climate" ? "运行中" : statusBadge;
     }
   }
   if (channelUpdate && caps.multiGang) {
@@ -41,6 +43,13 @@ function projectAppliance(appliance: HomeAppliance, updates: Map<string, PowerUp
     capabilities.auxiliaryToggles = caps.auxiliaryToggles!.map((toggle) => {
       const update = updates.get(toggle.entityId);
       return update ? { ...toggle, isOn: update.isOn } : toggle;
+    });
+  }
+  if (caps.controls) {
+    capabilities.controls = caps.controls.map((ctrl) => {
+      if (ctrl.kind !== "toggle") return ctrl;
+      const update = updates.get(ctrl.entityId);
+      return update ? { ...ctrl, isOn: update.isOn } : ctrl;
     });
   }
   return { ...appliance, capabilities, isActive, statusBadge, conciseSubtitle };

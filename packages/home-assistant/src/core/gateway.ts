@@ -275,12 +275,31 @@ export class HomeAssistantGateway implements HomeGateway {
       "turn_off",
       "set_temperature",
       "set_hvac_mode",
+      "set_fan_mode",
+      "set_swing_mode",
+      "set_preset_mode",
+      "set_percentage",
+      "oscillate",
+      "set_direction",
       "select_option",
       "set_value",
       "press",
       "send_message",
     ]);
-    const isExtendedService = ["set_temperature", "set_hvac_mode", "select_option", "set_value", "press", "send_message"].includes(command.service);
+    const isExtendedService = [
+      "set_temperature",
+      "set_hvac_mode",
+      "set_fan_mode",
+      "set_swing_mode",
+      "set_preset_mode",
+      "set_percentage",
+      "oscillate",
+      "set_direction",
+      "select_option",
+      "set_value",
+      "press",
+      "send_message",
+    ].includes(command.service);
 
     if (domain !== definition.domain || domain !== command.entity_id.split(".")[0]
       || !allowedServices.has(command.service)
@@ -345,15 +364,67 @@ export class HomeAssistantGateway implements HomeGateway {
               ? targetData.option
               : command.service === "set_value" && targetData.value !== undefined
                 ? String(targetData.value)
-                : undefined;
+                : command.service === "set_percentage" && typeof targetData.percentage === "number"
+                  ? (targetData.percentage > 0 ? "on" : "off")
+                  : command.service === "set_preset_mode" && typeof targetData.preset_mode === "string"
+                    ? targetData.preset_mode
+                    : command.service === "oscillate" && typeof targetData.oscillating === "boolean"
+                      ? String(targetData.oscillating)
+                      : command.service === "set_direction" && typeof targetData.direction === "string"
+                        ? targetData.direction
+                        : command.service === "set_fan_mode" && typeof targetData.fan_mode === "string"
+                          ? targetData.fan_mode
+                          : command.service === "set_swing_mode" && typeof targetData.swing_mode === "string"
+                            ? targetData.swing_mode
+                            : undefined;
     const matchesTarget = (snapshot: HomeStateSnapshot): boolean => {
       if (command.service === "press" || command.service === "send_message") {
-        return !current || snapshot.last_updated !== current.last_updated;
+        if (snapshot.attributes.has_status_criterion === false) {
+          return false;
+        }
+        if (snapshot.attributes.has_status_criterion === true) {
+          const relatedStatus = String(snapshot.attributes.related_status ?? "");
+          const expectedList = Array.isArray(snapshot.attributes.expected_statuses)
+            ? snapshot.attributes.expected_statuses.map((item) => String(item))
+            : [];
+          if (expectedList.length > 0) {
+            return expectedList.includes(relatedStatus);
+          }
+          const prevRelated = String(current?.attributes.related_status ?? "");
+          return relatedStatus !== "unavailable" && relatedStatus !== prevRelated;
+        }
+        return !current || snapshot.state !== current.state || snapshot.last_updated !== current.last_updated;
       }
       if (command.service === "set_temperature") {
         return jsonValuesEqual(snapshot.attributes.temperature, targetData.temperature);
       }
-      if (command.service === "set_hvac_mode" || command.service === "select_option" || command.service === "set_value") {
+      if (command.service === "set_percentage") {
+        return jsonValuesEqual(snapshot.attributes.percentage, targetData.percentage);
+      }
+      if (command.service === "set_preset_mode") {
+        return jsonValuesEqual(snapshot.attributes.preset_mode, targetData.preset_mode);
+      }
+      if (command.service === "oscillate") {
+        return jsonValuesEqual(snapshot.attributes.oscillating, targetData.oscillating);
+      }
+      if (command.service === "set_direction") {
+        return jsonValuesEqual(snapshot.attributes.direction, targetData.direction);
+      }
+      if (command.service === "set_fan_mode") {
+        return jsonValuesEqual(snapshot.attributes.fan_mode, targetData.fan_mode);
+      }
+      if (command.service === "set_swing_mode") {
+        return jsonValuesEqual(snapshot.attributes.swing_mode, targetData.swing_mode);
+      }
+      if (command.service === "set_value") {
+        const snapNum = Number(snapshot.state);
+        const targetNum = Number(targetState);
+        if (Number.isFinite(snapNum) && Number.isFinite(targetNum)) {
+          return Math.abs(snapNum - targetNum) < 1e-6;
+        }
+        return snapshot.state === targetState;
+      }
+      if (command.service === "set_hvac_mode" || command.service === "select_option") {
         return snapshot.state === targetState;
       }
       if (domain === "climate" && command.service === "turn_on") {
@@ -419,6 +490,32 @@ export class HomeAssistantGateway implements HomeGateway {
     }
 
     // 7. Verify readback state
+    if ((command.service === "press" || command.service === "send_message") && current?.attributes.has_status_criterion === false) {
+      const after = await this.transport.fetchState(command.entity_id);
+      return {
+        schema_version: "0.2",
+        receipt_id: receiptId,
+        action_id: actionId,
+        task_id: null,
+        receipt_seq: 1,
+        executor_id: "home_assistant_gateway",
+        recorded_at: nowIso,
+        status: "unverified",
+        reason_code: "action_accepted_no_state_criterion",
+        readbacks: after
+          ? [
+              {
+                kind: "device_state",
+                evidence_ids: [`readback_accepted_${Date.now()}`],
+                observed_at: after.last_updated,
+                received_at: nowIso,
+                state_version: "accepted_without_state_criterion",
+                value: { state: after.state, attributes: after.attributes },
+              },
+            ]
+          : [],
+      };
+    }
     const deadline = Date.now() + Math.max(0, Math.min(command.timeout_ms ?? 2000, 5000));
     let after = await this.transport.fetchState(command.entity_id);
     const verified = (snapshot: HomeStateSnapshot | null): boolean => {
@@ -465,7 +562,9 @@ export class HomeAssistantGateway implements HomeGateway {
       executor_id: "home_assistant_gateway",
       recorded_at: nowIso,
       status: "unverified",
-      reason_code: after ? "readback_mismatch" : "readback_timeout",
+      reason_code: after
+        ? (command.service === "press" && after.attributes.has_status_criterion === true ? "action_accepted_state_unverified" : "readback_mismatch")
+        : "readback_timeout",
       readbacks: [],
     };
   }

@@ -6,6 +6,11 @@ import type { createAppStore } from "../store";
 import { ActionButton, HorizontalValueSlider, LoadingIndicator, SelectField, TextField } from "./Controls";
 import { ActionIcon, ApplianceIcon, PowerIconButton, type ActionIconName } from "./HomeIcons";
 import type {
+  ChoiceControlPrimitive,
+  RangeControlPrimitive,
+  ToggleControlPrimitive,
+} from "@super-looi/home-devices";
+import type {
   ApplianceActionTrigger,
   HomeAppliance,
   HomeConfiguration,
@@ -27,10 +32,12 @@ const REGIONS = (): Array<{
   { value: "us", title: t("unitedStates") },
 ];
 
-function resolveActionIconName(trigger: ApplianceActionTrigger): ActionIconName {
+function resolveActionIconName(trigger: { iconKey?: ActionIconName; label: string }): ActionIconName {
   if (trigger.iconKey) {
     return trigger.iconKey;
   }
+  if (/左转/.test(trigger.label)) return "rotate_left";
+  if (/右转/.test(trigger.label)) return "rotate_right";
   if (/清扫|开始|启动|加热|连接|播放|开机|唤醒/.test(trigger.label)) return "play";
   if (/暂停/.test(trigger.label)) return "pause";
   if (/停止|取消|关机/.test(trigger.label)) return "stop";
@@ -43,8 +50,26 @@ function resolveActionIconName(trigger: ApplianceActionTrigger): ActionIconName 
   return "refresh";
 }
 
+const BASE_ROW_HEIGHT = 116;
+const GRID_GAP = 12;
+
+function parseSpanDims(span: TileSpan): { cols: 1 | 2; rows: 1 | 2 } {
+  return {
+    cols: span === "2x1" || span === "2x2" ? 2 : 1,
+    rows: span === "1x2" || span === "2x2" ? 2 : 1,
+  };
+}
+
+function formatSpanDims(cols: 1 | 2, rows: 1 | 2): TileSpan {
+  return `${cols}x${rows}` as TileSpan;
+}
+
 /** The native player has its own stable source; device refreshes update controls. */
-function CameraMonitor(props: { store: ReturnType<typeof createAppStore> }) {
+function CameraMonitor(props: {
+  store: ReturnType<typeof createAppStore>;
+  statusText?: string;
+  resolutionBadge?: string;
+}) {
   const playback = () => props.store.homeCamera();
   return (
     <View class="rounded-2xl border border-border bg-card p-4 gap-3">
@@ -89,6 +114,11 @@ function CameraMonitor(props: { store: ReturnType<typeof createAppStore> }) {
                 {translateMessage(playback().error ?? "")}
               </Text>
             </If>
+            <If when={playback().phase !== "loading" && !playback().error}>
+              <Text class="text-muted-foreground text-sm">
+                {props.statusText ?? "暂未接入实时视频流"}
+              </Text>
+            </If>
           </View>
         </If>
       </View>
@@ -105,11 +135,14 @@ function CameraMonitor(props: { store: ReturnType<typeof createAppStore> }) {
               : playback().phase === "error"
                 ? translateMessage(playback().error ?? "")
                 : playback().phase === "idle"
-                  ? t("cameraStopped")
+                  ? (props.statusText ?? t("cameraStopped"))
                   : t("cameraWaiting")}
           </Text>
           <If when={Boolean(playback().width && playback().height)}>
             <Text class="text-muted-foreground text-xs">{`${playback().width} × ${playback().height}`}</Text>
+          </If>
+          <If when={!playback().width && Boolean(props.resolutionBadge)}>
+            <Text class="text-muted-foreground text-xs">{props.resolutionBadge}</Text>
           </If>
         </View>
         <ActionButton
@@ -146,10 +179,18 @@ export function HomeSpaceView(props: {
     typeof props.store.homeSelectedRoom === "function"
       ? props.store.homeSelectedRoom()
       : "all";
-  const layoutEditing = (): boolean =>
-    typeof props.store.homeLayoutEditing === "function"
-      ? props.store.homeLayoutEditing()
-      : false;
+  const editingRoomName = (): string | null => {
+    if (typeof props.store.homeLayoutEditing !== "function") return null;
+    const raw: unknown = props.store.homeLayoutEditing();
+    if (typeof raw === "string" && raw.length > 0) return raw;
+    if (raw === true) {
+      return dashboard().rooms[0]?.name ?? null;
+    }
+    return null;
+  };
+  const isRoomEditing = (roomName: string): boolean =>
+    editingRoomName() === roomName;
+  const layoutEditing = (): boolean => editingRoomName() !== null;
   const inspectedId = (): string | null =>
     typeof props.store.homeInspectedApplianceId === "function"
       ? props.store.homeInspectedApplianceId()
@@ -157,6 +198,36 @@ export function HomeSpaceView(props: {
 
   // Track the currently selected block in free layout editing mode for 2-tap swap/placement
   const movingApplianceId = signal<string | null>(null);
+  const openRoomMenu = signal<string | null>(null);
+  const canvasWidth = signal<number>(0);
+  const resizePreview = signal<{
+    applianceId: string;
+    targetSpan: TileSpan;
+  } | null>(null);
+  const reorderPreview = signal<{
+    roomId: string;
+    appliances: HomeAppliance[];
+  } | null>(null);
+
+  let activeResizeGesture: {
+    applianceId: string;
+    startX: number;
+    startY: number;
+    initialCols: 1 | 2;
+    initialRows: 1 | 2;
+    currentCols: 1 | 2;
+    currentRows: 1 | 2;
+    mode: "right" | "bottom" | "corner";
+    didDrag: boolean;
+  } | null = null;
+
+  let activeCardDragGesture: {
+    roomName: string;
+    applianceId: string;
+    startX: number;
+    startY: number;
+    didDrag: boolean;
+  } | null = null;
 
   // Service binding form signals
   const activeServiceTab = signal<HomeSourceId>("direct_miot");
@@ -176,7 +247,23 @@ export function HomeSpaceView(props: {
   });
 
   const isWide = () => windowSize().width >= 660;
-  const gridColumns = () => (windowSize().width >= 900 ? 4 : windowSize().width >= 560 ? 3 : 2);
+  const usableCanvasWidth = () => {
+    const measured = canvasWidth();
+    if (measured > 0) {
+      return Math.max(208, measured - 56);
+    }
+    const winW = windowSize().width;
+    return Math.max(208, winW >= 660 ? winW - 204 - 56 : winW - 48);
+  };
+  const gridColumns = () => {
+    const usable = usableCanvasWidth();
+    return Math.max(1, Math.floor((usable + GRID_GAP) / (208 + GRID_GAP)));
+  };
+  const singleColumnWidth = () => {
+    const cols = gridColumns();
+    const usable = usableCanvasWidth();
+    return Math.max(160, (usable - (cols - 1) * GRID_GAP) / cols);
+  };
 
   const visibleRooms = (): HomeRoomSection[] => {
     const all = dashboard().rooms;
@@ -193,9 +280,10 @@ export function HomeSpaceView(props: {
     return dashboard().allAppliances.find((a) => a.id === id);
   };
 
-  const enterLayoutEditWithCard = (applianceId: string) => {
+  const enterLayoutEditWithCard = (roomName: string, applianceId: string) => {
     props.store.setHomeInspectedApplianceId(null);
-    props.store.setHomeLayoutEditing(true);
+    openRoomMenu.set(null);
+    props.store.setHomeLayoutEditing(roomName);
     movingApplianceId.set(applianceId);
   };
 
@@ -246,11 +334,15 @@ export function HomeSpaceView(props: {
   };
 
   const selectMode = (modeCap: ModeBarCapability, nextOption: string) => {
+    const payloadValue =
+      modeCap.parameterKey === "percentage" || modeCap.service === "set_percentage"
+        ? Number(nextOption)
+        : nextOption;
     void props.store.controlHomeAppliance({
       entity_id: modeCap.entityId,
       domain: modeCap.domain,
       service: modeCap.service,
-      service_data: { [modeCap.parameterKey]: nextOption },
+      service_data: { [modeCap.parameterKey]: payloadValue },
     });
   };
 
@@ -304,662 +396,1116 @@ export function HomeSpaceView(props: {
     void props.store.setHomeApplianceLayout(appliance.id, { span: nextSpan });
   };
 
-  const moveApplianceOrder = (room: HomeRoomSection, appliance: HomeAppliance, delta: -1 | 1) => {
-    const liveRoom = dashboard().rooms.find((r) => r.id === room.id) ?? room;
-    const idx = liveRoom.appliances.findIndex((a) => a.id === appliance.id);
+  const dispatchTogglePrimitive = (ctrl: ToggleControlPrimitive) => {
+    const service = ctrl.isOn ? (ctrl.serviceOff ?? "turn_off") : (ctrl.serviceOn ?? "turn_on");
+    const serviceData = (ctrl.isOn ? ctrl.serviceDataOff : ctrl.serviceDataOn) ?? {};
+    if (
+      (service === "turn_on" || service === "turn_off") &&
+      Object.keys(serviceData).length === 0
+    ) {
+      togglePower(ctrl.entityId, ctrl.domain, ctrl.isOn);
+      return;
+    }
+    void props.store.controlHomeAppliance({
+      entity_id: ctrl.entityId,
+      domain: ctrl.domain,
+      service,
+      service_data: serviceData,
+    });
+  };
+
+  const dispatchChoicePrimitive = (ctrl: ChoiceControlPrimitive, nextOption: string) => {
+    const payloadValue =
+      ctrl.parameterKey === "percentage" || ctrl.service === "set_percentage"
+        ? Number(nextOption)
+        : nextOption;
+    void props.store.controlHomeAppliance({
+      entity_id: ctrl.entityId,
+      domain: ctrl.domain,
+      service: ctrl.service,
+      service_data: { [ctrl.parameterKey]: payloadValue },
+    });
+  };
+
+  const dispatchRangePrimitive = (ctrl: RangeControlPrimitive, rawValue: number) => {
+    const step = ctrl.step > 0 ? ctrl.step : 1;
+    const clamped = Math.max(ctrl.min, Math.min(ctrl.max, Math.round(rawValue / step) * step));
+    if (
+      (ctrl.id === "brightness" || ctrl.parameterKey === "brightness_pct") &&
+      ctrl.domain === "light"
+    ) {
+      setLightBrightness(ctrl.entityId, clamped);
+      return;
+    }
+    if (
+      (ctrl.id === "color_temp" || ctrl.parameterKey === "color_temp_kelvin") &&
+      ctrl.domain === "light"
+    ) {
+      setLightColorTemp(ctrl.entityId, clamped);
+      return;
+    }
+    void props.store.controlHomeAppliance({
+      entity_id: ctrl.entityId,
+      domain: ctrl.domain,
+      service: ctrl.service,
+      service_data: { [ctrl.parameterKey]: clamped },
+    });
+  };
+
+  const previewApplianceOrder = (room: HomeRoomSection, appliance: HomeAppliance, delta: number) => {
+    if (delta === 0) return;
+    const currentPreview = reorderPreview();
+    const baseList =
+      currentPreview && currentPreview.roomId === room.id
+        ? currentPreview.appliances
+        : (dashboard().rooms.find((r) => r.id === room.id) ?? room).appliances;
+    const idx = baseList.findIndex((a) => a.id === appliance.id);
     if (idx < 0) return;
-    const swapIdx = idx + delta;
-    if (swapIdx < 0 || swapIdx >= liveRoom.appliances.length) return;
-    const nextList = [...liveRoom.appliances];
-    const temp = nextList[idx]!;
-    nextList[idx] = nextList[swapIdx]!;
-    nextList[swapIdx] = temp;
+    const targetIdx = Math.max(0, Math.min(baseList.length - 1, idx + delta));
+    if (targetIdx === idx) return;
+    const nextList = [...baseList];
+    const [moved] = nextList.splice(idx, 1);
+    if (!moved) return;
+    nextList.splice(targetIdx, 0, moved);
+    reorderPreview.set({
+      roomId: room.id,
+      appliances: nextList,
+    });
+  };
+
+  const commitApplianceOrderPreview = (roomId: string) => {
+    const currentPreview = reorderPreview();
+    reorderPreview.set(null);
+    if (!currentPreview || currentPreview.roomId !== roomId) return;
     void props.store.reorderHomeAppliances(
-      nextList.map((item, i) => ({ id: item.id, order: (i + 1) * 10 })),
+      currentPreview.appliances.map((item, i) => ({ id: item.id, order: (i + 1) * 10 })),
     );
+  };
+
+  const startResizeGesture = (
+    appliance: HomeAppliance,
+    mode: "right" | "bottom" | "corner",
+    x: number,
+    y: number,
+  ) => {
+    const dims = parseSpanDims(appliance.span);
+    activeResizeGesture = {
+      applianceId: appliance.id,
+      startX: x,
+      startY: y,
+      initialCols: dims.cols,
+      initialRows: dims.rows,
+      currentCols: dims.cols,
+      currentRows: dims.rows,
+      mode,
+      didDrag: false,
+    };
+    resizePreview.set({
+      applianceId: appliance.id,
+      targetSpan: appliance.span,
+    });
+  };
+
+  const updateResizeGesture = (appliance: HomeAppliance, x: number, y: number) => {
+    if (!activeResizeGesture || activeResizeGesture.applianceId !== appliance.id) return;
+    const dx = x - activeResizeGesture.startX;
+    const dy = y - activeResizeGesture.startY;
+    let nextCols = activeResizeGesture.currentCols;
+    let nextRows = activeResizeGesture.currentRows;
+    const halfCol = Math.min(96, Math.max(44, singleColumnWidth() * 0.5));
+    const halfRow = BASE_ROW_HEIGHT * 0.5;
+    const hysteresis = 8;
+
+    if (activeResizeGesture.mode === "right" || activeResizeGesture.mode === "corner") {
+      if (activeResizeGesture.initialCols === 1) {
+        if (dx >= halfCol + hysteresis) nextCols = 2;
+        else if (dx <= halfCol - hysteresis) nextCols = 1;
+      } else {
+        if (dx <= -(halfCol + hysteresis)) nextCols = 1;
+        else if (dx >= -(halfCol - hysteresis)) nextCols = 2;
+      }
+      if (Math.abs(dx) > 12) activeResizeGesture.didDrag = true;
+    }
+
+    if (activeResizeGesture.mode === "bottom" || activeResizeGesture.mode === "corner") {
+      if (activeResizeGesture.initialRows === 1) {
+        if (dy >= halfRow + hysteresis) nextRows = 2;
+        else if (dy <= halfRow - hysteresis) nextRows = 1;
+      } else {
+        if (dy <= -(halfRow + hysteresis)) nextRows = 1;
+        else if (dy >= -(halfRow - hysteresis)) nextRows = 2;
+      }
+      if (Math.abs(dy) > 12) activeResizeGesture.didDrag = true;
+    }
+
+    activeResizeGesture.currentCols = nextCols;
+    activeResizeGesture.currentRows = nextRows;
+    const targetSpan = formatSpanDims(nextCols, nextRows);
+    const currentPreview = resizePreview();
+    if (!currentPreview || currentPreview.targetSpan !== targetSpan) {
+      resizePreview.set({
+        applianceId: appliance.id,
+        targetSpan,
+      });
+    }
+  };
+
+  let lastResizeTouchEndMs = 0;
+
+  const endResizeGesture = (appliance: HomeAppliance, mode: "right" | "bottom" | "corner") => {
+    const gesture = activeResizeGesture;
+    activeResizeGesture = null;
+    const preview = resizePreview();
+    resizePreview.set(null);
+
+    if (gesture && gesture.applianceId === appliance.id && gesture.didDrag && preview) {
+      if (preview.targetSpan !== appliance.span) {
+        setApplianceSpan(appliance, preview.targetSpan);
+      }
+      return;
+    }
+
+    // Tap fallback on resize handles for quick one-handed or accessibility toggling
+    const dims = parseSpanDims(appliance.span);
+    if (mode === "right") {
+      const nextCols: 1 | 2 = dims.cols === 1 ? 2 : 1;
+      setApplianceSpan(appliance, formatSpanDims(nextCols, dims.rows));
+    } else if (mode === "bottom") {
+      const nextRows: 1 | 2 = dims.rows === 1 ? 2 : 1;
+      setApplianceSpan(appliance, formatSpanDims(dims.cols, nextRows));
+    } else {
+      const order: TileSpan[] = ["1x1", "2x1", "1x2", "2x2"];
+      const idx = order.indexOf(appliance.span);
+      const nextSpan = order[(idx + 1) % order.length] ?? "1x1";
+      setApplianceSpan(appliance, nextSpan);
+    }
   };
 
   // --- Bento Card Sub-Renderers ---
 
-  const renderEditOverlay = (room: HomeRoomSection, appliance: HomeAppliance) => {
-    const spans: Array<{ value: TileSpan; label: string }> = [
-      { value: "1x1", label: t("spanSmall") },
-      { value: "2x1", label: t("spanWide") },
-      { value: "2x2", label: t("spanLarge") },
-    ];
-    const isMovingThis = () => movingApplianceId() === appliance.id;
-    const hasMovingOther = () =>
-      movingApplianceId() !== null && movingApplianceId() !== appliance.id;
-
+  const renderEditHandlesOverlay = (app: () => HomeAppliance) => {
     return (
-      <View class="mt-2 pt-2 border-t border-border gap-1.5">
-        <View class="flex-row items-center justify-between gap-1 flex-wrap">
-          <View class="flex-row items-center gap-1">
-            {spans.map((sp) => (
-              <Button
-                testID={`home-span-opt-${appliance.id}-${sp.value}`}
-                hitSlop={8}
-                selected={appliance.span === sp.value}
-                onPress={() => setApplianceSpan(appliance, sp.value)}
-                class={
-                  appliance.span === sp.value
-                    ? "min-h-7 px-2 rounded-lg bg-primary items-center justify-center active:opacity-75"
-                    : "min-h-7 px-2 rounded-lg bg-muted border border-border items-center justify-center active:opacity-75"
-                }
-              >
-                <Text
-                  class={
-                    appliance.span === sp.value
-                      ? "text-primary-foreground text-xs font-semibold"
-                      : "text-muted-foreground text-xs font-medium"
-                  }
-                >
-                  {sp.label}
-                </Text>
-              </Button>
-            ))}
-          </View>
-          <View class="flex-row items-center gap-1">
-            <Button
-              testID={`home-order-up-${appliance.id}`}
-              hitSlop={8}
-              accessibilityLabel={t("moveEarlier")}
-              onPress={() => moveApplianceOrder(room, appliance, -1)}
-              class="w-7 h-7 rounded-lg bg-muted border border-border items-center justify-center active:opacity-75"
-            >
-              <ActionIcon name="move_left" tone="foreground" size={14} />
-            </Button>
-            <Button
-              testID={`home-order-down-${appliance.id}`}
-              hitSlop={8}
-              accessibilityLabel={t("moveLater")}
-              onPress={() => moveApplianceOrder(room, appliance, 1)}
-              class="w-7 h-7 rounded-lg bg-muted border border-border items-center justify-center active:opacity-75"
-            >
-              <ActionIcon name="move_right" tone="foreground" size={14} />
-            </Button>
-          </View>
-        </View>
-        <Button
-          testID={`home-swap-btn-${appliance.id}`}
-          hitSlop={8}
-          selected={isMovingThis()}
-          onPress={() => handleCardPressInEditMode(room, appliance.id)}
-          class={
-            isMovingThis()
-              ? "min-h-7 rounded-lg bg-primary px-2.5 flex-row items-center justify-center gap-1.5 active:opacity-75"
-              : hasMovingOther()
-                ? "min-h-7 rounded-lg bg-live-active-bg border border-verified px-2.5 flex-row items-center justify-center gap-1.5 active:opacity-75"
-                : "min-h-7 rounded-lg bg-muted border border-border px-2.5 flex-row items-center justify-center gap-1.5 active:opacity-75"
-          }
+      <View
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          pointerEvents: "box-none",
+        }}
+      >
+        {/* Right Edge Resize Handle (44dp wide touch zone) */}
+        <View
+          testID={`home-resize-right-${app().id}`}
+          role="button"
+          accessibilityLabel={`${app().displayName ?? app().name} 调整宽度`}
+          onTouchStart={(e) => startResizeGesture(app(), "right", e.pageX, e.pageY)}
+          onTouchMove={(e) => updateResizeGesture(app(), e.pageX, e.pageY)}
+          onTouchEnd={() => {
+            lastResizeTouchEndMs = Date.now();
+            endResizeGesture(app(), "right");
+          }}
+          onPress={() => {
+            if (Date.now() - lastResizeTouchEndMs < 400) return;
+            endResizeGesture(app(), "right");
+          }}
+          onTouchCancel={() => {
+            activeResizeGesture = null;
+            resizePreview.set(null);
+          }}
+          style={{
+            position: "absolute",
+            right: -6,
+            top: 20,
+            bottom: 36,
+            width: 44,
+          }}
+          class="items-end justify-center pr-2"
         >
-          <ActionIcon
-            name={isMovingThis() ? "check" : "swap"}
-            tone={isMovingThis() ? "primaryFg" : hasMovingOther() ? "verified" : "muted"}
-            size={13}
-          />
-          <Text
-            class={
-              isMovingThis()
-                ? "text-primary-foreground text-xs font-semibold"
-                : hasMovingOther()
-                  ? "text-verified text-xs font-semibold"
-                  : "text-muted-foreground text-xs font-medium"
-            }
-          >
-            {isMovingThis()
-              ? t("movingSelected")
-              : hasMovingOther()
-                ? t("swapWithSelected")
-                : t("selectToMove")}
-          </Text>
-        </Button>
+          <View class="w-1.5 h-8 rounded-full bg-primary opacity-75" />
+        </View>
+
+        {/* Bottom Edge Resize Handle (44dp tall touch zone) */}
+        <View
+          testID={`home-resize-bottom-${app().id}`}
+          role="button"
+          accessibilityLabel={`${app().displayName ?? app().name} 调整高度`}
+          onTouchStart={(e) => startResizeGesture(app(), "bottom", e.pageX, e.pageY)}
+          onTouchMove={(e) => updateResizeGesture(app(), e.pageX, e.pageY)}
+          onTouchEnd={() => {
+            lastResizeTouchEndMs = Date.now();
+            endResizeGesture(app(), "bottom");
+          }}
+          onPress={() => {
+            if (Date.now() - lastResizeTouchEndMs < 400) return;
+            endResizeGesture(app(), "bottom");
+          }}
+          onTouchCancel={() => {
+            activeResizeGesture = null;
+            resizePreview.set(null);
+          }}
+          style={{
+            position: "absolute",
+            left: 24,
+            right: 40,
+            bottom: -6,
+            height: 44,
+          }}
+          class="items-center justify-end pb-2"
+        >
+          <View class="w-8 h-1.5 rounded-full bg-primary opacity-75" />
+        </View>
+
+        {/* Bottom-Right Corner 2D Resize Handle (44x44dp touch zone) */}
+        <View
+          testID={`home-resize-corner-${app().id}`}
+          role="button"
+          accessibilityLabel={`${app().displayName ?? app().name} 调整尺寸`}
+          onTouchStart={(e) => startResizeGesture(app(), "corner", e.pageX, e.pageY)}
+          onTouchMove={(e) => updateResizeGesture(app(), e.pageX, e.pageY)}
+          onTouchEnd={() => {
+            lastResizeTouchEndMs = Date.now();
+            endResizeGesture(app(), "corner");
+          }}
+          onPress={() => {
+            if (Date.now() - lastResizeTouchEndMs < 400) return;
+            endResizeGesture(app(), "corner");
+          }}
+          onTouchCancel={() => {
+            activeResizeGesture = null;
+            resizePreview.set(null);
+          }}
+          style={{
+            position: "absolute",
+            right: -2,
+            bottom: -2,
+            width: 44,
+            height: 44,
+          }}
+          class="items-end justify-end p-2"
+        >
+          <View class="w-4 h-4 rounded-br-lg border-r-2 border-b-2 border-primary" />
+        </View>
       </View>
     );
   };
 
-  const renderCameraCardBody = (room: HomeRoomSection, appliance: HomeAppliance) => {
-    const vs = appliance.capabilities.visionStream;
-    const isLarge = appliance.span === "2x2";
-    const isWideCard = appliance.span === "2x1";
+  const renderCameraCardBody = (
+    room: () => HomeRoomSection,
+    app: () => HomeAppliance,
+    activeSpan: () => TileSpan,
+  ) => {
+    const vs = () => app().capabilities.visionStream;
+    const isLarge = () => activeSpan() === "2x2";
+    const isExpanded = () => activeSpan() !== "1x1";
 
     return (
-      <View class="gap-2.5 mt-1">
-        <If when={isLarge || isWideCard}>
+      <View class="gap-2 mt-1">
+        <If when={isExpanded()}>
           <View
             role="button"
             onPress={() => {
-              if (layoutEditing()) {
-                handleCardPressInEditMode(room, appliance.id);
+              if (isRoomEditing(room().name)) {
+                handleCardPressInEditMode(room(), app().id);
               } else {
-                props.store.setHomeInspectedApplianceId(appliance.id);
+                props.store.setHomeInspectedApplianceId(app().id);
               }
             }}
-            onLongPress={() => enterLayoutEditWithCard(appliance.id)}
-            class="w-full rounded-xl bg-secondary border border-border p-3 justify-between active:opacity-80"
-            style={{ minHeight: isLarge ? 124 : 74 }}
+            onLongPress={() => enterLayoutEditWithCard(room().name, app().id)}
+            class="w-full rounded-xl bg-secondary border border-border p-2.5 justify-between active:opacity-80"
+            style={{ minHeight: isLarge() || activeSpan() === "1x2" ? 112 : 54 }}
           >
             <View class="flex-row items-center justify-between gap-2">
               <View class="flex-row items-center gap-1.5 px-2 py-0.5 rounded-full bg-card border border-border">
                 <View
                   class={
-                    appliance.online && appliance.isActive
+                    app().online && app().isActive
                       ? "w-2 h-2 rounded-full bg-verified"
                       : "w-2 h-2 rounded-full bg-muted-foreground"
                   }
                 />
                 <Text class="text-foreground text-xs font-semibold">
-                  {vs?.statusText ?? appliance.statusBadge}
+                  {vs()?.statusText ?? app().statusBadge}
                 </Text>
               </View>
-              <Text class="text-muted-foreground text-xs font-medium">
-                {vs?.resolutionBadge ?? ""}
-              </Text>
+              <If when={Boolean(vs()?.resolutionBadge)}>
+                <Text class="text-muted-foreground text-xs font-medium">
+                  {vs()?.resolutionBadge}
+                </Text>
+              </If>
             </View>
 
-            <View class="flex-row items-center justify-between gap-2 mt-2">
+            <View class="flex-row items-center justify-between gap-2 mt-1.5">
               <View class="flex-row items-center gap-1.5 flex-1">
-                <ActionIcon name="shield" tone="muted" size={14} />
-                <Text class="text-muted-foreground text-xs flex-1" style={{ numberOfLines: 1 }}>
-                  {vs?.lastMotionText ?? appliance.conciseSubtitle}
+                <ActionIcon name="shield" tone="muted" size={13} />
+                <Text
+                  class="text-muted-foreground text-xs flex-1"
+                  style={{ numberOfLines: 1 }}
+                >
+                  {vs()?.lastMotionText ?? app().conciseSubtitle}
                 </Text>
               </View>
-              <If when={Boolean(vs?.storageUsedPercent !== undefined)}>
+              <If when={Boolean(vs()?.storageUsedPercent !== undefined)}>
                 <Text class="text-muted-foreground text-xs">
-                  SD {vs?.storageUsedPercent}%
+                  SD {vs()?.storageUsedPercent}%
                 </Text>
               </If>
             </View>
           </View>
         </If>
 
-        <If when={isLarge && (vs?.featureToggles.length ?? 0) > 0}>
+        <If when={isLarge() && (vs()?.featureToggles.length ?? 0) > 0}>
           <View class="flex-row items-center gap-1.5 flex-wrap">
-            {(vs?.featureToggles ?? []).slice(0, 3).map((tog) => (
-              <Button
-                testID={`home-cam-tog-${tog.id}`}
-                disabled={!tog.controllable}
-                selected={tog.isOn}
-                onPress={() => togglePower(tog.entityId, tog.domain, tog.isOn)}
-                class={
-                  tog.isOn
-                    ? "min-h-8 px-2.5 rounded-lg bg-primary flex-row items-center justify-center gap-1 active:opacity-75 disabled:opacity-40"
-                    : "min-h-8 px-2.5 rounded-lg bg-muted border border-border flex-row items-center justify-center gap-1 active:opacity-75 disabled:opacity-40"
-                }
-              >
-                <Text
-                  class={
-                    tog.isOn
-                      ? "text-primary-foreground text-xs font-semibold"
-                      : "text-foreground text-xs font-medium"
-                  }
-                >
-                  {tog.label}
-                </Text>
-              </Button>
-            ))}
-          </View>
-        </If>
-      </View>
-    );
-  };
-
-  const renderVacuumCardBody = (appliance: HomeAppliance) => {
-    const vac = appliance.capabilities.vacuum;
-    const actions = appliance.capabilities.actions ?? [];
-    const isExpanded = appliance.span === "2x1" || appliance.span === "2x2";
-    if (!vac) return null;
-
-    return (
-      <View class="gap-2.5 mt-1">
-        <If when={isExpanded}>
-          <View class="rounded-xl bg-muted border border-border px-3 py-2.5 flex-row items-center justify-between gap-3">
-            <View class="gap-0.5 flex-1" style={{ minWidth: 0 }}>
-              <Text class="text-foreground text-base font-bold" style={{ numberOfLines: 1 }}>
-                {vac.statusLabel}
-              </Text>
-              <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 1 }}>
-                {[
-                  vac.batteryPercent !== undefined ? `电量 ${vac.batteryPercent}%` : undefined,
-                  vac.cleaningAreaSqm !== undefined ? `面积 ${vac.cleaningAreaSqm}㎡` : undefined,
-                  vac.cleaningMinutes !== undefined ? `${vac.cleaningMinutes}分钟` : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || vac.chargingLabel || "基站就绪"}
-              </Text>
-            </View>
-
-            <If when={actions.length > 0}>
-              <View class="flex-row items-center gap-1.5">
-                {actions.slice(0, 3).map((act) => (
-                  <Button
-                    testID={`home-vac-act-${act.id}`}
-                    onPress={() => triggerAction(act)}
-                    class={
-                      act.tone === "primary"
-                        ? "min-h-9 px-3 rounded-lg bg-primary flex-row items-center justify-center gap-1 active:opacity-75"
-                        : "min-h-9 px-2.5 rounded-lg bg-card border border-border flex-row items-center justify-center gap-1 active:opacity-75"
-                    }
-                  >
-                    <ActionIcon
-                      name={resolveActionIconName(act)}
-                      tone={act.tone === "primary" ? "primaryFg" : "foreground"}
-                      size={14}
-                    />
-                    <Text
-                      class={
-                        act.tone === "primary"
-                          ? "text-primary-foreground text-xs font-semibold"
-                          : "text-foreground text-xs font-medium"
-                      }
-                    >
-                      {act.label}
-                    </Text>
-                  </Button>
-                ))}
-              </View>
-            </If>
-          </View>
-        </If>
-
-        <If when={appliance.span === "2x2" && vac.consumables.length > 0}>
-          <View class="flex-row items-center gap-2 flex-wrap">
-            {vac.consumables.slice(0, 4).map((c) => (
-              <View class="px-2.5 py-1 rounded-lg bg-muted border border-border flex-row items-center gap-1.5">
-                <Text class="text-muted-foreground text-xs">{c.label.replace("寿命", "")}</Text>
-                <Text class="text-foreground text-xs font-semibold">{c.percent}%</Text>
-              </View>
-            ))}
-          </View>
-        </If>
-      </View>
-    );
-  };
-
-  const renderCycleCardBody = (appliance: HomeAppliance) => {
-    if (appliance.icon === "vacuum" && appliance.capabilities.vacuum) {
-      return renderVacuumCardBody(appliance);
-    }
-    const cycle = appliance.capabilities.cycleTask;
-    const actions = appliance.capabilities.actions ?? [];
-    const isExpanded = appliance.span === "2x1" || appliance.span === "2x2";
-    const isLarge = appliance.span === "2x2";
-
-    if (!cycle) return null;
-
-    return (
-      <View class="gap-2.5 mt-1">
-        <If when={isExpanded}>
-          <View class="flex-row items-center justify-between gap-3 rounded-xl bg-muted border border-border px-3 py-2.5">
-            <View class="gap-0.5">
-              <Text class="text-foreground text-lg font-bold">
-                {cycle.remainingMinutes !== undefined && cycle.remainingMinutes > 0
-                  ? `${cycle.remainingMinutes} min`
-                  : cycle.stageLabel}
-              </Text>
-              <Text class="text-muted-foreground text-xs">
-                {cycle.temperatureCelsius !== undefined
-                  ? `${cycle.stageLabel} · ${cycle.temperatureCelsius}°C`
-                  : cycle.recipeLabel
-                    ? `${cycle.recipeLabel} · ${cycle.stageLabel}`
-                    : cycle.stageLabel}
-              </Text>
-            </View>
-
-            <View class="flex-1 gap-1.5" style={{ minWidth: 0 }}>
-              <View class="flex-row items-center gap-1">
-                {cycle.stages.map((st, idx) => (
-                  <View
-                    class={
-                      idx <= cycle.activeStageIndex && cycle.isRunning
-                        ? "flex-1 h-1.5 rounded-full bg-verified"
-                        : idx === cycle.activeStageIndex
-                          ? "flex-1 h-1.5 rounded-full bg-primary"
-                          : "flex-1 h-1.5 rounded-full bg-border"
-                    }
-                  />
-                ))}
-              </View>
-              <View class="flex-row items-center justify-between">
-                <Text class="text-muted-foreground text-xs">{cycle.stages[0]}</Text>
-                <Text class="text-foreground text-xs font-semibold">{cycle.stageLabel}</Text>
-                <Text class="text-muted-foreground text-xs">
-                  {cycle.stages[cycle.stages.length - 1]}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </If>
-
-        <If when={(isExpanded || isLarge) && actions.length > 0}>
-          <View class="flex-row items-center gap-1.5 flex-wrap">
-            {actions.slice(0, isLarge ? 4 : 3).map((act) => (
-              <Button
-                testID={`home-cycle-act-${act.id}`}
-                onPress={() => triggerAction(act)}
-                class={
-                  act.tone === "primary"
-                    ? "min-h-8 px-3 rounded-lg bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
-                    : "min-h-8 px-2.5 rounded-lg bg-muted border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
-                }
-              >
-                <ActionIcon
-                  name={resolveActionIconName(act)}
-                  tone={act.tone === "primary" ? "primaryFg" : "foreground"}
-                  size={13}
-                />
-                <Text
-                  class={
-                    act.tone === "primary"
-                      ? "text-primary-foreground text-xs font-semibold"
-                      : "text-foreground text-xs font-medium"
-                  }
-                >
-                  {act.label}
-                </Text>
-              </Button>
-            ))}
-          </View>
-        </If>
-      </View>
-    );
-  };
-
-  const renderClimateCardBody = (appliance: HomeAppliance) => {
-    const therm = appliance.capabilities.thermostat;
-    const modeBar = appliance.capabilities.modeBar;
-    const isExpanded = appliance.span === "2x1" || appliance.span === "2x2";
-    const isLarge = appliance.span === "2x2";
-
-    if (!isExpanded) return null;
-
-    return (
-      <View class="gap-2.5 mt-1">
-        <If when={Boolean(therm)}>
-          <View class="flex-row items-center justify-between gap-2 rounded-xl bg-muted border border-border px-3 py-2">
-            <Button
-              testID={`home-therm-minus-${appliance.id}`}
-              disabled={!therm?.controllable}
-              accessibilityLabel="-"
-              onPress={() =>
-                therm &&
-                adjustThermostat(
-                  therm.entityId,
-                  therm.domain,
-                  therm.targetTemp - therm.step,
-                  therm.minTemp,
-                  therm.maxTemp,
-                  therm.step,
-                )
-              }
-              class="w-9 h-9 rounded-lg bg-card border border-border items-center justify-center active:opacity-75 disabled:opacity-35"
-            >
-              <ActionIcon name="minus" tone="foreground" size={16} />
-            </Button>
-
-            <View class="items-center">
-              <Text class="text-foreground text-xl font-bold">
-                {therm?.targetTemp}
-                {therm?.unit ?? "°C"}
-              </Text>
-              <If when={therm?.currentTemp !== undefined}>
-                <Text class="text-muted-foreground text-xs">
-                  室温 {therm?.currentTemp}°C
-                </Text>
-              </If>
-            </View>
-
-            <Button
-              testID={`home-therm-plus-${appliance.id}`}
-              disabled={!therm?.controllable}
-              accessibilityLabel="+"
-              onPress={() =>
-                therm &&
-                adjustThermostat(
-                  therm.entityId,
-                  therm.domain,
-                  therm.targetTemp + therm.step,
-                  therm.minTemp,
-                  therm.maxTemp,
-                  therm.step,
-                )
-              }
-              class="w-9 h-9 rounded-lg bg-card border border-border items-center justify-center active:opacity-75 disabled:opacity-35"
-            >
-              <ActionIcon name="plus" tone="foreground" size={16} />
-            </Button>
-          </View>
-        </If>
-
-        <If when={Boolean(modeBar) && (isLarge || !therm)}>
-          <View class="flex-row items-center gap-1.5 flex-wrap">
-            {(modeBar?.options ?? []).slice(0, 4).map((opt) => (
-              <Button
-                testID={`home-mode-${appliance.id}-${opt.value}`}
-                disabled={!modeBar?.controllable}
-                selected={modeBar?.currentMode === opt.value}
-                onPress={() => modeBar && selectMode(modeBar, opt.value)}
-                class={
-                  modeBar?.currentMode === opt.value
-                    ? "min-h-8 px-2.5 rounded-lg bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
-                    : "min-h-8 px-2.5 rounded-lg bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
-                }
-              >
-                <Text
-                  class={
-                    modeBar?.currentMode === opt.value
-                      ? "text-primary-foreground text-xs font-semibold"
-                      : "text-foreground text-xs font-medium"
-                  }
-                >
-                  {opt.label}
-                </Text>
-              </Button>
-            ))}
-          </View>
-        </If>
-      </View>
-    );
-  };
-
-  const renderMultiGangCardBody = (appliance: HomeAppliance) => {
-    const mg = appliance.capabilities.multiGang;
-    if (!mg) return null;
-
-    return (
-      <View class="flex-row items-center gap-1.5 mt-1.5">
-        {mg.channels.map((ch) => (
-          <Button
-            testID={`home-gang-${ch.id}`}
-            disabled={!ch.controllable}
-            selected={ch.isOn}
-            onPress={() => togglePower(ch.entityId, ch.domain, ch.isOn)}
-            class={
-              ch.isOn
-                ? "flex-1 min-h-10 rounded-xl bg-primary px-2 py-1.5 items-center justify-center gap-0.5 active:opacity-75 disabled:opacity-40"
-                : "flex-1 min-h-10 rounded-xl bg-muted border border-border px-2 py-1.5 items-center justify-center gap-0.5 active:opacity-75 disabled:opacity-40"
-            }
-          >
-            <ActionIcon
-              name="power"
-              tone={ch.isOn ? "primaryFg" : "muted"}
-              size={13}
-            />
-            <Text
-              class={
-                ch.isOn
-                  ? "text-primary-foreground text-xs font-semibold"
-                  : "text-foreground text-xs font-medium"
-              }
-              style={{ numberOfLines: 1 }}
-            >
-              {ch.label}
-            </Text>
-          </Button>
-        ))}
-      </View>
-    );
-  };
-
-  const renderApplianceCard = (room: HomeRoomSection, appliance: HomeAppliance) => {
-    const cols = gridColumns();
-    const effectiveColSpan =
-      appliance.span === "1x1" ? 1 : Math.min(2, cols);
-    const power = appliance.capabilities.power;
-    const isMovingSelected = () => layoutEditing() && movingApplianceId() === appliance.id;
-
-    const cardBorderClass = () => {
-      if (isMovingSelected()) {
-        return "rounded-2xl border-2 border-primary bg-card p-3.5 justify-between";
-      }
-      if (appliance.isActive) {
-        return "rounded-2xl border border-ring bg-card p-3.5 justify-between";
-      }
-      return "rounded-2xl border border-border bg-card p-3.5 justify-between";
-    };
-
-    return (
-      <View
-        style={{
-          gridColumn: `span ${effectiveColSpan}`,
-          gridRow: appliance.span === "2x2" ? "span 2" : "span 1",
-          minHeight: appliance.span === "2x2" ? 210 : 112,
-        }}
-        class={cardBorderClass()}
-      >
-        <View class="gap-2">
-          {/* Card Header: Icon + Name + Subtitle on Left, Power Icon Button or Status Badge on Right */}
-          <View class="flex-row items-start justify-between gap-2">
-            <View
-              testID={`home-card-${appliance.id}`}
-              role="button"
-              accessibilityLabel={`${appliance.name} · ${appliance.conciseSubtitle}`}
-              onPress={() => {
-                if (layoutEditing()) {
-                  handleCardPressInEditMode(room, appliance.id);
-                } else {
-                  props.store.setHomeInspectedApplianceId(appliance.id);
-                }
-              }}
-              onLongPress={() => enterLayoutEditWithCard(appliance.id)}
-              class="flex-1 flex-row items-center gap-2.5 active:opacity-75"
-              style={{ minWidth: 0 }}
-            >
-              <ApplianceIcon
-                kind={appliance.icon}
-                active={appliance.isActive}
-                size="md"
-              />
-              <View class="flex-1 gap-0.5" style={{ minWidth: 0 }}>
-                <Text
-                  class="text-foreground text-sm font-semibold"
-                  style={{ numberOfLines: 1 }}
-                >
-                  {appliance.name}
-                </Text>
-                <Text
-                  class={
-                    appliance.isActive
-                      ? "text-foreground text-xs font-medium"
-                      : "text-muted-foreground text-xs"
-                  }
-                  style={{ numberOfLines: 1 }}
-                >
-                  {appliance.conciseSubtitle}
-                </Text>
-              </View>
-            </View>
-
-            <If
-              when={Boolean(power && power.controllable && !layoutEditing())}
-              else={
-                <View
-                  class={
-                    appliance.isActive
-                      ? "px-2 py-1 rounded-full bg-live-active-bg border border-verified"
-                      : "px-2 py-1 rounded-full bg-muted border border-border"
-                  }
-                >
-                  <Text
-                    class={
-                      appliance.isActive
-                        ? "text-verified text-xs font-semibold"
-                        : "text-muted-foreground text-xs"
-                    }
-                  >
-                    {appliance.statusBadge}
-                  </Text>
-                </View>
-              }
-            >
-              <PowerIconButton
-                testID={`home-power-${appliance.id}`}
-                isOn={Boolean(power?.isOn)}
-                disabled={!power?.controllable}
-                size="sm"
-                accessibilityLabel={`${appliance.name} ${power?.isOn ? t("powerOff") : t("powerOn")}`}
-                onPress={() =>
-                  power && togglePower(power.entityId, power.domain, power.isOn)
-                }
-              />
-            </If>
-          </View>
-
-          {/* Domain-specific card body */}
-          <If when={appliance.icon === "camera"}>
-            {renderCameraCardBody(room, appliance)}
-          </If>
-          <If when={appliance.archetype === "cycle_appliance"}>
-            {renderCycleCardBody(appliance)}
-          </If>
-          <If when={appliance.archetype === "climate"}>
-            {renderClimateCardBody(appliance)}
-          </If>
-          <If when={appliance.icon === "switch_gang"}>
-            {renderMultiGangCardBody(appliance)}
-          </If>
-          <If
-            when={
-              (appliance.icon === "feeder" ||
-                appliance.icon === "waterer" ||
-                appliance.archetype === "media") &&
-              (appliance.capabilities.actions?.length ?? 0) > 0 &&
-              appliance.span !== "1x1"
-            }
-          >
-            <View class="flex-row items-center gap-1.5 mt-1 flex-wrap">
-              {(appliance.capabilities.actions ?? []).slice(0, 2).map((act) => (
+            <Each of={(vs()?.featureToggles ?? []).slice(0, 3)} key={(tog) => tog.id}>
+              {(tog) => (
                 <Button
-                  testID={`home-pet-act-${act.id}`}
-                  onPress={() => triggerAction(act)}
+                  testID={`home-cam-tog-${tog().id}`}
+                  disabled={!tog().controllable}
+                  selected={tog().isOn}
+                  onPress={() => togglePower(tog().entityId, tog().domain, tog().isOn)}
                   class={
-                    act.tone === "primary"
-                      ? "min-h-8 px-3 rounded-lg bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
-                      : "min-h-8 px-2.5 rounded-lg bg-muted border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
+                    tog().isOn
+                      ? "min-h-8 px-2.5 rounded-lg bg-primary flex-row items-center justify-center gap-1 active:opacity-75 disabled:opacity-40"
+                      : "min-h-8 px-2.5 rounded-lg bg-muted border border-border flex-row items-center justify-center gap-1 active:opacity-75 disabled:opacity-40"
                   }
                 >
-                  <ActionIcon
-                    name={resolveActionIconName(act)}
-                    tone={act.tone === "primary" ? "primaryFg" : "foreground"}
-                    size={13}
-                  />
                   <Text
                     class={
-                      act.tone === "primary"
+                      tog().isOn
                         ? "text-primary-foreground text-xs font-semibold"
                         : "text-foreground text-xs font-medium"
                     }
                   >
-                    {act.label}
+                    {tog().label}
+                  </Text>
+                </Button>
+              )}
+            </Each>
+          </View>
+        </If>
+      </View>
+    );
+  };
+
+  const renderVacuumCardBody = (app: () => HomeAppliance, activeSpan: () => TileSpan) => {
+    const vac = () => app().capabilities.vacuum;
+    const actions = () => app().capabilities.actions ?? [];
+    const isExpanded = () => activeSpan() !== "1x1";
+    const isTallOnly = () => activeSpan() === "1x2";
+
+    return (
+      <If when={Boolean(vac())}>
+        <View class="gap-2 mt-1">
+          <If when={isExpanded()}>
+            <View
+              class={
+                isTallOnly()
+                  ? "rounded-xl bg-muted border border-border px-2.5 py-2 gap-2"
+                  : "rounded-xl bg-muted border border-border px-3 py-2 flex-row items-center justify-between gap-2.5"
+              }
+            >
+              <View class="gap-0.5 flex-1" style={{ minWidth: 0 }}>
+                <Text class="text-foreground text-sm font-bold" style={{ numberOfLines: 1 }}>
+                  {vac()?.statusLabel}
+                </Text>
+                <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 1 }}>
+                  {[
+                    vac()?.batteryPercent !== undefined ? `电量 ${vac()?.batteryPercent}%` : undefined,
+                    vac()?.cleaningAreaSqm !== undefined ? `面积 ${vac()?.cleaningAreaSqm}㎡` : undefined,
+                    vac()?.cleaningMinutes !== undefined ? `${vac()?.cleaningMinutes}分钟` : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || vac()?.chargingLabel || "基站就绪"}
+                </Text>
+              </View>
+
+              <If when={actions().length > 0}>
+                <View class="flex-row items-center gap-1.5 flex-wrap">
+                  <Each
+                    of={actions().slice(0, isTallOnly() ? 2 : 3)}
+                    key={(act) => act.id}
+                  >
+                    {(act) => (
+                      <Button
+                        testID={`home-vac-act-${act().id}`}
+                        onPress={() => triggerAction(act())}
+                        class={
+                          act().tone === "primary"
+                            ? "min-h-8 px-2.5 rounded-lg bg-primary flex-row items-center justify-center gap-1 active:opacity-75"
+                            : "min-h-8 px-2.5 rounded-lg bg-card border border-border flex-row items-center justify-center gap-1 active:opacity-75"
+                        }
+                      >
+                        <ActionIcon
+                          name={resolveActionIconName(act())}
+                          tone={act().tone === "primary" ? "primaryFg" : "foreground"}
+                          size={13}
+                        />
+                        <Text
+                          class={
+                            act().tone === "primary"
+                              ? "text-primary-foreground text-xs font-semibold"
+                              : "text-foreground text-xs font-medium"
+                          }
+                        >
+                          {act().label}
+                        </Text>
+                      </Button>
+                    )}
+                  </Each>
+                </View>
+              </If>
+            </View>
+          </If>
+
+          <If when={activeSpan() === "2x2" && (vac()?.consumables.length ?? 0) > 0}>
+            <View class="flex-row items-center gap-1.5 flex-wrap">
+              <Each of={(vac()?.consumables ?? []).slice(0, 4)} key={(c) => c.id}>
+                {(c) => (
+                  <View class="px-2 py-1 rounded-lg bg-muted border border-border flex-row items-center gap-1">
+                    <Text class="text-muted-foreground text-xs">
+                      {c().label.replace("寿命", "")}
+                    </Text>
+                    <Text class="text-foreground text-xs font-semibold">{c().percent}%</Text>
+                  </View>
+                )}
+              </Each>
+            </View>
+          </If>
+        </View>
+      </If>
+    );
+  };
+
+  const renderCycleCardBody = (app: () => HomeAppliance, activeSpan: () => TileSpan) => {
+    const cycle = () => app().capabilities.cycleTask;
+    const actions = () => app().capabilities.actions ?? [];
+    const isExpanded = () => activeSpan() !== "1x1";
+    const isLarge = () => activeSpan() === "2x2";
+    const isTallOnly = () => activeSpan() === "1x2";
+
+    return (
+      <If
+        when={app().icon === "vacuum" && Boolean(app().capabilities.vacuum)}
+        else={
+          <If when={Boolean(cycle())}>
+            <View class="gap-2 mt-1">
+              <If when={isExpanded()}>
+                <View
+                  class={
+                    isTallOnly()
+                      ? "gap-2 rounded-xl bg-muted border border-border px-2.5 py-2"
+                      : "flex-row items-center justify-between gap-3 rounded-xl bg-muted border border-border px-3 py-2"
+                  }
+                >
+                  <View class="gap-0.5">
+                    <Text class="text-foreground text-base font-bold">
+                      {cycle()?.remainingMinutes !== undefined &&
+                      (cycle()?.remainingMinutes ?? 0) > 0
+                        ? `${cycle()?.remainingMinutes} min`
+                        : cycle()?.stageLabel}
+                    </Text>
+                    <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 1 }}>
+                      {cycle()?.temperatureCelsius !== undefined
+                        ? `${cycle()?.stageLabel} · ${cycle()?.temperatureCelsius}°C`
+                        : cycle()?.recipeLabel
+                          ? `${cycle()?.recipeLabel} · ${cycle()?.stageLabel}`
+                          : cycle()?.stageLabel}
+                    </Text>
+                  </View>
+
+                  <If when={(cycle()?.stages.length ?? 0) > 1}>
+                    <View class="flex-1 gap-1" style={{ minWidth: 0 }}>
+                      <View class="flex-row items-center gap-1">
+                        <Each
+                          of={(cycle()?.stages ?? []).map((st, idx) => ({ st, idx }))}
+                          key={(item) => `${item.idx}:${item.st}`}
+                        >
+                          {(item) => (
+                            <View
+                              class={
+                                item().idx <= (cycle()?.activeStageIndex ?? 0) &&
+                                cycle()?.isRunning
+                                  ? "flex-1 h-1.5 rounded-full bg-verified"
+                                  : item().idx === (cycle()?.activeStageIndex ?? 0)
+                                    ? "flex-1 h-1.5 rounded-full bg-primary"
+                                    : "flex-1 h-1.5 rounded-full bg-border"
+                              }
+                            />
+                          )}
+                        </Each>
+                      </View>
+                      <View class="flex-row items-center justify-between">
+                        <Text class="text-muted-foreground text-xs">
+                          {cycle()?.stages[0]}
+                        </Text>
+                        <Text class="text-foreground text-xs font-semibold">
+                          {cycle()?.stageLabel}
+                        </Text>
+                        <Text class="text-muted-foreground text-xs">
+                          {cycle()?.stages[(cycle()?.stages.length ?? 1) - 1]}
+                        </Text>
+                      </View>
+                    </View>
+                  </If>
+                </View>
+              </If>
+
+              <If when={(isLarge() || isTallOnly()) && actions().length > 0}>
+                <View class="flex-row items-center gap-1.5 flex-wrap">
+                  <Each
+                    of={actions().slice(0, isLarge() ? 4 : 2)}
+                    key={(act) => act.id}
+                  >
+                    {(act) => (
+                      <Button
+                        testID={`home-cycle-act-${act().id}`}
+                        onPress={() => triggerAction(act())}
+                        class={
+                          act().tone === "primary"
+                            ? "min-h-8 px-2.5 rounded-lg bg-primary flex-row items-center justify-center gap-1 active:opacity-75"
+                            : "min-h-8 px-2.5 rounded-lg bg-muted border border-border flex-row items-center justify-center gap-1 active:opacity-75"
+                        }
+                      >
+                        <ActionIcon
+                          name={resolveActionIconName(act())}
+                          tone={act().tone === "primary" ? "primaryFg" : "foreground"}
+                          size={13}
+                        />
+                        <Text
+                          class={
+                            act().tone === "primary"
+                              ? "text-primary-foreground text-xs font-semibold"
+                              : "text-foreground text-xs font-medium"
+                          }
+                        >
+                          {act().label}
+                        </Text>
+                      </Button>
+                    )}
+                  </Each>
+                </View>
+              </If>
+            </View>
+          </If>
+        }
+      >
+        {renderVacuumCardBody(app, activeSpan)}
+      </If>
+    );
+  };
+
+  const renderClimateCardBody = (app: () => HomeAppliance, activeSpan: () => TileSpan) => {
+    const therm = () => app().capabilities.thermostat;
+    const modeBar = () => app().capabilities.modeBar;
+    const fanCtrl = () =>
+      (app().capabilities.controls ?? []).find(
+        (c): c is ChoiceControlPrimitive => c.kind === "choice" && c.id === "fan_level",
+      );
+    const swingToggle = () =>
+      (app().capabilities.controls ?? []).find(
+        (c): c is ToggleControlPrimitive => c.kind === "toggle" && /摇头|摆风|swing|oscillat/i.test(c.label),
+      );
+    const isExpanded = () => activeSpan() !== "1x1";
+    const isLarge = () => activeSpan() === "2x2";
+    const isTall = () => activeSpan() === "1x2" || activeSpan() === "2x2";
+
+    return (
+      <If when={isExpanded()}>
+        <View class="gap-2 mt-1">
+          <If when={Boolean(therm())}>
+            <View class="flex-row items-center justify-between gap-2 rounded-xl bg-muted border border-border px-2.5 py-1.5">
+              <Button
+                testID={`home-therm-minus-${app().id}`}
+                disabled={!therm()?.controllable}
+                accessibilityLabel="-"
+                onPress={() => {
+                  const th = therm();
+                  if (th) {
+                    adjustThermostat(
+                      th.entityId,
+                      th.domain,
+                      th.targetTemp - th.step,
+                      th.minTemp,
+                      th.maxTemp,
+                      th.step,
+                    );
+                  }
+                }}
+                class="w-8 h-8 rounded-lg bg-card border border-border items-center justify-center active:opacity-75 disabled:opacity-35"
+              >
+                <ActionIcon name="minus" tone="foreground" size={14} />
+              </Button>
+
+              <View class="items-center">
+                <Text class="text-foreground text-base font-bold">
+                  {therm()?.targetTemp}
+                  {therm()?.unit ?? "°C"}
+                </Text>
+                <If when={therm()?.currentTemp !== undefined}>
+                  <Text class="text-muted-foreground text-xs">
+                    室温 {therm()?.currentTemp}°C
+                  </Text>
+                </If>
+              </View>
+
+              <Button
+                testID={`home-therm-plus-${app().id}`}
+                disabled={!therm()?.controllable}
+                accessibilityLabel="+"
+                onPress={() => {
+                  const th = therm();
+                  if (th) {
+                    adjustThermostat(
+                      th.entityId,
+                      th.domain,
+                      th.targetTemp + th.step,
+                      th.minTemp,
+                      th.maxTemp,
+                      th.step,
+                    );
+                  }
+                }}
+                class="w-8 h-8 rounded-lg bg-card border border-border items-center justify-center active:opacity-75 disabled:opacity-35"
+              >
+                <ActionIcon name="plus" tone="foreground" size={14} />
+              </Button>
+            </View>
+          </If>
+
+          <If when={Boolean(modeBar()) && (isLarge() || isTall() || !therm())}>
+            <View class="flex-row items-center gap-1.5 flex-wrap">
+              <Each of={(modeBar()?.options ?? []).slice(0, 4)} key={(opt) => opt.value}>
+                {(opt) => (
+                  <Button
+                    testID={`home-mode-${app().id}-${opt().value}`}
+                    disabled={!modeBar()?.controllable}
+                    selected={modeBar()?.currentMode === opt().value}
+                    onPress={() => {
+                      const mb = modeBar();
+                      if (mb) selectMode(mb, opt().value);
+                    }}
+                    class={
+                      modeBar()?.currentMode === opt().value
+                        ? "min-h-7 px-2.5 rounded-lg bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
+                        : "min-h-7 px-2.5 rounded-lg bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                    }
+                  >
+                    <Text
+                      class={
+                        modeBar()?.currentMode === opt().value
+                          ? "text-primary-foreground text-xs font-semibold"
+                          : "text-foreground text-xs font-medium"
+                      }
+                    >
+                      {opt().label}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
+            </View>
+          </If>
+
+          <If when={Boolean(fanCtrl()) && (isLarge() || isTall() || !therm())}>
+            <View class="flex-row items-center gap-1.5 flex-wrap">
+              <Each of={(fanCtrl()?.options ?? []).slice(0, 4)} key={(opt) => opt.value}>
+                {(opt) => (
+                  <Button
+                    testID={`home-fan-${app().id}-${opt().value}`}
+                    disabled={!fanCtrl()?.controllable}
+                    selected={fanCtrl()?.currentValue === opt().value}
+                    onPress={() => {
+                      const fc = fanCtrl();
+                      if (fc) dispatchChoicePrimitive(fc, opt().value);
+                    }}
+                    class={
+                      fanCtrl()?.currentValue === opt().value
+                        ? "min-h-7 px-2.5 rounded-lg bg-airflow-bg border border-airflow-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                        : "min-h-7 px-2.5 rounded-lg bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                    }
+                  >
+                    <Text
+                      class={
+                        fanCtrl()?.currentValue === opt().value
+                          ? "text-airflow text-xs font-semibold"
+                          : "text-foreground text-xs font-medium"
+                      }
+                    >
+                      {opt().label}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
+              <If when={isLarge() && Boolean(swingToggle())}>
+                <Button
+                  testID={`home-swing-${app().id}`}
+                  disabled={!swingToggle()?.controllable}
+                  selected={Boolean(swingToggle()?.isOn)}
+                  onPress={() => {
+                    const st = swingToggle();
+                    if (st) dispatchTogglePrimitive(st);
+                  }}
+                  class={
+                    swingToggle()?.isOn
+                      ? "min-h-7 px-2.5 rounded-lg bg-airflow-bg border border-airflow-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                      : "min-h-7 px-2.5 rounded-lg bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                  }
+                >
+                  <Text
+                    class={
+                      swingToggle()?.isOn
+                        ? "text-airflow text-xs font-semibold"
+                        : "text-foreground text-xs font-medium"
+                    }
+                  >
+                    {swingToggle()?.label ?? "摇头"}
+                  </Text>
+                </Button>
+              </If>
+            </View>
+          </If>
+        </View>
+      </If>
+    );
+  };
+
+  const renderLightCardBody = (app: () => HomeAppliance, activeSpan: () => TileSpan) => {
+    const dimmer = () => app().capabilities.dimmer;
+    const isExpanded = () => activeSpan() !== "1x1";
+    const isLarge = () => activeSpan() === "2x2";
+    const isTall = () => activeSpan() === "1x2" || activeSpan() === "2x2";
+
+    return (
+      <If when={isExpanded() && Boolean(dimmer())}>
+        <View class="gap-2 mt-1">
+          <View class="gap-1">
+            <View class="flex-row items-center justify-between">
+              <Text class="text-muted-foreground text-xs">{t("brightness")}</Text>
+              <Text class="text-foreground text-xs font-semibold">
+                {dimmer()?.brightnessPercent ?? 80}%
+              </Text>
+            </View>
+            <HorizontalValueSlider
+              testID={`home-light-dimmer-${app().id}`}
+              min={1}
+              max={100}
+              step={1}
+              value={dimmer()?.brightnessPercent ?? 80}
+              disabled={!dimmer()?.controllable}
+              accessibilityLabel={t("brightness")}
+              onChange={() => {}}
+              onChangeEnd={(val) => {
+                const dm = dimmer();
+                if (dm) setLightBrightness(dm.entityId, val);
+              }}
+            />
+          </View>
+
+          <If when={(isLarge() || isTall()) && Boolean(dimmer()?.colorTempRange)}>
+            <View class="flex-row items-center gap-1.5 flex-wrap">
+              {[2700, 4000, 5000].map((k) => (
+                <Button
+                  testID={`home-light-ct-${app().id}-${k}`}
+                  disabled={!dimmer()?.controllable}
+                  selected={Math.abs((dimmer()?.colorTempKelvin ?? 4000) - k) < 400}
+                  onPress={() => {
+                    const dm = dimmer();
+                    if (dm) setLightColorTemp(dm.entityId, k);
+                  }}
+                  class={
+                    Math.abs((dimmer()?.colorTempKelvin ?? 4000) - k) < 400
+                      ? "min-h-7 px-2 rounded-lg bg-lighting-bg border border-lighting-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                      : "min-h-7 px-2 rounded-lg bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                  }
+                >
+                  <Text
+                    class={
+                      Math.abs((dimmer()?.colorTempKelvin ?? 4000) - k) < 400
+                        ? "text-lighting text-xs font-semibold"
+                        : "text-foreground text-xs font-medium"
+                    }
+                  >
+                    {k}K
                   </Text>
                 </Button>
               ))}
             </View>
           </If>
         </View>
+      </If>
+    );
+  };
 
-        <If when={layoutEditing()}>
-          {renderEditOverlay(room, appliance)}
+  const renderMultiGangCardBody = (app: () => HomeAppliance) => {
+    const mg = () => app().capabilities.multiGang;
+
+    return (
+      <If when={Boolean(mg())}>
+        <View class="flex-row items-center gap-1.5 mt-1">
+          <Each of={mg()?.channels ?? []} key={(ch) => ch.id}>
+            {(ch) => (
+              <Button
+                testID={`home-gang-${ch().id}`}
+                disabled={!ch().controllable}
+                selected={ch().isOn}
+                onPress={() => togglePower(ch().entityId, ch().domain, ch().isOn)}
+                class={
+                  ch().isOn
+                    ? "flex-1 min-h-9 rounded-xl bg-primary px-2 py-1 items-center justify-center gap-0.5 active:opacity-75 disabled:opacity-40"
+                    : "flex-1 min-h-9 rounded-xl bg-muted border border-border px-2 py-1 items-center justify-center gap-0.5 active:opacity-75 disabled:opacity-40"
+                }
+              >
+                <ActionIcon
+                  name="power"
+                  tone={ch().isOn ? "primaryFg" : "muted"}
+                  size={12}
+                />
+                <Text
+                  class={
+                    ch().isOn
+                      ? "text-primary-foreground text-xs font-semibold"
+                      : "text-foreground text-xs font-medium"
+                  }
+                  style={{ numberOfLines: 1 }}
+                >
+                  {ch().label}
+                </Text>
+              </Button>
+            )}
+          </Each>
+        </View>
+      </If>
+    );
+  };
+
+  const renderApplianceCard = (room: () => HomeRoomSection, app: () => HomeAppliance) => {
+    const editingThisRoom = () => isRoomEditing(room().name);
+    const activeSpan = (): TileSpan => {
+      const p = resizePreview();
+      if (p && p.applianceId === app().id) {
+        return p.targetSpan;
+      }
+      return app().span;
+    };
+    const dims = () => parseSpanDims(activeSpan());
+    const effectiveColSpan = () => (dims().cols === 2 ? Math.min(2, gridColumns()) : 1);
+    const effectiveRowSpan = () => dims().rows;
+    const power = () => app().capabilities.power;
+    const isMovingSelected = () => editingThisRoom() && movingApplianceId() === app().id;
+    const isResizingThis = () => resizePreview()?.applianceId === app().id;
+
+    const cardBorderClass = () => {
+      if (isResizingThis() || isMovingSelected()) {
+        return "rounded-2xl border-2 border-primary bg-card p-3 justify-between";
+      }
+      if (editingThisRoom()) {
+        return "rounded-2xl border border-dashed border-primary bg-card p-3 justify-between";
+      }
+      if (app().isActive) {
+        return "rounded-2xl border border-ring bg-card p-3 justify-between";
+      }
+      return "rounded-2xl border border-border bg-card p-3 justify-between";
+    };
+
+    const cardDisplayName = () => app().displayName ?? app().name;
+
+    return (
+      <View
+        style={{
+          position: "relative",
+          gridColumn: `span ${effectiveColSpan()}`,
+          gridRow: `span ${effectiveRowSpan()}`,
+          minHeight:
+            effectiveRowSpan() === 2
+              ? BASE_ROW_HEIGHT * 2 + GRID_GAP
+              : BASE_ROW_HEIGHT,
+        }}
+        class={cardBorderClass()}
+      >
+        <View class="gap-1.5 flex-1 justify-between">
+          {/* Card Header: Icon + Concise Display Name + Subtitle on Left, Power Icon Button on Right */}
+          <View class="flex-row items-start justify-between gap-2">
+            <View
+              testID={`home-card-${app().id}`}
+              role="button"
+              accessibilityLabel={`${cardDisplayName()} · ${app().conciseSubtitle}`}
+              onTouchStart={(e) => {
+                if (!editingThisRoom()) return;
+                activeCardDragGesture = {
+                  roomName: room().name,
+                  applianceId: app().id,
+                  startX: e.pageX,
+                  startY: e.pageY,
+                  didDrag: false,
+                };
+              }}
+              onTouchMove={(e) => {
+                if (
+                  !editingThisRoom() ||
+                  !activeCardDragGesture ||
+                  activeCardDragGesture.applianceId !== app().id
+                ) {
+                  return;
+                }
+                const dx = e.pageX - activeCardDragGesture.startX;
+                const dy = e.pageY - activeCardDragGesture.startY;
+                if (Math.abs(dx) > 56 || Math.abs(dy) > 56) {
+                  activeCardDragGesture.didDrag = true;
+                  activeCardDragGesture.startX = e.pageX;
+                  activeCardDragGesture.startY = e.pageY;
+                  const cols = gridColumns();
+                  const delta =
+                    Math.abs(dy) > Math.abs(dx)
+                      ? dy > 0
+                        ? cols
+                        : -cols
+                      : dx > 0
+                        ? 1
+                        : -1;
+                  previewApplianceOrder(room(), app(), delta);
+                }
+              }}
+              onTouchEnd={() => {
+                commitApplianceOrderPreview(room().id);
+                activeCardDragGesture = null;
+              }}
+              onPress={() => {
+                if (editingThisRoom()) {
+                  handleCardPressInEditMode(room(), app().id);
+                } else {
+                  props.store.setHomeInspectedApplianceId(app().id);
+                }
+              }}
+              onLongPress={() => enterLayoutEditWithCard(room().name, app().id)}
+              class="flex-1 flex-row items-start gap-2.5 active:opacity-75"
+              style={{ minWidth: 0 }}
+            >
+              <ApplianceIcon
+                kind={app().icon}
+                active={app().isActive}
+                size="md"
+              />
+              <View class="flex-1 gap-0.5" style={{ minWidth: 0 }}>
+                <Text
+                  class="text-foreground text-sm font-semibold"
+                  style={{ numberOfLines: 2 }}
+                >
+                  {cardDisplayName()}
+                </Text>
+                <Text
+                  class={
+                    app().isActive
+                      ? "text-foreground text-xs font-medium"
+                      : "text-muted-foreground text-xs"
+                  }
+                  style={{ numberOfLines: 1 }}
+                >
+                  {app().conciseSubtitle}
+                </Text>
+              </View>
+            </View>
+
+            <If
+              when={Boolean(power() && power()?.controllable && !editingThisRoom())}
+              else={
+                <View
+                  class={
+                    app().isActive
+                      ? "px-2 py-0.5 rounded-full bg-live-active-bg border border-verified"
+                      : "px-2 py-0.5 rounded-full bg-muted border border-border"
+                  }
+                >
+                  <Text
+                    class={
+                      app().isActive
+                        ? "text-verified text-xs font-semibold"
+                        : "text-muted-foreground text-xs"
+                    }
+                  >
+                    {editingThisRoom() ? activeSpan() : app().statusBadge}
+                  </Text>
+                </View>
+              }
+            >
+              <PowerIconButton
+                testID={`home-power-${app().id}`}
+                isOn={Boolean(power()?.isOn)}
+                disabled={!power()?.controllable}
+                size="sm"
+                accessibilityLabel={`${cardDisplayName()} ${power()?.isOn ? t("powerOff") : t("powerOn")}`}
+                onPress={() => {
+                  const pw = power();
+                  if (pw) togglePower(pw.entityId, pw.domain, pw.isOn);
+                }}
+              />
+            </If>
+          </View>
+
+          {/* Domain-specific card body (disabled during layout edit mode) */}
+          <View style={{ pointerEvents: editingThisRoom() ? "none" : "auto" }}>
+            <If when={app().icon === "camera"}>
+              {renderCameraCardBody(room, app, activeSpan)}
+            </If>
+            <If when={app().archetype === "cycle_appliance"}>
+              {renderCycleCardBody(app, activeSpan)}
+            </If>
+            <If when={app().archetype === "climate"}>
+              {renderClimateCardBody(app, activeSpan)}
+            </If>
+            <If when={app().archetype === "lighting_power"}>
+              {renderLightCardBody(app, activeSpan)}
+            </If>
+            <If when={app().icon === "switch_gang"}>
+              {renderMultiGangCardBody(app)}
+            </If>
+            <If
+              when={
+                (app().icon === "feeder" ||
+                  app().icon === "waterer" ||
+                  app().archetype === "media") &&
+                (app().capabilities.actions?.length ?? 0) > 0 &&
+                activeSpan() !== "1x1"
+              }
+            >
+              <View class="flex-row items-center gap-1.5 mt-1 flex-wrap">
+                <Each
+                  of={(app().capabilities.actions ?? []).slice(0, 2)}
+                  key={(act) => act.id}
+                >
+                  {(act) => (
+                    <Button
+                      testID={`home-pet-act-${act().id}`}
+                      onPress={() => triggerAction(act())}
+                      class={
+                        act().tone === "primary"
+                          ? "min-h-8 px-3 rounded-lg bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
+                          : "min-h-8 px-2.5 rounded-lg bg-muted border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
+                      }
+                    >
+                      <ActionIcon
+                        name={resolveActionIconName(act())}
+                        tone={act().tone === "primary" ? "primaryFg" : "foreground"}
+                        size={13}
+                      />
+                      <Text
+                        class={
+                          act().tone === "primary"
+                            ? "text-primary-foreground text-xs font-semibold"
+                            : "text-foreground text-xs font-medium"
+                        }
+                      >
+                        {act().label}
+                      </Text>
+                    </Button>
+                  )}
+                </Each>
+              </View>
+            </If>
+          </View>
+        </View>
+
+        <If when={editingThisRoom()}>
+          {renderEditHandlesOverlay(app)}
         </If>
       </View>
     );
@@ -979,7 +1525,11 @@ export function HomeSpaceView(props: {
           class={isWide() ? "flex-1 gap-4" : "w-full gap-4"}
           style={{ minWidth: 0 }}
         >
-          <CameraMonitor store={props.store} />
+          <CameraMonitor
+            store={props.store}
+            statusText={vs()?.statusText}
+            resolutionBadge={vs()?.resolutionBadge}
+          />
           <If when={(vs()?.ptzActions.length ?? 0) > 0}>
             <View class="flex-row flex-wrap items-center gap-2">
               <Each of={vs()?.ptzActions ?? []} key={(action) => action.id}>
@@ -1001,36 +1551,38 @@ export function HomeSpaceView(props: {
                 {t("primaryControls")}
               </Text>
               <View class="flex-row items-center gap-2.5 flex-wrap">
-                {(vs()?.featureToggles ?? []).map((tog) => (
-                  <Button
-                    testID={`detail-cam-tog-${tog.id}`}
-                    disabled={!tog.controllable}
-                    selected={tog.isOn}
-                    onPress={() =>
-                      togglePower(tog.entityId, tog.domain, tog.isOn)
-                    }
-                    class={
-                      tog.isOn
-                        ? "flex-1 min-w-28 min-h-12 px-3.5 rounded-xl bg-primary flex-row items-center justify-between gap-2 active:opacity-75 disabled:opacity-40"
-                        : "flex-1 min-w-28 min-h-12 px-3.5 rounded-xl bg-muted border border-border flex-row items-center justify-between gap-2 active:opacity-75 disabled:opacity-40"
-                    }
-                  >
-                    <Text
+                <Each of={vs()?.featureToggles ?? []} key={(tog) => tog.id}>
+                  {(tog) => (
+                    <Button
+                      testID={`detail-cam-tog-${tog().id}`}
+                      disabled={!tog().controllable}
+                      selected={tog().isOn}
+                      onPress={() =>
+                        togglePower(tog().entityId, tog().domain, tog().isOn)
+                      }
                       class={
-                        tog.isOn
-                          ? "text-primary-foreground text-sm font-semibold"
-                          : "text-foreground text-sm font-medium"
+                        tog().isOn
+                          ? "flex-1 min-w-28 min-h-12 px-3.5 rounded-xl bg-primary flex-row items-center justify-between gap-2 active:opacity-75 disabled:opacity-40"
+                          : "flex-1 min-w-28 min-h-12 px-3.5 rounded-xl bg-muted border border-border flex-row items-center justify-between gap-2 active:opacity-75 disabled:opacity-40"
                       }
                     >
-                      {tog.label}
-                    </Text>
-                    <ActionIcon
-                      name={tog.isOn ? "check" : "power"}
-                      tone={tog.isOn ? "primaryFg" : "muted"}
-                      size={16}
-                    />
-                  </Button>
-                ))}
+                      <Text
+                        class={
+                          tog().isOn
+                            ? "text-primary-foreground text-sm font-semibold"
+                            : "text-foreground text-sm font-medium"
+                        }
+                      >
+                        {tog().label}
+                      </Text>
+                      <ActionIcon
+                        name={tog().isOn ? "check" : "power"}
+                        tone={tog().isOn ? "primaryFg" : "muted"}
+                        size={16}
+                      />
+                    </Button>
+                  )}
+                </Each>
               </View>
             </View>
           </If>
@@ -1043,38 +1595,42 @@ export function HomeSpaceView(props: {
               <Text class="text-foreground text-sm font-semibold">
                 {t("cameraStorageAndSettings")}
               </Text>
-              {(vs()?.modeSelectors ?? []).map((sel) => (
-                <View class="gap-1.5">
-                  <Text class="text-muted-foreground text-xs font-medium">
-                    {sel.label}
-                  </Text>
-                  <View class="flex-row items-center gap-1.5 flex-wrap">
-                    {sel.capability.options.map((opt) => (
-                      <Button
-                        testID={`detail-cam-mode-${sel.id}-${opt.value}`}
-                        disabled={!sel.capability.controllable}
-                        selected={sel.capability.currentMode === opt.value}
-                        onPress={() => selectMode(sel.capability, opt.value)}
-                        class={
-                          sel.capability.currentMode === opt.value
-                            ? "flex-1 min-h-10 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
-                            : "flex-1 min-h-10 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
-                        }
-                      >
-                        <Text
-                          class={
-                            sel.capability.currentMode === opt.value
-                              ? "text-primary-foreground text-xs font-semibold"
-                              : "text-foreground text-xs font-medium"
-                          }
-                        >
-                          {opt.label}
-                        </Text>
-                      </Button>
-                    ))}
+              <Each of={vs()?.modeSelectors ?? []} key={(sel) => sel.id}>
+                {(sel) => (
+                  <View class="gap-1.5">
+                    <Text class="text-muted-foreground text-xs font-medium">
+                      {sel().label}
+                    </Text>
+                    <View class="flex-row items-center gap-1.5 flex-wrap">
+                      <Each of={sel().capability.options} key={(opt) => opt.value}>
+                        {(opt) => (
+                          <Button
+                            testID={`detail-cam-mode-${sel().id}-${opt().value}`}
+                            disabled={!sel().capability.controllable}
+                            selected={sel().capability.currentMode === opt().value}
+                            onPress={() => selectMode(sel().capability, opt().value)}
+                            class={
+                              sel().capability.currentMode === opt().value
+                                ? "flex-1 min-h-10 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
+                                : "flex-1 min-h-10 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                            }
+                          >
+                            <Text
+                              class={
+                                sel().capability.currentMode === opt().value
+                                  ? "text-primary-foreground text-xs font-semibold"
+                                  : "text-foreground text-xs font-medium"
+                              }
+                            >
+                              {opt().label}
+                            </Text>
+                          </Button>
+                        )}
+                      </Each>
+                    </View>
                   </View>
-                </View>
-              ))}
+                )}
+              </Each>
             </View>
           </If>
 
@@ -1108,12 +1664,12 @@ export function HomeSpaceView(props: {
     );
   };
 
-  const renderVacuumFullPage = (appliance: HomeAppliance) => {
-    const vac = appliance.capabilities.vacuum;
-    const cycle = appliance.capabilities.cycleTask;
-    const actions = appliance.capabilities.actions ?? [];
-    const modeBar = appliance.capabilities.modeBar;
-    const mopModeBar = vac?.mopModeBar;
+  const renderVacuumFullPage = (appliance: () => HomeAppliance) => {
+    const vac = () => appliance().capabilities.vacuum;
+    const cycle = () => appliance().capabilities.cycleTask;
+    const actions = () => appliance().capabilities.actions ?? [];
+    const modeBar = () => appliance().capabilities.modeBar;
+    const mopModeBar = () => vac()?.mopModeBar;
 
     return (
       <View class="gap-4">
@@ -1121,16 +1677,16 @@ export function HomeSpaceView(props: {
         <View class="rounded-3xl border border-border bg-card p-5 gap-4">
           <View class="flex-row items-center justify-between gap-3 flex-wrap">
             <View class="flex-row items-center gap-3">
-              <ApplianceIcon kind="vacuum" active={appliance.isActive} size="lg" />
+              <ApplianceIcon kind="vacuum" active={appliance().isActive} size="lg" />
               <View class="gap-0.5">
                 <Text class="text-foreground text-2xl font-bold">
-                  {vac?.statusLabel ?? cycle?.stageLabel ?? appliance.statusBadge}
+                  {vac()?.statusLabel ?? cycle()?.stageLabel ?? appliance().statusBadge}
                 </Text>
                 <Text class="text-muted-foreground text-xs">
                   {[
-                    vac?.chargingLabel,
-                    vac?.waterBoxInstalled !== undefined
-                      ? vac.waterBoxInstalled
+                    vac()?.chargingLabel,
+                    vac()?.waterBoxInstalled !== undefined
+                      ? vac()?.waterBoxInstalled
                         ? "拖布支架已安装"
                         : "未安装拖布"
                       : undefined,
@@ -1141,41 +1697,43 @@ export function HomeSpaceView(props: {
               </View>
             </View>
 
-            <If when={vac?.batteryPercent !== undefined}>
+            <If when={vac()?.batteryPercent !== undefined}>
               <View class="px-3.5 py-2 rounded-2xl bg-live-active-bg border border-verified flex-row items-center gap-2">
                 <View class="w-2 h-2 rounded-full bg-verified" />
                 <Text class="text-verified text-sm font-bold">
-                  电量 {vac?.batteryPercent}%
+                  电量 {vac()?.batteryPercent}%
                 </Text>
               </View>
             </If>
           </View>
 
           {/* 5-Stage Pipeline */}
-          <If when={Boolean(cycle)}>
+          <If when={Boolean(cycle()) && (cycle()?.stages.length ?? 0) > 1}>
             <View class="flex-row items-center gap-2">
-              {(cycle?.stages ?? []).map((st, idx) => {
-                const isCurrent = idx === (cycle?.activeStageIndex ?? 0);
-                return (
+              <Each
+                of={(cycle()?.stages ?? []).map((st, idx) => ({ st, idx }))}
+                key={(item) => `${item.idx}:${item.st}`}
+              >
+                {(item) => (
                   <View
                     class={
-                      isCurrent
+                      item().idx === (cycle()?.activeStageIndex ?? 0)
                         ? "flex-1 rounded-xl bg-primary px-2.5 py-2 items-center justify-center"
                         : "flex-1 rounded-xl bg-muted border border-border px-2.5 py-2 items-center justify-center"
                     }
                   >
                     <Text
                       class={
-                        isCurrent
+                        item().idx === (cycle()?.activeStageIndex ?? 0)
                           ? "text-primary-foreground text-xs font-semibold"
                           : "text-muted-foreground text-xs"
                       }
                     >
-                      {st}
+                      {item().st}
                     </Text>
                   </View>
-                );
-              })}
+                )}
+              </Each>
             </View>
           </If>
 
@@ -1184,62 +1742,64 @@ export function HomeSpaceView(props: {
             <View class="flex-1 min-w-28 rounded-2xl bg-muted border border-border p-3 gap-0.5">
               <Text class="text-muted-foreground text-xs">本次清扫面积</Text>
               <Text class="text-foreground text-lg font-bold">
-                {vac?.cleaningAreaSqm ?? 0} ㎡
+                {vac()?.cleaningAreaSqm ?? 0} ㎡
               </Text>
             </View>
             <View class="flex-1 min-w-28 rounded-2xl bg-muted border border-border p-3 gap-0.5">
               <Text class="text-muted-foreground text-xs">本次清扫时长</Text>
               <Text class="text-foreground text-lg font-bold">
-                {vac?.cleaningMinutes ?? 0} min
+                {vac()?.cleaningMinutes ?? 0} min
               </Text>
             </View>
-            <If when={vac?.totalCleanCount !== undefined}>
+            <If when={vac()?.totalCleanCount !== undefined}>
               <View class="flex-1 min-w-28 rounded-2xl bg-muted border border-border p-3 gap-0.5">
                 <Text class="text-muted-foreground text-xs">累计清扫次数</Text>
                 <Text class="text-foreground text-lg font-bold">
-                  {vac?.totalCleanCount} 次
+                  {vac()?.totalCleanCount} 次
                 </Text>
               </View>
             </If>
-            <If when={vac?.totalCleanAreaSqm !== undefined}>
+            <If when={vac()?.totalCleanAreaSqm !== undefined}>
               <View class="flex-1 min-w-28 rounded-2xl bg-muted border border-border p-3 gap-0.5">
                 <Text class="text-muted-foreground text-xs">累计清扫面积</Text>
                 <Text class="text-foreground text-lg font-bold">
-                  {vac?.totalCleanAreaSqm} ㎡
+                  {vac()?.totalCleanAreaSqm} ㎡
                 </Text>
               </View>
             </If>
           </View>
 
           {/* Primary Action Dock with Vector Icons */}
-          <If when={actions.length > 0}>
+          <If when={actions().length > 0}>
             <View class="flex-row items-center gap-2 flex-wrap pt-1">
-              {actions.map((act) => (
-                <Button
-                  testID={`detail-vac-act-${act.id}`}
-                  onPress={() => triggerAction(act)}
-                  class={
-                    act.tone === "primary"
-                      ? "flex-1 min-w-28 min-h-12 px-4 rounded-2xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75"
-                      : "flex-1 min-w-24 min-h-12 px-3.5 rounded-2xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75"
-                  }
-                >
-                  <ActionIcon
-                    name={resolveActionIconName(act)}
-                    tone={act.tone === "primary" ? "primaryFg" : "foreground"}
-                    size={17}
-                  />
-                  <Text
+              <Each of={actions()} key={(act) => act.id}>
+                {(act) => (
+                  <Button
+                    testID={`detail-vac-act-${act().id}`}
+                    onPress={() => triggerAction(act())}
                     class={
-                      act.tone === "primary"
-                        ? "text-primary-foreground text-sm font-semibold"
-                        : "text-foreground text-sm font-medium"
+                      act().tone === "primary"
+                        ? "flex-1 min-w-28 min-h-12 px-4 rounded-2xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75"
+                        : "flex-1 min-w-24 min-h-12 px-3.5 rounded-2xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75"
                     }
                   >
-                    {act.label}
-                  </Text>
-                </Button>
-              ))}
+                    <ActionIcon
+                      name={resolveActionIconName(act())}
+                      tone={act().tone === "primary" ? "primaryFg" : "foreground"}
+                      size={17}
+                    />
+                    <Text
+                      class={
+                        act().tone === "primary"
+                          ? "text-primary-foreground text-sm font-semibold"
+                          : "text-foreground text-sm font-medium"
+                      }
+                    >
+                      {act().label}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
             </View>
           </If>
         </View>
@@ -1247,70 +1807,80 @@ export function HomeSpaceView(props: {
         {/* Bottom 2-Column Section: Cleaning/Mop Modes + Consumable Health Bars */}
         <View class={isWide() ? "flex-row items-start gap-4" : "gap-4"}>
           {/* Modes Card */}
-          <If when={Boolean(modeBar || mopModeBar)}>
+          <If when={Boolean(modeBar() || mopModeBar())}>
             <View class="flex-1 rounded-2xl border border-border bg-card p-4 gap-4" style={{ minWidth: 0 }}>
-              <If when={Boolean(modeBar)}>
+              <If when={Boolean(modeBar())}>
                 <View class="gap-2">
                   <Text class="text-foreground text-sm font-semibold">
                     {t("modeSelection")}
                   </Text>
                   <View class="flex-row items-center gap-2 flex-wrap">
-                    {(modeBar?.options ?? []).map((opt) => (
-                      <Button
-                        testID={`detail-vac-mode-${opt.value}`}
-                        disabled={!modeBar?.controllable}
-                        selected={modeBar?.currentMode === opt.value}
-                        onPress={() => modeBar && selectMode(modeBar, opt.value)}
-                        class={
-                          modeBar?.currentMode === opt.value
-                            ? "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
-                            : "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
-                        }
-                      >
-                        <Text
+                    <Each of={modeBar()?.options ?? []} key={(opt) => opt.value}>
+                      {(opt) => (
+                        <Button
+                          testID={`detail-vac-mode-${opt().value}`}
+                          disabled={!modeBar()?.controllable}
+                          selected={modeBar()?.currentMode === opt().value}
+                          onPress={() => {
+                            const mb = modeBar();
+                            if (mb) selectMode(mb, opt().value);
+                          }}
                           class={
-                            modeBar?.currentMode === opt.value
-                              ? "text-primary-foreground text-sm font-semibold"
-                              : "text-foreground text-sm font-medium"
+                            modeBar()?.currentMode === opt().value
+                              ? "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
+                              : "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
                           }
                         >
-                          {opt.label}
-                        </Text>
-                      </Button>
-                    ))}
+                          <Text
+                            class={
+                              modeBar()?.currentMode === opt().value
+                                ? "text-primary-foreground text-sm font-semibold"
+                                : "text-foreground text-sm font-medium"
+                            }
+                          >
+                            {opt().label}
+                          </Text>
+                        </Button>
+                      )}
+                    </Each>
                   </View>
                 </View>
               </If>
 
-              <If when={Boolean(mopModeBar)}>
+              <If when={Boolean(mopModeBar())}>
                 <View class="gap-2">
                   <Text class="text-foreground text-sm font-semibold">
                     {t("waterOutputMode")}
                   </Text>
                   <View class="flex-row items-center gap-2 flex-wrap">
-                    {(mopModeBar?.options ?? []).map((opt) => (
-                      <Button
-                        testID={`detail-vac-mop-${opt.value}`}
-                        disabled={!mopModeBar?.controllable}
-                        selected={mopModeBar?.currentMode === opt.value}
-                        onPress={() => mopModeBar && selectMode(mopModeBar, opt.value)}
-                        class={
-                          mopModeBar?.currentMode === opt.value
-                            ? "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
-                            : "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
-                        }
-                      >
-                        <Text
+                    <Each of={mopModeBar()?.options ?? []} key={(opt) => opt.value}>
+                      {(opt) => (
+                        <Button
+                          testID={`detail-vac-mop-${opt().value}`}
+                          disabled={!mopModeBar()?.controllable}
+                          selected={mopModeBar()?.currentMode === opt().value}
+                          onPress={() => {
+                            const mmb = mopModeBar();
+                            if (mmb) selectMode(mmb, opt().value);
+                          }}
                           class={
-                            mopModeBar?.currentMode === opt.value
-                              ? "text-primary-foreground text-sm font-semibold"
-                              : "text-foreground text-sm font-medium"
+                            mopModeBar()?.currentMode === opt().value
+                              ? "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
+                              : "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
                           }
                         >
-                          {opt.label}
-                        </Text>
-                      </Button>
-                    ))}
+                          <Text
+                            class={
+                              mopModeBar()?.currentMode === opt().value
+                                ? "text-primary-foreground text-sm font-semibold"
+                                : "text-foreground text-sm font-medium"
+                            }
+                          >
+                            {opt().label}
+                          </Text>
+                        </Button>
+                      )}
+                    </Each>
                   </View>
                 </View>
               </If>
@@ -1318,34 +1888,37 @@ export function HomeSpaceView(props: {
           </If>
 
           {/* Consumables Health Card */}
-          <If when={(vac?.consumables.length ?? 0) > 0}>
+          <If when={(vac()?.consumables.length ?? 0) > 0}>
             <View class="flex-1 rounded-2xl border border-border bg-card p-4 gap-3" style={{ minWidth: 0 }}>
               <Text class="text-foreground text-sm font-semibold">
                 {t("consumablesHealth")}
               </Text>
               <View class="gap-2.5">
-                {(vac?.consumables ?? []).map((c) => {
-                  const barClass =
-                    c.percent <= 15
-                      ? "h-full rounded-full bg-destructive"
-                      : c.percent <= 30
-                        ? "h-full rounded-full bg-warning"
-                        : "h-full rounded-full bg-verified";
-                  return (
+                <Each of={vac()?.consumables ?? []} key={(c) => c.id}>
+                  {(c) => (
                     <View class="gap-1">
                       <View class="flex-row items-center justify-between">
-                        <Text class="text-foreground text-xs font-medium">{c.label}</Text>
+                        <Text class="text-foreground text-xs font-medium">{c().label}</Text>
                         <Text class="text-muted-foreground text-xs font-semibold">
-                          剩余 {c.percent}%
-                          {c.remainingHours !== undefined ? ` (约 ${c.remainingHours}h)` : ""}
+                          剩余 {c().percent}%
+                          {c().remainingHours !== undefined ? ` (约 ${c().remainingHours}h)` : ""}
                         </Text>
                       </View>
                       <View class="w-full h-2 rounded-full bg-muted overflow-hidden">
-                        <View class={barClass} style={{ width: `${c.percent}%` }} />
+                        <View
+                          class={
+                            c().percent <= 15
+                              ? "h-full rounded-full bg-destructive"
+                              : c().percent <= 30
+                                ? "h-full rounded-full bg-warning"
+                                : "h-full rounded-full bg-verified"
+                          }
+                          style={{ width: `${c().percent}%` }}
+                        />
                       </View>
                     </View>
-                  );
-                })}
+                  )}
+                </Each>
               </View>
             </View>
           </If>
@@ -1354,11 +1927,188 @@ export function HomeSpaceView(props: {
     );
   };
 
-  const renderCycleApplianceFullPage = (appliance: HomeAppliance) => {
-    const cycle = appliance.capabilities.cycleTask;
-    const actions = appliance.capabilities.actions ?? [];
-    const modeBar = appliance.capabilities.modeBar;
-    const auxToggles = appliance.capabilities.auxiliaryToggles ?? [];
+  const renderExtraControlsSection = (appliance: () => HomeAppliance) => {
+    const extraChoices = () =>
+      (appliance().capabilities.controls ?? []).filter(
+        (c): c is ChoiceControlPrimitive =>
+          c.kind === "choice" && c.id !== "mode",
+      );
+    const extraRanges = () =>
+      (appliance().capabilities.controls ?? []).filter(
+        (c): c is RangeControlPrimitive =>
+          c.kind === "range" &&
+          c.id !== "thermostat" &&
+          c.id !== "brightness" &&
+          c.id !== "color_temp",
+      );
+    const extraToggles = () => {
+      const auxIds = new Set(
+        (appliance().capabilities.auxiliaryToggles ?? []).map((t) => t.id),
+      );
+      const gangIds = new Set(
+        (appliance().capabilities.multiGang?.channels ?? []).map((c) => c.id),
+      );
+      const camIds = new Set(
+        (appliance().capabilities.visionStream?.featureToggles ?? []).map((t) => t.id),
+      );
+      return (appliance().capabilities.controls ?? []).filter(
+        (c): c is ToggleControlPrimitive =>
+          c.kind === "toggle" &&
+          c.id !== "power" &&
+          !auxIds.has(c.id) &&
+          !gangIds.has(c.id) &&
+          !camIds.has(c.id),
+      );
+    };
+
+    return (
+      <If
+        when={
+          extraChoices().length > 0 ||
+          extraRanges().length > 0 ||
+          extraToggles().length > 0
+        }
+      >
+        <View class="gap-4">
+          <If when={extraToggles().length > 0}>
+            <View class="rounded-2xl border border-border bg-card p-4 gap-2.5">
+              <Text class="text-foreground text-sm font-semibold">
+                {t("primaryControls")}
+              </Text>
+              <View class="flex-row items-center gap-2 flex-wrap">
+                <Each of={extraToggles()} key={(tog) => tog.id}>
+                  {(tog) => (
+                    <Button
+                      testID={`detail-ctrl-toggle-${tog().id}`}
+                      disabled={!tog().controllable}
+                      selected={tog().isOn}
+                      onPress={() => dispatchTogglePrimitive(tog())}
+                      class={
+                        tog().isOn
+                          ? "min-h-11 px-3.5 rounded-xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
+                          : "min-h-11 px-3.5 rounded-xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
+                      }
+                    >
+                      <ActionIcon
+                        name={tog().isOn ? "check" : "power"}
+                        tone={tog().isOn ? "primaryFg" : "muted"}
+                        size={14}
+                      />
+                      <Text
+                        class={
+                          tog().isOn
+                            ? "text-primary-foreground text-xs font-semibold"
+                            : "text-foreground text-xs font-medium"
+                        }
+                      >
+                        {tog().label}
+                      </Text>
+                    </Button>
+                  )}
+                </Each>
+              </View>
+            </View>
+          </If>
+
+          <Each of={extraChoices()} key={(c) => c.id}>
+            {(choiceCtrl) => (
+              <View class="rounded-2xl border border-border bg-card p-4 gap-2.5">
+                <View class="flex-row items-center justify-between">
+                  <Text class="text-foreground text-sm font-semibold">
+                    {choiceCtrl().label}
+                  </Text>
+                  <Text class="text-muted-foreground text-xs font-semibold">
+                    {choiceCtrl().options.find((o) => o.value === choiceCtrl().currentValue)
+                      ?.label ?? choiceCtrl().currentValue}
+                  </Text>
+                </View>
+                <If
+                  when={choiceCtrl().options.length > 6}
+                  else={
+                    <View class="flex-row items-center gap-2 flex-wrap">
+                      <Each of={choiceCtrl().options} key={(opt) => opt.value}>
+                        {(opt) => (
+                          <Button
+                            testID={`detail-ctrl-choice-${choiceCtrl().id}-${opt().value}`}
+                            disabled={!choiceCtrl().controllable}
+                            selected={choiceCtrl().currentValue === opt().value}
+                            onPress={() =>
+                              dispatchChoicePrimitive(choiceCtrl(), opt().value)
+                            }
+                            class={
+                              choiceCtrl().currentValue === opt().value
+                                ? "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
+                                : "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                            }
+                          >
+                            <Text
+                              class={
+                                choiceCtrl().currentValue === opt().value
+                                  ? "text-primary-foreground text-sm font-semibold"
+                                  : "text-foreground text-sm font-medium"
+                              }
+                            >
+                              {opt().label}
+                            </Text>
+                          </Button>
+                        )}
+                      </Each>
+                    </View>
+                  }
+                >
+                  <SelectField
+                    testID={`detail-ctrl-select-${choiceCtrl().id}`}
+                    label={choiceCtrl().label}
+                    items={choiceCtrl().options.map((opt) => ({
+                      value: opt.value,
+                      title: opt.label,
+                    }))}
+                    value={choiceCtrl().currentValue}
+                    disabled={!choiceCtrl().controllable}
+                    onChange={(val) => dispatchChoicePrimitive(choiceCtrl(), val)}
+                  />
+                </If>
+              </View>
+            )}
+          </Each>
+
+          <Each of={extraRanges()} key={(r) => r.id}>
+            {(rangeCtrl) => (
+              <View class="rounded-2xl border border-border bg-card p-4 gap-3">
+                <View class="flex-row items-center justify-between">
+                  <Text class="text-foreground text-sm font-semibold">
+                    {rangeCtrl().label}
+                  </Text>
+                  <Text class="text-foreground text-lg font-bold">
+                    {rangeCtrl().value}
+                    {rangeCtrl().unit ?? ""}
+                  </Text>
+                </View>
+                <HorizontalValueSlider
+                  testID={`detail-ctrl-range-${rangeCtrl().id}`}
+                  min={rangeCtrl().min}
+                  max={rangeCtrl().max}
+                  step={rangeCtrl().step > 0 ? rangeCtrl().step : 1}
+                  value={rangeCtrl().value}
+                  disabled={!rangeCtrl().controllable}
+                  accessibilityLabel={rangeCtrl().label}
+                  onChange={() => {}}
+                  onChangeEnd={(val) => dispatchRangePrimitive(rangeCtrl(), val)}
+                />
+              </View>
+            )}
+          </Each>
+        </View>
+      </If>
+    );
+  };
+
+  const renderCycleApplianceFullPage = (appliance: () => HomeAppliance) => {
+    const cycle = () => appliance().capabilities.cycleTask;
+    const actions = () => appliance().capabilities.actions ?? [];
+    const modeBar = () => appliance().capabilities.modeBar;
+    const auxToggles = () => appliance().capabilities.auxiliaryToggles ?? [];
+    const telemetry = () => appliance().capabilities.telemetry ?? [];
 
     return (
       <View class="gap-4">
@@ -1366,174 +2116,234 @@ export function HomeSpaceView(props: {
         <View class="rounded-3xl border border-border bg-card p-5 gap-4">
           <View class="flex-row items-center justify-between gap-4 flex-wrap">
             <View class="flex-row items-center gap-3.5">
-              <ApplianceIcon kind={appliance.icon} active={appliance.isActive} size="lg" />
+              <ApplianceIcon
+                kind={appliance().icon}
+                active={appliance().isActive}
+                size="lg"
+              />
               <View class="gap-0.5">
                 <Text class="text-foreground text-2xl font-bold">
-                  {cycle?.remainingMinutes !== undefined && cycle.remainingMinutes > 0
-                    ? `剩余 ${cycle.remainingMinutes} 分钟`
-                    : cycle?.stageLabel ?? appliance.statusBadge}
+                  {cycle()?.remainingMinutes !== undefined &&
+                  (cycle()?.remainingMinutes ?? 0) > 0
+                    ? `剩余 ${cycle()?.remainingMinutes} 分钟`
+                    : cycle()?.stageLabel ?? appliance().statusBadge}
                 </Text>
                 <Text class="text-muted-foreground text-sm">
                   {[
-                    cycle?.recipeLabel ? `当前程序：${cycle.recipeLabel}` : undefined,
-                    cycle?.keepWarmMinutes ? `已保温 ${cycle.keepWarmMinutes} 分钟` : undefined,
+                    cycle()?.recipeLabel ? `当前程序：${cycle()?.recipeLabel}` : undefined,
+                    cycle()?.keepWarmMinutes
+                      ? `已保温 ${cycle()?.keepWarmMinutes} 分钟`
+                      : undefined,
                   ]
                     .filter(Boolean)
-                    .join(" · ") || appliance.conciseSubtitle}
+                    .join(" · ") || appliance().conciseSubtitle}
                 </Text>
               </View>
             </View>
 
-            <If when={cycle?.temperatureCelsius !== undefined}>
+            <If when={cycle()?.temperatureCelsius !== undefined}>
               <View class="px-4 py-2.5 rounded-2xl bg-muted border border-border items-end">
                 <Text class="text-muted-foreground text-xs">腔体/锅内温度</Text>
                 <Text class="text-foreground text-xl font-bold">
-                  {cycle?.temperatureCelsius}°C
+                  {cycle()?.temperatureCelsius}°C
                 </Text>
               </View>
             </If>
           </View>
 
           {/* 5-Stage Pipeline */}
-          <If when={Boolean(cycle)}>
+          <If when={Boolean(cycle()) && (cycle()?.stages.length ?? 0) > 1}>
             <View class="gap-2">
               <Text class="text-muted-foreground text-xs font-medium">
                 {t("stagePipeline")}
               </Text>
               <View class="flex-row items-center gap-2">
-                {(cycle?.stages ?? []).map((st, idx) => {
-                  const activeIdx = cycle?.activeStageIndex ?? 0;
-                  const isCurrent = idx === activeIdx;
-                  const isDone = Boolean(cycle?.isRunning && idx < activeIdx);
-                  return (
-                    <View
-                      class={
-                        isCurrent
-                          ? "flex-1 rounded-2xl bg-primary px-2.5 py-2.5 items-center justify-center gap-0.5"
-                          : isDone
-                            ? "flex-1 rounded-2xl bg-live-active-bg border border-verified px-2.5 py-2.5 items-center justify-center gap-0.5"
-                            : "flex-1 rounded-2xl bg-muted border border-border px-2.5 py-2.5 items-center justify-center gap-0.5"
-                      }
-                    >
-                      <Text
+                <Each
+                  of={(cycle()?.stages ?? []).map((st, idx) => ({ st, idx }))}
+                  key={(item) => `${item.idx}:${item.st}`}
+                >
+                  {(item) => {
+                    const activeIdx = () => cycle()?.activeStageIndex ?? 0;
+                    const isCurrent = () => item().idx === activeIdx();
+                    const isDone = () =>
+                      Boolean(cycle()?.isRunning && item().idx < activeIdx());
+                    return (
+                      <View
                         class={
-                          isCurrent
-                            ? "text-primary-foreground text-xs font-bold"
-                            : isDone
-                              ? "text-verified text-xs font-semibold"
-                              : "text-muted-foreground text-xs"
+                          isCurrent()
+                            ? "flex-1 rounded-2xl bg-primary px-2.5 py-2.5 items-center justify-center gap-0.5"
+                            : isDone()
+                              ? "flex-1 rounded-2xl bg-live-active-bg border border-verified px-2.5 py-2.5 items-center justify-center gap-0.5"
+                              : "flex-1 rounded-2xl bg-muted border border-border px-2.5 py-2.5 items-center justify-center gap-0.5"
                         }
                       >
-                        {st}
-                      </Text>
-                    </View>
-                  );
-                })}
+                        <Text
+                          class={
+                            isCurrent()
+                              ? "text-primary-foreground text-xs font-bold"
+                              : isDone()
+                                ? "text-verified text-xs font-semibold"
+                                : "text-muted-foreground text-xs"
+                          }
+                        >
+                          {item().st}
+                        </Text>
+                      </View>
+                    );
+                  }}
+                </Each>
               </View>
             </View>
           </If>
 
           {/* Primary Transport Dock */}
-          <If when={actions.length > 0}>
+          <If when={actions().length > 0}>
             <View class="flex-row items-center gap-2.5 flex-wrap pt-1">
-              {actions.map((act) => (
-                <Button
-                  testID={`detail-cycle-act-${act.id}`}
-                  onPress={() => triggerAction(act)}
-                  class={
-                    act.tone === "primary"
-                      ? "flex-1 min-w-28 min-h-12 px-5 rounded-2xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75"
-                      : "flex-1 min-w-28 min-h-12 px-4 rounded-2xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75"
-                  }
-                >
-                  <ActionIcon
-                    name={resolveActionIconName(act)}
-                    tone={act.tone === "primary" ? "primaryFg" : "foreground"}
-                    size={17}
-                  />
-                  <Text
+              <Each of={actions()} key={(act) => act.id}>
+                {(act) => (
+                  <Button
+                    testID={`detail-cycle-act-${act().id}`}
+                    onPress={() => triggerAction(act())}
                     class={
-                      act.tone === "primary"
-                        ? "text-primary-foreground text-sm font-semibold"
-                        : "text-foreground text-sm font-medium"
+                      act().tone === "primary"
+                        ? "flex-1 min-w-28 min-h-12 px-5 rounded-2xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75"
+                        : "flex-1 min-w-28 min-h-12 px-4 rounded-2xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75"
                     }
                   >
-                    {act.label}
-                  </Text>
-                </Button>
-              ))}
+                    <ActionIcon
+                      name={resolveActionIconName(act())}
+                      tone={act().tone === "primary" ? "primaryFg" : "foreground"}
+                      size={17}
+                    />
+                    <Text
+                      class={
+                        act().tone === "primary"
+                          ? "text-primary-foreground text-sm font-semibold"
+                          : "text-foreground text-sm font-medium"
+                      }
+                    >
+                      {act().label}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
             </View>
           </If>
         </View>
 
         {/* Cooking / Washing Programs & Auxiliary Switches */}
-        <If when={Boolean(modeBar)}>
+        <If when={Boolean(modeBar())}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-3">
             <Text class="text-foreground text-sm font-semibold">
               {t("cookingPrograms")}
             </Text>
-            <View class="flex-row items-center gap-2 flex-wrap">
-              {(modeBar?.options ?? []).map((opt) => (
-                <Button
-                  testID={`detail-cycle-mode-${opt.value}`}
-                  disabled={!modeBar?.controllable}
-                  selected={modeBar?.currentMode === opt.value}
-                  onPress={() => modeBar && selectMode(modeBar, opt.value)}
-                  class={
-                    modeBar?.currentMode === opt.value
-                      ? "min-w-24 flex-1 min-h-12 px-3.5 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
-                      : "min-w-24 flex-1 min-h-12 px-3.5 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
-                  }
-                >
-                  <Text
-                    class={
-                      modeBar?.currentMode === opt.value
-                        ? "text-primary-foreground text-sm font-semibold"
-                        : "text-foreground text-sm font-medium"
-                    }
-                  >
-                    {opt.label}
-                  </Text>
-                </Button>
-              ))}
-            </View>
+            <If
+              when={(modeBar()?.options.length ?? 0) > 6}
+              else={
+                <View class="flex-row items-center gap-2 flex-wrap">
+                  <Each of={modeBar()?.options ?? []} key={(opt) => opt.value}>
+                    {(opt) => (
+                      <Button
+                        testID={`detail-cycle-mode-${opt().value}`}
+                        disabled={!modeBar()?.controllable}
+                        selected={modeBar()?.currentMode === opt().value}
+                        onPress={() => {
+                          const mb = modeBar();
+                          if (mb) selectMode(mb, opt().value);
+                        }}
+                        class={
+                          modeBar()?.currentMode === opt().value
+                            ? "min-w-24 flex-1 min-h-12 px-3.5 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
+                            : "min-w-24 flex-1 min-h-12 px-3.5 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                        }
+                      >
+                        <Text
+                          class={
+                            modeBar()?.currentMode === opt().value
+                              ? "text-primary-foreground text-sm font-semibold"
+                              : "text-foreground text-sm font-medium"
+                          }
+                        >
+                          {opt().label}
+                        </Text>
+                      </Button>
+                    )}
+                  </Each>
+                </View>
+              }
+            >
+              <SelectField
+                testID={`detail-cycle-mode-select-${appliance().id}`}
+                label={t("cookingPrograms")}
+                items={(modeBar()?.options ?? []).map((opt) => ({
+                  value: opt.value,
+                  title: opt.label,
+                }))}
+                value={modeBar()?.currentMode ?? ""}
+                disabled={!modeBar()?.controllable}
+                onChange={(val) => {
+                  const mb = modeBar();
+                  if (mb) selectMode(mb, val);
+                }}
+              />
+            </If>
           </View>
         </If>
 
-        <If when={auxToggles.length > 0}>
+        {renderExtraControlsSection(appliance)}
+
+        <If when={auxToggles().length > 0}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-3">
             <Text class="text-foreground text-sm font-semibold">
               {t("auxiliaryFeatures")}
             </Text>
             <View class="flex-row items-center gap-2.5 flex-wrap">
-              {auxToggles.map((tog) => (
-                <Button
-                  testID={`detail-cycle-aux-${tog.id}`}
-                  disabled={!tog.controllable}
-                  selected={tog.isOn}
-                  onPress={() => togglePower(tog.entityId, tog.domain, tog.isOn)}
-                  class={
-                    tog.isOn
-                      ? "min-h-11 px-4 rounded-xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
-                      : "min-h-11 px-4 rounded-xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
-                  }
-                >
-                  <ActionIcon
-                    name={tog.isOn ? "check" : "power"}
-                    tone={tog.isOn ? "primaryFg" : "muted"}
-                    size={15}
-                  />
-                  <Text
+              <Each of={auxToggles()} key={(tog) => tog.id}>
+                {(tog) => (
+                  <Button
+                    testID={`detail-cycle-aux-${tog().id}`}
+                    disabled={!tog().controllable}
+                    selected={tog().isOn}
+                    onPress={() => togglePower(tog().entityId, tog().domain, tog().isOn)}
                     class={
-                      tog.isOn
-                        ? "text-primary-foreground text-sm font-semibold"
-                        : "text-foreground text-sm font-medium"
+                      tog().isOn
+                        ? "min-h-11 px-4 rounded-xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
+                        : "min-h-11 px-4 rounded-xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
                     }
                   >
-                    {tog.label}
-                  </Text>
-                </Button>
-              ))}
+                    <ActionIcon
+                      name={tog().isOn ? "check" : "power"}
+                      tone={tog().isOn ? "primaryFg" : "muted"}
+                      size={15}
+                    />
+                    <Text
+                      class={
+                        tog().isOn
+                          ? "text-primary-foreground text-sm font-semibold"
+                          : "text-foreground text-sm font-medium"
+                      }
+                    >
+                      {tog().label}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
+            </View>
+          </View>
+        </If>
+
+        <If when={telemetry().length > 0}>
+          <View class="rounded-2xl border border-border bg-card p-4 gap-2.5">
+            <Text class="text-foreground text-sm font-semibold">{t("telemetryMetrics")}</Text>
+            <View class="flex-row items-center gap-2.5 flex-wrap">
+              <Each of={telemetry()} key={(m) => m.key}>
+                {(m) => (
+                  <View class="min-w-28 flex-1 rounded-xl bg-muted border border-border px-3.5 py-2.5 gap-0.5">
+                    <Text class="text-muted-foreground text-xs">{m().label}</Text>
+                    <Text class="text-foreground text-base font-bold">{m().value}</Text>
+                  </View>
+                )}
+              </Each>
             </View>
           </View>
         </If>
@@ -1541,50 +2351,52 @@ export function HomeSpaceView(props: {
     );
   };
 
-  const renderGenericApplianceFullPage = (appliance: HomeAppliance) => {
-    const cap = appliance.capabilities;
+  const renderGenericApplianceFullPage = (appliance: () => HomeAppliance) => {
+    const cap = () => appliance().capabilities;
 
     return (
       <View class="gap-4">
         {/* Multi-Gang Switch Channels */}
-        <If when={Boolean(cap.multiGang)}>
+        <If when={Boolean(cap().multiGang)}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-3">
             <Text class="text-foreground text-sm font-semibold">{t("primaryControls")}</Text>
             <View class="flex-row items-center gap-2.5">
-              {(cap.multiGang?.channels ?? []).map((ch) => (
-                <Button
-                  testID={`detail-gang-${ch.id}`}
-                  disabled={!ch.controllable}
-                  selected={ch.isOn}
-                  onPress={() => togglePower(ch.entityId, ch.domain, ch.isOn)}
-                  class={
-                    ch.isOn
-                      ? "flex-1 min-h-16 rounded-2xl bg-primary px-3 py-3 items-center justify-center gap-1.5 active:opacity-75 disabled:opacity-40"
-                      : "flex-1 min-h-16 rounded-2xl bg-muted border border-border px-3 py-3 items-center justify-center gap-1.5 active:opacity-75 disabled:opacity-40"
-                  }
-                >
-                  <ActionIcon
-                    name="power"
-                    tone={ch.isOn ? "primaryFg" : "muted"}
-                    size={18}
-                  />
-                  <Text
+              <Each of={cap().multiGang?.channels ?? []} key={(ch) => ch.id}>
+                {(ch) => (
+                  <Button
+                    testID={`detail-gang-${ch().id}`}
+                    disabled={!ch().controllable}
+                    selected={ch().isOn}
+                    onPress={() => togglePower(ch().entityId, ch().domain, ch().isOn)}
                     class={
-                      ch.isOn
-                        ? "text-primary-foreground text-sm font-semibold"
-                        : "text-foreground text-sm font-medium"
+                      ch().isOn
+                        ? "flex-1 min-h-16 rounded-2xl bg-primary px-3 py-3 items-center justify-center gap-1.5 active:opacity-75 disabled:opacity-40"
+                        : "flex-1 min-h-16 rounded-2xl bg-muted border border-border px-3 py-3 items-center justify-center gap-1.5 active:opacity-75 disabled:opacity-40"
                     }
                   >
-                    {ch.label}
-                  </Text>
-                </Button>
-              ))}
+                    <ActionIcon
+                      name="power"
+                      tone={ch().isOn ? "primaryFg" : "muted"}
+                      size={18}
+                    />
+                    <Text
+                      class={
+                        ch().isOn
+                          ? "text-primary-foreground text-sm font-semibold"
+                          : "text-foreground text-sm font-medium"
+                      }
+                    >
+                      {ch().label}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
             </View>
           </View>
         </If>
 
         {/* Light Dimmer & Color Temperature */}
-        <If when={Boolean(cap.dimmer)}>
+        <If when={Boolean(cap().dimmer)}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-4">
             <View class="gap-2">
               <View class="flex-row items-center justify-between">
@@ -1593,30 +2405,31 @@ export function HomeSpaceView(props: {
                   <Text class="text-foreground text-sm font-semibold">{t("brightness")}</Text>
                 </View>
                 <Text class="text-foreground text-sm font-bold">
-                  {cap.dimmer?.brightnessPercent ?? 80}%
+                  {cap().dimmer?.brightnessPercent ?? 80}%
                 </Text>
               </View>
               <HorizontalValueSlider
-                testID={`detail-dimmer-${appliance.id}`}
+                testID={`detail-dimmer-${appliance().id}`}
                 min={1}
                 max={100}
                 step={1}
-                value={cap.dimmer?.brightnessPercent ?? 80}
-                disabled={!cap.dimmer?.controllable}
+                value={cap().dimmer?.brightnessPercent ?? 80}
+                disabled={!cap().dimmer?.controllable}
                 accessibilityLabel={t("brightness")}
                 onChange={() => {}}
-                onChangeEnd={(val) =>
-                  cap.dimmer && setLightBrightness(cap.dimmer.entityId, val)
-                }
+                onChangeEnd={(val) => {
+                  const dm = cap().dimmer;
+                  if (dm) setLightBrightness(dm.entityId, val);
+                }}
               />
             </View>
 
-            <If when={Boolean(cap.dimmer?.colorTempRange)}>
+            <If when={Boolean(cap().dimmer?.colorTempRange)}>
               <View class="gap-2 pt-2 border-t border-border">
                 <View class="flex-row items-center justify-between">
                   <Text class="text-foreground text-sm font-semibold">{t("colorTemperature")}</Text>
                   <Text class="text-muted-foreground text-xs font-semibold">
-                    {cap.dimmer?.colorTempKelvin ?? 4000}K
+                    {cap().dimmer?.colorTempKelvin ?? 4000}K
                   </Text>
                 </View>
                 <View class="flex-row items-center gap-2 flex-wrap">
@@ -1628,18 +2441,19 @@ export function HomeSpaceView(props: {
                   ].map((preset) => (
                     <Button
                       testID={`detail-ct-${preset.k}`}
-                      onPress={() =>
-                        cap.dimmer && setLightColorTemp(cap.dimmer.entityId, preset.k)
-                      }
+                      onPress={() => {
+                        const dm = cap().dimmer;
+                        if (dm) setLightColorTemp(dm.entityId, preset.k);
+                      }}
                       class={
-                        Math.abs((cap.dimmer?.colorTempKelvin ?? 4000) - preset.k) < 400
+                        Math.abs((cap().dimmer?.colorTempKelvin ?? 4000) - preset.k) < 400
                           ? "flex-1 min-w-20 min-h-10 px-2.5 rounded-xl bg-primary items-center justify-center active:opacity-75"
                           : "flex-1 min-w-20 min-h-10 px-2.5 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75"
                       }
                     >
                       <Text
                         class={
-                          Math.abs((cap.dimmer?.colorTempKelvin ?? 4000) - preset.k) < 400
+                          Math.abs((cap().dimmer?.colorTempKelvin ?? 4000) - preset.k) < 400
                             ? "text-primary-foreground text-xs font-semibold"
                             : "text-foreground text-xs font-medium"
                         }
@@ -1655,147 +2469,181 @@ export function HomeSpaceView(props: {
         </If>
 
         {/* Climate / Thermostat */}
-        <If when={Boolean(cap.thermostat)}>
+        <If when={Boolean(cap().thermostat)}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-3">
             <View class="flex-row items-center justify-between">
               <Text class="text-foreground text-sm font-semibold">
                 {t("targetTemperature")}
               </Text>
               <Text class="text-foreground text-2xl font-bold">
-                {cap.thermostat?.targetTemp}
-                {cap.thermostat?.unit ?? "°C"}
+                {cap().thermostat?.targetTemp}
+                {cap().thermostat?.unit ?? "°C"}
               </Text>
             </View>
             <HorizontalValueSlider
-              testID={`detail-therm-slider-${appliance.id}`}
-              min={cap.thermostat?.minTemp ?? 16}
-              max={cap.thermostat?.maxTemp ?? 31}
-              step={cap.thermostat?.step ?? 0.5}
-              value={cap.thermostat?.targetTemp ?? 26}
-              disabled={!cap.thermostat?.controllable}
+              testID={`detail-therm-slider-${appliance().id}`}
+              min={cap().thermostat?.minTemp ?? 16}
+              max={cap().thermostat?.maxTemp ?? 31}
+              step={cap().thermostat?.step ?? 0.5}
+              value={cap().thermostat?.targetTemp ?? 26}
+              disabled={!cap().thermostat?.controllable}
               accessibilityLabel={t("targetTemperature")}
               onChange={() => {}}
-              onChangeEnd={(val) =>
-                cap.thermostat &&
-                adjustThermostat(
-                  cap.thermostat.entityId,
-                  cap.thermostat.domain,
-                  val,
-                  cap.thermostat.minTemp,
-                  cap.thermostat.maxTemp,
-                  cap.thermostat.step,
-                )
-              }
+              onChangeEnd={(val) => {
+                const th = cap().thermostat;
+                if (th) {
+                  adjustThermostat(
+                    th.entityId,
+                    th.domain,
+                    val,
+                    th.minTemp,
+                    th.maxTemp,
+                    th.step,
+                  );
+                }
+              }}
             />
           </View>
         </If>
 
         {/* Mode Selection */}
-        <If when={Boolean(cap.modeBar)}>
+        <If when={Boolean(cap().modeBar)}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-2.5">
             <Text class="text-foreground text-sm font-semibold">{t("modeSelection")}</Text>
-            <View class="flex-row items-center gap-2 flex-wrap">
-              {(cap.modeBar?.options ?? []).map((opt) => (
-                <Button
-                  testID={`detail-mode-${opt.value}`}
-                  disabled={!cap.modeBar?.controllable}
-                  selected={cap.modeBar?.currentMode === opt.value}
-                  onPress={() => cap.modeBar && selectMode(cap.modeBar, opt.value)}
-                  class={
-                    cap.modeBar?.currentMode === opt.value
-                      ? "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
-                      : "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
-                  }
-                >
-                  <Text
-                    class={
-                      cap.modeBar?.currentMode === opt.value
-                        ? "text-primary-foreground text-sm font-semibold"
-                        : "text-foreground text-sm font-medium"
-                    }
-                  >
-                    {opt.label}
-                  </Text>
-                </Button>
-              ))}
-            </View>
+            <If
+              when={(cap().modeBar?.options.length ?? 0) > 6}
+              else={
+                <View class="flex-row items-center gap-2 flex-wrap">
+                  <Each of={cap().modeBar?.options ?? []} key={(opt) => opt.value}>
+                    {(opt) => (
+                      <Button
+                        testID={`detail-mode-${opt().value}`}
+                        disabled={!cap().modeBar?.controllable}
+                        selected={cap().modeBar?.currentMode === opt().value}
+                        onPress={() => {
+                          const mb = cap().modeBar;
+                          if (mb) selectMode(mb, opt().value);
+                        }}
+                        class={
+                          cap().modeBar?.currentMode === opt().value
+                            ? "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-primary items-center justify-center active:opacity-75 disabled:opacity-40"
+                            : "flex-1 min-w-20 min-h-11 px-3 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75 disabled:opacity-40"
+                        }
+                      >
+                        <Text
+                          class={
+                            cap().modeBar?.currentMode === opt().value
+                              ? "text-primary-foreground text-sm font-semibold"
+                              : "text-foreground text-sm font-medium"
+                          }
+                        >
+                          {opt().label}
+                        </Text>
+                      </Button>
+                    )}
+                  </Each>
+                </View>
+              }
+            >
+              <SelectField
+                testID={`detail-mode-select-${appliance().id}`}
+                label={t("modeSelection")}
+                items={(cap().modeBar?.options ?? []).map((opt) => ({
+                  value: opt.value,
+                  title: opt.label,
+                }))}
+                value={cap().modeBar?.currentMode ?? ""}
+                disabled={!cap().modeBar?.controllable}
+                onChange={(val) => {
+                  const mb = cap().modeBar;
+                  if (mb) selectMode(mb, val);
+                }}
+              />
+            </If>
           </View>
         </If>
 
+        {/* Additional Choice & Range Controls (Fan Level, Swing Angle, Favorite Speed, Keep Warm, etc.) */}
+        {renderExtraControlsSection(appliance)}
+
         {/* Action Triggers */}
-        <If when={(cap.actions?.length ?? 0) > 0}>
+        <If when={(cap().actions?.length ?? 0) > 0}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-2.5">
             <Text class="text-foreground text-sm font-semibold">{t("primaryControls")}</Text>
             <View class="flex-row items-center gap-2 flex-wrap">
-              {(cap.actions ?? []).map((act) => (
-                <Button
-                  testID={`detail-act-${act.id}`}
-                  onPress={() => triggerAction(act)}
-                  class={
-                    act.tone === "primary"
-                      ? "flex-1 min-w-28 min-h-12 px-4 rounded-xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75"
-                      : "flex-1 min-w-28 min-h-12 px-4 rounded-xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75"
-                  }
-                >
-                  <ActionIcon
-                    name={resolveActionIconName(act)}
-                    tone={act.tone === "primary" ? "primaryFg" : "foreground"}
-                    size={16}
-                  />
-                  <Text
+              <Each of={cap().actions ?? []} key={(act) => act.id}>
+                {(act) => (
+                  <Button
+                    testID={`detail-act-${act().id}`}
+                    onPress={() => triggerAction(act())}
                     class={
-                      act.tone === "primary"
-                        ? "text-primary-foreground text-sm font-semibold"
-                        : "text-foreground text-sm font-medium"
+                      act().tone === "primary"
+                        ? "flex-1 min-w-28 min-h-12 px-4 rounded-xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75"
+                        : "flex-1 min-w-28 min-h-12 px-4 rounded-xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75"
                     }
                   >
-                    {act.label}
-                  </Text>
-                </Button>
-              ))}
+                    <ActionIcon
+                      name={resolveActionIconName(act())}
+                      tone={act().tone === "primary" ? "primaryFg" : "foreground"}
+                      size={16}
+                    />
+                    <Text
+                      class={
+                        act().tone === "primary"
+                          ? "text-primary-foreground text-sm font-semibold"
+                          : "text-foreground text-sm font-medium"
+                      }
+                    >
+                      {act().label}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
             </View>
           </View>
         </If>
 
         {/* Auxiliary Toggles */}
-        <If when={(cap.auxiliaryToggles?.length ?? 0) > 0}>
+        <If when={(cap().auxiliaryToggles?.length ?? 0) > 0}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-2.5">
             <Text class="text-foreground text-sm font-semibold">{t("auxiliaryFeatures")}</Text>
             <View class="flex-row items-center gap-2 flex-wrap">
-              {(cap.auxiliaryToggles ?? []).map((tog) => (
-                <Button
-                  testID={`detail-aux-${tog.id}`}
-                  disabled={!tog.controllable}
-                  selected={tog.isOn}
-                  onPress={() => togglePower(tog.entityId, tog.domain, tog.isOn)}
-                  class={
-                    tog.isOn
-                      ? "min-h-11 px-3.5 rounded-xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
-                      : "min-h-11 px-3.5 rounded-xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
-                  }
-                >
-                  <ActionIcon
-                    name={tog.isOn ? "check" : "power"}
-                    tone={tog.isOn ? "primaryFg" : "muted"}
-                    size={14}
-                  />
-                  <Text
+              <Each of={cap().auxiliaryToggles ?? []} key={(tog) => tog.id}>
+                {(tog) => (
+                  <Button
+                    testID={`detail-aux-${tog().id}`}
+                    disabled={!tog().controllable}
+                    selected={tog().isOn}
+                    onPress={() => togglePower(tog().entityId, tog().domain, tog().isOn)}
                     class={
-                      tog.isOn
-                        ? "text-primary-foreground text-xs font-semibold"
-                        : "text-foreground text-xs font-medium"
+                      tog().isOn
+                        ? "min-h-11 px-3.5 rounded-xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
+                        : "min-h-11 px-3.5 rounded-xl bg-muted border border-border flex-row items-center justify-center gap-2 active:opacity-75 disabled:opacity-40"
                     }
                   >
-                    {tog.label}
-                  </Text>
-                </Button>
-              ))}
+                    <ActionIcon
+                      name={tog().isOn ? "check" : "power"}
+                      tone={tog().isOn ? "primaryFg" : "muted"}
+                      size={14}
+                    />
+                    <Text
+                      class={
+                        tog().isOn
+                          ? "text-primary-foreground text-xs font-semibold"
+                          : "text-foreground text-xs font-medium"
+                      }
+                    >
+                      {tog().label}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
             </View>
           </View>
         </If>
 
         {/* Read-only Security Notice for Smart Locks */}
-        <If when={Boolean(cap.securityEvents)}>
+        <If when={Boolean(cap().securityEvents)}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-2">
             <View class="flex-row items-center gap-2">
               <ActionIcon name="shield" tone="verified" size={16} />
@@ -1804,28 +2652,33 @@ export function HomeSpaceView(props: {
               </Text>
             </View>
             <Text class="text-muted-foreground text-xs">{t("readOnlySecurityNotice")}</Text>
-            {(cap.securityEvents?.events ?? []).map((ev) => (
-              <View class="flex-row items-center justify-between pt-1">
-                <Text class="text-foreground text-xs font-medium">{ev.label}</Text>
-                <Text class="text-muted-foreground text-xs">{ev.time}</Text>
-              </View>
-            ))}
+            <Each
+              of={cap().securityEvents?.events ?? []}
+              key={(ev) => `${ev.time}:${ev.label}`}
+            >
+              {(ev) => (
+                <View class="flex-row items-center justify-between pt-1">
+                  <Text class="text-foreground text-xs font-medium">{ev().label}</Text>
+                  <Text class="text-muted-foreground text-xs">{ev().time}</Text>
+                </View>
+              )}
+            </Each>
           </View>
         </If>
 
         {/* Telemetry Metrics */}
-        <If when={cap.telemetry.length > 0}>
+        <If when={cap().telemetry.length > 0}>
           <View class="rounded-2xl border border-border bg-card p-4 gap-2.5">
             <Text class="text-foreground text-sm font-semibold">{t("telemetryMetrics")}</Text>
             <View class="flex-row items-center gap-2.5 flex-wrap">
-              {cap.telemetry.map((m) => (
-                <View
-                  class="min-w-28 flex-1 rounded-xl bg-muted border border-border px-3.5 py-2.5 gap-0.5"
-                >
-                  <Text class="text-muted-foreground text-xs">{m.label}</Text>
-                  <Text class="text-foreground text-base font-bold">{m.value}</Text>
-                </View>
-              ))}
+              <Each of={cap().telemetry} key={(m) => m.key}>
+                {(m) => (
+                  <View class="min-w-28 flex-1 rounded-xl bg-muted border border-border px-3.5 py-2.5 gap-0.5">
+                    <Text class="text-muted-foreground text-xs">{m().label}</Text>
+                    <Text class="text-foreground text-base font-bold">{m().value}</Text>
+                  </View>
+                )}
+              </Each>
             </View>
           </View>
         </If>
@@ -1918,13 +2771,13 @@ export function HomeSpaceView(props: {
               else={
                 <If
                   when={appliance().archetype === "cycle_appliance"}
-                  else={renderGenericApplianceFullPage(appliance())}
+                  else={renderGenericApplianceFullPage(appliance)}
                 >
-                  {renderCycleApplianceFullPage(appliance())}
+                  {renderCycleApplianceFullPage(appliance)}
                 </If>
               }
             >
-              {renderVacuumFullPage(appliance())}
+              {renderVacuumFullPage(appliance)}
             </If>
           }
         >
@@ -1933,34 +2786,6 @@ export function HomeSpaceView(props: {
       </Scroll>
     );
   };
-
-  const applianceKey = (app: HomeAppliance) =>
-    [
-      app.id,
-      app.span,
-      app.order,
-      app.online,
-      app.isActive,
-      app.statusBadge,
-      app.conciseSubtitle,
-      app.capabilities.power?.isOn ?? "",
-      app.capabilities.thermostat?.targetTemp ?? "",
-      app.capabilities.thermostat?.currentTemp ?? "",
-      app.capabilities.modeBar?.currentMode ?? "",
-      app.capabilities.dimmer?.brightnessPercent ?? "",
-      app.capabilities.dimmer?.colorTempKelvin ?? "",
-      app.capabilities.cycleTask?.stageLabel ?? "",
-      app.capabilities.cycleTask?.remainingMinutes ?? "",
-      app.capabilities.vacuum?.mopModeBar?.currentMode ?? "",
-      (app.capabilities.vacuum?.consumables ?? []).map((c) => `${c.id}=${c.percent}`).join(","),
-      (app.capabilities.telemetry ?? []).map((m) => `${m.key}=${m.value}`).join(","),
-      (app.capabilities.multiGang?.channels ?? []).map((c) => `${c.id}=${c.isOn}`).join(","),
-      (app.capabilities.auxiliaryToggles ?? []).map((t) => `${t.id}=${t.isOn}`).join(","),
-      (app.capabilities.visionStream?.featureToggles ?? []).map((t) => `${t.id}=${t.isOn}`).join(","),
-      (app.capabilities.visionStream?.modeSelectors ?? [])
-        .map((s) => `${s.id}=${s.capability.currentMode}`)
-        .join(","),
-    ].join(":");
 
   // --- Devices Sub-View (Left Room Sidebar + Right Bento Grid) ---
   const renderDevicesSubView = () => (
@@ -2170,105 +2995,197 @@ export function HomeSpaceView(props: {
         </If>
 
         {/* Right Scrollable Multi-Size Bento Canvas */}
-        <Scroll class="flex-1" contentClass="p-4 gap-5">
-          {/* Active Layout Editing Banner */}
-          <If when={layoutEditing()}>
-            <View class="rounded-2xl border border-primary bg-card px-4 py-2.5 flex-row items-center justify-between gap-3">
-              <View class="flex-row items-center gap-2 flex-1" style={{ minWidth: 0 }}>
-                <ActionIcon name="edit" tone="primary" size={16} />
-                <Text class="text-foreground text-xs font-semibold flex-1" style={{ numberOfLines: 2 }}>
-                  {t("layoutEditBanner")}
-                </Text>
-              </View>
-              <Button
-                testID="home-layout-banner-done"
-                onPress={() => {
-                  movingApplianceId.set(null);
-                  props.store.setHomeLayoutEditing(false);
-                }}
-                class="min-h-8 px-3.5 rounded-full bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
-              >
-                <ActionIcon name="check" tone="primaryFg" size={14} />
-                <Text class="text-primary-foreground text-xs font-semibold">
-                  {t("doneLayout")}
-                </Text>
-              </Button>
-            </View>
-          </If>
+        <View
+          class="flex-1"
+          style={{ minWidth: 0, minHeight: 0 }}
+          onLayout={(e) => {
+            if (e.bounds.size.width > 0) {
+              canvasWidth.set(Math.round(e.bounds.size.width));
+            }
+          }}
+        >
+          <Scroll class="flex-1" contentClass="p-4 gap-4">
+            <Each of={visibleRooms()} key={(room) => room.id}>
+              {(room) => (
+                <View class="rounded-3xl bg-room-surface border border-border p-3.5 gap-3">
+                  {/* Room Section Header + Environment Strip + Active Summary + Per-Room Edit & More Menu */}
+                  <View class="flex-row items-center justify-between gap-2 flex-wrap">
+                    <View class="flex-row items-center gap-2 flex-wrap">
+                      <Text class="text-foreground text-lg font-bold" role="header">
+                        {room().name}
+                      </Text>
+                      <Each of={room().environment.slice(0, 4)} key={(env) => env.key}>
+                        {(env) => (
+                          <View class="px-2.5 py-1 rounded-full bg-card border border-border flex-row items-center gap-1.5">
+                            <If when={env().key === "temperature"}>
+                              <ActionIcon name="thermometer" tone="warning" size={13} />
+                            </If>
+                            <If when={env().key === "humidity"}>
+                              <ActionIcon name="droplet" tone="airflow" size={13} />
+                            </If>
+                            <If when={env().key === "pm25"}>
+                              <ActionIcon name="leaf" tone="airQuality" size={13} />
+                            </If>
+                            <If when={env().key !== "temperature" && env().key !== "humidity"}>
+                              <Text class="text-muted-foreground text-xs">{env().label}</Text>
+                            </If>
+                            <Text class="text-foreground text-xs font-semibold">{env().value}</Text>
+                            <If when={Boolean(env().badge)}>
+                              <View class="px-1.5 py-0.5 rounded-full bg-air-quality-bg border border-air-quality-border">
+                                <Text class="text-air-quality text-xs font-bold">
+                                  {env().badge}
+                                </Text>
+                              </View>
+                            </If>
+                          </View>
+                        )}
+                      </Each>
+                    </View>
 
-          <Each of={visibleRooms()} key={(room) => room.id}>
-            {(room) => (
-              <View class="gap-3">
-                {/* Room Section Header + Environment Strip + Batch Room Power */}
-                <View class="flex-row items-center justify-between gap-2 flex-wrap">
-                  <View class="flex-row items-center gap-2 flex-wrap">
-                    <Text class="text-foreground text-lg font-bold" role="header">
-                      {room().name}
-                    </Text>
-                    <Each of={room().environment.slice(0, 4)} key={(env) => env.key}>
-                      {(env) => (
-                        <View class="px-2.5 py-1 rounded-full bg-card border border-border flex-row items-center gap-1">
-                          <Text class="text-muted-foreground text-xs">{env().label}</Text>
-                          <Text class="text-foreground text-xs font-semibold">{env().value}</Text>
-                        </View>
-                      )}
-                    </Each>
-                  </View>
+                    <View class="flex-row items-center gap-2">
+                      <Text class="text-muted-foreground text-xs">
+                        {t("activeCountSummary", {
+                          active: room().activeCount,
+                          total: room().totalCount,
+                        })}
+                      </Text>
 
-                  <View class="flex-row items-center gap-1.5">
-                    <If when={!layoutEditing()}>
                       <Button
                         testID={`home-room-edit-${room().name}`}
-                        accessibilityLabel={t("longPressEditHint")}
-                        onPress={() => props.store.setHomeLayoutEditing(true)}
-                        class="min-h-8 px-2.5 rounded-lg bg-card border border-border flex-row items-center justify-center gap-1 active:opacity-75"
+                        accessibilityLabel={
+                          isRoomEditing(room().name) ? t("doneLayout") : t("editLayout")
+                        }
+                        selected={isRoomEditing(room().name)}
+                        onPress={() => {
+                          openRoomMenu.set(null);
+                          movingApplianceId.set(null);
+                          resizePreview.set(null);
+                          reorderPreview.set(null);
+                          props.store.setHomeLayoutEditing(
+                            isRoomEditing(room().name) ? null : room().name,
+                          );
+                        }}
+                        class={
+                          isRoomEditing(room().name)
+                            ? "min-h-11 px-3.5 rounded-full bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
+                            : "min-h-11 px-3.5 rounded-full bg-card border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
+                        }
                       >
-                        <ActionIcon name="edit" tone="muted" size={13} />
-                        <Text class="text-muted-foreground text-xs">
-                          {t("editLayout")}
+                        <ActionIcon
+                          name={isRoomEditing(room().name) ? "check" : "edit"}
+                          tone={isRoomEditing(room().name) ? "primaryFg" : "muted"}
+                          size={13}
+                        />
+                        <Text
+                          class={
+                            isRoomEditing(room().name)
+                              ? "text-primary-foreground text-xs font-semibold"
+                              : "text-foreground text-xs font-medium"
+                          }
+                        >
+                          {isRoomEditing(room().name) ? t("doneLayout") : t("editLayout")}
                         </Text>
                       </Button>
-                    </If>
-                    <If when={room().roomPowerEntities.turnOnIds.length > 0}>
-                      <Button
-                        testID={`home-room-on-${room().name}`}
-                        onPress={() => void props.store.controlRoomPower(room().name, true)}
-                        class="min-h-8 px-2.5 rounded-lg bg-card border border-border flex-row items-center justify-center gap-1 active:opacity-75"
+
+                      <If
+                        when={
+                          !isRoomEditing(room().name) &&
+                          (room().roomPowerEntities.turnOnIds.length > 0 ||
+                            room().roomPowerEntities.turnOffIds.length > 0)
+                        }
                       >
-                        <ActionIcon name="power" tone="verified" size={13} />
-                        <Text class="text-foreground text-xs font-medium">{t("allOn")}</Text>
-                      </Button>
-                    </If>
-                    <If when={room().roomPowerEntities.turnOffIds.length > 0}>
-                      <Button
-                        testID={`home-room-off-${room().name}`}
-                        onPress={() => void props.store.controlRoomPower(room().name, false)}
-                        class="min-h-8 px-2.5 rounded-lg bg-card border border-border flex-row items-center justify-center gap-1 active:opacity-75"
-                      >
-                        <ActionIcon name="power" tone="muted" size={13} />
-                        <Text class="text-muted-foreground text-xs font-medium">{t("allOff")}</Text>
-                      </Button>
-                    </If>
+                        <Button
+                          testID={`home-room-more-${room().name}`}
+                          accessibilityLabel={`${room().name} 更多操作`}
+                          selected={openRoomMenu() === room().name}
+                          onPress={() =>
+                            openRoomMenu.set(
+                              openRoomMenu() === room().name ? null : room().name,
+                            )
+                          }
+                          class={
+                            openRoomMenu() === room().name
+                              ? "w-11 h-11 rounded-full bg-primary items-center justify-center active:opacity-75"
+                              : "w-11 h-11 rounded-full bg-card border border-border items-center justify-center active:opacity-75"
+                          }
+                        >
+                          <ActionIcon
+                            name="more"
+                            tone={openRoomMenu() === room().name ? "primaryFg" : "foreground"}
+                            size={15}
+                          />
+                        </Button>
+                      </If>
+                    </View>
+                  </View>
+
+                  {/* Room Batch Power Secondary Menu */}
+                  <If when={!isRoomEditing(room().name) && openRoomMenu() === room().name}>
+                    <View class="rounded-2xl bg-card border border-border p-2.5 flex-row items-center justify-between gap-2 flex-wrap">
+                      <Text class="text-muted-foreground text-xs px-1">
+                        房间照明与插座快捷控制
+                      </Text>
+                      <View class="flex-row items-center gap-2">
+                        <If when={room().roomPowerEntities.turnOnIds.length > 0}>
+                          <Button
+                            testID={`home-room-on-${room().name}`}
+                            onPress={() => {
+                              openRoomMenu.set(null);
+                              void props.store.controlRoomPower(room().name, true);
+                            }}
+                            class="min-h-9 px-3 rounded-xl bg-live-active-bg border border-verified flex-row items-center justify-center gap-1.5 active:opacity-75"
+                          >
+                            <ActionIcon name="power" tone="verified" size={13} />
+                            <Text class="text-verified text-xs font-semibold">
+                              灯和插座全开
+                            </Text>
+                          </Button>
+                        </If>
+                        <If when={room().roomPowerEntities.turnOffIds.length > 0}>
+                          <Button
+                            testID={`home-room-off-${room().name}`}
+                            onPress={() => {
+                              openRoomMenu.set(null);
+                              void props.store.controlRoomPower(room().name, false);
+                            }}
+                            class="min-h-9 px-3 rounded-xl bg-muted border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
+                          >
+                            <ActionIcon name="power" tone="muted" size={13} />
+                            <Text class="text-foreground text-xs font-medium">
+                              灯和插座全关
+                            </Text>
+                          </Button>
+                        </If>
+                      </View>
+                    </View>
+                  </If>
+
+                  {/* CSS Grid with stable order flow & fixed base row height for 1x1, 2x1, 1x2, 2x2 Bento tiles */}
+                  <View
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${gridColumns()}, 1fr)`,
+                      gridAutoRows: `${BASE_ROW_HEIGHT}px`,
+                      gridAutoFlow: "row",
+                      gap: GRID_GAP,
+                    }}
+                  >
+                    <Each
+                      of={
+                        reorderPreview()?.roomId === room().id
+                          ? reorderPreview()!.appliances
+                          : room().appliances
+                      }
+                      key={(appliance) => appliance.id}
+                    >
+                      {(app) => renderApplianceCard(room, app)}
+                    </Each>
                   </View>
                 </View>
-
-                {/* CSS Grid with dense packing for 1x1, 2x1, 2x2 Bento tiles */}
-                <View
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: `repeat(${gridColumns()}, 1fr)`,
-                    gridAutoFlow: "row dense",
-                    gap: 12,
-                  }}
-                >
-                  <Each of={room().appliances} key={applianceKey}>
-                    {(app) => renderApplianceCard(room(), app())}
-                  </Each>
-                </View>
-              </View>
-            )}
-          </Each>
-        </Scroll>
+              )}
+            </Each>
+          </Scroll>
+        </View>
       </View>
     </If>
   );
@@ -2584,12 +3501,12 @@ export function HomeSpaceView(props: {
         {renderServicesSubView()}
       </RetainedPage>
       <If when={subView() === "devices" && Boolean(inspectedAppliance())}>
-        <Each
-          of={inspectedAppliance() ? [inspectedAppliance()!] : []}
-          key={(appliance) => appliance.icon === "camera" ? appliance.id : applianceKey(appliance)}
-        >
-          {(app) => renderFullPageApplianceView(app)}
-        </Each>
+            <Each
+              of={inspectedAppliance() ? [inspectedAppliance()!] : []}
+              key={(appliance) => appliance.id}
+            >
+              {(app) => renderFullPageApplianceView(app)}
+            </Each>
       </If>
     </View>
   );

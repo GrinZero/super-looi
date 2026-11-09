@@ -27,6 +27,28 @@
 - [ ] Step 5：真机记录真实首帧、延迟、稳定播放、PSS/RSS/CPU 与释放情况；无媒体时不将空闲内存或节点测试当作播放性能
   - [ ] 正式详情验收时 USB 与 Wi-Fi ADB 均离线，等待手机恢复调试连接；本轮未取得有效播放性能样本
 
+### 智能家居真机能力、拖边布局与设计还原落地（2026-11-10）
+
+方案见 [`docs/plans/smart-home-device-and-design-repair-plan.md`](docs/plans/smart-home-device-and-design-repair-plan.md)。
+
+- [x] Step 1：真实设备能力闭环（`@super-looi/home-assistant`、`@super-looi/home-devices`、`apps/nsh/runtime`）
+  - [x] 扩充 MIoT Spec 解析（`parseMiotSpec` 保留 `actions` 及关联入参属性）与 `MiotHttpClient.callAction`（`miotspec/action`）
+  - [x] 扩充 `mapMiotDevice` 与 `DirectMiotTransportAdapter`：映射可写布尔（`switch`）、可写范围数值（`number`/`climate`）、可写枚举（`select`）及动作（`button`），支持 `set_value`/`select_option`/`set_temperature`/`set_hvac_mode`/`press`
+  - [x] 扩充 `ha-rest-transport.ts` 属性白名单、`ha-entity-policy.ts` 风扇/空调能力与 `gateway.ts` 命令校验与状态回读判据
+  - [x] 在 `@super-looi/home-devices` 引入五类统一控制元语 `controls`（`Toggle`/`Range`/`Choice`/`Action`/`Metric`），补齐风扇 `dmaker.fan.p45`、空调 `xiaomi.airc.h09h00`、台灯、净化器、扫地机、洗碗机、电饭煲、电热水瓶、除湿机、音箱、宠物设备与摄像头真实能力
+- [x] Step 2：统一卡片几何、拖边缩放与房间级布局入口（`@super-looi/home-devices`、`apps/nsh/store.ts`、`apps/nsh/ui/`）
+  - [x] 扩展 `TileSpan = "1x1" | "2x1" | "1x2" | "2x2"` 与 `layout-store.ts` 尺寸读写
+  - [x] 收敛布局编辑状态为房间 ID（`homeLayoutEditing: string | null`），移除顶栏“调整布局”按钮与卡片表面循环尺寸/方向/互换按钮，将房间批量电源收敛到房间头“更多”菜单
+  - [x] 基于画布实际宽度测量（`floor((width + 12) / (208 + 12))`）与固定基准行高实现 `1x1 / 2x1 / 1x2 / 2x2` 卡片流式排布、右/下/右下角 44dp 拖边缩放热区（含 8dp 迟滞与预览重排）及长按拖移排序，修复 `Each` 稳定 `key={(app) => app.id}`
+- [x] Step 3：视觉还原与复杂设备专项修复（`apps/nsh/theme.json`、`apps/nsh/ui/HomeIcons.tsx`、`apps/nsh/ui/HomeSpaceView.tsx`）
+  - [x] 在 `apps/nsh/theme.json` 补齐 `light`/`dark` 语义颜色 Token（`lighting`/`airflow`/`air-quality` 等），更新 `HomeIcons.tsx`（区分 `desk_lamp` 与 `light`，重绘带立柱底座冷蓝 `fan` 扇叶，新增 `leaf`/`thermometer`/`droplet`）
+  - [x] 还原房间分组容器层级、同设备来源 PM2.5 + 空气质量等级胶囊、两行设备名称（去房间前缀与型号长名规整）
+  - [x] 修正洗碗机 `qmdq88.dishwasher.s1` 误判洗衣机、扫地机主刷/边刷耗材覆盖、电饭煲未提供字段时的虚构食谱/进度、摄像头占位说明与 KB→GB 换算
+- [x] Step 4：完整使用路径验收、架构图同步与独立审查
+  - [x] 通过 `@super-looi/home-assistant`（52/52）、`@super-looi/home-devices`（4/4）、`@super-looi/nsh`（31/31）全量测试、全仓 `pnpm typecheck` 与 `pnpm build`
+  - [x] 更新 `docs/arch/architecture.js` 与 `docs/arch/sources.js`（93 个源码文件同步）
+  - [x] 安装到魅族 20 Pro 真机（`391QYGCN224FE`）完成真实 44 台家庭设备加载与视觉验收，修复独立子 agent review 指出的全部 11 项问题及 HA 摆风 `oscillate` 透传并终审 **PASS**
+
 ### 家居手动刷新反馈（2026-11-10）
 
 - [x] Step 1：定位顶栏按钮复用后台轮询加载状态，明确手动刷新独立状态的归属

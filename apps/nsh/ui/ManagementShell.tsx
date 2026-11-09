@@ -4,6 +4,7 @@ import { Button } from "nsh/base";
 import type { LlmBrandId } from "../generated/looi-runtime.js";
 import type { createAppStore, AppSpace } from "../store";
 import { ActionButton, LightToast } from "./Controls";
+import { ActionIcon } from "./HomeIcons";
 import { ModelsSpaceView } from "./ModelsSpaceView";
 import { VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
@@ -258,40 +259,20 @@ export function ManagementShell(props: {
           >
             <View class="flex-row items-center gap-1.5">
               <Button
-                testID="home-layout-edit-btn"
-                selected={props.store.homeLayoutEditing()}
-                onPress={() =>
-                  props.store.setHomeLayoutEditing(
-                    !props.store.homeLayoutEditing(),
-                  )
-                }
-                class={
-                  props.store.homeLayoutEditing()
-                    ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
-                    : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
-                }
-              >
-                <Text
-                  class={
-                    props.store.homeLayoutEditing()
-                      ? "text-primary-foreground text-xs font-semibold"
-                      : "text-foreground text-xs font-medium"
-                  }
-                >
-                  {props.store.homeLayoutEditing()
-                    ? t("doneLayout")
-                    : t("editLayout")}
-                </Text>
-              </Button>
-              <Button
                 testID="home-refresh-btn"
                 disabled={props.store.homeRefreshing()}
+                accessibilityLabel="刷新设备"
                 onPress={() => void props.store.refreshHomeDashboard()}
-                class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+                class="min-h-11 min-w-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-60"
               >
-                <Text class="text-foreground text-xs font-medium">
-                  {props.store.homeRefreshing() ? t("refreshing") : t("refresh")}
-                </Text>
+                <If
+                  when={props.store.homeRefreshing()}
+                  else={<ActionIcon name="refresh" size={16} tone="foreground" />}
+                >
+                  <View class="animate-spin motion-reduce:animate-none">
+                    <ActionIcon name="refresh" size={16} tone="foreground" />
+                  </View>
+                </If>
               </Button>
             </View>
           </If>

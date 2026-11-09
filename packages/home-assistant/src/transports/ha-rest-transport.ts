@@ -98,9 +98,10 @@ function isSnapshot(value: unknown): value is HomeStateSnapshot {
 /** HA attributes may contain camera tokens and signed URLs. Expose telemetry only. */
 function publicSnapshot(state: HomeStateSnapshot): HomeStateSnapshot {
   const keys = new Set(["friendly_name", "supported_color_modes", "supported_features", "brightness", "color_temp_kelvin",
-    "min_color_temp_kelvin", "max_color_temp_kelvin", "unit_of_measurement", "device_class", "percentage",
-    "temperature", "current_temperature", "min_temp", "max_temp", "target_temp_step", "humidity", "hvac_modes", "hvac_action",
-    "options", "min", "max", "step", "fan_modes", "swing_modes", "preset_modes", "battery_level"]);
+    "min_color_temp_kelvin", "max_color_temp_kelvin", "unit_of_measurement", "device_class", "percentage", "percentage_step",
+    "preset_mode", "oscillating", "direction", "fan_mode", "swing_mode",
+    "temperature", "current_temperature", "min_temp", "max_temp", "target_temp_step", "humidity", "target_humidity", "min_humidity", "max_humidity",
+    "hvac_modes", "hvac_action", "options", "min", "max", "step", "fan_modes", "swing_modes", "preset_modes", "battery_level"]);
   return { entity_id: state.entity_id, state: state.entity_id.startsWith("text.") && !["unknown", "unavailable", ""].includes(state.state) ? "已隐藏" : state.state,
     last_changed: state.last_changed, last_updated: state.last_updated,
     attributes: Object.fromEntries(Object.entries(state.attributes).filter(([key]) => keys.has(key))) };

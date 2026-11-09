@@ -2,7 +2,7 @@ import type { HomeEntityDefinition, HomeStateSnapshot } from "@super-looi/contra
 
 export type HomeSourceId = "direct_miot" | "external_ha" | "simulation";
 
-export type TileSpan = "1x1" | "2x1" | "2x2";
+export type TileSpan = "1x1" | "2x1" | "1x2" | "2x2";
 
 export type ApplianceArchetype =
   | "vision_security"
@@ -28,6 +28,7 @@ export type ApplianceIconKind =
   | "dehumidifier"
   | "blanket"
   | "light"
+  | "desk_lamp"
   | "switch_gang"
   | "plug"
   | "tv"
@@ -201,7 +202,83 @@ export interface TelemetryMetric {
   value: string;
   numericValue?: number;
   unit?: string;
+  badge?: string;
+  sourceDeviceId?: string;
 }
+
+export interface ToggleControlPrimitive {
+  kind: "toggle";
+  id: string;
+  label: string;
+  entityId: string;
+  domain: string;
+  serviceOn?: string;
+  serviceOff?: string;
+  serviceDataOn?: Record<string, unknown>;
+  serviceDataOff?: Record<string, unknown>;
+  isOn: boolean;
+  controllable: boolean;
+  role?: "primary_power" | "channel" | "swing" | "feature";
+}
+
+export interface RangeControlPrimitive {
+  kind: "range";
+  id: string;
+  label: string;
+  entityId: string;
+  domain: string;
+  service: string;
+  parameterKey: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  unit?: string;
+  controllable: boolean;
+}
+
+export interface ChoiceControlPrimitive {
+  kind: "choice";
+  id: string;
+  label: string;
+  entityId: string;
+  domain: string;
+  service: string;
+  parameterKey: string;
+  currentValue: string;
+  currentLabel: string;
+  options: ModeOption[];
+  controllable: boolean;
+}
+
+export interface ActionControlPrimitive {
+  kind: "action";
+  id: string;
+  label: string;
+  entityId: string;
+  domain: string;
+  service: string;
+  serviceData?: Record<string, unknown>;
+  tone?: "primary" | "default" | "destructive";
+  iconKey?: ApplianceActionTrigger["iconKey"];
+}
+
+export interface MetricControlPrimitive {
+  kind: "metric";
+  id: string;
+  label: string;
+  value: string;
+  numericValue?: number;
+  unit?: string;
+  badge?: string;
+}
+
+export type ApplianceControlPrimitive =
+  | ToggleControlPrimitive
+  | RangeControlPrimitive
+  | ChoiceControlPrimitive
+  | ActionControlPrimitive
+  | MetricControlPrimitive;
 
 export interface ApplianceCapabilities {
   power?: PowerCapability;
@@ -224,6 +301,7 @@ export interface ApplianceCapabilities {
     controllable: boolean;
   }>;
   telemetry: TelemetryMetric[];
+  controls?: ApplianceControlPrimitive[];
 }
 
 export interface HomeAppliance {
@@ -232,6 +310,7 @@ export interface HomeAppliance {
   source: HomeSourceId;
   sourceLabel: string;
   name: string;
+  displayName?: string;
   room: string;
   homeName?: string;
   model?: string;
@@ -253,6 +332,8 @@ export interface RoomEnvironmentMetric {
   label: string;
   value: string;
   numericValue?: number;
+  badge?: string;
+  sourceDeviceId?: string;
 }
 
 export interface HomeRoomSection {

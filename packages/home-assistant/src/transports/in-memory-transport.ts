@@ -63,6 +63,8 @@ export class InMemoryHaTransportAdapter implements HaTransportAdapter {
       targetState = "off";
     } else if (service === "turn_on") {
       targetState = domain === "climate" ? String(existing?.attributes?.hvac_mode ?? "cool") : "on";
+    } else if (service === "set_percentage" && typeof serviceData.percentage === "number") {
+      targetState = serviceData.percentage > 0 ? "on" : "off";
     } else if (service === "set_hvac_mode" && typeof serviceData.hvac_mode === "string") {
       targetState = serviceData.hvac_mode;
     } else if (service === "select_option" && typeof serviceData.option === "string") {
