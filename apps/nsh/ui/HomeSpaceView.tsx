@@ -1946,30 +1946,30 @@ export function HomeSpaceView(props: {
         <If
           when={props.store.homeLoading()}
           else={
-        <Scroll class="flex-1" contentClass="grow justify-center p-6">
-          <View class="max-w-lg mx-auto rounded-3xl border border-border bg-card p-6 items-center gap-4">
-            <ApplianceIcon kind="light" active={true} size="lg" />
-            <Text class="text-foreground text-xl font-bold text-center">
-              {t("noHomeSourceEnabledTitle")}
-            </Text>
-            <Text class="text-muted-foreground text-sm text-center">
-              {t("noHomeSourceEnabledDesc")}
-            </Text>
-            <View class="flex-row items-center gap-3 flex-wrap justify-center mt-1">
-              <ActionButton
-                testID="home-empty-open-services"
-                kind="primary"
-                label={t("openServiceBinding")}
-                onPress={() => props.store.setHomeSubView("services")}
-              />
-              <ActionButton
-                testID="home-empty-enable-sim"
-                label={t("enableFullHouseDemo")}
-                onPress={() => void props.store.setHomeSourceEnabled("simulation", true)}
-              />
-            </View>
-          </View>
-        </Scroll>
+            <Scroll class="flex-1" contentClass="grow justify-center p-6">
+              <View class="max-w-lg mx-auto rounded-3xl border border-border bg-card p-6 items-center gap-4">
+                <ApplianceIcon kind="light" active={true} size="lg" />
+                <Text class="text-foreground text-xl font-bold text-center">
+                  {t("noHomeSourceEnabledTitle")}
+                </Text>
+                <Text class="text-muted-foreground text-sm text-center">
+                  {t("noHomeSourceEnabledDesc")}
+                </Text>
+                <View class="flex-row items-center gap-3 flex-wrap justify-center mt-1">
+                  <ActionButton
+                    testID="home-empty-open-services"
+                    kind="primary"
+                    label={t("openServiceBinding")}
+                    onPress={() => props.store.setHomeSubView("services")}
+                  />
+                  <ActionButton
+                    testID="home-empty-enable-sim"
+                    label={t("enableFullHouseDemo")}
+                    onPress={() => void props.store.setHomeSourceEnabled("simulation", true)}
+                  />
+                </View>
+              </View>
+            </Scroll>
           }
         >
           <View class="flex-1 items-center justify-center p-6">

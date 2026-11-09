@@ -2,6 +2,7 @@ import { t, translateMessage, formatDate } from "../i18n";
 import {
   Canvas,
   cleanup,
+  createMotion,
   effect,
   lifecycle,
   signal,
@@ -17,6 +18,37 @@ import {
   type TouchPoint,
 } from "nsh";
 import { Button, Input, Dialog, Select, Switch, Slider, type SelectItem } from "nsh/base";
+
+export function LoadingIndicator(props: { label: string; testID?: string }) {
+  const rotation = createMotion();
+  effect(() => {
+    if (lifecycle() === "active" && !reduceMotion()) void rotation.play("spin");
+    else rotation.reset();
+    return () => rotation.stop();
+  });
+  return (
+    <View testID={props.testID} role="progressbar" accessibilityLabel={props.label} class="items-center gap-4">
+      <Canvas
+        class="w-8 h-8"
+        style={rotation.style}
+        draw={(cx, size) => {
+          const radius = Math.min(size.width, size.height) / 2 - 2;
+          cx.lineWidth = 2;
+          cx.strokeStyle = token("border");
+          cx.beginPath();
+          cx.arc(size.width / 2, size.height / 2, radius, 0, Math.PI * 2);
+          cx.stroke();
+          cx.strokeStyle = token("primary");
+          cx.lineCap = "round";
+          cx.beginPath();
+          cx.arc(size.width / 2, size.height / 2, radius, -Math.PI / 2, 0);
+          cx.stroke();
+        }}
+      />
+      <Text class="text-muted-foreground text-sm">{props.label}</Text>
+    </View>
+  );
+}
 
 /** App-owned controls: shared touch targets, focus, disabled and press states. */
 export function ActionButton(props: {

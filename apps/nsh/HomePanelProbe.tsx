@@ -14,6 +14,7 @@ function HomePanelProbe() {
     busy: () => false,
     homeConfiguration: () => configuration(), homeConnection: () => undefined,
     homeDevices: () => ({}), homeLoggingIn: () => false, cancelHomeLogin() {},
+    homeLoading: () => false,
     async configureHome(value: Partial<HomeConfiguration>) { configuration.set({ ...configuration(), ...value }); },
     async connectHome() { evidence.set(`Read devices: ${configuration().mode}/${configuration().region}`); },
     async logoutMiot() {
