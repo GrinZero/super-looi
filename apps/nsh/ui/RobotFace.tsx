@@ -2124,6 +2124,7 @@ function cloneVisualState(s: FaceVisualState): FaceVisualState {
 
 /** The 620 x 340 OLED companion face driven by declarative 72-expression recipes. */
 export function RobotFace(props: {
+  active?: boolean;
   state: FaceVisualState;
   shift: { dx: number; dy: number };
 }) {
@@ -2133,6 +2134,7 @@ export function RobotFace(props: {
       FACE_EXPRESSION_RECIPES[props.state.expression] ??
       FACE_EXPRESSION_RECIPES.neutral;
     return (
+      props.active !== false &&
       lifecycle() === "active" &&
       !reduceMotion() &&
       recipe.allowsBreath !== false
@@ -2252,7 +2254,7 @@ export function RobotFace(props: {
   };
 
   effect(() => {
-    const active = lifecycle() === "active" && !reduceMotion();
+    const active = props.active !== false && lifecycle() === "active" && !reduceMotion();
     const next = cloneVisualState(props.state);
     const exprChanged = toSnapshot.expression !== next.expression;
     const gazeDelta =

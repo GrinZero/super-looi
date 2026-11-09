@@ -349,6 +349,30 @@ export function createAppStore() {
   let wakePreferenceTouched = false;
   let wakeGuideTouched = false;
   const llmSnapshot = signal<LlmCatalogSnapshot>(INITIAL_LLM_SNAPSHOT);
+  const localizedLlm = computed(() => {
+    effectiveLocale();
+    const snapshot = llmSnapshot();
+    return {
+      ...snapshot,
+      brands: snapshot.brands.map((brand) => {
+        const labels = INITIAL_LLM_SNAPSHOT.brands.find((item) => item.brandId === brand.brandId);
+        return {
+          ...brand,
+          label: translateMessage(labels?.label ?? brand.label),
+          shortLabel: translateMessage(labels?.shortLabel ?? brand.shortLabel),
+          channels: brand.channels.map((channel) => {
+            const channelLabels = labels?.channels.find((item) => item.providerId === channel.providerId);
+            return {
+              ...channel,
+              protocolLabel: translateMessage(channelLabels?.protocolLabel ?? channel.protocolLabel),
+              label: translateMessage(channelLabels?.label ?? channel.label),
+              modelsError: translateMessage(channel.modelsError ?? ""),
+            };
+          }),
+        };
+      }),
+    };
+  });
   const modelRefreshCounts = signal<Record<string, number>>({});
   const oauthFlow = signal<{
     running: boolean;
@@ -1047,6 +1071,7 @@ export function createAppStore() {
     },
     activeSpace: () => activeSpace(),
     openSpace(space: AppSpace) {
+      if (activeSpace() === space) return;
       if (space !== "models" && oauthFlow().running) {
         api.cancelProviderOAuth();
       }
@@ -1056,9 +1081,6 @@ export function createAppStore() {
       activeSpace.set(space);
       if (space === "tasks" && ready()) {
         api.refreshTasks(0);
-      }
-      if (space === "home" && ready()) {
-        void syncHomeDashboard();
       }
     },
     backToFace() {
@@ -1088,10 +1110,7 @@ export function createAppStore() {
         if (alive) fail(error);
       });
     },
-    llm: () => ({ ...llmSnapshot(), brands: llmSnapshot().brands.map(brand => {
-      const labels = INITIAL_LLM_SNAPSHOT.brands.find(item => item.brandId === brand.brandId);
-      return { ...brand, label: translateMessage(labels?.label ?? brand.label), shortLabel: translateMessage(labels?.shortLabel ?? brand.shortLabel), channels: brand.channels.map(channel => ({ ...channel, protocolLabel: translateMessage(labels?.channels.find(item => item.providerId === channel.providerId)?.protocolLabel ?? channel.protocolLabel), label: translateMessage(labels?.channels.find(item => item.providerId === channel.providerId)?.label ?? channel.label), modelsError: translateMessage(channel.modelsError ?? "") })) };
-    }) }),
+    llm: () => localizedLlm(),
     oauth: () => ({ ...oauthFlow(), instructions: translateMessage(oauthFlow().instructions), error: translateMessage(oauthFlow().error) }),
     isProviderModelsRefreshing: (providerId: string) => (modelRefreshCounts()[providerId] ?? 0) > 0,
     async refreshProviderModels(providerId: string) {

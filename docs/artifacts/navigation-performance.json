@@ -1,0 +1,41 @@
+{
+  "environment": {
+    "device": "iPhone 16e Simulator",
+    "os": "iOS 26.3",
+    "mode": "NSH development host",
+    "framework_revision": "e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3",
+    "metric": "engine render commit, microseconds; individual samples"
+  },
+  "before": {
+    "open_management": 265589,
+    "open_voice": 990625,
+    "wake_start_ms": [
+      875,
+      885,
+      888
+    ],
+    "wake_stop_ms": [
+      149,
+      157
+    ]
+  },
+  "after": {
+    "first_open_management": 25867,
+    "reopen_management": 16594,
+    "open_voice": 5172,
+    "back_to_face": 2546,
+    "back_from_home_detail": 6680
+  },
+  "animation": {
+    "duration_ms": 160,
+    "translate_y_points": [
+      8,
+      0
+    ],
+    "opacity": [
+      0.92,
+      1
+    ],
+    "reduce_motion": "native createMotion"
+  }
+}

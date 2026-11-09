@@ -13,6 +13,7 @@ import {
 } from "./ui/Controls";
 import { RobotFace } from "./ui/RobotFace";
 import { ManagementShell } from "./ui/ManagementShell";
+import { RetainedPage } from "./ui/RetainedPage";
 
 function HomeHeaderIcon(props: { kind: "chat" | "settings"; active?: boolean }) {
   return (
@@ -170,10 +171,7 @@ function App() {
       }
       style={{ paddingLeft: missingCutout().left, paddingRight: missingCutout().right }}
     >
-      <If
-        when={store.activeSpace() === "face"}
-        else={<ManagementShell store={store} />}
-      >
+      <RetainedPage active={store.activeSpace() === "face"}>
         <View
           class="flex-1 justify-between"
           style={{
@@ -183,7 +181,11 @@ function App() {
             paddingRight: "env(safe-area-inset-right)",
           }}
         >
-          <RobotFace state={store.face()} shift={{ dx: 0, dy: 0 }} />
+          <RobotFace
+            active={store.activeSpace() === "face"}
+            state={store.face()}
+            shift={{ dx: 0, dy: 0 }}
+          />
 
           <View class="flex-1 px-4 py-2.5 justify-between">
             <View class="gap-2">
@@ -316,7 +318,10 @@ function App() {
             </View>
           </View>
         </View>
-      </If>
+      </RetainedPage>
+      <RetainedPage active={store.activeSpace() !== "face"}>
+        <ManagementShell store={store} />
+      </RetainedPage>
 
       {/* Global View Response Modal */}
       <Panel

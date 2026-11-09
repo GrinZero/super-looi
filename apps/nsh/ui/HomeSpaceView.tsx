@@ -1,6 +1,7 @@
 import { t, translateMessage } from "../i18n";
 import { effect, signal, Text, View, Scroll, Video, windowSize } from "nsh";
 import { Button } from "nsh/base";
+import { RetainedPage } from "./RetainedPage";
 import type { createAppStore } from "../store";
 import { ActionButton, HorizontalValueSlider, LoadingIndicator, SelectField, TextField } from "./Controls";
 import { ActionIcon, ApplianceIcon, PowerIconButton, type ActionIconName } from "./HomeIcons";
@@ -2576,27 +2577,19 @@ export function HomeSpaceView(props: {
 
   return (
     <View class="flex-1 bg-background" style={{ minHeight: 0 }}>
-      <If
-        when={subView() === "services"}
-        else={
-          <If
-            when={Boolean(inspectedAppliance())}
-            else={renderDevicesSubView()}
-          >
-            <Each
-              of={inspectedAppliance() ? [inspectedAppliance()!] : []}
-              key={(appliance) =>
-                appliance.icon === "camera"
-                  ? appliance.id
-                  : applianceKey(appliance)
-              }
-            >
-              {(app) => renderFullPageApplianceView(app)}
-            </Each>
-          </If>
-        }
-      >
+      <RetainedPage active={subView() === "devices" && !inspectedAppliance()}>
+        {renderDevicesSubView()}
+      </RetainedPage>
+      <RetainedPage active={subView() === "services"}>
         {renderServicesSubView()}
+      </RetainedPage>
+      <If when={subView() === "devices" && Boolean(inspectedAppliance())}>
+        <Each
+          of={inspectedAppliance() ? [inspectedAppliance()!] : []}
+          key={(appliance) => appliance.icon === "camera" ? appliance.id : applianceKey(appliance)}
+        >
+          {(app) => renderFullPageApplianceView(app)}
+        </Each>
       </If>
     </View>
   );

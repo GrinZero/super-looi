@@ -10,6 +10,7 @@ import { HomeSpaceView } from "./HomeSpaceView";
 import { BodySpaceView } from "./BodySpaceView";
 import { TasksSpaceView } from "./TasksSpaceView";
 import { SettingsSpaceView } from "./SettingsSpaceView";
+import { RetainedPage } from "./RetainedPage";
 
 export function ManagementShell(props: {
   store: ReturnType<typeof createAppStore>;
@@ -397,30 +398,30 @@ export function ManagementShell(props: {
 
   const renderActiveWorkspace = () => (
     <View class="flex-1 min-h-0">
-      <If when={props.store.activeSpace() === "models"}>
+      <RetainedPage active={props.store.activeSpace() === "models"}>
         <ModelsSpaceView
           store={props.store}
           selectedBrandId={() => selectedBrandId()}
         />
-      </If>
-      <If when={props.store.activeSpace() === "voice"}>
+      </RetainedPage>
+      <RetainedPage active={props.store.activeSpace() === "voice"}>
         <VoiceSpaceView store={props.store} />
-      </If>
-      <If when={props.store.activeSpace() === "home"}>
+      </RetainedPage>
+      <RetainedPage active={props.store.activeSpace() === "home"}>
         <HomeSpaceView
           store={props.store}
           modeTab={() => homeModeTab()}
         />
-      </If>
-      <If when={props.store.activeSpace() === "body"}>
+      </RetainedPage>
+      <RetainedPage active={props.store.activeSpace() === "body"}>
         <BodySpaceView store={props.store} />
-      </If>
-      <If when={props.store.activeSpace() === "tasks"}>
+      </RetainedPage>
+      <RetainedPage active={props.store.activeSpace() === "tasks"}>
         <TasksSpaceView store={props.store} />
-      </If>
-      <If when={props.store.activeSpace() === "settings"}>
+      </RetainedPage>
+      <RetainedPage active={props.store.activeSpace() === "settings"}>
         <SettingsSpaceView store={props.store} />
-      </If>
+      </RetainedPage>
     </View>
   );
 

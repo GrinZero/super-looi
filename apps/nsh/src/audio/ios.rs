@@ -11,10 +11,13 @@ use objc2_foundation::NSString;
 use std::{
     ptr,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    thread::JoinHandle,
 };
+
+static SESSION_RESTORE: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 #[link(name = "AVFoundation", kind = "framework")]
 unsafe extern "C" {
@@ -114,6 +117,14 @@ pub struct Audio {
 
 impl Audio {
     pub fn start(shared: SharedAudio, capture: bool) -> Result<Self, String> {
+        // A new session must not race the previous session's category restore.
+        let restoring = SESSION_RESTORE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(restoring) = restoring {
+            let _ = restoring.join();
+        }
         if !application_active() {
             return Err("Voice audio requires an active application".into());
         }
@@ -375,10 +386,23 @@ impl Drop for Audio {
                     let _: () = msg_send![input, removeTapOnBus: 0usize];
                 }
             }
-            let mut error: *mut AnyObject = ptr::null_mut();
-            let _: bool =
-                msg_send![&self.session, setActive: false, withOptions: 1usize, error: &mut error];
-            let _: bool = msg_send![&self.session, setCategory: &*self.before_category, mode: &*self.before_mode, options: self.before_options, error: &mut error];
+            let category = self.before_category.to_string();
+            let mode = self.before_mode.to_string();
+            let options = self.before_options;
+            // Recording is already stopped. Only the blocking system-session
+            // deactivation and restore remain; no Objective-C object crosses threads.
+            let restoring = std::thread::spawn(move || {
+                objc2::rc::autoreleasepool(|_| {
+                    if let Ok(session) = session() {
+                        let category = NSString::from_str(&category);
+                        let mode = NSString::from_str(&mode);
+                        let mut error: *mut AnyObject = ptr::null_mut();
+                        let _: bool = msg_send![&session, setActive: false, withOptions: 1usize, error: &mut error];
+                        let _: bool = msg_send![&session, setCategory: &*category, mode: &*mode, options: options, error: &mut error];
+                    }
+                });
+            });
+            *SESSION_RESTORE.lock().unwrap_or_else(|e| e.into_inner()) = Some(restoring);
         }
     }
 }

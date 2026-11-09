@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { cleanup, effect, signal, Text, View, Scroll, windowSize } from "nsh";
+import { cleanup, computed, effect, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { createAppStore } from "../store";
 import {
@@ -124,11 +124,23 @@ export function BodySpaceView(props: {
     }
   });
 
-  cleanup(() => {
+  const stopControls = () => {
+    ++headRevision;
+    ++lightRevision;
+    requestedHead = null;
+    requestedLight = null;
+    wheelResetToken.update((n) => n + 1);
     wheelDraft.set(null);
     headDraft.set(null);
     lightDraft.set(null);
     void props.store.stopBody();
+  };
+  const pageActive = computed(() => props.store.activeSpace() === "body");
+  effect(() => {
+    if (!pageActive()) stopControls();
+  });
+  cleanup(() => {
+    if (pageActive()) stopControls();
   });
 
   const flushHead = (): Promise<void> => {

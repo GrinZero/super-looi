@@ -1,4 +1,4 @@
-use nsh_core::{Points, geometry::point, platform::Locale};
+use nsh_core::{Points, geometry::{point, size}, platform::Locale};
 use nsh_engine::EngineConfig;
 use nsh_testing::{Headless, MemoryStorage, compile_tsx};
 use std::{path::Path, sync::Arc, time::Duration};
@@ -241,5 +241,34 @@ fn language_and_appearance_preferences_survive_reopening() -> Result<(), String>
     restored.wait_for("Connect your Xiaomi Home account")?;
     restored.press("nav-tasks")?;
     restored.wait_for("Tasks")?;
+    Ok(())
+}
+
+#[test]
+fn navigation_preserves_model_draft_and_selection() -> Result<(), String> {
+    for (width, height, reduced) in [(390.0, 844.0, false), (844.0, 390.0, true)] {
+        let data = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let mut app = open_app(data.path(), MemoryStorage::new([]), "zh-CN")?;
+        app.set_viewport(size(Points(width), Points(height)))?;
+        app.set_environment("reduce motion", |env| env.reduce_motion = reduced)?;
+        app.press("connection-settings")?;
+        app.wait_for("brand-custom")?;
+        app.press("brand-custom")?;
+        app.wait_for("custom-model-id")?;
+        app.type_text("custom-model-id", "navigation-draft")?;
+        let draft = app.screen().input_text("custom-model-id")?.unwrap().to_owned();
+        app.press("nav-voice")?;
+        app.wait_for("voice-id")?;
+        assert!(!app.shows("custom-model-id"));
+        app.press("nav-models")?;
+        app.wait_for("custom-model-id")?;
+        assert_eq!(app.screen().input_text("custom-model-id")?, Some(draft.as_str()));
+        app.press("back-btn")?;
+        app.wait_for("connection-settings")?;
+        assert!(!app.shows("nav-models"));
+        app.press("connection-settings")?;
+        app.wait_for("custom-model-id")?;
+        assert_eq!(app.screen().input_text("custom-model-id")?, Some(draft.as_str()));
+    }
     Ok(())
 }
