@@ -1,5 +1,15 @@
 # Super-LOOI 重构与演进进度
 
+### `PiAgentExecutor` 模块化重构 Phase 1（2026-11-09）
+
+方案见 [`docs/plans/pi-executor-refactor-plan.md`](docs/plans/pi-executor-refactor-plan.md)。
+
+- [x] Step 1：提取 `session-store.ts`、`model-resolver.ts`、`interaction-gate.ts` 与 `workspace-tools.ts`，隔离会话 JSON 持久化、模型流解析、交互门控防重放与工作区文件/Shell 子进程工具集
+- [x] Step 2：实现一次性任务运行器 `pi-task-runner.ts`（`PiTaskRunner`），将 `pi-executor.ts` 收敛为任务准入与并发调度器，并同步更新 `docs/arch/`
+- [x] Step 3：完成 `@super-looi/runtime`、`@super-looi/nsh`、`@super-looi/nsh-node-compat` 回归验证、全仓类型检查与子 agent 独立 review
+  - [x] 全仓 `pnpm typecheck`、`@super-looi/runtime` 89/89 单测、`@super-looi/nsh` 语音与异步任务回归套件及 `.nsh/out` 构建全部通过
+  - [x] 子 agent 独立代码审查终审 **PASS**
+
 ### LOOI 控制系统协议能力接入与无极变向轮盘（2026-11-09）
 
 方案见 [`docs/plans/body-control-system-and-stepless-wheel-plan.md`](docs/plans/body-control-system-and-stepless-wheel-plan.md)。
@@ -1475,6 +1485,20 @@
   - [x] `@super-looi/looi-driver` 26/26 单测、`@super-looi/nsh` 类型检查、全量测试（`test:voice-runtime`、`test:model-list`、`test:build-env`、Rust/QuickJS/Headless UI 26/26、`test:plugins`）、`build` 与 iOS `aarch64-apple-ios` 编译检查全部通过
   - [x] 独立子 agent 三轮代码审查终审 **PASS**（已修复 CoreBluetooth 单例 `CBPeripheral` 重连取消竞态、`manualDisconnectHold` 切后台保持、静默重连中途异常断连回收与 `idle` 纯输出流升级录音流等边界）
   - [x] Android 开发包已重新编译原生库并安装至魅族 20 Pro（`391QYGCN224FE`），实测首屏与底座页渲染、吸合上升沿 `67° → 55°` 云台问候、`底座已吸合就绪` Toast 及 `AAudio` 纯输出磁吸音效流正常且无异常日志
+
+## NSH Linux Shell 接入计划审查（2026-11-09）
+
+- [x] Step 1：读取计划、仓库约束与相关技能，明确按当前计划全文审查。
+- [x] Step 2：核对兼容层、Pi Agent 与原生后端的实际调用契约。
+- [x] Step 3：完成独立子 agent 复核，合并 2 项 P1 与 2 项 P2；逐项核对固定上游源码。
+- [x] Step 4：将 4 项待解决问题记录到 `todo.md`，整理带位置的审查结论。
+
+## NSH Linux Shell 接入计划修订（2026-11-09）
+
+- [x] Step 1：确认 4 项审查问题与现有计划的修改位置。
+- [x] Step 2：补齐 guest 环境、PRoot 硬链接映射及双端进程回收规则。
+- [x] Step 3：补充对应真机验收项，并同步 `todo.md`。
+- [x] Step 4：独立子 agent 复核 PASS；补齐 Android 子进程 `SIGQUIT` 解屏蔽要求，文档差异检查通过。
 
 
 ## NSH 双端 Linux Shell 落地（2026-11-09）

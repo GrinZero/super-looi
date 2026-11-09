@@ -32,10 +32,15 @@ globalThis.LOOI_ARCH = {
       ],
     },
     {
-      id: "agent", x: 535, y: 86, title: "Pi Agent Loop", symbol: "spark", category: "TypeScript · 任务执行", detail: "模型推理 / 文件 / Shell / 问答", path: "packages/looi-runtime/src/agent/pi-executor.ts",
-      description: "PiAgentExecutor 封装 pi-agent-core 的 Agent。Shell 透传五分钟超时、三秒回收宽限期；local_auto 对工作区外系统变更审批。运行输出通过 onShellOutput 进入 16 KiB 瞬态缓冲，所有终态持久化合计 8 KiB 双流尾部与命令回执。StreamFn 与工具调用生成 Langfuse 观测。",
+      id: "agent", x: 535, y: 86, title: "Pi Agent Loop", symbol: "spark", category: "TypeScript · 任务执行", detail: "准入调度 / 任务运行器 / 工具与门控", path: "packages/looi-runtime/src/agent/pi-executor.ts",
+      description: "PiAgentExecutor 负责任务准入与会话互斥，每次执行创建可销毁的 PiTaskRunner 驱动 pi-agent-core Agent。WorkspaceCodingTools 封装文件与五分钟超时 Shell 进程组管理；InteractionGate 维护审批/提问挂起与 UI 防重放；SessionTranscriptStore 原子持久化多轮历史。",
       files: [
-        { path: "packages/looi-runtime/src/agent/pi-executor.ts", entry: "export class PiAgentExecutor", anchors: [{ label: "执行器入口", match: "export class PiAgentExecutor" }, { label: "创建 Agent", match: "new Agent(" }] },
+        { path: "packages/looi-runtime/src/agent/pi-executor.ts", entry: "export class PiAgentExecutor", anchors: [{ label: "执行器入口", match: "export class PiAgentExecutor" }, { label: "任务准入", match: "run(prompt: string" }] },
+        { path: "packages/looi-runtime/src/agent/pi-task-runner.ts", entry: "export class PiTaskRunner", anchors: [{ label: "单任务运行器", match: "export class PiTaskRunner" }, { label: "创建 Agent", match: "new Agent(" }, { label: "优雅停止", match: "cancel(): Promise<AgentStopResult>" }] },
+        { path: "packages/looi-runtime/src/agent/workspace-tools.ts", entry: "export function createWorkspaceCodingTools", anchors: [{ label: "产物追踪", match: "export class WorkspaceArtifactTracker" }, { label: "工作区工具集", match: "export function createWorkspaceCodingTools" }] },
+        { path: "packages/looi-runtime/src/agent/interaction-gate.ts", entry: "export class InteractionGate", anchors: [{ label: "审批防重放", match: "export class ApprovalActionReplayGuard" }, { label: "交互门控", match: "export class InteractionGate" }] },
+        { path: "packages/looi-runtime/src/agent/session-store.ts", entry: "export class SessionTranscriptStore" },
+        { path: "packages/looi-runtime/src/agent/model-resolver.ts", entry: "export function resolvePiModelAndStream" },
         { path: "packages/looi-runtime/src/agent/executor.ts", entry: "export interface AgentExecutor" },
         { path: "packages/looi-runtime/src/agent/shell-output.ts", entry: "export function utf8Tail" },
         { path: "packages/looi-runtime/src/telemetry/llm-observer.ts", entry: "export function wrapStreamFnWithLangfuse" },
