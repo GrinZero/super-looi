@@ -1,5 +1,13 @@
 # 当前待办
 
+## Agent 记忆与上下文管理
+
+依据见 [社区机制调研](docs/agent-memory-context-research.md)。
+
+- [ ] 比较 Pi 1.5.0 压缩逻辑独立复用与整体接入 `AgentSession` 的集成面，明确现有 SQLite 任务、审批和消息检查点的归属。
+- [ ] 确定 `PersonalMemoryStore` 与 `MemoryLedgerService` 的统一个人事实写入入口，明确记住、纠正、遗忘及检索注入的调用关系。
+- [ ] 核对豆包/OpenAI 语音转写的持久化与摘要注入能力，确定语音重连接续逻辑会话的方式，并按实际模型窗口确定上下文预算。
+
 ## NSH Linux Shell 接入
 
 依据见 [双端 Linux Shell 接入计划](docs/plans/nsh-linux-shell-openminis-plan.md)。
