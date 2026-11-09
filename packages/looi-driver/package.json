@@ -1,5 +1,6 @@
 {
   "name": "@super-looi/looi-driver",
+  "license": "GPL-3.0-only",
   "version": "0.2.0",
   "private": true,
   "type": "module",

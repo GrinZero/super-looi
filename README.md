@@ -57,3 +57,9 @@ pnpm test
 - [当前待办](todo.md)：BLE 真机接线、媒体和相机等后续工作。
 
 旧 Expo / React Native 应用和 Hub 服务已退出工作区；源码归档在 `archive/legacy-hub-and-expo` 分支。`docs/` 中的早期阶段报告保留了迁移前的设计与验收记录。
+
+## 许可证
+
+SUPER-LOOI 采用 GNU General Public License v3.0（仅第 3 版），SPDX 标识为 `GPL-3.0-only`。完整条款见 [LICENSE](LICENSE)。
+
+第三方代码沿用其各自许可证；Expo 模板的原始版权与 MIT 许可声明保留在 [LICENSES/Expo-MIT.txt](LICENSES/Expo-MIT.txt)。

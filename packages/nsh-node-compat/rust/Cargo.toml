@@ -3,7 +3,7 @@ name = "nsh-node-compat-rs"
 version = "0.1.0"
 edition = "2024"
 autobins = false
-license = "MIT"
+license = "GPL-3.0-only"
 
 [lib]
 name = "nsh_node_compat"

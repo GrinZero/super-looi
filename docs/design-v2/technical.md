@@ -42,7 +42,8 @@
 
 | 项目 | 当前核实 | 决策影响 |
 | --- | --- | --- |
-| DSH核心／super-looi | MIT | 可按相应许可复用，仍检查依赖和模型权重 |
+| DSH核心 | MIT | 按其 MIT 许可复用 |
+| SUPER-LOOI | GPL-3.0-only | 按 [GPL 第 3 版](../../LICENSE) 分发和修改 |
 | dsh-Go主体 | AGPL-3.0；sdk／examples有独立MIT范围 | 参考设计与直接复制代码分开决定 |
 | dsh-Go宠物美术 | ASSETS明确排除 | 使用原创表情与角色，不复制Deepy／鲸娘 |
 | Screenpipe研究样本 | 当前源码许可记录为Commercial License | 只参考机制，自主实现手机管线；未列入产品依赖 |
