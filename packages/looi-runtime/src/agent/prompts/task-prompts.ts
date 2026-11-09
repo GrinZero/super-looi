@@ -15,6 +15,7 @@ export interface AgentTurnPromptInput {
   defaultLanguage?: ConversationLanguage;
   restoredMessages?: AgentMessage[];
   baseSystemPrompt?: string;
+  webSearchEnabled?: boolean;
 }
 
 export interface AgentTurnPrompts {
@@ -49,6 +50,9 @@ export function buildAgentTurnPrompts(
     input.baseSystemPrompt ?? DEFAULT_TASK_ASSISTANT_SYSTEM_PROMPT;
   const systemPrompt =
     baseSystem +
+    (input.webSearchEnabled
+      ? "\nOpenAI's built-in web_search tool is available. Use it for explicit web searches and questions needing current information. Cite the sources in your answer."
+      : "") +
     "\n" +
     conversationLanguageInstructions(defaultLanguage) +
     turnLanguage;

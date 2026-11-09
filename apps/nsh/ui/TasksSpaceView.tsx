@@ -1,5 +1,6 @@
 import { t, translateMessage, formatDate } from "../i18n";
 import { Text, View, Scroll, windowSize } from "nsh";
+import { TextView } from "nsh/base";
 import type { createAppStore } from "../store";
 import { TaskShellOutput } from "./TaskShellOutput";
 import { ActionButton } from "./Controls";
@@ -204,9 +205,12 @@ export function TasksSpaceView(props: {
             <View class="gap-1">
               <Text class="text-muted-foreground text-xs">{t("agentReply")}</Text>
               <View class="rounded-xl border border-border bg-muted p-3" selectable={true}>
-                <Text class="text-foreground text-sm">
-                  {currentTask()?.result?.answer}
-                </Text>
+                <TextView
+                  class="text-foreground text-sm"
+                  markdown={currentTask()?.result?.answer}
+                  links="open"
+                  selectable={true}
+                />
               </View>
             </View>
           </If>

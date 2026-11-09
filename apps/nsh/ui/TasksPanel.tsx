@@ -1,5 +1,6 @@
 import { TaskShellOutput } from "./TaskShellOutput";
 import { t, translateMessage, formatDate } from "../i18n";
+import { TextView } from "nsh/base";
 import { Text, View } from "nsh";
 import type { createAppStore } from "../store";
 import { ActionButton, Panel } from "./Controls";
@@ -136,9 +137,12 @@ export function TasksPanel(props: {
               </Text>
             </If>
             <If when={props.store.task()?.result?.answer}>
-              <Text class="text-foreground text-base">
-                {props.store.task()?.result?.answer}
-              </Text>
+              <TextView
+                class="text-foreground text-base"
+                markdown={props.store.task()?.result?.answer}
+                links="open"
+                selectable={true}
+              />
             </If>
             <Text class="text-muted-foreground text-sm">
               {props.store.task()?.runtimeExited

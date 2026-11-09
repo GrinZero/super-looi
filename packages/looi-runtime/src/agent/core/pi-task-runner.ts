@@ -31,6 +31,7 @@ import {
   resolvePiModelAndStream,
   type ModelStreamConfig,
 } from "./model-resolver.js";
+import { createOpenAIWebSearch, hasOpenAIWebSearch } from "./openai-web-search.js";
 import type { LangfuseTracer, Observation } from "../../telemetry/langfuse.js";
 import { wrapStreamFnWithLangfuse } from "../../telemetry/llm-observer.js";
 
@@ -217,6 +218,53 @@ export class PiTaskRunner {
       }
 
       const { model, streamFn } = resolvePiModelAndStream(config);
+      const startTool = (callId: string, toolName: string, args: unknown) => {
+        if (this.stopped) return;
+        if (trace && config.tracer) {
+          toolTraces.set(
+            callId,
+            config.tracer.start(`agent.tool.${toolName}`, "tool", trace.context, {
+              "langfuse.observation.input": args,
+            }),
+          );
+        }
+        toolCallsCount++;
+        if (toolCallsCount > (config.maxToolCalls ?? 32)) {
+          task.error = "Agent tool budget exceeded";
+          abort();
+          return;
+        }
+        this.emit({
+          step, phase: "tool_start", toolName, summary: `Pi · ${toolName}`,
+        });
+      };
+      const endTool = (
+        callId: string,
+        toolName: string,
+        result: unknown,
+        isError?: boolean,
+        durationMs?: number,
+      ) => {
+        toolTraces.get(callId)?.end({
+          "langfuse.observation.output": result,
+          ...(isError ? { "langfuse.observation.level": "ERROR" } : {}),
+          ...(durationMs !== undefined
+            ? { "langfuse.observation.metadata.durationMs": durationMs }
+            : {}),
+        });
+        toolTraces.delete(callId);
+        if (!this.stopped) {
+          this.emit({
+            step, phase: "tool_end", toolName, summary: "@looi:toolReturned",
+          });
+        }
+      };
+      const webSearch = createOpenAIWebSearch((event) => {
+        if (event.phase === "start") startTool(event.callId, "web_search", {});
+        else {
+          endTool(event.callId, "web_search", event.result, event.result?.status === "failed");
+        }
+      });
       const tools =
         config.customTools ??
         createWorkspaceCodingTools({
@@ -248,6 +296,7 @@ export class PiTaskRunner {
         mode: options.mode,
         defaultLanguage: options.defaultLanguage,
         restoredMessages,
+        webSearchEnabled: hasOpenAIWebSearch(model),
       });
 
       const agent = new Agent({
@@ -265,6 +314,8 @@ export class PiTaskRunner {
             : {}),
         },
         sessionId: task.sessionId,
+        onPayload: webSearch.onPayload,
+        onProviderStreamEvent: webSearch.onProviderStreamEvent,
         toolExecution: "sequential",
         streamFn: config.tracer?.enabled
           ? wrapStreamFnWithLangfuse(streamFn, {
@@ -328,7 +379,9 @@ export class PiTaskRunner {
 
       agent.subscribe((event) => {
         if (this.stopped) return;
-        if (event.type === "turn_start") {
+        if (event.type === "message_end" && event.message.role === "assistant") {
+          webSearch.decorateMessage(event.message);
+        } else if (event.type === "turn_start") {
           step++;
           if (step > (config.maxSteps ?? 12)) {
             task.error = "Agent step budget exceeded";
@@ -341,46 +394,9 @@ export class PiTaskRunner {
             summary: "@looi:runtimeAgentIsThinking",
           });
         } else if (event.type === "tool_execution_start") {
-          if (trace && config.tracer) {
-            toolTraces.set(
-              event.toolCallId,
-              config.tracer.start(
-                `agent.tool.${event.toolName}`,
-                "tool",
-                trace.context,
-                { "langfuse.observation.input": event.args },
-              ),
-            );
-          }
-          toolCallsCount++;
-          if (toolCallsCount > (config.maxToolCalls ?? 32)) {
-            task.error = "Agent tool budget exceeded";
-            abort();
-            return;
-          }
-          this.emit({
-            step,
-            phase: "tool_start",
-            toolName: event.toolName,
-            summary: `Pi · ${event.toolName}`,
-          });
+          startTool(event.toolCallId, event.toolName, event.args);
         } else if (event.type === "tool_execution_end") {
-          toolTraces.get(event.toolCallId)?.end({
-            "langfuse.observation.output": event.result,
-            ...(event.isError
-              ? { "langfuse.observation.level": "ERROR" }
-              : {}),
-            ...(event.durationMs !== undefined
-              ? { "langfuse.observation.metadata.durationMs": event.durationMs }
-              : {}),
-          });
-          toolTraces.delete(event.toolCallId);
-          this.emit({
-            step,
-            phase: "tool_end",
-            toolName: event.toolName,
-            summary: "@looi:toolReturned",
-          });
+          endTool(event.toolCallId, event.toolName, event.result, event.isError, event.durationMs);
         }
       });
 
