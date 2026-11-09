@@ -2,6 +2,12 @@ import { acknowledgementLanguage, conversationLanguageInstructions } from "./con
 import fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { utf8Tail } from "./shell-output.js";
+import { resolveWorkspacePath } from "./workspace-path.js";
+import {
+  createToolApprovalPolicy,
+  type ToolApprovalConfig,
+  type ToolApprovalRule,
+} from "./tool-approval.js";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -39,22 +45,6 @@ import { assertFreshUiAction } from "../productivity/authorization.js";
 import type { LangfuseTracer, Observation } from "../telemetry/langfuse.js";
 import { wrapStreamFnWithLangfuse } from "../telemetry/llm-observer.js";
 
-const HIGH_RISK_COMMAND = [
-  /rm\s+-rf/i,
-  /git\s+push\s+.*--force/i,
-  /\bdd\b/i,
-  /\bmkfs\b/i,
-  /\bsudo\b/i,
-  />\s*\/dev\//i,
-];
-
-const SAFE_SYSTEM_PREFIXES = [
-  "/bin/",
-  "/usr/bin/",
-  "/usr/local/bin/",
-  "/opt/homebrew/bin/",
-  "/dev/null",
-];
 const STREAM_TAIL_BYTES = 4096;
 const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;
 
@@ -78,7 +68,7 @@ async function awaitWithin(
   }
 }
 
-export interface PiExecutorConfig {
+export interface PiExecutorConfig extends ToolApprovalConfig {
   tracer?: LangfuseTracer;
   taskPersistence?: TaskPersistence;
   memoryStore?: PersonalMemoryStore;
@@ -98,8 +88,6 @@ export interface PiExecutorConfig {
   modelSpec?: Model<Api>;
   customTools?: AgentTool<any>[];
   additionalTools?: AgentTool<any>[];
-  approvalRequiredTools?: readonly string[];
-  requireApprovalForAllWrites?: boolean;
   /** Native callers bind approvals to the current foreground UI session. */
   approvalUiSessionId?: string;
   modelsRegistry?: Models;
@@ -118,80 +106,12 @@ interface Worker {
   pending?: { id: string; settle: (answer: AgentInteractionAnswer) => void };
 }
 
-function resolveRealAncestor(targetPath: string): string {
-  let current = targetPath;
-  const suffix: string[] = [];
-  for (;;) {
-    try { fs.lstatSync(current); break; }
-    catch (error) {
-      if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
-    }
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    suffix.unshift(path.basename(current));
-    current = parent;
-  }
-  const realBase = (fs.realpathSync.native ?? fs.realpathSync)(current);
-  return suffix.length > 0 ? path.join(realBase, ...suffix) : realBase;
-}
-
-function resolveWorkspacePath(
-  workspaceRoot: string,
-  targetPath: string,
-): { resolved: string; relative: string; inside: boolean } {
-  const root = path.resolve(workspaceRoot);
-  const resolved = path.isAbsolute(targetPath) ? targetPath : `${root}/${targetPath}`;
-  const lexicalRel = path.relative(root, resolved);
-  try {
-    const realRoot = resolveRealAncestor(root);
-    const realTarget = resolveRealAncestor(resolved);
-    const realRel = path.relative(realRoot, realTarget);
-    const inside = realRel === "" || (!realRel.startsWith("..") && !path.isAbsolute(realRel));
-    return { resolved, relative: lexicalRel.startsWith("..") ? realRel : lexicalRel || ".", inside };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EACCES") return {resolved, relative:lexicalRel, inside:false};
-    throw error;
-  }
-}
-
-function commandTouchesOutsideWorkspace(
-  command: string,
-  workspaceRoot: string,
-): boolean {
-  if (/(?:^|[\/\\]|[\s"'=><;|&(`])\.\.(?:[\/\\]|$|[\s"'`;&|>)])/.test(command))
-    return true;
-  if (/(?:^|[\s"'=><;|&(`])~(?:\/|$|\s)/.test(command)) return true;
-  if (/\$HOME\b|\$\{HOME\}/.test(command)) return true;
-  if (/\bapk\s+(?:(?:--?[^\s]+)\s+)*(?:add|del|fix|upgrade|update)\b/i.test(command)) return true;
-  if (/\b(?:npm|pnpm)\b[^;|&\n]*(?:--global\b|(?:^|\s)-[a-z]*g[a-z]*(?:\s|$))/i.test(command)) return true;
-  const matches = command.matchAll(/(?:^|[\s"'=><;|&(`:])(\/[^\s"';|&><)`]+)/g);
-  for (const match of matches) {
-    const token = match[1];
-    if (token === "/dev/null") continue;
-    const start = match.index! + match[0].indexOf("/");
-    const before = command.slice(0,start).replace(/["']$/, "");
-    const executable = /(?:^|[;|&(\n])\s*$/.test(before);
-    if (executable && SAFE_SYSTEM_PREFIXES.some(prefix => token.startsWith(prefix))) continue;
-    if (!resolveWorkspacePath(workspaceRoot, token).inside) return true;
-  }
-  return false;
-}
-
-function requiresCommandApproval(
-  command: string,
-  workspaceRoot: string,
-): boolean {
-  return (
-    HIGH_RISK_COMMAND.some((pattern) => pattern.test(command)) ||
-    commandTouchesOutsideWorkspace(command, workspaceRoot)
-  );
-}
-
 /**
  * In-process Agent Executor powered by `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`.
  * Zero child-process cold start, native AbortSignal propagation, and direct in-process tools.
  */
 export class PiAgentExecutor implements AgentExecutor {
+  private readonly approvalPolicy: ToolApprovalRule;
   private readonly store: AgentTaskStore;
   private readonly sessionsDir: string;
   private readonly workers = new Map<string, Worker>();
@@ -201,6 +121,7 @@ export class PiAgentExecutor implements AgentExecutor {
   private readonly consumedApprovalActions = new Map<string, number>();
 
   constructor(private readonly config: PiExecutorConfig = {}) {
+    this.approvalPolicy = createToolApprovalPolicy(config);
     this.root = path.resolve(
       config.stateDirectory ?? process.env.DSH_STATE_DIRECTORY ?? "data/dsh",
     );
@@ -858,65 +779,15 @@ export class PiAgentExecutor implements AgentExecutor {
               reason:
                 "Task was stopped; no further tool execution is permitted.",
             };
-          const parsedArgs = (args ?? {}) as Record<string, unknown>;
-          const approvalMode = options.approvalMode ?? "ask";
-          let needsApproval =
-            approvalMode !== "yolo" &&
-            (this.config.approvalRequiredTools?.includes(toolCall.name) ?? false);
-          let details: Record<string, unknown> = {
+          const details = this.approvalPolicy({
             callId: toolCall.id,
             toolName: toolCall.name,
+            arguments: (args ?? {}) as Record<string, unknown>,
             sessionId: task.sessionId,
-            ...(needsApproval ? { arguments: parsedArgs } : {}),
-          };
-
-          if (approvalMode !== "yolo" && toolCall.name === "bash") {
-            const command = String(parsedArgs.command ?? "");
-            // A shell can write via redirects, substitutions or command flags.
-            // Strict mobile mode approves every shell invocation, not a regex
-            // approximation of which commands might have side effects.
-            if (
-              (approvalMode === "ask" && this.config.requireApprovalForAllWrites) ||
-              requiresCommandApproval(command, task.workspaceRoot)
-            ) {
-              needsApproval = true;
-              details = { ...details, operation: "bash", command };
-            }
-          } else if (approvalMode !== "yolo" && (
-            toolCall.name === "write_file" ||
-            toolCall.name === "write"
-          )) {
-            const targetPath = String(parsedArgs.path ?? "");
-            const { inside, resolved } = resolveWorkspacePath(
-              task.workspaceRoot,
-              targetPath,
-            );
-            if (!inside || (approvalMode === "ask" && this.config.requireApprovalForAllWrites)) {
-              needsApproval = true;
-              details = {
-                ...details,
-                operation: "write",
-                path: targetPath,
-                content: String(parsedArgs.content ?? ""),
-                willOverwrite: fs.existsSync(resolved),
-              };
-            }
-          } else if (approvalMode === "ask" && (
-            toolCall.name === "read_file" ||
-            toolCall.name === "read"
-          )) {
-            const targetPath = String(parsedArgs.path ?? "");
-            const { inside } = resolveWorkspacePath(
-              task.workspaceRoot,
-              targetPath,
-            );
-            if (!inside) {
-              needsApproval = true;
-              details = { ...details, operation: "read", path: targetPath };
-            }
-          }
-
-          if (needsApproval) {
+            workspaceRoot: task.workspaceRoot,
+            approvalMode: options.approvalMode ?? "ask",
+          });
+          if (details) {
             const decision = await this.waitForInteraction(
               task,
               worker,
