@@ -30,6 +30,8 @@ test("Doubao preserves its native wire format without model-controlled conversat
   assert.equal(protocol.parseServerEvent({ type: "conversation.item.input_audio_transcription.started" }).kind, "user_transcription_started");
   assert.deepEqual(protocol.parseServerEvent({ type: "conversation.item.input_audio_transcription.completed" }),
     { kind: "user_speech_stopped", transcript: undefined, itemId: undefined, transcriptionFinal: true });
+  assert.deepEqual(protocol.parseServerEvent({ type: "conversation.item.input_audio_transcription.completed", item_id: "speech-1", text: "说一句话给我听听。" }),
+    { kind: "user_speech_stopped", transcript: "说一句话给我听听。", itemId: "speech-1", transcriptionFinal: true });
 });
 
 test("OpenAI GA handshake, resampling, normalized events and interruption", () => {

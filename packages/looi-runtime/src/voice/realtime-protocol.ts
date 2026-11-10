@@ -13,6 +13,7 @@ export type NormalizedRealtimeEvent =
   | { kind: "session_ready"; sessionId?: string }
   | { kind: "user_speech_started" }
   | { kind: "user_transcription_started" }
+  /** The latest full user transcript, including recognition revisions. */
   | { kind: "user_transcription_update"; text: string; itemId?: string }
   | { kind: "user_speech_stopped"; transcript?: string; itemId?: string; transcriptionFinal?: boolean }
   | { kind: "user_transcription_failed"; message?: string; itemId?: string }
@@ -113,10 +114,11 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
         case "response.output_text.done": return { kind: "text_done", responseId: id, text: string(event.text) };
         case "input_audio_buffer.speech_started": return { kind: "user_speech_started" };
         case "conversation.item.input_audio_transcription.started": return { kind: "user_transcription_started" };
+        // Doubao's delta contains the full current hypothesis, not an append-only fragment.
         case "conversation.item.input_audio_transcription.delta": return { kind: "user_transcription_update", text: string(event.delta), itemId: string(event.item_id) || undefined };
         case "input_audio_buffer.committed":
         case "input_audio_buffer.speech_stopped": return { kind: "user_speech_stopped", itemId: string(event.item_id) || undefined };
-        case "conversation.item.input_audio_transcription.completed": return { kind: "user_speech_stopped", transcript: string(event.transcript) || undefined, itemId: string(event.item_id) || undefined, transcriptionFinal: true };
+        case "conversation.item.input_audio_transcription.completed": return { kind: "user_speech_stopped", transcript: string(event.text) || undefined, itemId: string(event.item_id) || undefined, transcriptionFinal: true };
         case "conversation.item.input_audio_transcription.failed": return { kind: "user_transcription_failed", itemId: string(event.item_id) || undefined };
         case "response.function_call_arguments.done": {
           const items = Array.isArray(event.items) ? event.items.slice(0, 8) : [event];
