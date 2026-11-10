@@ -14,6 +14,8 @@ export type ActionIconName =
   | "locate"
   | "dispense"
   | "refresh"
+  | "scan"
+  | "new_chat"
   | "back"
   | "edit"
   | "check"
@@ -235,12 +237,44 @@ export function ActionIcon(props: {
           }
           case "refresh": {
             cx.beginPath();
-            cx.arc(12, 12, 7.2, -Math.PI * 0.75, Math.PI * 0.75, false);
+            cx.arc(12, 12, 7, Math.PI / 6, Math.PI * 1.75, false);
             cx.stroke();
             cx.beginPath();
-            cx.moveTo(15.5, 4.2);
-            cx.lineTo(19.2, 5.2);
-            cx.lineTo(17.8, 8.8);
+            cx.moveTo(12.5, 7);
+            cx.lineTo(17, 7);
+            cx.lineTo(17, 2.5);
+            cx.stroke();
+            break;
+          }
+          case "scan": {
+            // Radar sweep: nearby wireless discovery, distinct from refresh.
+            cx.beginPath();
+            cx.arc(12, 12, 8, 0, Math.PI * 2);
+            cx.moveTo(16, 12);
+            cx.arc(12, 12, 4, 0, Math.PI * 1.5);
+            cx.moveTo(12, 12);
+            cx.lineTo(17.7, 6.3);
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 12, 1.3, 0, Math.PI * 2);
+            cx.fill();
+            break;
+          }
+          case "new_chat": {
+            // Open speech bubble with a plus in its upper-right corner.
+            cx.beginPath();
+            cx.moveTo(13, 4.5);
+            cx.lineTo(7, 4.5);
+            cx.quadraticCurveTo(4, 4.5, 4, 7.5);
+            cx.lineTo(4, 20);
+            cx.lineTo(8.5, 17);
+            cx.lineTo(16, 17);
+            cx.quadraticCurveTo(19, 17, 19, 14);
+            cx.lineTo(19, 12);
+            cx.moveTo(18.5, 3);
+            cx.lineTo(18.5, 9);
+            cx.moveTo(15.5, 6);
+            cx.lineTo(21.5, 6);
             cx.stroke();
             break;
           }

@@ -3,8 +3,7 @@ import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { LlmBrandId } from "../generated/looi-runtime.js";
 import type { createAppStore, AppSpace } from "../store";
-import { ActionButton, LightToast } from "./Controls";
-import { ActionIcon } from "./HomeIcons";
+import { IconButton, LightToast } from "./Controls";
 import { ModelsSpaceView } from "./ModelsSpaceView";
 import { VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
@@ -258,22 +257,13 @@ export function ManagementShell(props: {
             }
           >
             <View class="flex-row items-center gap-1.5">
-              <Button
+              <IconButton
                 testID="home-refresh-btn"
-                disabled={props.store.homeRefreshing()}
-                accessibilityLabel="刷新设备"
+                icon="refresh"
+                label={t("refresh")}
+                busy={props.store.homeRefreshing()}
                 onPress={() => void props.store.refreshHomeDashboard()}
-                class="min-h-11 min-w-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-60"
-              >
-                <If
-                  when={props.store.homeRefreshing()}
-                  else={<ActionIcon name="refresh" size={16} tone="foreground" />}
-                >
-                  <View class="animate-spin motion-reduce:animate-none">
-                    <ActionIcon name="refresh" size={16} tone="foreground" />
-                  </View>
-                </If>
-              </Button>
+              />
             </View>
           </If>
         </View>
@@ -332,18 +322,15 @@ export function ManagementShell(props: {
               </Text>
             </Button>
           </Scroll>
-          <Button
+          <IconButton
             testID="body-scan-btn"
-            disabled={props.store.bodyStatus().scanning}
+            icon="scan"
+            label={props.store.bodyStatus().scanning
+              ? t("scanningNearbyDocks")
+              : t("scanNearbyDocks")}
+            busy={props.store.bodyStatus().scanning}
             onPress={() => void props.store.scanBodyDevices()}
-            class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75 disabled:opacity-40"
-          >
-            <Text class="text-foreground text-xs font-medium">
-              {props.store.bodyStatus().scanning
-                ? t("scanningNearbyDocks")
-                : t("scanNearbyDocks")}
-            </Text>
-          </Button>
+          />
         </View>
       </If>
 
@@ -351,17 +338,18 @@ export function ManagementShell(props: {
         <Scroll horizontal={true} scrollbar={false} class="flex-1 min-w-0 h-11" contentClass="flex-row items-center gap-2 h-11 pr-2">
           <Text class="text-foreground text-xs font-semibold">
             {t("tasksAndActivity")}</Text>
-          <ActionButton
+          <IconButton
+            icon="new_chat"
             label={t("newConversation")}
             testID="new-conversation-btn"
-            compact={true}
+            kind="primary"
             disabled={props.store.busy()}
             onPress={() => props.store.newConversation()}
           />
-          <ActionButton
+          <IconButton
+            icon="refresh"
             label={t("refresh")}
             testID="refresh-tasks-btn"
-            compact={true}
             onPress={() => props.store.refreshTasks(props.store.tasks().offset)}
           />
         </Scroll>
@@ -435,13 +423,13 @@ export function ManagementShell(props: {
               <View class="w-2 h-2 rounded-full bg-eye-core" />
             </Button>
             {renderContextPillBar()}
-            <Button
+            <IconButton
               testID="back-btn"
+              icon="back"
+              label={t("back")}
+              kind="outline"
               onPress={() => props.store.goBack()}
-              class="min-h-11 px-2.5 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
-            >
-              <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
-            </Button>
+            />
           </View>
 
           {/* Main Workspace */}
@@ -524,13 +512,13 @@ export function ManagementShell(props: {
             class="min-h-12 border-b border-border px-4 py-1.5 flex-row items-center justify-between gap-3 bg-card"
           >
             {renderContextPillBar()}
-            <Button
+            <IconButton
               testID="back-btn"
+              icon="back"
+              label={t("back")}
+              kind="outline"
               onPress={() => props.store.goBack()}
-              class="min-h-11 px-3 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
-            >
-              <Text class="text-foreground text-xs font-medium">{t("back")}</Text>
-            </Button>
+            />
           </View>
 
           {/* Bottom Workspace Body */}

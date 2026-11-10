@@ -1,5 +1,14 @@
 # Super-LOOI 重构与演进进度
 
+### 管理页顶栏操作图标（2026-11-10）
+
+- [x] Step 1：对照截图定位返回、扫描底座、新对话与刷新，核对 NSH 组件与设计约定
+- [x] Step 2：扩展 Canvas 线性图标与共用 44pt 图标按钮，替换横竖屏顶栏操作
+  - [x] 保留原操作与 testID，加入本地化读屏名称、悬停提示及扫描／刷新动态反馈
+- [x] Step 3：类型检查、构建与 31/31 现有测试通过；Mac 原生窗口核对浅／深色图标渲染，预览保存至 docs/artifacts/toolbar-icons/
+- [x] Step 4：子 agent 独立 review 通过，仅暂存本次改动并提交
+
+
 ### 家居服务绑定页 UI 方案发散（2026-11-10）
 
 - [x] Step 4：生成米家视频登录、图形验证、短信／邮箱验证和返回绑定页四状态效果图；按需验证及验证码错误在同页展示，图片与提示词保存至 docs/artifacts/home-services-options/video-login-flow*

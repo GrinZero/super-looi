@@ -17,7 +17,58 @@ import {
   type JSX,
   type TouchPoint,
 } from "nsh";
-import { Button, Input, Dialog, Select, Switch, Slider, type SelectItem } from "nsh/base";
+import { Button, Input, Dialog, Select, Switch, Slider, Tooltip, type SelectItem } from "nsh/base";
+import { ActionIcon, type ActionIconName } from "./HomeIcons";
+
+/** Shared toolbar geometry and loading motion; callers own the action and state. */
+export function IconButton(props: {
+  icon: ActionIconName;
+  label: string;
+  onPress: () => void;
+  testID?: string;
+  kind?: "primary" | "outline";
+  disabled?: boolean;
+  busy?: boolean;
+}) {
+  const rotation = createMotion();
+  effect(() => {
+    if (props.busy && lifecycle() === "active" && !reduceMotion()) {
+      void rotation.play("spin");
+    } else {
+      rotation.reset();
+    }
+    return () => rotation.stop();
+  });
+
+  return (
+    <Button
+      testID={props.testID}
+      accessibilityLabel={props.label}
+      disabled={props.disabled || props.busy}
+      onPress={() => props.onPress()}
+      tooltip={
+        <Tooltip placement="bottom" class="bg-popover border border-border rounded-lg px-2.5 py-1.5">
+          <Text class="text-popover-foreground text-xs">{props.label}</Text>
+        </Tooltip>
+      }
+      class={`w-11 h-11 shrink-0 rounded-full border items-center justify-center active:opacity-70 focus:border-ring ${
+        props.kind === "primary"
+          ? "bg-primary border-transparent"
+          : props.kind === "outline"
+            ? "bg-card border-border hover:bg-muted"
+            : "bg-muted border-border hover:bg-accent"
+      } ${props.busy ? "disabled:opacity-60" : "disabled:opacity-35"}`}
+    >
+      <View class="w-5 h-5" style={rotation.style}>
+        <ActionIcon
+          name={props.icon}
+          tone={props.kind === "primary" ? "primaryFg" : "foreground"}
+          size={20}
+        />
+      </View>
+    </Button>
+  );
+}
 
 export function LoadingIndicator(props: { label: string; testID?: string }) {
   const rotation = createMotion();
