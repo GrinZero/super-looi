@@ -602,7 +602,18 @@ export function ModelsSpaceView(props: {
   const renderRightCard = () => (
     <View class="rounded-2xl border border-border bg-card p-4 gap-3">
       <View class="gap-1.5 border-b border-border pb-2.5">
-        <Text class="text-foreground text-sm font-semibold">{t("availableModels")}</Text>
+        <View class="flex-row items-center justify-between gap-2">
+          <Text class="text-foreground text-sm font-semibold">{t("availableModels")}</Text>
+          <If when={channel().hasApiKey || channel().hasOAuth}>
+            <ActionButton
+              testID="refresh-provider-models"
+              label={props.store.isProviderModelsRefreshing(channel().providerId) ? t("refreshing") : t("refresh")}
+              compact={true}
+              disabled={!props.store.ready() || props.store.isProviderModelsRefreshing(channel().providerId)}
+              onPress={() => { void props.store.refreshProviderModels(channel().providerId); }}
+            />
+          </If>
+        </View>
         <If
           when={isGloballyActiveChannel()}
           else={
@@ -625,7 +636,9 @@ export function ModelsSpaceView(props: {
         <If when={!channel().modelsFetched}>
           <Text class="text-muted-foreground text-xs py-2">
             {channel().hasApiKey || channel().hasOAuth
-              ? channel().modelsError || t("loadingOnlineModels")
+              ? props.store.isProviderModelsRefreshing(channel().providerId)
+                ? t("loadingOnlineModels")
+                : channel().modelsError || t("loadingOnlineModels")
               : t("connectToLoadAvailableModels")}
           </Text>
         </If>

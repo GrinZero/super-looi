@@ -7,14 +7,18 @@ export const HOME_ASSISTANT_ICON_DATA_URI = "data:image/png;base64,iVBORw0KGgoAA
 
 export function MijiaBrandIcon(props: { size?: number; class?: string }) {
   const s = () => props.size ?? 40;
+  const inner = () => Math.round(s() * 0.65);
   return (
     <View
-      class={props.class ?? "items-center justify-center overflow-hidden rounded-xl bg-transparent"}
+      class={
+        props.class ??
+        "items-center justify-center overflow-hidden rounded-xl bg-muted border border-border shrink-0"
+      }
       style={{ width: s(), height: s() }}
     >
       <Image
         src={MIJIA_ICON_DATA_URI}
-        style={{ width: s(), height: s(), borderRadius: 8 }}
+        style={{ width: inner(), height: inner(), borderRadius: 6 }}
       />
     </View>
   );
@@ -22,14 +26,18 @@ export function MijiaBrandIcon(props: { size?: number; class?: string }) {
 
 export function HomeAssistantBrandIcon(props: { size?: number; class?: string }) {
   const s = () => props.size ?? 40;
+  const inner = () => Math.round(s() * 0.65);
   return (
     <View
-      class={props.class ?? "items-center justify-center overflow-hidden rounded-xl bg-transparent"}
+      class={
+        props.class ??
+        "items-center justify-center overflow-hidden rounded-xl bg-muted border border-border shrink-0"
+      }
       style={{ width: s(), height: s() }}
     >
       <Image
         src={HOME_ASSISTANT_ICON_DATA_URI}
-        style={{ width: s(), height: s(), borderRadius: 8 }}
+        style={{ width: inner(), height: inner(), borderRadius: 6 }}
       />
     </View>
   );

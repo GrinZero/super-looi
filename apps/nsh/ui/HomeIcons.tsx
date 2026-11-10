@@ -37,7 +37,9 @@ export type ActionIconName =
   | "outlet"
   | "video"
   | "eye"
-  | "eye_off";
+  | "eye_off"
+  | "sidebar_collapse"
+  | "sidebar_expand";
 
 export type IconTone =
   | "foreground"
@@ -522,6 +524,30 @@ export function ActionIcon(props: {
             cx.beginPath();
             cx.moveTo(4, 4);
             cx.lineTo(20, 20);
+            cx.stroke();
+            break;
+          }
+          case "sidebar_collapse": {
+            // Split panel with left sidebar divider and inward left chevron
+            cx.beginPath();
+            cx.roundRect(3.5, 4.5, 17, 15, 3);
+            cx.moveTo(9.5, 4.5);
+            cx.lineTo(9.5, 19.5);
+            cx.moveTo(16, 9.5);
+            cx.lineTo(13, 12);
+            cx.lineTo(16, 14.5);
+            cx.stroke();
+            break;
+          }
+          case "sidebar_expand": {
+            // Split panel with left sidebar divider and outward right chevron
+            cx.beginPath();
+            cx.roundRect(3.5, 4.5, 17, 15, 3);
+            cx.moveTo(9.5, 4.5);
+            cx.lineTo(9.5, 19.5);
+            cx.moveTo(13, 9.5);
+            cx.lineTo(16, 12);
+            cx.lineTo(13, 14.5);
             cx.stroke();
             break;
           }

@@ -29,6 +29,11 @@ fn overview_collapses_and_resize_handles_keep_the_touch_from_scrolling() -> Resu
 
     app.press("home-overview-collapse")?;
     assert!(!app.shows("home-room-nav-all"));
+    app.wait_for("home-room-rail-all")?;
+    app.press("home-room-rail-大厅")?;
+    assert!(app.screen().selected("home-room-rail-大厅")?);
+    app.press("home-room-rail-all")?;
+    assert!(app.screen().selected("home-room-rail-all")?);
     app.wait_for("id:home-card-simulation:sim_hall_camera")?;
     app.wait_for("home-overview-collapse")?;
     app.set_viewport(size(Points(390.0), Points(844.0)))?;

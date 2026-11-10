@@ -162,10 +162,13 @@ export function TextField(props: {
   masked?: boolean;
   onSubmit?: () => void;
   testID?: string;
+  compact?: boolean;
 }) {
   return (
-    <View class="gap-2">
-      <Text class="text-muted-foreground text-sm">{props.label}</Text>
+    <View class={props.compact ? "gap-1.5" : "gap-2"}>
+      <Text class={props.compact ? "text-muted-foreground text-xs font-medium" : "text-muted-foreground text-sm"}>
+        {props.label}
+      </Text>
       <Input
         testID={props.testID}
         value={props.value}
@@ -176,7 +179,11 @@ export function TextField(props: {
         autoCapitalize="none"
         maxLength={8192}
         onSubmit={() => props.onSubmit?.()}
-        class="h-12 rounded-xl border border-input bg-background px-4 text-foreground text-base focus:border-ring"
+        class={
+          props.compact
+            ? "h-10 rounded-xl border border-input bg-background px-3.5 text-foreground text-xs focus:border-ring"
+            : "h-12 rounded-xl border border-input bg-background px-4 text-foreground text-base focus:border-ring"
+        }
       />
     </View>
   );
@@ -190,15 +197,29 @@ export function SelectField<T extends string = string>(props: {
   onChange: (value: T) => void;
   disabled?: boolean;
   testID?: string;
+  compact?: boolean;
 }) {
   const open = signal(false);
   const selectedTitle = () =>
     props.items.find((item) => item.value === props.value)?.title ?? "";
 
+  const triggerClass = () => {
+    if (props.compact) {
+      return open()
+        ? "min-h-9 flex-row items-center justify-between gap-2 rounded-xl border border-ring bg-muted px-3 active:bg-muted disabled:opacity-40"
+        : "min-h-9 flex-row items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 active:bg-muted focus:border-ring disabled:opacity-40";
+    }
+    return open()
+      ? "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-ring bg-muted px-4 active:bg-muted disabled:opacity-40"
+      : "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-input bg-background px-4 active:bg-muted focus:border-ring disabled:opacity-40";
+  };
+
   return (
-    <View class="gap-2">
+    <View class={props.label ? (props.compact ? "gap-1.5" : "gap-2") : ""}>
       <If when={props.label}>
-        <Text class="text-muted-foreground text-sm">{props.label}</Text>
+        <Text class={props.compact ? "text-muted-foreground text-xs font-medium" : "text-muted-foreground text-sm"}>
+          {props.label}
+        </Text>
       </If>
       <Select
         accessibilityLabel={props.accessibilityLabel ?? props.label}
@@ -221,16 +242,30 @@ export function SelectField<T extends string = string>(props: {
           paddingLeft: "calc(env(safe-area-inset-left) + 12px)",
           paddingRight: "calc(env(safe-area-inset-right) + 12px)",
         }}
-        itemClass="group my-0.5 w-full min-h-12 flex-row items-center justify-between gap-3 rounded-xl px-4 focus:bg-muted active:bg-muted selected:bg-muted disabled:opacity-40"
+        itemClass="group my-0.5 w-full min-h-11 flex-row items-center justify-between gap-3 rounded-xl px-4 focus:bg-muted active:bg-muted selected:bg-muted disabled:opacity-40"
+        groupClass="px-4 pt-3 pb-1"
+        renderGroup={(group) => (
+          <Text class="text-muted-foreground text-xs font-medium">{group.title}</Text>
+        )}
         renderItem={(entry) => (
           <View class="w-full flex-1 flex-row items-center justify-between gap-3">
             <Text
-              class="flex-1 text-base text-foreground group-selected:font-semibold"
+              class={
+                props.compact
+                  ? "flex-1 text-sm text-foreground group-selected:font-semibold"
+                  : "flex-1 text-base text-foreground group-selected:font-semibold"
+              }
               style={{ numberOfLines: 1 }}
             >
               {entry.title}
             </Text>
-            <Text class="text-base font-semibold text-transparent group-selected:text-foreground">
+            <Text
+              class={
+                props.compact
+                  ? "text-sm font-semibold text-transparent group-selected:text-foreground"
+                  : "text-base font-semibold text-transparent group-selected:text-foreground"
+              }
+            >
               ✓
             </Text>
           </View>
@@ -238,23 +273,27 @@ export function SelectField<T extends string = string>(props: {
         trigger={
           <View
             testID={props.testID}
-            class={
-              open()
-                ? "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-ring bg-muted px-4 active:bg-muted disabled:opacity-40"
-                : "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-input bg-background px-4 active:bg-muted focus:border-ring disabled:opacity-40"
-            }
+            class={triggerClass()}
           >
             <Text
-              class="flex-1 text-base font-medium text-foreground"
+              class={
+                props.compact
+                  ? "flex-1 text-xs font-semibold text-foreground"
+                  : "flex-1 text-base font-medium text-foreground"
+              }
               style={{ numberOfLines: 1 }}
             >
               {selectedTitle()}
             </Text>
             <Text
               class={
-                open()
-                  ? "text-base text-foreground"
-                  : "text-base text-muted-foreground"
+                props.compact
+                  ? open()
+                    ? "text-xs text-foreground"
+                    : "text-xs text-muted-foreground"
+                  : open()
+                    ? "text-base text-foreground"
+                    : "text-base text-muted-foreground"
               }
             >
               ▾
