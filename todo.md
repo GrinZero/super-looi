@@ -2,12 +2,11 @@
 
 ## 米家摄像头取流
 
-- [ ] 两台 `isa.camera.hlc7` 的 Android 临时探针仅有瞬时加载/进度，正式详情验收前设备离线；iOS 正式详情未出画面，同设备直接 start 与 stop→start 都是动作成功、新地址 GET 404。需查明设备/云端实际建流与媒体来源；证据见 `docs/xiaomi-camera-mobile-verification.md`。
-- [ ] 当前 HLS 会话没有期限与续流接口；参考实现缺省 270 秒更新。先验证实际媒体通路，再按有效会话的真实期限接入续流。
-- [ ] 大厅 `chuangmi.camera.039a01` P2P action 输出为空；精确候选授权接口已定位为另一 OAuth 业务的 `device/miss_get_vendor_security`，当前 HA 会话权限仍未实证，见 `docs/xiaomi-camera-mobile-p2p-authorization.md`。
-- [ ] 采用公开 MISS/CS2 协议前，取得 `xiaomiio` 账号会话，验证两型号的 vendor、局域网握手和连续可解码帧；已有 MIT Python/Go 与 JS 源码，手机接入成本是 socket、会话加密及原生编码帧入口，见 `docs/xiaomi-camera-community-solutions.md`。Miloco 的桌面闭源产物与用途限制另见 `docs/xiaomi-miloco-camera-research.md`。
-- [ ] 社区协议探针的扫码回执返回 Xiaomi tengine HTTP 403，未取得会话；上游原生账号／验证码登录页面已就绪，待完成登录后执行媒体采样。实测见 `docs/xiaomi-camera-community-verification.md`。
-- [ ] 恢复魅族 20 Pro 的 USB/ADB 连接后，在已集成的正式详情上测首帧、延迟和播放/退出内存；包内 HLS 会话、单原生 Video 与取消/轮询/退出回归已完成。
+三台摄像头的社区协议直连均已取得真实可解码视频，实测及原 HLS 失败证据分别见 [社区协议验证](docs/xiaomi-camera-community-verification.md) 与 [手机 HLS 验证](docs/xiaomi-camera-mobile-verification.md)。
+
+- [ ] 将已验证的 MISS/CS2/TCP 链路接入手机进程：现有 App 仍使用返回 404 的云 HLS；社区链路需要 xiaomiio 账号会话、socket、会话加密和原生编码帧入口。复用范围与复杂度见 `docs/xiaomi-camera-community-solutions.md`。
+- [ ] 在手机开发宿主验证真实显示首帧、连续播放、退出释放与前后台恢复；本轮成功证据来自 Mac 的三次约 20 秒媒体采样。
+- [ ] 恢复魅族 20 Pro 的 USB/ADB 连接后，执行手机内置链路的延迟与播放／退出内存验收。
 
 ## 智能家居能力与视觉还原
 

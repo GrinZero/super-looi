@@ -1,0 +1,120 @@
+{
+  "date": "2026-11-10",
+  "host": "macOS",
+  "upstream_commit": "d1479e4c1f95c37abc9f7774b0d1e2a0dffe4a23",
+  "session_device_list_verified": true,
+  "attempts": [
+    {
+      "name": "天台 摄像头",
+      "model": "isa.camera.hlc7",
+      "did": "1108196901",
+      "host": "192.168.3.70",
+      "online": true,
+      "vendor": "cs2",
+      "stage": "cs2_miss_connect",
+      "error_type": "TransportError",
+      "error": "CS2 camera handshake timed out; check the camera IP and LAN connectivity",
+      "elapsed_seconds": 8.247
+    },
+    {
+      "name": "监控",
+      "model": "chuangmi.camera.039a01",
+      "did": "1073438795",
+      "host": "192.168.3.119",
+      "online": true,
+      "vendor": "cs2",
+      "connect_seconds": 0.628,
+      "transport": "tcp",
+      "first_packet_seconds": 1.025,
+      "frames": 399,
+      "bytes": 181187,
+      "codec": "hevc",
+      "media_duration_ms": 19920,
+      "sample_complete": true,
+      "stage": "frames_received",
+      "ffprobe_exit": 0,
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "hevc",
+            "width": 864,
+            "height": 480,
+            "nb_read_frames": "399"
+          }
+        ]
+      },
+      "decode_exit": 0,
+      "decode_error_lines": 0,
+      "elapsed_seconds": 21.125
+    },
+    {
+      "name": "小鸟 摄像头",
+      "model": "isa.camera.hlc7",
+      "did": "1107992195",
+      "host": "192.168.3.95",
+      "online": true,
+      "vendor": "cs2",
+      "connect_seconds": 1.25,
+      "transport": "tcp",
+      "first_packet_seconds": 1.365,
+      "frames": 397,
+      "bytes": 1538111,
+      "codec": "hevc",
+      "media_duration_ms": 19958,
+      "sample_complete": true,
+      "stage": "frames_received",
+      "ffprobe_exit": 0,
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "hevc",
+            "width": 640,
+            "height": 360,
+            "nb_read_frames": "397"
+          }
+        ]
+      },
+      "decode_exit": 0,
+      "decode_error_lines": 0,
+      "elapsed_seconds": 22.695
+    },
+    {
+      "name": "天台 摄像头",
+      "model": "isa.camera.hlc7",
+      "did": "1108196901",
+      "host": "192.168.3.70",
+      "online": true,
+      "vendor": "cs2",
+      "connect_seconds": 2.317,
+      "transport": "tcp",
+      "first_packet_seconds": 2.743,
+      "frames": 311,
+      "bytes": 1530108,
+      "codec": "hevc",
+      "media_duration_ms": 19593,
+      "sample_complete": true,
+      "stage": "frames_received",
+      "ffprobe_exit": 0,
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "hevc",
+            "width": 640,
+            "height": 360,
+            "nb_read_frames": "311"
+          }
+        ]
+      },
+      "decode_exit": 0,
+      "decode_error_lines": 0,
+      "elapsed_seconds": 23.546
+    }
+  ],
+  "media_files_in_git": false
+}

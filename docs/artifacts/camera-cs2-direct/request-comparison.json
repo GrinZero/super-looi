@@ -1,0 +1,33 @@
+{
+  "original_probe_error": {
+    "http_status": 200,
+    "code": -12,
+    "message": "throttle deny",
+    "description": null,
+    "result_fields": null
+  },
+  "go_style_request": {
+    "http_status": 200,
+    "code": 0,
+    "message": "ok",
+    "result_fields": [
+      "vendor",
+      "public_key",
+      "sign",
+      "region",
+      "miss_version"
+    ],
+    "request_shape": "go2rtc headers and cookies; same Python signing and X25519 generation"
+  },
+  "original_probe_recheck": {
+    "request_shape": "original_python",
+    "error": "Xiaomi cloud rejected the request (code -12)"
+  },
+  "changed_together": [
+    "User-Agent",
+    "MIOT-ENCRYPT-ALGORITHM header removal",
+    "Accept-Encoding header",
+    "explicit Cookie header and isolated cookie jar"
+  ],
+  "single_factor_cause_established": false
+}

@@ -8,6 +8,8 @@
 
 精确型号的证据不同：`isa.camera.hlc7` 有真实成功播放报告，也有最新稳定版取流超时报告；`chuangmi.camera.039a01` 有云端返回 `vendor=cs2` 的一手日志，但本次找到的记录不足以证明稳定播放。不能用 `039a04`、`039c01` 的支持记录替代 `039a01`。
 
+2026-11-10 本地补验已完成：三台目标摄像头均通过 CS2/TCP 取得约 20 秒真实 H.265 视频，并通过完整解码；下表仍用于区分各社区项目自身的证据。具体结果与请求差异见 [实测记录](xiaomi-camera-community-verification.md)。
+
 ## 源码版本
 
 | 项目 | 核实版本 | 协议与运行形式 | 对本项目的用途与成本 |
@@ -95,11 +97,12 @@ PR #2264 提出根据 `p2p_id` 走云中继与 NAT 握手，列举 hlc7 等可�
 
 MiBeeNvr 也使用账号会话和 MISS 配置请求，不是绕过会话授权的另一种通道。`internal/xiaomi/cloud.go`、`cs2.go` 保留 MIT 文件头并注明来自 go2rtc；整体 v0.11.0 起使用 AGPL-3.0-only，`pkg` 链接例外不覆盖整个 `internal` 目录。若仅参考独立协议文件，应按实际文件头与来源判断，而非把整套当前 NVR 当成 MIT 项目。[cloud.go](https://github.com/Mi-Bee-Studio/MiBeeNvr/blob/d393c966892cdaeca3afc80beb139ae567dd6424/internal/xiaomi/cloud.go)、[cs2.go](https://github.com/Mi-Bee-Studio/MiBeeNvr/blob/d393c966892cdaeca3afc80beb139ae567dd6424/internal/xiaomi/cs2.go)、[NOTICE](https://github.com/Mi-Bee-Studio/MiBeeNvr/blob/d393c966892cdaeca3afc80beb139ae567dd6424/NOTICE)、[链接例外](https://github.com/Mi-Bee-Studio/MiBeeNvr/blob/d393c966892cdaeca3afc80beb139ae567dd6424/LICENSE.pkg-linking-exception)
 
-## 尚待设备证据回答的问题
+## 手机接入尚待完成的部分
 
-- 当前 App 保存的是 MIoT HA OAuth；要走上述社区路径，需要另行取得 `xiaomiio` 账号会话并完成 MISS 配置请求。
-- 两种目标型号、当前固件在本地区域返回哪个 vendor、地址与会话参数。
-- hlc7 在当前同一局域网是否选择 CS2 UDP，039a01 是否能完成 MISS 登录并连续收到可解码帧。
-- 手机现有解码与显示接口能否直接接收该协议产出的 Annex B H.264/H.265，以及如何承接当前播放生命周期。
+本地实测已确认三台目标设备均能取得 CS2 会话参数、完成 MISS 认证并连续收到可解码帧；实际协商方式为 TCP。以下是手机工程的剩余接入工作：
 
-这些问题决定最小实现边界：若三台目标摄像头均为可达的 CS2，优先复用公开协议和现有宿主，收益是避免新增常驻 NVR 与完整 Node/Go 服务；对应成本集中在原生 socket、准确的会话加密和编码帧入口。
+- 当前 App 保存的是 MIoT HA OAuth；本轮另行取得的 xiaomiio 会话位于 Mac 临时探针，手机仍需承接这套账号会话及其生命周期。
+- 为现有宿主补齐协议必需的网络与加密接口，沿用已经通过实测的云请求组合。
+- 将 Annex B H.264/H.265 编码帧接入手机原生解码与显示，并承接当前详情页的进入、播放和退出生命周期。
+
+公开协议可以避免新增常驻 NVR 与完整 Node/Go 服务；实际实现成本集中在手机内的账号会话、socket、会话加密和编码帧入口。Mac 的约 20 秒采样已经证明协议和设备可以配合工作，手机显示与性能应在上述入口落地后实测。
