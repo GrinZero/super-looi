@@ -5,7 +5,7 @@
 - [ ] 两台 `isa.camera.hlc7` 的 Android 临时探针仅有瞬时加载/进度，正式详情验收前设备离线；iOS 正式详情未出画面，同设备直接 start 与 stop→start 都是动作成功、新地址 GET 404。需查明设备/云端实际建流与媒体来源；证据见 `docs/xiaomi-camera-mobile-verification.md`。
 - [ ] 当前 HLS 会话没有期限与续流接口；参考实现缺省 270 秒更新。先验证实际媒体通路，再按有效会话的真实期限接入续流。
 - [ ] 大厅 `chuangmi.camera.039a01` P2P action 输出为空；精确候选授权接口已定位为另一 OAuth 业务的 `device/miss_get_vendor_security`，当前 HA 会话权限仍未实证，见 `docs/xiaomi-camera-mobile-p2p-authorization.md`。
-- [ ] 明确手机可用的取流 SDK/协议实现及客户端权限：Miloco 通过独立 OAuth 与闭源 `libmiot_camera_lite` 取得编码帧，但公开产物仅 macOS/Linux，且许可证未授权开发其他 App；研究见 `docs/xiaomi-miloco-camera-research.md`。
+- [ ] 采用公开 MISS/CS2 协议前，取得 `xiaomiio` 账号会话，验证两型号的 vendor、局域网握手和连续可解码帧；已有 MIT Python/Go 与 JS 源码，手机接入成本是 socket、会话加密及原生编码帧入口，见 `docs/xiaomi-camera-community-solutions.md`。Miloco 的桌面闭源产物与用途限制另见 `docs/xiaomi-miloco-camera-research.md`。
 - [ ] 恢复魅族 20 Pro 的 USB/ADB 连接后，在已集成的正式详情上测首帧、延迟和播放/退出内存；包内 HLS 会话、单原生 Video 与取消/轮询/退出回归已完成。
 
 ## 智能家居能力与视觉还原

@@ -10,6 +10,17 @@
 - [x] Step 3：复用 NSH createMotion 加入 160ms、8pt 淡入过渡，遵循系统减少动态效果
 - [x] Step 4：30/30 测试、类型检查、构建、原生唤醒和独立 review 通过；模拟器语音页提交约 5.2ms、返回首页约 2.5ms，证据见 `docs/navigation-performance.md`
 
+### 社区米家摄像头取流方案复核（2026-11-10）
+
+- [x] Step 1：深入用户指定的 `Kosztyk/xiaomi_camera_native`，核对协议源码、授权与依赖
+  - [x] 固定 0.3.10 源码，追踪 xiaomiio → miss_get_vendor → CS2 → MISS → ChaCha20 编码帧；区分 Original 重封装与默认 FFmpeg 转码
+- [x] Step 2：交叉核对 go2rtc、MiBeeNvr 与其他可移植实现的目标型号证据
+  - [x] hlc7 有成功播放与 VLAN 超时记录；039a01 仅找到准确 CS2 日志；核实同作者 JS 移植尚无实机测试
+- [x] Step 3：比较手机进程内接入方式与成本，整理研究结论
+  - [x] 记录 Node 兼容层网络/加密差距、原生编码帧入口和与现有 HA OAuth 不同的账号会话，见 `docs/xiaomi-camera-community-solutions.md`
+- [x] Step 4：独立 review、更新待办并提交研究记录
+  - [x] 复核协议、许可、依赖与上游型号证据，修正三台设备／两种型号的数量措辞；研究文档与差异格式检查通过
+
 ### Miloco 摄像头取流机制研究（2026-11-10）
 
 - [x] Step 1：核实官方当前版本，对比既有旧版取流研究
