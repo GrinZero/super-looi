@@ -246,18 +246,21 @@ export function HomeSpaceView(props: {
     }
   });
 
-  const isWide = () => windowSize().width >= 660;
+  const isWide = () => windowSize().width >= 600;
   const usableCanvasWidth = () => {
     const measured = canvasWidth();
     if (measured > 0) {
-      return Math.max(208, measured - 56);
+      return Math.max(208, measured - 28);
     }
     const winW = windowSize().width;
-    return Math.max(208, winW >= 660 ? winW - 204 - 56 : winW - 48);
+    return Math.max(208, winW >= 600 ? winW - 196 - 48 : winW - 48);
   };
   const gridColumns = () => {
     const usable = usableCanvasWidth();
-    return Math.max(1, Math.floor((usable + GRID_GAP) / (208 + GRID_GAP)));
+    if (isWide()) {
+      return Math.max(2, Math.floor((usable + GRID_GAP) / (180 + GRID_GAP)));
+    }
+    return Math.max(1, Math.floor((usable + GRID_GAP) / (180 + GRID_GAP)));
   };
   const singleColumnWidth = () => {
     const cols = gridColumns();
@@ -2827,7 +2830,7 @@ export function HomeSpaceView(props: {
         </If>
       }
     >
-      <View class={isWide() ? "flex-1 flex-row" : "flex-1"} style={{ minHeight: 0 }}>
+      <View class={isWide() ? "flex-1 flex-row gap-3" : "flex-1"} style={{ minHeight: 0 }}>
         {/* Left Room Navigation Sidebar (or Top Bar on narrow screens) */}
         <If
           when={isWide()}
@@ -2887,10 +2890,10 @@ export function HomeSpaceView(props: {
           }
         >
           <View
-            class="border-r border-border bg-card p-3 gap-2"
-            style={{ width: 204, minHeight: 0 }}
+            class="rounded-2xl border border-border bg-card p-3 gap-2 flex-col"
+            style={{ width: 196, minHeight: 0 }}
           >
-            <View class="px-2 py-1 flex-row items-center justify-between">
+            <View class="px-1 py-0.5 flex-row items-center justify-between">
               <Text class="text-muted-foreground text-xs font-semibold">
                 {dashboard().homeName}
               </Text>
@@ -2902,15 +2905,15 @@ export function HomeSpaceView(props: {
               </Text>
             </View>
 
-            <Scroll class="flex-1" scrollbar={false} contentClass="gap-1.5">
+            <Scroll class="flex-1" scrollbar={false} contentClass="gap-1.5 pb-2">
               <Button
                 testID="home-room-nav-all"
                 selected={selectedRoomName() === "all"}
                 onPress={() => props.store.setHomeSelectedRoom("all")}
                 class={
                   selectedRoomName() === "all"
-                    ? "w-full rounded-xl bg-primary px-3 py-2.5 items-start gap-0.5 active:opacity-75"
-                    : "w-full rounded-xl bg-muted border border-border px-3 py-2.5 items-start gap-0.5 active:opacity-75"
+                    ? "w-full rounded-xl bg-primary px-3 py-2 items-start gap-0.5 active:opacity-75"
+                    : "w-full rounded-xl bg-muted border border-border px-3 py-2 items-start gap-0.5 active:opacity-75"
                 }
               >
                 <Text
@@ -2944,8 +2947,8 @@ export function HomeSpaceView(props: {
                     onPress={() => props.store.setHomeSelectedRoom(rm().name)}
                     class={
                       selectedRoomName() === rm().name
-                        ? "w-full rounded-xl bg-primary px-3 py-2.5 items-start gap-0.5 active:opacity-75"
-                        : "w-full rounded-xl bg-card border border-border px-3 py-2.5 items-start gap-0.5 active:bg-muted"
+                        ? "w-full rounded-xl bg-primary px-3 py-2 items-start gap-0.5 active:opacity-75"
+                        : "w-full rounded-xl bg-card border border-border px-3 py-2 items-start gap-0.5 active:bg-muted"
                     }
                   >
                     <View class="w-full flex-row items-center justify-between">
@@ -3004,119 +3007,124 @@ export function HomeSpaceView(props: {
             }
           }}
         >
-          <Scroll class="flex-1" contentClass="p-4 gap-4">
+          <Scroll class="flex-1" contentClass="gap-3 pb-4">
             <Each of={visibleRooms()} key={(room) => room.id}>
               {(room) => (
-                <View class="rounded-3xl bg-room-surface border border-border p-3.5 gap-3">
+                <View class="rounded-2xl bg-room-surface border border-border p-3.5 gap-3">
                   {/* Room Section Header + Environment Strip + Active Summary + Per-Room Edit & More Menu */}
-                  <View class="flex-row items-center justify-between gap-2 flex-wrap">
-                    <View class="flex-row items-center gap-2 flex-wrap">
+                  <View class="gap-2">
+                    <View class="flex-row items-center justify-between gap-2">
                       <Text class="text-foreground text-lg font-bold" role="header">
                         {room().name}
                       </Text>
-                      <Each of={room().environment.slice(0, 4)} key={(env) => env.key}>
-                        {(env) => (
-                          <View class="px-2.5 py-1 rounded-full bg-card border border-border flex-row items-center gap-1.5">
-                            <If when={env().key === "temperature"}>
-                              <ActionIcon name="thermometer" tone="warning" size={13} />
-                            </If>
-                            <If when={env().key === "humidity"}>
-                              <ActionIcon name="droplet" tone="airflow" size={13} />
-                            </If>
-                            <If when={env().key === "pm25"}>
-                              <ActionIcon name="leaf" tone="airQuality" size={13} />
-                            </If>
-                            <If when={env().key !== "temperature" && env().key !== "humidity"}>
-                              <Text class="text-muted-foreground text-xs">{env().label}</Text>
-                            </If>
-                            <Text class="text-foreground text-xs font-semibold">{env().value}</Text>
-                            <If when={Boolean(env().badge)}>
-                              <View class="px-1.5 py-0.5 rounded-full bg-air-quality-bg border border-air-quality-border">
-                                <Text class="text-air-quality text-xs font-bold">
-                                  {env().badge}
-                                </Text>
-                              </View>
-                            </If>
-                          </View>
-                        )}
-                      </Each>
-                    </View>
 
-                    <View class="flex-row items-center gap-2">
-                      <Text class="text-muted-foreground text-xs">
-                        {t("activeCountSummary", {
-                          active: room().activeCount,
-                          total: room().totalCount,
-                        })}
-                      </Text>
+                      <View class="flex-row items-center gap-2">
+                        <Text class="text-muted-foreground text-xs">
+                          {t("activeCountSummary", {
+                            active: room().activeCount,
+                            total: room().totalCount,
+                          })}
+                        </Text>
 
-                      <Button
-                        testID={`home-room-edit-${room().name}`}
-                        accessibilityLabel={
-                          isRoomEditing(room().name) ? t("doneLayout") : t("editLayout")
-                        }
-                        selected={isRoomEditing(room().name)}
-                        onPress={() => {
-                          openRoomMenu.set(null);
-                          movingApplianceId.set(null);
-                          resizePreview.set(null);
-                          reorderPreview.set(null);
-                          props.store.setHomeLayoutEditing(
-                            isRoomEditing(room().name) ? null : room().name,
-                          );
-                        }}
-                        class={
-                          isRoomEditing(room().name)
-                            ? "min-h-11 px-3.5 rounded-full bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
-                            : "min-h-11 px-3.5 rounded-full bg-card border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
-                        }
-                      >
-                        <ActionIcon
-                          name={isRoomEditing(room().name) ? "check" : "edit"}
-                          tone={isRoomEditing(room().name) ? "primaryFg" : "muted"}
-                          size={13}
-                        />
-                        <Text
+                        <Button
+                          testID={`home-room-edit-${room().name}`}
+                          accessibilityLabel={
+                            isRoomEditing(room().name) ? t("doneLayout") : t("editLayout")
+                          }
+                          selected={isRoomEditing(room().name)}
+                          onPress={() => {
+                            openRoomMenu.set(null);
+                            movingApplianceId.set(null);
+                            resizePreview.set(null);
+                            reorderPreview.set(null);
+                            props.store.setHomeLayoutEditing(
+                              isRoomEditing(room().name) ? null : room().name,
+                            );
+                          }}
                           class={
                             isRoomEditing(room().name)
-                              ? "text-primary-foreground text-xs font-semibold"
-                              : "text-foreground text-xs font-medium"
-                          }
-                        >
-                          {isRoomEditing(room().name) ? t("doneLayout") : t("editLayout")}
-                        </Text>
-                      </Button>
-
-                      <If
-                        when={
-                          !isRoomEditing(room().name) &&
-                          (room().roomPowerEntities.turnOnIds.length > 0 ||
-                            room().roomPowerEntities.turnOffIds.length > 0)
-                        }
-                      >
-                        <Button
-                          testID={`home-room-more-${room().name}`}
-                          accessibilityLabel={`${room().name} 更多操作`}
-                          selected={openRoomMenu() === room().name}
-                          onPress={() =>
-                            openRoomMenu.set(
-                              openRoomMenu() === room().name ? null : room().name,
-                            )
-                          }
-                          class={
-                            openRoomMenu() === room().name
-                              ? "w-11 h-11 rounded-full bg-primary items-center justify-center active:opacity-75"
-                              : "w-11 h-11 rounded-full bg-card border border-border items-center justify-center active:opacity-75"
+                              ? "min-h-11 px-3.5 rounded-full bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
+                              : "min-h-11 px-3.5 rounded-full bg-card border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
                           }
                         >
                           <ActionIcon
-                            name="more"
-                            tone={openRoomMenu() === room().name ? "primaryFg" : "foreground"}
-                            size={15}
+                            name={isRoomEditing(room().name) ? "check" : "edit"}
+                            tone={isRoomEditing(room().name) ? "primaryFg" : "muted"}
+                            size={13}
                           />
+                          <Text
+                            class={
+                              isRoomEditing(room().name)
+                                ? "text-primary-foreground text-xs font-semibold"
+                                : "text-foreground text-xs font-medium"
+                            }
+                          >
+                            {isRoomEditing(room().name) ? t("doneLayout") : t("editLayout")}
+                          </Text>
                         </Button>
-                      </If>
+
+                        <If
+                          when={
+                            !isRoomEditing(room().name) &&
+                            (room().roomPowerEntities.turnOnIds.length > 0 ||
+                              room().roomPowerEntities.turnOffIds.length > 0)
+                          }
+                        >
+                          <Button
+                            testID={`home-room-more-${room().name}`}
+                            accessibilityLabel={`${room().name} 更多操作`}
+                            selected={openRoomMenu() === room().name}
+                            onPress={() =>
+                              openRoomMenu.set(
+                                openRoomMenu() === room().name ? null : room().name,
+                              )
+                            }
+                            class={
+                              openRoomMenu() === room().name
+                                ? "w-11 h-11 rounded-full bg-primary items-center justify-center active:opacity-75"
+                                : "w-11 h-11 rounded-full bg-card border border-border items-center justify-center active:opacity-75"
+                            }
+                          >
+                            <ActionIcon
+                              name="more"
+                              tone={openRoomMenu() === room().name ? "primaryFg" : "foreground"}
+                              size={15}
+                            />
+                          </Button>
+                        </If>
+                      </View>
                     </View>
+
+                    <If when={room().environment.length > 0}>
+                      <View class="flex-row items-center gap-1.5 flex-wrap">
+                        <Each of={room().environment.slice(0, 4)} key={(env) => env.key}>
+                          {(env) => (
+                            <View class="px-2.5 py-1 rounded-full bg-card border border-border flex-row items-center gap-1.5">
+                              <If when={env().key === "temperature"}>
+                                <ActionIcon name="thermometer" tone="warning" size={13} />
+                              </If>
+                              <If when={env().key === "humidity"}>
+                                <ActionIcon name="droplet" tone="airflow" size={13} />
+                              </If>
+                              <If when={env().key === "pm25"}>
+                                <ActionIcon name="leaf" tone="airQuality" size={13} />
+                              </If>
+                              <If when={env().key !== "temperature" && env().key !== "humidity"}>
+                                <Text class="text-muted-foreground text-xs">{env().label}</Text>
+                              </If>
+                              <Text class="text-foreground text-xs font-semibold">{env().value}</Text>
+                              <If when={Boolean(env().badge)}>
+                                <View class="px-1.5 py-0.5 rounded-full bg-air-quality-bg border border-air-quality-border">
+                                  <Text class="text-air-quality text-xs font-bold">
+                                    {env().badge}
+                                  </Text>
+                                </View>
+                              </If>
+                            </View>
+                          )}
+                        </Each>
+                      </View>
+                    </If>
                   </View>
 
                   {/* Room Batch Power Secondary Menu */}
