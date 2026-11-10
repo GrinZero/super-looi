@@ -419,6 +419,7 @@ export function createAppStore() {
   });
   const homeSubView = signal<"devices" | "services">("devices");
   const homeSelectedRoom = signal<string>("all");
+  const homeOverviewCollapsed = signal(false);
   const homeLayoutEditing = signal<string | null>(null);
   const homeInspectedApplianceId = signal<string | null>(null);
   const homeCamera = signal<{
@@ -1407,6 +1408,8 @@ export function createAppStore() {
       }
     },
     homeSelectedRoom: () => homeSelectedRoom(),
+    homeOverviewCollapsed: () => homeOverviewCollapsed(),
+    setHomeOverviewCollapsed: (collapsed: boolean) => homeOverviewCollapsed.set(collapsed),
     setHomeSelectedRoom(room: string) {
       homeSelectedRoom.set(room);
       const editingRoom = homeLayoutEditing();

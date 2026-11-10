@@ -76,6 +76,7 @@ function Probe() {
       hasMiotAccount: true,
     }),
     homeSubView: () => "devices",
+    homeOverviewCollapsed: () => false,
     homeSelectedRoom: () => "all",
     homeLoading: () => false,
     homeRefreshing: () => false,

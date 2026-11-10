@@ -17,6 +17,7 @@ function HomeLoadingProbe() {
     homeConfiguration: () => ({ mode: "external_ha", region: "cn", haUrl: "", hasToken: true, hasMiotAccount: false }),
     homeDashboard: () => dashboard(),
     homeSubView: () => "devices",
+    homeOverviewCollapsed: () => false,
     homeLoading: () => loading(),
     homeConnection: () => undefined,
   } as unknown as ReturnType<typeof createAppStore>;

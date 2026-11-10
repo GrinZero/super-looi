@@ -200,6 +200,7 @@ export function HomeSpaceView(props: {
   const movingApplianceId = signal<string | null>(null);
   const openRoomMenu = signal<string | null>(null);
   const canvasWidth = signal<number>(0);
+  const overviewCollapsed = () => props.store.homeOverviewCollapsed();
   const resizePreview = signal<{
     applianceId: string;
     targetSpan: TileSpan;
@@ -253,7 +254,7 @@ export function HomeSpaceView(props: {
       return Math.max(208, measured - 28);
     }
     const winW = windowSize().width;
-    return Math.max(208, winW >= 600 ? winW - 196 - 48 : winW - 48);
+    return Math.max(208, isWide() && !overviewCollapsed() ? winW - 196 - 48 : winW - 48);
   };
   const gridColumns = () => {
     const usable = usableCanvasWidth();
@@ -513,6 +514,7 @@ export function HomeSpaceView(props: {
     if (!activeResizeGesture || activeResizeGesture.applianceId !== appliance.id) return;
     const dx = x - activeResizeGesture.startX;
     const dy = y - activeResizeGesture.startY;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > 12) activeResizeGesture.didDrag = true;
     let nextCols = activeResizeGesture.currentCols;
     let nextRows = activeResizeGesture.currentRows;
     const halfCol = Math.min(96, Math.max(44, singleColumnWidth() * 0.5));
@@ -527,7 +529,6 @@ export function HomeSpaceView(props: {
         if (dx <= -(halfCol + hysteresis)) nextCols = 1;
         else if (dx >= -(halfCol - hysteresis)) nextCols = 2;
       }
-      if (Math.abs(dx) > 12) activeResizeGesture.didDrag = true;
     }
 
     if (activeResizeGesture.mode === "bottom" || activeResizeGesture.mode === "corner") {
@@ -538,7 +539,6 @@ export function HomeSpaceView(props: {
         if (dy <= -(halfRow + hysteresis)) nextRows = 1;
         else if (dy >= -(halfRow - hysteresis)) nextRows = 2;
       }
-      if (Math.abs(dy) > 12) activeResizeGesture.didDrag = true;
     }
 
     activeResizeGesture.currentCols = nextCols;
@@ -601,6 +601,8 @@ export function HomeSpaceView(props: {
         {/* Right Edge Resize Handle (44dp wide touch zone) */}
         <View
           testID={`home-resize-right-${app().id}`}
+          panActivation={{ activeOffsetX: 0, activeOffsetY: 0 }}
+          onResponderGrant={() => true}
           role="button"
           accessibilityLabel={`${app().displayName ?? app().name} 调整宽度`}
           onTouchStart={(e) => startResizeGesture(app(), "right", e.pageX, e.pageY)}
@@ -632,6 +634,8 @@ export function HomeSpaceView(props: {
         {/* Bottom Edge Resize Handle (44dp tall touch zone) */}
         <View
           testID={`home-resize-bottom-${app().id}`}
+          panActivation={{ activeOffsetX: 0, activeOffsetY: 0 }}
+          onResponderGrant={() => true}
           role="button"
           accessibilityLabel={`${app().displayName ?? app().name} 调整高度`}
           onTouchStart={(e) => startResizeGesture(app(), "bottom", e.pageX, e.pageY)}
@@ -663,6 +667,8 @@ export function HomeSpaceView(props: {
         {/* Bottom-Right Corner 2D Resize Handle (44x44dp touch zone) */}
         <View
           testID={`home-resize-corner-${app().id}`}
+          panActivation={{ activeOffsetX: 0, activeOffsetY: 0 }}
+          onResponderGrant={() => true}
           role="button"
           accessibilityLabel={`${app().displayName ?? app().name} 调整尺寸`}
           onTouchStart={(e) => startResizeGesture(app(), "corner", e.pageX, e.pageY)}
@@ -1408,39 +1414,41 @@ export function HomeSpaceView(props: {
               </View>
             </View>
 
-            <If
-              when={Boolean(power() && power()?.controllable && !editingThisRoom())}
-              else={
-                <View
-                  class={
-                    app().isActive
-                      ? "px-2 py-0.5 rounded-full bg-live-active-bg border border-verified"
-                      : "px-2 py-0.5 rounded-full bg-muted border border-border"
-                  }
-                >
-                  <Text
+            <If when={!editingThisRoom()}>
+              <If
+                when={Boolean(power() && power()?.controllable)}
+                else={
+                  <View
                     class={
                       app().isActive
-                        ? "text-verified text-xs font-semibold"
-                        : "text-muted-foreground text-xs"
+                        ? "px-2 py-0.5 rounded-full bg-live-active-bg border border-verified"
+                        : "px-2 py-0.5 rounded-full bg-muted border border-border"
                     }
                   >
-                    {editingThisRoom() ? activeSpan() : app().statusBadge}
-                  </Text>
-                </View>
-              }
-            >
-              <PowerIconButton
-                testID={`home-power-${app().id}`}
-                isOn={Boolean(power()?.isOn)}
-                disabled={!power()?.controllable}
-                size="sm"
-                accessibilityLabel={`${cardDisplayName()} ${power()?.isOn ? t("powerOff") : t("powerOn")}`}
-                onPress={() => {
-                  const pw = power();
-                  if (pw) togglePower(pw.entityId, pw.domain, pw.isOn);
-                }}
-              />
+                    <Text
+                      class={
+                        app().isActive
+                          ? "text-verified text-xs font-semibold"
+                          : "text-muted-foreground text-xs"
+                      }
+                    >
+                      {app().statusBadge}
+                    </Text>
+                  </View>
+                }
+              >
+                <PowerIconButton
+                  testID={`home-power-${app().id}`}
+                  isOn={Boolean(power()?.isOn)}
+                  disabled={!power()?.controllable}
+                  size="sm"
+                  accessibilityLabel={`${cardDisplayName()} ${power()?.isOn ? t("powerOff") : t("powerOn")}`}
+                  onPress={() => {
+                    const pw = power();
+                    if (pw) togglePower(pw.entityId, pw.domain, pw.isOn);
+                  }}
+                />
+              </If>
             </If>
           </View>
 
@@ -2831,170 +2839,172 @@ export function HomeSpaceView(props: {
       }
     >
       <View class={isWide() ? "flex-1 flex-row gap-3" : "flex-1"} style={{ minHeight: 0 }}>
-        {/* Left Room Navigation Sidebar (or Top Bar on narrow screens) */}
-        <If
-          when={isWide()}
-          else={
-            <View class="px-4 pt-2.5 pb-1.5 border-b border-border bg-card">
-              <Scroll
-                horizontal={true}
-                scrollbar={false}
-                contentClass="flex-row items-center gap-1.5"
-              >
+        <If when={!overviewCollapsed()}>
+          {/* Left Room Navigation Sidebar (or Top Bar on narrow screens) */}
+          <If
+            when={isWide()}
+            else={
+              <View class="px-4 pt-2.5 pb-1.5 border-b border-border bg-card">
+                <Scroll
+                  horizontal={true}
+                  scrollbar={false}
+                  contentClass="flex-row items-center gap-1.5"
+                >
+                  <Button
+                    testID="home-room-pill-all"
+                    selected={selectedRoomName() === "all"}
+                    onPress={() => props.store.setHomeSelectedRoom("all")}
+                    class={
+                      selectedRoomName() === "all"
+                        ? "min-h-9 px-3.5 rounded-full bg-primary items-center justify-center active:opacity-75"
+                        : "min-h-9 px-3.5 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
+                    }
+                  >
+                    <Text
+                      class={
+                        selectedRoomName() === "all"
+                          ? "text-primary-foreground text-xs font-semibold"
+                          : "text-foreground text-xs font-medium"
+                      }
+                    >
+                      {t("allRoomsOverview")} ({dashboard().totalAppliances})
+                    </Text>
+                  </Button>
+                  <Each of={dashboard().rooms} key={(rm) => rm.id}>
+                    {(rm) => (
+                      <Button
+                        testID={`home-room-pill-${rm().name}`}
+                        selected={selectedRoomName() === rm().name}
+                        onPress={() => props.store.setHomeSelectedRoom(rm().name)}
+                        class={
+                          selectedRoomName() === rm().name
+                            ? "min-h-9 px-3.5 rounded-full bg-primary items-center justify-center active:opacity-75"
+                            : "min-h-9 px-3.5 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
+                        }
+                      >
+                        <Text
+                          class={
+                            selectedRoomName() === rm().name
+                              ? "text-primary-foreground text-xs font-semibold"
+                              : "text-foreground text-xs font-medium"
+                          }
+                        >
+                          {rm().name} ({rm().activeCount}/{rm().totalCount})
+                        </Text>
+                      </Button>
+                    )}
+                  </Each>
+                </Scroll>
+              </View>
+            }
+          >
+            <View
+              class="rounded-2xl border border-border bg-card p-3 gap-2 flex-col"
+              style={{ width: 196, minHeight: 0 }}
+            >
+              <View class="px-1 py-0.5 flex-row items-center justify-between">
+                <Text class="text-muted-foreground text-xs font-semibold">
+                  {dashboard().homeName}
+                </Text>
+                <Text class="text-muted-foreground text-xs">
+                  {t("activeCountSummary", {
+                    active: dashboard().activeAppliances,
+                    total: dashboard().totalAppliances,
+                  })}
+                </Text>
+              </View>
+
+              <Scroll class="flex-1" scrollbar={false} contentClass="gap-1.5 pb-2">
                 <Button
-                  testID="home-room-pill-all"
+                  testID="home-room-nav-all"
                   selected={selectedRoomName() === "all"}
                   onPress={() => props.store.setHomeSelectedRoom("all")}
                   class={
                     selectedRoomName() === "all"
-                      ? "min-h-9 px-3.5 rounded-full bg-primary items-center justify-center active:opacity-75"
-                      : "min-h-9 px-3.5 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
+                      ? "w-full rounded-xl bg-primary px-3 py-2 items-start gap-0.5 active:opacity-75"
+                      : "w-full rounded-xl bg-muted border border-border px-3 py-2 items-start gap-0.5 active:opacity-75"
                   }
                 >
                   <Text
                     class={
                       selectedRoomName() === "all"
-                        ? "text-primary-foreground text-xs font-semibold"
-                        : "text-foreground text-xs font-medium"
+                        ? "text-primary-foreground text-sm font-semibold"
+                        : "text-foreground text-sm font-medium"
                     }
                   >
-                    {t("allRoomsOverview")} ({dashboard().totalAppliances})
+                    {t("allRoomsOverview")}
+                  </Text>
+                  <Text
+                    class={
+                      selectedRoomName() === "all"
+                        ? "text-primary-foreground text-xs opacity-80"
+                        : "text-muted-foreground text-xs"
+                    }
+                  >
+                    {t("activeCountSummary", {
+                      active: dashboard().activeAppliances,
+                      total: dashboard().totalAppliances,
+                    })}
                   </Text>
                 </Button>
+
                 <Each of={dashboard().rooms} key={(rm) => rm.id}>
                   {(rm) => (
                     <Button
-                      testID={`home-room-pill-${rm().name}`}
+                      testID={`home-room-nav-${rm().name}`}
                       selected={selectedRoomName() === rm().name}
                       onPress={() => props.store.setHomeSelectedRoom(rm().name)}
                       class={
                         selectedRoomName() === rm().name
-                          ? "min-h-9 px-3.5 rounded-full bg-primary items-center justify-center active:opacity-75"
-                          : "min-h-9 px-3.5 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
+                          ? "w-full rounded-xl bg-primary px-3 py-2 items-start gap-0.5 active:opacity-75"
+                          : "w-full rounded-xl bg-card border border-border px-3 py-2 items-start gap-0.5 active:bg-muted"
                       }
                     >
+                      <View class="w-full flex-row items-center justify-between">
+                        <Text
+                          class={
+                            selectedRoomName() === rm().name
+                              ? "text-primary-foreground text-sm font-semibold"
+                              : "text-foreground text-sm font-medium"
+                          }
+                          style={{ numberOfLines: 1 }}
+                        >
+                          {rm().name}
+                        </Text>
+                        <If when={rm().activeCount > 0}>
+                          <View
+                            class={
+                              selectedRoomName() === rm().name
+                                ? "w-2 h-2 rounded-full bg-primary-foreground"
+                                : "w-2 h-2 rounded-full bg-verified"
+                            }
+                          />
+                        </If>
+                      </View>
                       <Text
                         class={
                           selectedRoomName() === rm().name
-                            ? "text-primary-foreground text-xs font-semibold"
-                            : "text-foreground text-xs font-medium"
+                            ? "text-primary-foreground text-xs opacity-80"
+                            : "text-muted-foreground text-xs"
                         }
+                        style={{ numberOfLines: 1 }}
                       >
-                        {rm().name} ({rm().activeCount}/{rm().totalCount})
+                        {[
+                          rm().environment.find((e) => e.key === "temperature")?.value,
+                          t("activeCountSummary", {
+                            active: rm().activeCount,
+                            total: rm().totalCount,
+                          }),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </Text>
                     </Button>
                   )}
                 </Each>
               </Scroll>
             </View>
-          }
-        >
-          <View
-            class="rounded-2xl border border-border bg-card p-3 gap-2 flex-col"
-            style={{ width: 196, minHeight: 0 }}
-          >
-            <View class="px-1 py-0.5 flex-row items-center justify-between">
-              <Text class="text-muted-foreground text-xs font-semibold">
-                {dashboard().homeName}
-              </Text>
-              <Text class="text-muted-foreground text-xs">
-                {t("activeCountSummary", {
-                  active: dashboard().activeAppliances,
-                  total: dashboard().totalAppliances,
-                })}
-              </Text>
-            </View>
-
-            <Scroll class="flex-1" scrollbar={false} contentClass="gap-1.5 pb-2">
-              <Button
-                testID="home-room-nav-all"
-                selected={selectedRoomName() === "all"}
-                onPress={() => props.store.setHomeSelectedRoom("all")}
-                class={
-                  selectedRoomName() === "all"
-                    ? "w-full rounded-xl bg-primary px-3 py-2 items-start gap-0.5 active:opacity-75"
-                    : "w-full rounded-xl bg-muted border border-border px-3 py-2 items-start gap-0.5 active:opacity-75"
-                }
-              >
-                <Text
-                  class={
-                    selectedRoomName() === "all"
-                      ? "text-primary-foreground text-sm font-semibold"
-                      : "text-foreground text-sm font-medium"
-                  }
-                >
-                  {t("allRoomsOverview")}
-                </Text>
-                <Text
-                  class={
-                    selectedRoomName() === "all"
-                      ? "text-primary-foreground text-xs opacity-80"
-                      : "text-muted-foreground text-xs"
-                  }
-                >
-                  {t("activeCountSummary", {
-                    active: dashboard().activeAppliances,
-                    total: dashboard().totalAppliances,
-                  })}
-                </Text>
-              </Button>
-
-              <Each of={dashboard().rooms} key={(rm) => rm.id}>
-                {(rm) => (
-                  <Button
-                    testID={`home-room-nav-${rm().name}`}
-                    selected={selectedRoomName() === rm().name}
-                    onPress={() => props.store.setHomeSelectedRoom(rm().name)}
-                    class={
-                      selectedRoomName() === rm().name
-                        ? "w-full rounded-xl bg-primary px-3 py-2 items-start gap-0.5 active:opacity-75"
-                        : "w-full rounded-xl bg-card border border-border px-3 py-2 items-start gap-0.5 active:bg-muted"
-                    }
-                  >
-                    <View class="w-full flex-row items-center justify-between">
-                      <Text
-                        class={
-                          selectedRoomName() === rm().name
-                            ? "text-primary-foreground text-sm font-semibold"
-                            : "text-foreground text-sm font-medium"
-                        }
-                        style={{ numberOfLines: 1 }}
-                      >
-                        {rm().name}
-                      </Text>
-                      <If when={rm().activeCount > 0}>
-                        <View
-                          class={
-                            selectedRoomName() === rm().name
-                              ? "w-2 h-2 rounded-full bg-primary-foreground"
-                              : "w-2 h-2 rounded-full bg-verified"
-                          }
-                        />
-                      </If>
-                    </View>
-                    <Text
-                      class={
-                        selectedRoomName() === rm().name
-                          ? "text-primary-foreground text-xs opacity-80"
-                          : "text-muted-foreground text-xs"
-                      }
-                      style={{ numberOfLines: 1 }}
-                    >
-                      {[
-                        rm().environment.find((e) => e.key === "temperature")?.value,
-                        t("activeCountSummary", {
-                          active: rm().activeCount,
-                          total: rm().totalCount,
-                        }),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </Text>
-                  </Button>
-                )}
-              </Each>
-            </Scroll>
-          </View>
+          </If>
         </If>
 
         {/* Right Scrollable Multi-Size Bento Canvas */}
@@ -3007,7 +3017,18 @@ export function HomeSpaceView(props: {
             }
           }}
         >
-          <Scroll class="flex-1" contentClass="gap-3 pb-4">
+          <Switch
+            testID="home-overview-collapse"
+            accessibilityLabel={t("collapseHomeOverview")}
+            checked={overviewCollapsed()}
+            onChange={(event) => props.store.setHomeOverviewCollapsed(event.checked)}
+            class="self-end min-h-11 px-2 flex-row items-center gap-2 focus:bg-muted rounded-xl"
+            trackClass="w-11 h-6 rounded-full bg-border border border-border p-0.5 justify-center checked:bg-primary checked:border-primary"
+            thumbClass="w-5 h-5 rounded-full bg-card checked:bg-primary-foreground checked:translate-x-5"
+          >
+            <Text class="text-muted-foreground text-xs font-medium">{t("collapseHomeOverview")}</Text>
+          </Switch>
+          <Scroll testID="home-device-grid-scroll" class="flex-1" contentClass="gap-3 pb-4">
             <Each of={visibleRooms()} key={(room) => room.id}>
               {(room) => (
                 <View class="rounded-2xl bg-room-surface border border-border p-3.5 gap-3">

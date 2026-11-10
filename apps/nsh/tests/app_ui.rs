@@ -170,9 +170,9 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     // Enter per-room layout editing mode and test edge-resize + swap controls
     app.press("id:home-room-edit-大厅")?;
     app.wait_for("完成布局")?;
-    app.wait_for("2x2")?;
+    assert!(!app.shows("2x2"));
     app.press("id:home-resize-right-simulation:sim_hall_ac")?;
-    app.wait_for("1x1")?;
+    assert!(!app.shows("1x1"));
     app.press("id:home-card-simulation:sim_hall_camera")?;
     app.press("id:home-card-simulation:sim_hall_ac")?;
     assert!(!app.shows("home-detail-back"));
