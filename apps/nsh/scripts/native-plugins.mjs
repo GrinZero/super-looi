@@ -81,7 +81,7 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
   for (const source of [
     "scripts/native-plugins.mjs", "native/android/merge_apk.py", "native/android/patch_manifest.py",
     "native/android/com/superlooi/nsh/SuperLooiApplication.java",
-    "native/android/com/superlooi/nsh/MiotLoginDialog.java", "native/android/com/superlooi/nsh/LooiBleBridge.java",
+    "native/android/com/superlooi/nsh/MiotLoginDialog.java", "native/android/com/superlooi/nsh/LooiBleBridge.java", "native/android/com/superlooi/nsh/CameraMedia.java",
     "native/linux/sources.lock.json",
     ...readdirSync(join(app,"native/linux/licenses")).map(name=>`native/linux/licenses/${name}`),
   ]) pluginHash.update(readFileSync(join(app,source)));
@@ -167,6 +167,8 @@ export function patchIosApp(target) {
   if (!existsSync(archive)) throw new Error("Prepare iSH rootfs before packaging iOS");
   copyFileSync(archive, join(target, "alpine-fakefs.tar.gz"));
   cpSync(join(app,"native/linux/licenses"),join(target,"ThirdPartyLicenses/LinuxShell"),{recursive:true});
+  cpSync(join(app,"native/licenses/xiaomi-camera"),join(target,"ThirdPartyLicenses/XiaomiCamera"),{recursive:true});
+  run("plutil", ["-replace", "NSLocalNetworkUsageDescription", "-string", config.ios.localNetworkUsageDescription, plist]);
   const orientations = [
     "UIInterfaceOrientationLandscapeLeft",
     "UIInterfaceOrientationLandscapeRight",
@@ -239,6 +241,7 @@ function applyAndroidPlugin(apk, sdk, tools) {
       source,
       join(app, "native/android/com/superlooi/nsh/MiotLoginDialog.java"),
       join(app, "native/android/com/superlooi/nsh/LooiBleBridge.java"),
+      join(app, "native/android/com/superlooi/nsh/CameraMedia.java"),
     ]);
     run(join(tools, "d8"), [
       "--lib",

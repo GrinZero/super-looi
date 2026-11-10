@@ -54,13 +54,16 @@ public final class SuperLooiApplication extends Application {
         if (android.os.Process.is64Bit() && Build.SUPPORTED_ABIS[0].equals("arm64-v8a")) registerShellVm(getApplicationInfo().nativeLibraryDir);
         MiotLoginDialog.registerVm();
         LooiBleBridge.registerVm();
+        CameraMedia.registerVm();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             public void onActivityResumed(Activity value) {
+                CameraMedia.foreground(true);
                 value.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 activity = new WeakReference<>(value);
                 observeDisplayCutout(value);
             }
             public void onActivityPaused(Activity value) {
+                CameraMedia.foreground(false);
                 value.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 stopObservingDisplayCutout();
                 MiotLoginDialog.background(value);
@@ -74,7 +77,7 @@ public final class SuperLooiApplication extends Application {
                 }
             }
             public void onActivityDestroyed(Activity value) { stopObservingDisplayCutout(); MiotLoginDialog.background(value); LooiBleBridge.background(); if (activity.get() == value) activity.clear(); }
-            public void onActivityCreated(Activity value, Bundle state) {}
+            public void onActivityCreated(Activity value, Bundle state) { new Handler(Looper.getMainLooper()).post(() -> CameraMedia.registerComponents(value)); }
             public void onActivityStarted(Activity value) {}
             public void onActivityStopped(Activity value) {}
             public void onActivitySaveInstanceState(Activity value, Bundle state) {}

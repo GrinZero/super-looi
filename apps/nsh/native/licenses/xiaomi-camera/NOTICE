@@ -1,0 +1,39 @@
+Xiaomi Camera Native 0.3.10
+Copyright (c) 2026 Kosztyk
+
+This integration includes Python adaptations of Xiaomi protocol code from
+AlexxIT/go2rtc, Copyright (c) 2022 Alexey Khit, used under the MIT License.
+The complete permission notice is reproduced in LICENSE.
+
+go2rtc reference revision inspected for this implementation:
+c245815e75e2a5fd60b4290f12bfc04e55a984d3
+https://github.com/AlexxIT/go2rtc/commit/c245815e75e2a5fd60b4290f12bfc04e55a984d3
+
+Reference files:
+- internal/xiaomi/xiaomi.go: account/region, device discovery and MISS provisioning
+- pkg/xiaomi/cloud.go: Xiaomi account login and RC4 cloud signing
+- pkg/xiaomi/crypto/crypto.go: NaCl precomputed session key and ChaCha20 framing
+- pkg/xiaomi/miss/client.go: MISS authentication, command and media formats
+- pkg/xiaomi/miss/cs2/conn.go: LAN discovery, TCP framing, DRW sequencing and ACKs
+- pkg/xiaomi/miss/producer.go: video codec identifiers and timestamp interpretation
+
+The media muxer, Home Assistant integration, lifecycle code, diagnostics
+and offline structural tests are supplied as part of this project. go2rtc itself is not bundled
+or executed. No Xiaomi native SDK is bundled.
+
+Cryptographic vector references:
+https://www.rfc-editor.org/rfc/rfc7748
+https://www.rfc-editor.org/rfc/rfc8439
+https://www.rfc-editor.org/rfc/rfc6229
+https://nacl.cr.yp.to/box.html
+
+Pan/tilt protocol reference (operation 1=left, 2=right, 3=up, 4=down):
+https://github.com/AlexxIT/go2rtc/pull/2531
+The encrypted MISS 0x112 motor command and the need to reuse a live camera
+session are documented there, with a physical test on chuangmi.camera.029a02.
+The Python controls and HA button entities are part of this project.
+No ONVIF server or go2rtc runtime is included.
+
+The October 2026 physical Python-implementation PTZ checks are documented
+in docs/PTZ_HARDWARE_VERIFICATION_2026-10-24.md in this repository.
+The upstream go2rtc result remains a protocol reference only.

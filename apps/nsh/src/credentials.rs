@@ -10,7 +10,7 @@ pub struct CredentialVault {
 }
 
 fn validate_key(key: &str) -> Result<(), String> {
-    if matches!(key, "model" | "voice" | "home" | "body" | "probe") {
+    if matches!(key, "model" | "voice" | "home" | "body" | "camera" | "probe") {
         Ok(())
     } else {
         Err("Unsupported credential slot".into())

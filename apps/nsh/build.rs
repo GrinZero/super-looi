@@ -22,6 +22,24 @@ fn main() {
     }
     println!("cargo:rustc-env=LOOI_KWS_MODEL_DIR={}", model.display());
     if target == "ios" {
+        println!("cargo:rerun-if-changed=native/ios/CameraMedia.m");
+        cc::Build::new()
+            .file("native/ios/CameraMedia.m")
+            .flag("-fobjc-arc")
+            .flag("-fblocks")
+            .compile("looi_camera_media");
+        for framework in [
+            "UIKit",
+            "AVFoundation",
+            "VideoToolbox",
+            "CoreMedia",
+            "CoreVideo",
+            "CoreGraphics",
+            "QuartzCore",
+            "ImageIO",
+        ] {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
         let triple = env::var("TARGET").unwrap_or_default();
         let simulator = env::var("CARGO_CFG_TARGET_ABI").unwrap_or_default() == "sim"
             || triple.contains("-sim")

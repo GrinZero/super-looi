@@ -16,5 +16,8 @@
   "iosSimulator": {
     "applicationIdentifier": "SUPERLOOI.com.longbridge.nsh.host",
     "releaseApplicationIdentifier": "SUPERLOOI.com.superlooi.app"
+  },
+  "ios": {
+    "localNetworkUsageDescription": "连接同一网络中的米家摄像头，用于实时预览和按需查看画面。"
   }
 }
