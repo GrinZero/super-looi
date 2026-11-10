@@ -1,5 +1,60 @@
 # Super-LOOI 重构与演进进度
 
+### 实时语音转写重复与文字越界修复（2026-11-11）
+
+- [x] Step 1：核对豆包实际转写事件与会话合并逻辑，复现「说一句话给我听听」重复拼接
+  - [x] 定位用户转写无条件追加与对话行宽度约束缺失
+  - [x] 使用同句合成 PCM 请求豆包 `1.2.6.1`：中间 `delta` 是反复修订的完整句子，完成事件字段为 `text`
+- [x] Step 2：在协议／会话边界修正转写语义，在原布局内约束长文本
+  - [x] 用户转写按整句替换，删除轮次拼接开关；豆包完成事件读取 `text`
+  - [x] 容器／对话行获得明确宽度，正文伸缩并限制两行
+- [x] Step 3：定向回归、类型检查、构建与独立子 agent review，隔离提交协议修复
+  - [x] 协议、遥测和语音运行时定向回归通过；NSH 和 runtime 类型检查、NSH 构建通过
+  - [x] 独立 review 无发现；macOS 原生 844×390 横屏核对长短句、浅／深色，文字未越界
+  - [x] iOS / ADB 设备列表无手机真机；手机横屏验收留在 todo.md
+  - [x] 协议与测试隔离提交 `98fd661`；会话／页面修复叠加在先前未提交的语音调试功能上，保留工作区
+
+### 家居卡片单一事实槽位与状态降级重设计（2026-11-10）
+
+- [x] Step 1：在 `@super-looi/home-devices` 建立按尺寸（Span）与运行态计算的卡片视图模型（`card-presentation.ts`、`device-aggregator.ts`、`types.ts`）
+  - [x] 清理周期家电 `stages` 中的非工序状态（移除 `"待机"`、`"完成"`），修正待机/关闭态 `activeStageIndex = -1` 与 `"待机就绪"` 冗余文案
+  - [x] 实现 `resolveApplianceCardView(appliance, span)` 与 `collectCardVisibleTexts(view)`：收口 Header 副标题、右上角槽位（仅保留可控电源或离线/故障徽章，废除挤压 `1x1` 标题的冗余状态胶囊）与 Body 内容区的单一事实分配
+- [x] Step 2：重构 `HomeSpaceView.tsx` 卡片渲染层，消除“卡中卡”左栏标题复读与同义状态堆叠
+  - [x] 接入 `resolveApplianceCardView`，统一渲染周期家电工序条（每段直显自身工序名，仅在有倒计时/保温分钟数时展示数值）、温控单行步进器（Header 展示模式与室温，Body 仅展示目标温度步进）、扫地机快捷动作与多键开关全宽标题
+  - [x] 同步 `apps/nsh/scripts/build-runtime.ts` 导出与类型声明
+- [x] Step 3：编写单测不变量（Deduplication Invariant Test）、完成构建验证与独立子 agent 审查
+  - [x] 在 `packages/home-devices/test/` 对全量真实家庭快照、直连 MIoT 与演示设备断言单卡状态词不重复、待机不点亮工序条、多键开关无挤压徽章
+  - [x] 运行类型检查、构建、测试套件并经独立子 agent 审查通过后隔离提交
+
+### 豆包页内预置音色选择（2026-11-10）
+
+- [x] Step 1：核对官方全双工音色表、保存／试听接口与 NSH 设计规范
+  - [x] 普通数据表维护名称与 ID；草稿归现有语音页，保存与试听复用 Store
+- [x] Step 2：接入新版右侧音色抽屉，沿用现有舞台、服务卡片和试听布局
+  - [x] 四款主推、八款更多预置、四款经典音色分组展示，已有默认与专属 ID 显示可识别名称
+  - [x] 选择预置后直接试听草稿，再通过「使用此音色」保存；专属 ID 保留输入／粘贴
+- [x] Step 3：类型检查、构建、运行时回归、音色选择行为与独立审查
+  - [x] `typecheck`、`build`、`test:voice-runtime`、`voice_presets` 通过；专项覆盖中文横屏／英文竖屏的预置选择、专属 ID 和取消
+  - [x] 当前豆包凭证与 `1.2.6.1` 模型真实请求四款主推，PCM 分别为 152046、144328、152692、152380 字节
+  - [x] 子 agent 按新版 UI 基线复核通过；`app_ui` 3/4 通过，家居旧英文提示断言失败记入 todo.md
+  - [x] 音色表与文案已隔离提交 `de7a92a`；页面接入与专项测试保留在现有新版语音 UI 工作区
+  - [ ] 连接真机后核对原生选择器布局与实际试听；ADB 与 iOS 设备列表为空
+
+### 实时语音同页对话调试、音色试听与现代化 Key 设置（2026-11-10）
+
+- [x] Step 1：扩展实时语音协议、会话与运行时能力（`realtime-protocol.ts`、`apps/nsh/runtime/voice/`、`store.ts`）
+  - [x] 协议层新增 `encodePreviewSpeech` 单次短句试听帧编码（豆包 `speech_text_buffer.commit`、OpenAI 单轮朗读请求）
+  - [x] `LiveVoiceSession` 接入 `purpose: "conversation" | "preview"`（试听仅开启输出流、不请求麦克风、排空即结束）与用户实时转写 `userTranscript`
+  - [x] `VoiceCredentialStore` 与 `VoiceRuntime` 支持掩码尾号摘要 `keyHint`、清除凭证 `clearCredentials`、草稿音色试听 `preview` 与运行中重连应用 `restartSession`
+- [x] Step 2：重构语音管理页 UI 为左舞台对话调试 + 右侧扁平检视面板（`ManagementShell.tsx`、`VoiceSpaceView.tsx`、`Controls.tsx`、`extra-catalog.ts`）
+  - [x] 顶栏收敛为「实时语音」标题与返回键；左栏还原状态胶囊、15 阶动态声波纹、双行实时对答（「你：…」「LOOI：…」）与底部胶囊控制栏（静音/打断/开始与结束对话）
+  - [x] 右栏「语音服务」升级现代化 Key 管理（钥匙串掩码尾号展示、剪贴板一键粘贴、明文显示/隐藏切换、更换与移除凭证、运行中保存联动）
+  - [x] 右栏「音色」与「唤醒」支持默认/预置/专属音色切换、未保存草稿一键试听（「试听」/「结束并试听」/「停止试听」）与会话中「应用并重连」
+- [x] Step 3：自动化回归测试、Mac 原生预览验证与独立子 agent 审查
+  - [x] 扩充 `voice-runtime-cases.ts` 与 `app_ui.rs` / `native_compat.rs` / `voice_presets.rs` 覆盖试听、用户转写、Key 管理与同页调试
+  - [x] 运行类型检查、构建、测试套件并生成明暗/横竖屏实机渲染截图
+  - [x] 子 agent 独立 review（修复试听结束后 `transcript` 恢复、`fail()` 并发回 `standby` 错误保留与紧凑按钮 `hitSlop` 触控热区）、更新 `DESIGN.md` / `todo.md` 并完成提交
+
 ### 图二语音配置与同页调试规划（2026-11-10）
 
 - [x] Step 1：核对图二方向、现有页面与 VoiceRuntime 的配置／会话边界
@@ -1876,6 +1931,7 @@
 - [x] Step 4：记录验收结果并隔离提交本轮修改。
   - [x] 实现提交 `e1a028c`；原有未提交修改保留在工作区。
   - [x] Android/iPhone 均未连接，真机视觉与拖动手感验收记录到 `todo.md`。
+
 
 ## 米家视频真实登录接线修复（2026-11-11）
 

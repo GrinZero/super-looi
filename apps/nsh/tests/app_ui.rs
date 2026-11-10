@@ -69,8 +69,9 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     }
 
     app.press("nav-voice")?;
-    app.wait_for("服务配置")?;
-    app.wait_for("豆包 · 端到端实时语音")?;
+    app.wait_for("语音服务")?;
+    app.wait_for("音色")?;
+    app.wait_for("试听后留在当前页")?;
     for hidden in [
         "当前状态",
         "待机监听唤醒词（本地离线 KWS）",
@@ -232,7 +233,7 @@ fn language_and_appearance_preferences_survive_reopening() -> Result<(), String>
     restored.press("跟随系统")?;
     restored.wait_for("General settings")?;
     restored.press("nav-voice")?;
-    restored.wait_for("Service configuration")?;
+    restored.wait_for("Voice service")?;
     restored.press("nav-body")?;
     restored.wait_for("Directional Wheel")?;
     restored.wait_for("Speed 0 · Turn 0")?;

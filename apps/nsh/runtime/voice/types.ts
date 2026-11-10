@@ -53,6 +53,9 @@ export interface VoiceState {
   muted: boolean;
   wakeEnabled: boolean;
   transcript: string;
+  userTranscript?: string;
+  purpose?: "conversation" | "preview";
+  activeVoiceId?: string;
   error: string;
 }
 

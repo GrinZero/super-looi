@@ -40,9 +40,10 @@ export interface RealtimeProtocolAdapter {
   readonly inputSampleRate: 16000 | 24000;
   readonly outputSampleRate: 24000;
   connectTarget(apiKey: string): { url: string; headers: Record<string, string> };
-  createHandshakeMessages(tools: VoiceToolSchema[], options?: { voiceId?: string; instructions?: string }): Record<string, unknown>[];
+  createHandshakeMessages(tools: VoiceToolSchema[], options?: { voiceId?: string; instructions?: string; purpose?: "conversation" | "preview" }): Record<string, unknown>[];
   encodeInstructionsUpdate(instructions: string): Record<string, unknown>;
   encodeProactiveSpeech(speech: RealtimeProactiveSpeech): Record<string, unknown>[];
+  encodePreviewSpeech?(sampleText: string): Record<string, unknown>[];
   encodeAudioAppend(pcm16k: Uint8Array): Record<string, unknown>;
   encodeMute(muted: boolean): Record<string, unknown> | null;
   encodeToolReply(callId: string, output: unknown): Record<string, unknown>[];
@@ -96,6 +97,10 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
         frames.push({ type: "speech_text_buffer.commit", text: clean });
       }
       return frames;
+    },
+    encodePreviewSpeech: (sampleText) => {
+      const clean = sampleText.trim();
+      return clean ? [{ type: "speech_text_buffer.commit", text: clean }] : [];
     },
     encodeAudioAppend: (pcm) => ({ type: "input_audio_buffer.append", audio: Buffer.from(pcm).toString("base64") }),
     encodeMute: (muted) => ({ type: muted ? "input_audio_mute.commit" : "input_audio_unmute.commit" }),
@@ -160,8 +165,8 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
       type: "session.update", session: {
         type: "realtime", output_modalities: ["audio"], instructions: sessionOptions?.instructions ?? options.instructions ?? "",
         tools, audio: {
-          input: { format: { type: "audio/pcm", rate: 24000 }, transcription: { model: "gpt-4o-mini-transcribe" }, turn_detection: { type: "server_vad" } },
-          output: { format: { type: "audio/pcm", rate: 24000 }, voice: "marin" },
+          input: { format: { type: "audio/pcm", rate: 24000 }, transcription: { model: "gpt-4o-mini-transcribe" }, turn_detection: sessionOptions?.purpose === "preview" ? null : { type: "server_vad" } },
+          output: { format: { type: "audio/pcm", rate: 24000 }, voice: sessionOptions?.voiceId || "marin" },
         },
       },
     }],
@@ -191,6 +196,26 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
         );
       }
       return frames;
+    },
+    encodePreviewSpeech: (sampleText) => {
+      const clean = sampleText.trim();
+      if (!clean) return [];
+      return [
+        {
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Please read the following sample line verbatim without extra commentary: ${clean}`,
+              },
+            ],
+          },
+        },
+        { type: "response.create" },
+      ];
     },
     encodeAudioAppend: (pcm) => ({ type: "input_audio_buffer.append", audio: Buffer.from(resamplePcm16To24k(pcm)).toString("base64") }),
     encodeMute: (muted) => muted ? { type: "input_audio_buffer.clear" } : null,

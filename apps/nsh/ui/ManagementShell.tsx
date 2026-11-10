@@ -5,7 +5,7 @@ import type { LlmBrandId } from "../generated/looi-runtime.js";
 import type { createAppStore, AppSpace } from "../store";
 import { IconButton, LightToast } from "./Controls";
 import { ModelsSpaceView } from "./ModelsSpaceView";
-import { VoiceSpaceView } from "./VoiceSpaceView";
+import { VoiceServiceBar, VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
 import { BodySpaceView } from "./BodySpaceView";
 import { TasksSpaceView } from "./TasksSpaceView";
@@ -67,7 +67,7 @@ export function ManagementShell(props: {
         onPress={() => props.store.openSpace(space)}
         class={
           isSelected()
-            ? `${widthClass} rounded-xl bg-card border border-border items-center justify-center active:opacity-75`
+            ? `${widthClass} rounded-xl bg-primary items-center justify-center active:opacity-75`
             : `${widthClass} rounded-xl items-center justify-center active:opacity-75`
         }
       >
@@ -75,7 +75,7 @@ export function ManagementShell(props: {
           <Text
             class={
               isSelected()
-                ? "text-foreground text-xs font-bold text-center"
+                ? "text-primary-foreground text-xs font-bold text-center"
                 : "text-muted-foreground text-xs font-medium text-center"
             }
             style={{ numberOfLines: 1 }}
@@ -162,23 +162,7 @@ export function ManagementShell(props: {
       </If>
 
       <If when={props.store.activeSpace() === "voice"}>
-        <View class="flex-row items-center gap-2 flex-1 min-w-0 h-11">
-          <Text class="text-foreground text-xs font-semibold">{t("liveVoice")}</Text>
-          <View class="px-2.5 py-1 rounded-full border border-border bg-muted flex-row items-center gap-1.5">
-            <View
-              class={
-                props.store.voiceConfigured()
-                  ? "w-1.5 h-1.5 rounded-full bg-verified"
-                  : "w-1.5 h-1.5 rounded-full bg-border"
-              }
-            />
-            <Text class="text-muted-foreground text-xs">
-              {props.store.voiceConfigured()
-                ? t("providerReady", { provider: props.store.voiceProviderLabel() })
-                : t("voiceCredentialsNotConfigured")}
-            </Text>
-          </View>
-        </View>
+        <VoiceServiceBar store={props.store} />
       </If>
 
       <If when={props.store.activeSpace() === "home"}>
@@ -235,24 +219,24 @@ export function ManagementShell(props: {
                 {t("serviceBinding")}
               </Text>
             </Button>
-
-            <If
-              when={
-                props.store.homeSubView() === "services" &&
-                props.store.homeConfiguration().mode !== "disabled"
-              }
-            >
-              <Button
-                testID="home-disable"
-                onPress={() =>
-                  void props.store.configureHome({ mode: "disabled" })
-                }
-                class="min-h-11 px-2.5 items-center justify-center active:opacity-75"
-              >
-                <Text class="text-muted-foreground text-xs">{t("disableHome95")}</Text>
-              </Button>
-            </If>
           </Scroll>
+
+          <If
+            when={
+              props.store.homeSubView() === "services" &&
+              props.store.homeConfiguration().mode !== "disabled"
+            }
+          >
+            <Button
+              testID="home-disable"
+              onPress={() =>
+                void props.store.configureHome({ mode: "disabled" })
+              }
+              class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center shrink-0 active:opacity-75"
+            >
+              <Text class="text-muted-foreground text-xs font-medium">{t("disableHome95")}</Text>
+            </Button>
+          </If>
 
           <If
             when={
@@ -531,8 +515,16 @@ export function ManagementShell(props: {
 
           {/* Bottom Workspace Body */}
           <View
-            class="flex-1 p-3.5 min-h-0 relative"
-            style={{ paddingRight: rightInset() + 14, paddingBottom: insets().bottom + 14 }}
+            class={
+              props.store.activeSpace() === "voice"
+                ? "flex-1 min-h-0 relative bg-card"
+                : "flex-1 p-3.5 min-h-0 relative"
+            }
+            style={
+              props.store.activeSpace() === "voice"
+                ? { paddingRight: rightInset(), paddingBottom: insets().bottom }
+                : { paddingRight: rightInset() + 14, paddingBottom: insets().bottom + 14 }
+            }
           >
             {renderActiveWorkspace()}
             <If when={props.store.toast()}>

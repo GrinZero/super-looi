@@ -31,6 +31,8 @@ export class VoiceRuntime {
   private cueStopTimer?: ReturnType<typeof setTimeout>;
   private standbyGeneration = 0;
   private standbyPreparing?: number;
+  private suppressAutoStandbyPrompt = false;
+  private prePreviewTranscript?: string;
   private closed = false;
 
   constructor(private readonly options: VoiceRuntimeOptions) {
@@ -74,10 +76,18 @@ export class VoiceRuntime {
 
   configure(value: string): void {
     if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
+    this.suppressAutoStandbyPrompt = false;
     const next = this.credentials.setApiKey(this.protocol.providerId, value);
     this.stop();
     this.options.tracer?.registerSecret(next);
     if (this.state.wakeEnabled) void this.enterStandby();
+  }
+
+  clearCredentials(): void {
+    if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
+    this.suppressAutoStandbyPrompt = false;
+    this.credentials.clearApiKey(this.protocol.providerId);
+    this.stop();
   }
 
   configureVoiceId(value: string): void {
@@ -87,6 +97,7 @@ export class VoiceRuntime {
 
   setWakeEnabled(enabled: boolean, options: { autoStandby?: boolean } = {}): void {
     if (this.closed) return;
+    if (enabled) this.suppressAutoStandbyPrompt = false;
     this.publish({ wakeEnabled: enabled });
     this.credentials.setWakeEnabled(enabled);
     if (
@@ -128,7 +139,7 @@ export class VoiceRuntime {
     this.session?.updateContextNote(this.latestContextNote, syncActiveSession);
   }
 
-  async enterStandby(): Promise<void> {
+  async enterStandby(options: { preserveError?: string } = {}): Promise<void> {
     if (
       this.closed ||
       !this.credentials.resolveApiKey(this.protocol.providerId) ||
@@ -140,6 +151,9 @@ export class VoiceRuntime {
 
     const permission = this.options.audio.status().permission;
     if (permission !== "granted") {
+      if (this.suppressAutoStandbyPrompt) {
+        return;
+      }
       const result =
         ["undetermined", "cancelled"].includes(permission) &&
         this.state.phase !== "permission"
@@ -183,7 +197,13 @@ export class VoiceRuntime {
         throw new Error("");
       }
       this.clearStandbyTimer();
-      this.publish({ phase: "standby", muted: false, error: "" });
+      this.publish({
+        phase: "standby",
+        muted: false,
+        purpose: undefined,
+        activeVoiceId: undefined,
+        error: options.preserveError ?? "",
+      });
       this.pollStandby(generation);
     } catch {
       if (!this.isStandbyGeneration(generation)) return;
@@ -196,6 +216,8 @@ export class VoiceRuntime {
 
   async start(options: { fromWakeWord?: boolean } = {}): Promise<void> {
     if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
+    this.suppressAutoStandbyPrompt = false;
+    this.prePreviewTranscript = undefined;
     if (!["idle", "standby", "error", "permission"].includes(this.state.phase)) {
       return;
     }
@@ -225,6 +247,7 @@ export class VoiceRuntime {
     const session = new LiveVoiceSession({
       apiKey,
       voiceId: selectedVoiceId,
+      purpose: "conversation",
       initialLanguage,
       initialContextNote: this.latestContextNote,
       fromWakeWord: options.fromWakeWord === true,
@@ -248,6 +271,64 @@ export class VoiceRuntime {
     });
     this.session = session;
     await session.open();
+  }
+
+  async preview(options: { voiceId?: string; sampleText?: string } = {}): Promise<void> {
+    if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
+    const apiKey = this.credentials.resolveApiKey(this.protocol.providerId);
+    if (!apiKey) throw new Error("@looi:configureVoiceKey");
+
+    let targetVoiceId = this.credentials.voiceId;
+    if (options.voiceId !== undefined) {
+      const candidate = options.voiceId.trim();
+      if (candidate && !/^[A-Za-z0-9_-]{1,256}$/.test(candidate)) {
+        throw new Error("@looi:runtimeEnterAValidDoubaoSpeakerId");
+      }
+      targetVoiceId = candidate;
+    }
+
+    this.suppressAutoStandbyPrompt = true;
+    const savedTranscript =
+      this.prePreviewTranscript !== undefined
+        ? this.prePreviewTranscript
+        : this.state.transcript;
+    const initialLanguage = this.options.defaultLanguage?.() ?? "zh-CN";
+    ++this.standbyGeneration;
+    this.clearStandbyTimer();
+    this.clearCueStopTimer();
+    this.stop();
+    this.prePreviewTranscript = savedTranscript;
+
+    const session = new LiveVoiceSession({
+      apiKey,
+      voiceId: targetVoiceId,
+      purpose: "preview",
+      previewText: options.sampleText,
+      initialLanguage,
+      fromWakeWord: false,
+      protocol: this.protocol,
+      audio: this.options.audio,
+      connect: this.options.connect,
+      tracer: this.options.tracer,
+      onStatePatch: (patch) => {
+        if (this.session === session) this.publish(patch);
+      },
+      onAudioLevel: this.options.onAudioLevel,
+      onSessionComplete: () => {
+        if (this.session === session) this.endSession();
+      },
+      onSessionError: (message) => {
+        if (this.session === session) this.fail(message);
+      },
+    });
+    this.session = session;
+    await session.open();
+  }
+
+  async restartSession(): Promise<void> {
+    if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
+    this.stop();
+    await this.start();
   }
 
   mute(value: boolean): void {
@@ -331,11 +412,17 @@ export class VoiceRuntime {
     }
   }
 
-  endSession(): void {
+  endSession(preserveError = ""): void {
     ++this.standbyGeneration;
     this.clearStandbyTimer();
     this.clearCueStopTimer();
     const active = this.session;
+    const wasPreview = active?.sessionPurpose === "preview";
+    const restoredTranscript =
+      wasPreview && this.prePreviewTranscript !== undefined
+        ? this.prePreviewTranscript
+        : undefined;
+    this.prePreviewTranscript = undefined;
     this.session = undefined;
     if (active) {
       active.dispose("graceful");
@@ -343,11 +430,25 @@ export class VoiceRuntime {
       this.options.audio.clearPlayback();
       this.options.onAudioLevel?.(0);
     }
+    if (wasPreview) {
+      this.options.audio.stop();
+      this.options.onAudioLevel?.(0);
+    }
     (this.options.onSessionEnd ?? this.options.cancelTask)?.();
-    if (this.state.wakeEnabled && !this.closed) {
-      void this.enterStandby();
+    const canResumeWake =
+      this.state.wakeEnabled &&
+      !this.closed &&
+      (!wasPreview || this.options.audio.status().permission === "granted");
+    if (canResumeWake) {
+      this.publish({
+        purpose: undefined,
+        activeVoiceId: undefined,
+        ...(restoredTranscript !== undefined ? { transcript: restoredTranscript } : {}),
+        ...(preserveError ? { error: preserveError } : {}),
+      });
+      void this.enterStandby({ preserveError });
     } else {
-      this.stop();
+      this.stop(restoredTranscript);
     }
   }
 
@@ -358,18 +459,32 @@ export class VoiceRuntime {
     }
   }
 
-  stop(): void {
+  stop(restoredTranscriptOverride?: string): void {
     ++this.standbyGeneration;
     this.standbyPreparing = undefined;
     this.clearStandbyTimer();
     this.clearCueStopTimer();
     const active = this.session;
+    const restoredTranscript =
+      restoredTranscriptOverride !== undefined
+        ? restoredTranscriptOverride
+        : active?.sessionPurpose === "preview" && this.prePreviewTranscript !== undefined
+          ? this.prePreviewTranscript
+          : undefined;
+    this.prePreviewTranscript = undefined;
     this.session = undefined;
     active?.dispose("immediate");
     this.options.audio.stop();
     this.options.onAudioLevel?.(0);
     (this.options.onSessionEnd ?? this.options.cancelTask)?.();
-    this.publish({ phase: "idle", muted: false, error: "" });
+    this.publish({
+      phase: "idle",
+      muted: false,
+      purpose: undefined,
+      activeVoiceId: undefined,
+      ...(restoredTranscript !== undefined ? { transcript: restoredTranscript } : {}),
+      error: "",
+    });
   }
 
   close(): void {
@@ -400,7 +515,7 @@ export class VoiceRuntime {
       this.state.phase !== "standby" &&
       this.options.audio.status().state === "running"
     ) {
-      this.endSession();
+      this.endSession(message);
       this.publish({ error: message });
       return;
     }

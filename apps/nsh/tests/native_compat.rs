@@ -49,7 +49,7 @@ fn real_app_task_and_home_panels() -> Result<(), String> {
     app.press("connection-settings")?;
     app.wait_for_within("OpenAI / ChatGPT", Duration::from_secs(5))?;
     app.press("nav-voice")?;
-    app.wait_for_within("Doubao live voice credentials", Duration::from_secs(5))?;
+    app.wait_for_within("Voice service", Duration::from_secs(5))?;
     app.press("nav-settings")?;
     app.wait_for_within("Task approval mode", Duration::from_secs(5))?;
     app.press("task-approval-yolo")?;

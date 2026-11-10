@@ -339,6 +339,7 @@ export function createAppStore() {
   });
   const voiceAudioLevel = signal(0);
   const voiceConfigured = signal(false);
+  const voiceKeyHint = signal("");
   const voiceProviderId = signal("doubao");
   const voiceId = signal("");
   let voice: VoiceRuntime | undefined;
@@ -790,6 +791,9 @@ export function createAppStore() {
       else voice.stopIdleCue();
     } else if (activeSpace() !== "face" && activeSpace() !== "voice") {
       voice.stopStandby();
+      if (voiceState().phase !== "idle") voice.stop();
+    } else if (activeSpace() === "face" && voiceState().purpose === "preview") {
+      voice.endSession();
     } else if (voiceState().wakeEnabled && voiceState().phase === "idle") {
       void voice.enterStandby();
     }
@@ -1030,9 +1034,11 @@ export function createAppStore() {
       if (wakePreferenceTouched) {
         voice.setWakeEnabled(voiceState().wakeEnabled, { autoStandby: false });
       }
-      voiceConfigured.set(voice.configuration().hasKey);
-      voiceProviderId.set(voice.configuration().providerId);
-      voiceId.set(voice.configuration().voiceId);
+      const voiceCfg = voice.configuration();
+      voiceConfigured.set(voiceCfg.hasKey);
+      voiceKeyHint.set(voiceCfg.keyHint ?? "");
+      voiceProviderId.set(voiceCfg.providerId);
+      voiceId.set(voiceCfg.voiceId);
       voiceState.set(voice.snapshot());
       configuration.set(opened.configuration());
       llmSnapshot.set(opened.llmSnapshot());
@@ -1190,7 +1196,9 @@ export function createAppStore() {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
       const snap = await runtime.saveProviderApiKey(input, action());
       llmSnapshot.set(snap);
-      voiceConfigured.set(voice?.refreshCredentials(canAutoStandby()).hasKey ?? false);
+      const refreshedVoice = voice?.refreshCredentials(canAutoStandby());
+      voiceConfigured.set(refreshedVoice?.hasKey ?? false);
+      voiceKeyHint.set(refreshedVoice?.keyHint ?? "");
       if (input.providerId !== "custom") {
         await api.refreshProviderModels(input.providerId);
       }
@@ -1224,7 +1232,9 @@ export function createAppStore() {
           action(),
         );
         llmSnapshot.set(snap);
-        voiceConfigured.set(voice?.refreshCredentials(canAutoStandby()).hasKey ?? false);
+        const refreshedVoice = voice?.refreshCredentials(canAutoStandby());
+      voiceConfigured.set(refreshedVoice?.hasKey ?? false);
+      voiceKeyHint.set(refreshedVoice?.keyHint ?? "");
         configuration.set(runtime.configuration());
         notify("@looi:runtimeProviderCredentialsRemoved");
       } catch (error) {
@@ -1363,6 +1373,7 @@ export function createAppStore() {
     voiceState: () => ({ ...voiceState(), error: translateMessage(voiceState().error) }),
     voiceAudioLevel: () => voiceAudioLevel(),
     voiceConfigured: () => voiceConfigured(),
+    voiceKeyHint: () => voiceKeyHint(),
     voiceId: () => voiceId(),
     voiceProviderId: () => voiceProviderId(),
     voiceProviderLabel: () => translateMessage(voice?.configuration().providerLabel ?? "@looi:runtimeDoubao"),
@@ -1370,6 +1381,21 @@ export function createAppStore() {
       api.dismissWakeGuide();
       try {
         await voice?.start();
+      } catch (error) {
+        fail(error);
+      }
+    },
+    async previewVoice(voiceIdDraft?: string) {
+      try {
+        await voice?.preview({ voiceId: voiceIdDraft });
+      } catch (error) {
+        fail(error);
+      }
+    },
+    async restartVoiceSession() {
+      api.dismissWakeGuide();
+      try {
+        await voice?.restartSession();
       } catch (error) {
         fail(error);
       }
@@ -1401,7 +1427,16 @@ export function createAppStore() {
     configureVoice(key: string) {
       if (!voice) throw new Error("@looi:runtimeVoiceIsNotReady");
       voice.configure(key);
-      voiceConfigured.set(voice.configuration().hasKey);
+      const nextCfg = voice.configuration();
+      voiceConfigured.set(nextCfg.hasKey);
+      voiceKeyHint.set(nextCfg.keyHint ?? "");
+    },
+    clearVoiceCredentials() {
+      if (!voice) throw new Error("@looi:runtimeVoiceIsNotReady");
+      voice.clearCredentials();
+      const nextCfg = voice.configuration();
+      voiceConfigured.set(nextCfg.hasKey);
+      voiceKeyHint.set(nextCfg.keyHint ?? "");
     },
     configureVoiceId(id: string) {
       if (!voice) throw new Error("@looi:runtimeVoiceIsNotReady");

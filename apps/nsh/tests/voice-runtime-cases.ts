@@ -185,7 +185,31 @@ export async function verifyVoiceRuntime() {
   await settle();
   check(languageUpdates().length === 2 && languageUpdates()[1].session.instructions.includes("current conversation language is English"), "English reply with quoted Chinese did not restore English");
   event({ type: "input_audio_buffer.speech_started" });
+  event({ type: "conversation.item.input_audio_transcription.delta", delta: "今天有什么" });
+  event({ type: "conversation.item.input_audio_transcription.completed", text: "今天有什么安排？" });
   await settle();
+  check(
+    voice.snapshot().userTranscript === "今天有什么安排？",
+    "user ASR transcript was not exposed in voice state",
+  );
+  event({ type: "conversation.item.input_audio_transcription.started", item_id: "speech-2" });
+  for (const text of ["说", "说", "说一句话", "说一句话给", "说一句话给我", "说一句话给我听听", "说一句话给我听听"]) {
+    event({ type: "conversation.item.input_audio_transcription.delta", item_id: "speech-2", delta: text });
+    await settle();
+    check(voice.snapshot().userTranscript === text, "Doubao full ASR hypothesis was appended instead of replaced");
+  }
+  event({ type: "conversation.item.input_audio_transcription.completed", item_id: "speech-2", text: "说一句话给我听听。" });
+  await settle();
+  check(voice.snapshot().userTranscript === "说一句话给我听听。", "Doubao final text did not replace the partial hypothesis");
+  event({ type: "conversation.item.input_audio_transcription.started", item_id: "speech-3" });
+  for (const text of ["在", "再", "再说", "再说再说"]) {
+    event({ type: "conversation.item.input_audio_transcription.delta", item_id: "speech-3", delta: text });
+    await settle();
+    check(voice.snapshot().userTranscript === text, "ASR revision or intentional repetition was lost across turns");
+  }
+  event({ type: "conversation.item.input_audio_transcription.completed", item_id: "speech-3", text: "再说再说。" });
+  await settle();
+  check(voice.snapshot().userTranscript === "再说再说。", "next ASR turn retained the previous utterance");
   check(
     !writes.some((item) => item.type === "response.cancel"),
     "normal user speech cancelled an idle response",
@@ -398,4 +422,96 @@ export async function verifyVoiceRuntime() {
     );
     reconnect.close();
   }
+
+  // Preview mode: no microphone permission request, empty tools, commits sample text,
+  // never appends input audio, and ends cleanly when playback drains without prompting permission.
+  const previewWrites: Record<string, any>[] = [];
+  let previewReader: ((value: string | null) => void) | undefined;
+  const previewIncoming: string[] = [];
+  let previewClosed = false;
+  const previewEvent = (value: unknown) => {
+    const raw = JSON.stringify(value);
+    if (previewReader) {
+      const resolve = previewReader;
+      previewReader = undefined;
+      resolve(raw);
+    } else previewIncoming.push(raw);
+  };
+  permission = "undetermined";
+  const requestsBeforePreview = requests;
+  const previewRuntime = new VoiceRuntime({
+    vault,
+    audio,
+    onState: () => {},
+    connect: async () => ({
+      read: () =>
+        previewIncoming.length
+          ? Promise.resolve(previewIncoming.shift()!)
+          : previewClosed
+            ? Promise.resolve(null)
+            : new Promise((resolve) => {
+                previewReader = resolve;
+              }),
+      write: async (raw) => {
+        previewWrites.push(JSON.parse(raw));
+      },
+      close: async () => {
+        previewClosed = true;
+        previewReader?.(null);
+        previewReader = undefined;
+      },
+    }),
+  });
+  previewRuntime.setWakeEnabled(true, { autoStandby: false });
+  await previewRuntime.preview({
+    voiceId: "S_PreviewDraft",
+    sampleText: "你好，我是 LOOI。",
+  });
+  check(
+    requests === requestsBeforePreview,
+    "preview requested microphone permission",
+  );
+  check(
+    previewWrites[0]?.type === "session.create" &&
+      previewWrites[0]?.session?.audio?.output?.voice === "S_PreviewDraft" &&
+      Array.isArray(previewWrites[0]?.session?.tools) &&
+      previewWrites[0]?.session?.tools.length === 0,
+    "preview handshake did not use draft voiceId or empty tools",
+  );
+  previewEvent({ type: "session.created" });
+  await settle();
+  check(
+    previewRuntime.snapshot().purpose === "preview" &&
+      previewRuntime.snapshot().phase === "speaking" &&
+      previewWrites.some(
+        (item) =>
+          item.type === "speech_text_buffer.commit" &&
+          item.text === "你好，我是 LOOI。",
+      ) &&
+      !previewWrites.some((item) => item.type === "input_audio_buffer.append"),
+    "preview session did not commit sample text or sent microphone capture",
+  );
+  previewEvent({ type: "response.output_audio.delta", delta: "AAAAAA==" });
+  previewEvent({ type: "response.output_audio.done" });
+  await settle();
+  audio.clearPlayback();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  check(
+    previewRuntime.snapshot().phase === "idle" &&
+      previewRuntime.snapshot().purpose === undefined &&
+      previewRuntime.snapshot().transcript === "" &&
+      requests === requestsBeforePreview,
+    "preview completion did not return to idle, left preview transcript behind, or prompted for microphone permission",
+  );
+  check(
+    previewRuntime.configuration().keyHint === "••••••••OICE",
+    "voice configuration did not expose masked tail keyHint",
+  );
+  previewRuntime.clearCredentials();
+  check(
+    !previewRuntime.configuration().hasKey &&
+      !previewRuntime.configuration().keyHint,
+    "clearCredentials did not remove voice key",
+  );
+  previewRuntime.close();
 }

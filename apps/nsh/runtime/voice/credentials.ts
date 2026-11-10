@@ -2,6 +2,7 @@ import type { Vault } from "../application.js";
 
 export interface VoiceConfigurationSnapshot {
   hasKey: boolean;
+  keyHint?: string;
   providerId: string;
   providerLabel: string;
   voiceId: string;
@@ -70,12 +71,20 @@ export class VoiceCredentialStore {
         : providerId === "openai"
           ? "OpenAI"
           : providerId;
+    const key = this.resolveApiKey(providerId);
+    const tail = key.length >= 4 ? key.slice(-4) : "";
     return {
-      hasKey: Boolean(this.resolveApiKey(providerId)),
+      hasKey: Boolean(key),
+      ...(tail ? { keyHint: `••••••••${tail}` } : {}),
       providerId,
       providerLabel,
       voiceId: providerId === "doubao" ? this.selectedVoiceId : "",
     };
+  }
+
+  clearApiKey(providerId: string): void {
+    delete this.apiKeys[providerId];
+    this.save();
   }
 
   setApiKey(providerId: string, rawValue: unknown): string {

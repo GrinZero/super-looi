@@ -32,6 +32,8 @@ const MAX_INBOUND_CHARS = 1_000_000;
 export interface LiveVoiceSessionOptions {
   apiKey: string;
   voiceId: string;
+  purpose?: "conversation" | "preview";
+  previewText?: string;
   initialLanguage: ConversationLanguage;
   initialContextNote?: string;
   fromWakeWord: boolean;
@@ -52,7 +54,18 @@ export interface LiveVoiceSessionOptions {
     },
   ) => Promise<unknown>;
   onStatePatch: (
-    patch: Partial<Pick<VoiceState, "phase" | "muted" | "transcript" | "error">>,
+    patch: Partial<
+      Pick<
+        VoiceState,
+        | "phase"
+        | "muted"
+        | "transcript"
+        | "userTranscript"
+        | "purpose"
+        | "activeVoiceId"
+        | "error"
+      >
+    >,
   ) => void;
   onAudioLevel?: (level: number) => void;
   onSessionComplete: () => void;
@@ -77,6 +90,8 @@ export class LiveVoiceSession {
   private transcript = "";
   private transcriptTurnOpen = false;
   private transcriptResponseId = "";
+  private userTranscript = "";
+  private readonly purpose: "conversation" | "preview";
   private turnActivity: "waiting_user" | "user_speaking" | "awaiting_reply" = "waiting_user";
   private silenceSince = 0;
 
@@ -102,6 +117,7 @@ export class LiveVoiceSession {
   private disposed = false;
 
   constructor(private readonly options: LiveVoiceSessionOptions) {
+    this.purpose = options.purpose ?? "conversation";
     this.conversationLanguage = options.initialLanguage;
     this.contextNote = (options.initialContextNote ?? "").trim();
     this.tools = createVoiceTools(
@@ -128,6 +144,10 @@ export class LiveVoiceSession {
 
   get isDisposed(): boolean {
     return this.disposed;
+  }
+
+  get sessionPurpose(): "conversation" | "preview" {
+    return this.purpose;
   }
 
   enqueueNotice(notice: VoiceProactiveNotice): void {
@@ -163,7 +183,14 @@ export class LiveVoiceSession {
     if (this.disposed) return;
     const connectStartedAt = Date.now();
     this.options.tracer?.registerSecret(this.options.apiKey);
-    this.publish({ phase: "connecting", error: "", transcript: "" });
+    this.publish({
+      phase: "connecting",
+      error: "",
+      transcript: "",
+      ...(this.purpose === "conversation" ? { userTranscript: "" } : {}),
+      purpose: this.purpose,
+      activeVoiceId: this.options.voiceId,
+    });
     this.deadlineTimer = setTimeout(() => {
       this.fail("@looi:runtimeVoiceConnectionTimedOutTryAgain");
     }, CONNECT_DEADLINE_MS);
@@ -186,10 +213,11 @@ export class LiveVoiceSession {
         : rawSocket;
       this.socket = socket;
       const handshakeMessages = this.options.protocol.createHandshakeMessages(
-        this.tools.schemas,
+        this.purpose === "preview" ? [] : this.tools.schemas,
         {
           voiceId: this.options.voiceId,
           instructions: this.renderInstructions(),
+          purpose: this.purpose,
         },
       );
       for (const message of handshakeMessages) {
@@ -415,7 +443,18 @@ export class LiveVoiceSession {
   }
 
   private publish(
-    patch: Partial<Pick<VoiceState, "phase" | "muted" | "transcript" | "error">>,
+    patch: Partial<
+      Pick<
+        VoiceState,
+        | "phase"
+        | "muted"
+        | "transcript"
+        | "userTranscript"
+        | "purpose"
+        | "activeVoiceId"
+        | "error"
+      >
+    >,
   ): void {
     if (this.disposed) return;
     this.options.onStatePatch(patch);
@@ -520,13 +559,49 @@ export class LiveVoiceSession {
           if (this.phase !== "connecting") continue;
           if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
           this.deadlineTimer = undefined;
+          if (this.purpose === "preview") {
+            if (this.options.audio.status().state !== "running") {
+              this.options.audio.start(false);
+            }
+            const sample =
+              (this.options.previewText ?? "").trim() ||
+              (this.conversationLanguage === "en-US"
+                ? "Hi, I am LOOI. Let's start chatting."
+                : "你好，我是 LOOI。我们可以开始聊天了。");
+            const previewFrames = this.options.protocol.encodePreviewSpeech
+              ? this.options.protocol.encodePreviewSpeech(sample)
+              : this.options.protocol.encodeProactiveSpeech({ spokenText: sample });
+            this.phase = "speaking";
+            this.muted = true;
+            this.responseInProgress = true;
+            this.serverResponseDone = false;
+            this.outputStreamDone = false;
+            this.transcript = sample;
+            this.publish({
+              phase: "speaking",
+              muted: false,
+              transcript: sample,
+              purpose: "preview",
+              activeVoiceId: this.options.voiceId,
+            });
+            for (const frame of previewFrames) {
+              await this.send(frame);
+            }
+            this.tick();
+            continue;
+          }
           this.options.audio.setCaptureMode("conversation");
           this.options.audio.playReadyCue();
           this.turnActivity = "waiting_user";
           this.silenceSince = Date.now();
           this.phase = "listening";
           this.muted = false;
-          this.publish({ phase: "listening", muted: false });
+          this.publish({
+            phase: "listening",
+            muted: false,
+            purpose: "conversation",
+            activeVoiceId: this.options.voiceId,
+          });
           if (!this.flushNoticeIfIdle()) {
             this.startIdleTimer();
           }
@@ -595,7 +670,14 @@ export class LiveVoiceSession {
           ) {
             this.interrupt("server_vad");
           }
+        } else if (normalized.kind === "user_transcription_update") {
+          this.userTranscript = normalized.text.slice(-1024);
+          this.publish({ userTranscript: this.userTranscript });
         } else if (normalized.kind === "user_speech_stopped") {
+          if (normalized.transcript && normalized.transcript.trim()) {
+            this.userTranscript = normalized.transcript.trim().slice(-1024);
+            this.publish({ userTranscript: this.userTranscript });
+          }
           if (this.turnActivity === "user_speaking") this.silenceSince = Date.now();
           this.turnActivity = "awaiting_reply";
           this.pauseTurnTimers();
@@ -677,11 +759,11 @@ export class LiveVoiceSession {
       }
       const { peakLevel, drained } = this.audioPipeline.step(
         this.options.audio,
-        this.muted,
+        this.purpose === "preview" ? true : this.muted,
       );
       this.options.onAudioLevel?.(peakLevel);
 
-      if (!this.muted && !this.audioWriting) {
+      if (this.purpose !== "preview" && !this.muted && !this.audioWriting) {
         this.audioWriting = true;
         const captureFrame = this.audioPipeline.shiftCaptureOrSilence();
         void this.send(this.options.protocol.encodeAudioAppend(captureFrame))
@@ -702,6 +784,10 @@ export class LiveVoiceSession {
         this.serverResponseDone = false;
         this.responseInProgress = false;
         this.responseId = "";
+        if (this.purpose === "preview") {
+          this.options.onSessionComplete();
+          return;
+        }
         this.phase = "listening";
         this.publish({ phase: "listening" });
         this.silenceSince = Date.now();
