@@ -58,6 +58,27 @@ export type AppSpace =
   | "body"
   | "tasks"
   | "settings";
+
+export type HomeSubView = "devices" | "services" | "video_login";
+
+export interface XiaomiVideoAuthState {
+  authorized: boolean;
+  account: string;
+  cameraCount: number;
+}
+
+export type XiaomiVideoLoginStep = "credentials" | "captcha" | "two_factor";
+
+export interface XiaomiVideoLoginState {
+  step: XiaomiVideoLoginStep;
+  account: string;
+  region: string;
+  error: string | null;
+  busy: boolean;
+  captchaCode: string;
+  captchaHint: string;
+  smsCountdown: number;
+}
 export type AppearancePreference = "system" | "light" | "dark";
 export type TaskApprovalMode = "ask" | "local_auto" | "yolo";
 
@@ -417,7 +438,26 @@ export function createAppStore() {
   const homePowerState = new HomePowerState(homeDashboard(), (dashboard) => {
     if (alive) homeDashboard.set(dashboard);
   });
-  const homeSubView = signal<"devices" | "services">("devices");
+  const homeSubView = signal<HomeSubView>("devices");
+  const xiaomiVideoAuth = signal<XiaomiVideoAuthState>({
+    authorized: false,
+    account: "",
+    cameraCount: 3,
+  });
+  const xiaomiVideoLogin = signal<XiaomiVideoLoginState>({
+    step: "credentials",
+    account: "",
+    region: "cn",
+    error: null,
+    busy: false,
+    captchaCode: "A7K9",
+    captchaHint: "A7K9",
+    smsCountdown: 0,
+  });
+  let smsTimer: ReturnType<typeof setInterval> | null = null;
+  cleanup(() => {
+    if (smsTimer) clearInterval(smsTimer);
+  });
   const homeSelectedRoom = signal<string>("all");
   const homeOverviewCollapsed = signal(false);
   const homeLayoutEditing = signal<string | null>(null);
@@ -1101,6 +1141,10 @@ export function createAppStore() {
           api.setHomeInspectedApplianceId(null);
           return true;
         }
+        if (homeSubView() === "video_login") {
+          api.cancelXiaomiVideoLogin();
+          return true;
+        }
         if (homeSubView() === "services") {
           if (homeLoggingIn()) api.cancelHomeLogin();
           api.setHomeSubView("devices");
@@ -1400,12 +1444,146 @@ export function createAppStore() {
     homeLoading: () => homeLoading(),
     homeRefreshing: () => homeRefreshing(),
     homeSubView: () => homeSubView(),
-    setHomeSubView(view: "devices" | "services") {
+    setHomeSubView(view: HomeSubView) {
       homeSubView.set(view);
       if (view !== "devices") {
         homeLayoutEditing.set(null);
         homeInspectedApplianceId.set(null);
       }
+    },
+    xiaomiVideoAuth: () => xiaomiVideoAuth(),
+    xiaomiVideoLogin: () => xiaomiVideoLogin(),
+    startXiaomiVideoLogin() {
+      if (smsTimer) {
+        clearInterval(smsTimer);
+        smsTimer = null;
+      }
+      const rawAccount = xiaomiVideoAuth().account || "13812345678";
+      xiaomiVideoLogin.set({
+        step: "credentials",
+        account: rawAccount,
+        region: homeConfiguration().region || "cn",
+        error: null,
+        busy: false,
+        captchaCode: "",
+        captchaHint: "A7K9",
+        smsCountdown: 0,
+      });
+      homeSubView.set("video_login");
+    },
+    cancelXiaomiVideoLogin() {
+      if (smsTimer) {
+        clearInterval(smsTimer);
+        smsTimer = null;
+      }
+      xiaomiVideoLogin.update((s) => ({ ...s, busy: false, error: null }));
+      homeSubView.set("services");
+    },
+    submitVideoCredentials(params: { account: string; password?: string; region?: string }) {
+      if (!params.account.trim()) {
+        xiaomiVideoLogin.update((s) => ({ ...s, error: "请输入米家账号" }));
+        return;
+      }
+      xiaomiVideoLogin.update((s) => ({
+        ...s,
+        account: params.account.trim(),
+        region: params.region || s.region,
+        error: null,
+        step: "captcha",
+        captchaCode: "",
+        captchaHint: "A7K9",
+      }));
+    },
+    refreshVideoCaptcha() {
+      const candidates = ["A7K9", "8F3N", "4M2W", "9P6Q", "5H7Y"];
+      const current = xiaomiVideoLogin().captchaHint;
+      const next = candidates[(candidates.indexOf(current) + 1) % candidates.length];
+      xiaomiVideoLogin.update((s) => ({
+        ...s,
+        captchaHint: next,
+        captchaCode: "",
+        error: null,
+      }));
+    },
+    submitVideoCaptcha(code: string) {
+      const current = xiaomiVideoLogin();
+      if (!code || code.trim().toUpperCase() !== current.captchaHint) {
+        xiaomiVideoLogin.update((s) => ({
+          ...s,
+          error: "验证码不正确，请重新输入。",
+        }));
+        return;
+      }
+      if (smsTimer) {
+        clearInterval(smsTimer);
+        smsTimer = null;
+      }
+      let cd = 42;
+      xiaomiVideoLogin.update((s) => ({
+        ...s,
+        step: "two_factor",
+        error: null,
+        smsCountdown: cd,
+      }));
+      smsTimer = setInterval(() => {
+        cd -= 1;
+        if (cd <= 0) {
+          if (smsTimer) clearInterval(smsTimer);
+          smsTimer = null;
+          xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: 0 }));
+        } else {
+          xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: cd }));
+        }
+      }, 1000);
+    },
+    sendVideoSms() {
+      if (smsTimer) {
+        clearInterval(smsTimer);
+        smsTimer = null;
+      }
+      let cd = 60;
+      xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: cd, error: null }));
+      smsTimer = setInterval(() => {
+        cd -= 1;
+        if (cd <= 0) {
+          if (smsTimer) clearInterval(smsTimer);
+          smsTimer = null;
+          xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: 0 }));
+        } else {
+          xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: cd }));
+        }
+      }, 1000);
+    },
+    submitVideoTwoFactor(code: string) {
+      if (!code || code.trim().length < 4) {
+        xiaomiVideoLogin.update((s) => ({
+          ...s,
+          error: "请输入有效的验证码",
+        }));
+        return;
+      }
+      if (smsTimer) {
+        clearInterval(smsTimer);
+        smsTimer = null;
+      }
+      const raw = xiaomiVideoLogin().account;
+      const masked =
+        raw.length >= 7
+          ? raw.slice(0, 3) + "****" + raw.slice(-4)
+          : raw || "138****1234";
+      xiaomiVideoAuth.set({
+        authorized: true,
+        account: masked,
+        cameraCount: 3,
+      });
+      homeSubView.set("services");
+    },
+    disconnectXiaomiVideo() {
+      xiaomiVideoAuth.set({
+        authorized: false,
+        account: "",
+        cameraCount: 0,
+      });
     },
     homeSelectedRoom: () => homeSelectedRoom(),
     homeOverviewCollapsed: () => homeOverviewCollapsed(),

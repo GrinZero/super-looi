@@ -32,7 +32,12 @@ export type ActionIconName =
   | "droplet"
   | "more"
   | "rotate_left"
-  | "rotate_right";
+  | "rotate_right"
+  | "display"
+  | "outlet"
+  | "video"
+  | "eye"
+  | "eye_off";
 
 export type IconTone =
   | "foreground"
@@ -449,6 +454,74 @@ export function ActionIcon(props: {
             cx.moveTo(15.5, 4.8);
             cx.lineTo(17.8, 7.8);
             cx.lineTo(14.2, 9.2);
+            cx.stroke();
+            break;
+          }
+          case "display": {
+            // Monitor screen + stand base
+            cx.beginPath();
+            cx.roundRect(3.5, 4.5, 17, 11.5, 2);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(12, 16);
+            cx.lineTo(12, 19.5);
+            cx.moveTo(8, 19.5);
+            cx.lineTo(16, 19.5);
+            cx.stroke();
+            break;
+          }
+          case "outlet": {
+            // Smart plug / wall outlet with two vertical prongs
+            cx.beginPath();
+            cx.roundRect(5, 4.5, 14, 15, 3.5);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(9.5, 9.5);
+            cx.lineTo(9.5, 14.5);
+            cx.moveTo(14.5, 9.5);
+            cx.lineTo(14.5, 14.5);
+            cx.stroke();
+            break;
+          }
+          case "video": {
+            // Security / video camera body with front cone lens
+            cx.beginPath();
+            cx.roundRect(3.5, 6.5, 12, 11, 2.5);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(15.5, 9.5);
+            cx.lineTo(20.5, 6.8);
+            cx.lineTo(20.5, 17.2);
+            cx.lineTo(15.5, 14.5);
+            cx.closePath();
+            cx.stroke();
+            break;
+          }
+          case "eye": {
+            // Open eye with iris
+            cx.beginPath();
+            cx.moveTo(3, 12);
+            cx.quadraticCurveTo(12, 4.5, 21, 12);
+            cx.quadraticCurveTo(12, 19.5, 3, 12);
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 12, 2.8, 0, Math.PI * 2);
+            cx.fill();
+            break;
+          }
+          case "eye_off": {
+            // Strikethrough eye
+            cx.beginPath();
+            cx.moveTo(3, 12);
+            cx.quadraticCurveTo(12, 4.5, 21, 12);
+            cx.quadraticCurveTo(12, 19.5, 3, 12);
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 12, 2.8, 0, Math.PI * 2);
+            cx.fill();
+            cx.beginPath();
+            cx.moveTo(4, 4);
+            cx.lineTo(20, 20);
             cx.stroke();
             break;
           }

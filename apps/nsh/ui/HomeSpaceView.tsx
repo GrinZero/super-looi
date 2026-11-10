@@ -1,10 +1,12 @@
 import { t, translateMessage } from "../i18n";
 import { effect, signal, Text, View, Scroll, Video, windowSize } from "nsh";
-import { Button } from "nsh/base";
+import { Button, Switch } from "nsh/base";
 import { RetainedPage } from "./RetainedPage";
-import type { createAppStore } from "../store";
+import type { createAppStore, HomeSubView } from "../store";
 import { ActionButton, HorizontalValueSlider, LoadingIndicator, SelectField, TextField } from "./Controls";
 import { ActionIcon, ApplianceIcon, PowerIconButton, type ActionIconName } from "./HomeIcons";
+import { MijiaBrandIcon, HomeAssistantBrandIcon } from "./brand-icons";
+import { XiaomiVideoLoginFlow } from "./XiaomiVideoLoginFlow";
 import type {
   ChoiceControlPrimitive,
   RangeControlPrimitive,
@@ -171,7 +173,7 @@ export function HomeSpaceView(props: {
           rooms: [],
           allAppliances: [],
         };
-  const subView = (): "devices" | "services" =>
+  const subView = (): HomeSubView =>
     typeof props.store.homeSubView === "function"
       ? props.store.homeSubView()
       : "services";
@@ -3219,14 +3221,25 @@ export function HomeSpaceView(props: {
     </If>
   );
 
-  // --- Services Sub-View (Concurrent Multi-Source Binding) ---
+  // --- Services Sub-View (Split Layout: Master Services List & Service Details) ---
   const renderServicesSubView = () => {
+    const miotMenuOpen = signal(false);
+
     const enabledSources = () =>
       saved().enabledSources ?? {
         direct_miot: saved().mode === "direct_miot",
         external_ha: saved().mode === "external_ha",
         simulation: saved().mode === "simulation",
       };
+
+    const isMiotControlConnected = () =>
+      Boolean(enabledSources().direct_miot && saved().hasMiotAccount);
+
+    const isMiotVideoAuthorized = () =>
+      Boolean(
+        typeof props.store.xiaomiVideoAuth === "function" &&
+          props.store.xiaomiVideoAuth().authorized,
+      );
 
     const saveHa = async () => {
       busy.set(true);
@@ -3273,251 +3286,463 @@ export function HomeSpaceView(props: {
       }
     };
 
-    const sourceCards = (): Array<{
-      id: HomeSourceId;
-      title: string;
-      subtitle: string;
-      enabled: boolean;
-    }> => [
-      {
-        id: "direct_miot",
-        title: t("xiaomiHome92"),
-        subtitle: saved().hasMiotAccount ? t("signedIn") : t("signInToXiaomiHome"),
-        enabled: Boolean(enabledSources().direct_miot),
-      },
-      {
-        id: "external_ha",
-        title: "Home Assistant",
-        subtitle: saved().haUrl || "http://homeassistant.local:8123",
-        enabled: Boolean(enabledSources().external_ha),
-      },
-      {
-        id: "simulation",
-        title: t("offlineDemo"),
-        subtitle: t("virtualDevicesStoredInLocalMemory"),
-        enabled: Boolean(enabledSources().simulation),
-      },
-    ];
+    const haDevicesCount = () =>
+      enabledSources().external_ha ? props.store.homeDashboard().totalAppliances : 0;
 
     return (
-      <Scroll class="flex-1" contentClass="p-5 gap-4">
-        <View class="max-w-3xl w-full mx-auto gap-4">
-          <View class="rounded-2xl border border-border bg-card px-4 py-3 flex-row items-center justify-between gap-3">
-            <Text class="text-muted-foreground text-xs flex-1">
-              {t("multiSourceConcurrentHint")}
-            </Text>
-          </View>
+      <View class={isWide() ? "flex-1 flex-row items-stretch bg-background" : "flex-1 flex-col bg-background"}>
+        {/* Left Column: Home Services List */}
+        <View
+          class={
+            isWide()
+              ? "w-72 shrink-0 border-r border-border p-4 gap-3 bg-card/40"
+              : "w-full border-b border-border p-4 gap-3 bg-card/40"
+          }
+        >
+          <Text class="text-foreground text-sm font-bold px-1">家居服务</Text>
 
-          <View class={isWide() ? "flex-row items-stretch gap-3" : "gap-3"}>
-            <Each of={sourceCards()} key={(sc) => `${sc.id}:${sc.enabled}:${sc.subtitle}`}>
-              {(sc) => (
+          {/* 1. Mijia Direct Card */}
+          <Button
+            testID="home-service-tab-direct_miot"
+            onPress={() => activeServiceTab.set("direct_miot")}
+            class={
+              activeServiceTab() === "direct_miot"
+                ? "w-full rounded-2xl border-2 border-ring bg-card p-3 flex-row items-center gap-3 active:opacity-80"
+                : "w-full rounded-2xl border border-border bg-card/60 p-3 flex-row items-center gap-3 active:opacity-80"
+            }
+          >
+            <MijiaBrandIcon size={40} />
+            <View class="flex-1 min-w-0 gap-1 items-start">
+              <Text class="text-foreground text-sm font-bold">米家直连</Text>
+              <View class="flex-row items-center gap-1.5">
                 <View
                   class={
-                    activeServiceTab() === sc().id
-                      ? "flex-1 rounded-2xl border-2 border-ring bg-card p-4 justify-between gap-3"
-                      : "flex-1 rounded-2xl border border-border bg-card p-4 justify-between gap-3"
+                    isMiotControlConnected()
+                      ? "w-1.5 h-1.5 rounded-full bg-verified"
+                      : "w-1.5 h-1.5 rounded-full bg-muted-foreground/60"
+                  }
+                />
+                <Text
+                  class={
+                    isMiotControlConnected()
+                      ? "text-verified text-[11px] font-medium"
+                      : "text-muted-foreground text-[11px]"
                   }
                 >
+                  {isMiotControlConnected() ? "控制已连接" : "控制未连接"}
+                </Text>
+              </View>
+              <View class="flex-row items-center gap-1.5">
+                <View
+                  class={
+                    isMiotVideoAuthorized()
+                      ? "w-1.5 h-1.5 rounded-full bg-verified"
+                      : "w-1.5 h-1.5 rounded-full bg-muted-foreground/60"
+                  }
+                />
+                <Text
+                  class={
+                    isMiotVideoAuthorized()
+                      ? "text-verified text-[11px] font-medium"
+                      : "text-muted-foreground text-[11px]"
+                  }
+                >
+                  {isMiotVideoAuthorized() ? "视频已授权" : "视频未连接"}
+                </Text>
+              </View>
+            </View>
+          </Button>
+
+          {/* 2. Home Assistant Card */}
+          <Button
+            testID="home-service-tab-external_ha"
+            onPress={() => activeServiceTab.set("external_ha")}
+            class={
+              activeServiceTab() === "external_ha"
+                ? "w-full rounded-2xl border-2 border-ring bg-card p-3 flex-row items-center gap-3 active:opacity-80"
+                : "w-full rounded-2xl border border-border bg-card/60 p-3 flex-row items-center gap-3 active:opacity-80"
+            }
+          >
+            <HomeAssistantBrandIcon size={40} />
+            <View class="flex-1 min-w-0 gap-1 items-start">
+              <Text class="text-foreground text-sm font-bold">Home Assistant</Text>
+              <Text class="text-muted-foreground text-[11px]">
+                {enabledSources().external_ha
+                  ? `已连接 · ${haDevicesCount()} 台设备`
+                  : "未连接"}
+              </Text>
+            </View>
+          </Button>
+
+          {/* 3. Offline Demo Card */}
+          <Button
+            testID="home-service-tab-simulation"
+            onPress={() => activeServiceTab.set("simulation")}
+            class={
+              activeServiceTab() === "simulation"
+                ? "w-full rounded-2xl border-2 border-ring bg-card p-3 flex-row items-center gap-3 active:opacity-80"
+                : "w-full rounded-2xl border border-border bg-card/60 p-3 flex-row items-center gap-3 active:opacity-80"
+            }
+          >
+            <View class="w-10 h-10 rounded-xl bg-muted border border-border items-center justify-center">
+              <ActionIcon name="display" size={20} tone="foreground" />
+            </View>
+            <View class="flex-1 min-w-0 gap-1 items-start">
+              <Text class="text-foreground text-sm font-bold">离线演示</Text>
+              <Text class="text-muted-foreground text-[11px]">
+                {enabledSources().simulation ? "已启用" : "未启用"}
+              </Text>
+            </View>
+          </Button>
+        </View>
+
+        {/* Right Column: Service Detail Panel */}
+        <Scroll class="flex-1" contentClass="p-6 gap-5">
+          <View class="max-w-2xl w-full gap-5">
+            {/* Mijia Detail Panel */}
+            <If when={activeServiceTab() === "direct_miot"}>
+              {/* Header: Title and More Menu */}
+              <View class="flex-row items-center justify-between pb-1 relative">
+                <View class="gap-0.5">
+                  <Text role="header" class="text-foreground text-xl font-bold">
+                    {t("xiaomiHome92")}
+                  </Text>
+                  <Text class="text-muted-foreground text-xs">
+                    {t("connectYourXiaomiHomeAccount")}
+                  </Text>
+                </View>
+
+                <View class="relative">
                   <Button
-                    testID={`home-service-tab-${sc().id}`}
-                    onPress={() => activeServiceTab.set(sc().id)}
-                    class="items-start gap-1 active:opacity-75"
+                    testID="home-miot-more-btn"
+                    onPress={() => miotMenuOpen.update((v) => !v)}
+                    class="h-9 px-3 rounded-full border border-border bg-card flex-row items-center gap-1 active:opacity-75"
                   >
-                    <View class="w-full flex-row items-center justify-between gap-2">
-                      <Text class="text-foreground text-base font-bold">{sc().title}</Text>
-                      <View
-                        class={
-                          sc().enabled
-                            ? "px-2 py-0.5 rounded-full bg-live-active-bg border border-verified"
-                            : "px-2 py-0.5 rounded-full bg-muted border border-border"
-                        }
-                      >
-                        <Text
-                          class={
-                            sc().enabled
-                              ? "text-verified text-xs font-semibold"
-                              : "text-muted-foreground text-xs"
-                          }
-                        >
-                          {sc().enabled ? t("sourceEnabled") : t("sourceDisabled")}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 1 }}>
-                      {sc().subtitle}
-                    </Text>
+                    <Text class="text-foreground text-xs font-medium">更多 ···</Text>
                   </Button>
 
-                  <View class="flex-row items-center justify-between gap-2 pt-2 border-t border-border">
-                    <Button
-                      testID={`home-source-toggle-${sc().id}`}
-                      selected={sc().enabled}
-                      onPress={() => void props.store.setHomeSourceEnabled(sc().id, !sc().enabled)}
-                      class={
-                        sc().enabled
-                          ? "flex-1 min-h-9 rounded-xl bg-muted border border-border items-center justify-center active:opacity-75"
-                          : "flex-1 min-h-9 rounded-xl bg-primary items-center justify-center active:opacity-75"
-                      }
-                    >
-                      <Text
-                        class={
-                          sc().enabled
-                            ? "text-foreground text-xs font-medium"
-                            : "text-primary-foreground text-xs font-semibold"
-                        }
+                  <If when={miotMenuOpen()}>
+                    <View class="absolute right-0 top-11 z-30 min-w-44 rounded-xl border border-border bg-popover shadow-xl p-1 gap-1">
+                      <Button
+                        testID="home-miot-menu-relogin"
+                        onPress={() => {
+                          miotMenuOpen.set(false);
+                          void loginXiaomi();
+                        }}
+                        class="w-full h-9 px-3 rounded-lg flex-row items-center justify-start hover:bg-muted active:opacity-75"
                       >
-                        {sc().enabled ? t("disableSource") : t("enableSource")}
+                        <Text class="text-foreground text-xs">重新登录控制账号</Text>
+                      </Button>
+                      <If when={isMiotVideoAuthorized()}>
+                        <Button
+                          testID="home-miot-menu-disconnect-video"
+                          onPress={() => {
+                            miotMenuOpen.set(false);
+                            props.store.disconnectXiaomiVideo();
+                          }}
+                          class="w-full h-9 px-3 rounded-lg flex-row items-center justify-start hover:bg-muted active:opacity-75"
+                        >
+                          <Text class="text-destructive text-xs">断开视频连接</Text>
+                        </Button>
+                      </If>
+                      <If when={savedMiotSelected()}>
+                        <Button
+                          testID="home-miot-menu-logout"
+                          onPress={() => {
+                            miotMenuOpen.set(false);
+                            void props.store.logoutMiot();
+                          }}
+                          class="w-full h-9 px-3 rounded-lg flex-row items-center justify-start hover:bg-muted active:opacity-75"
+                        >
+                          <Text class="text-destructive text-xs">退出米家账号</Text>
+                        </Button>
+                      </If>
+                    </View>
+                  </If>
+                </View>
+              </View>
+
+              {/* Service Region Row */}
+              <View class="flex-row items-center justify-between py-1">
+                <Text class="text-foreground text-sm font-medium">{t("xiaomiHomeRegion")}</Text>
+                <View class="w-48">
+                  <SelectField
+                    testID="home-miot-region"
+                    accessibilityLabel={t("xiaomiHomeRegion")}
+                    items={REGIONS()}
+                    value={region()}
+                    disabled={props.store.homeLoggingIn()}
+                    onChange={(value) => region.set(value)}
+                  />
+                </View>
+              </View>
+
+              {/* Block 1: Device Control Card */}
+              <View class="rounded-2xl border border-border bg-card p-4 gap-3">
+                <View class="flex-row items-center justify-between gap-3">
+                  <View class="flex-row items-center gap-3 flex-1 min-w-0">
+                    <View class="w-10 h-10 rounded-xl bg-muted border border-border items-center justify-center">
+                      <ActionIcon name="outlet" size={20} tone="foreground" />
+                    </View>
+                    <View class="flex-1 min-w-0 gap-0.5">
+                      <View class="flex-row items-center gap-2">
+                        <Text class="text-foreground text-sm font-bold">设备控制</Text>
+                        <View class="flex-row items-center gap-1">
+                          <View
+                            class={
+                              isMiotControlConnected()
+                                ? "w-1.5 h-1.5 rounded-full bg-verified"
+                                : "w-1.5 h-1.5 rounded-full bg-muted-foreground/60"
+                            }
+                          />
+                          <Text
+                            class={
+                              isMiotControlConnected()
+                                ? "text-verified text-xs font-semibold"
+                                : "text-muted-foreground text-xs"
+                            }
+                          >
+                            {isMiotControlConnected() ? "已连接" : "未连接"}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 1 }}>
+                        同步设备并控制开关、灯光等。
+                      </Text>
+                    </View>
+                  </View>
+
+                  <If
+                    when={savedMiotSelected()}
+                    else={
+                      <Button
+                        testID="home-miot-login"
+                        disabled={props.store.homeLoggingIn()}
+                        onPress={() => void loginXiaomi()}
+                        class="h-9 px-4 rounded-full bg-primary items-center justify-center active:opacity-80 disabled:opacity-50"
+                      >
+                        <Text class="text-primary-foreground text-xs font-semibold">
+                          {props.store.homeLoggingIn()
+                            ? t("waitingForXiaomiAuthorization")
+                            : t("signInToXiaomiHome")}
+                        </Text>
+                      </Button>
+                    }
+                  >
+                    <Button
+                      testID="home-miot-refresh"
+                      accessibilityLabel={
+                        saved().mode === "direct_miot"
+                          ? t("refreshXiaomiDevices")
+                          : t("connectSavedXiaomiAccount")
+                      }
+                      disabled={busy() || props.store.homeLoggingIn()}
+                      onPress={() => void refreshMiot()}
+                      class="h-9 px-4 rounded-full border border-border bg-card items-center justify-center active:opacity-75 disabled:opacity-50"
+                    >
+                      <Text class="text-foreground text-xs font-medium">
+                        {saved().mode === "direct_miot"
+                          ? "同步设备"
+                          : t("connectSavedXiaomiAccount")}
                       </Text>
                     </Button>
-                  </View>
+                  </If>
                 </View>
-              )}
-            </Each>
-          </View>
 
-          <If when={activeServiceTab() === "direct_miot"}>
-            <View class="rounded-2xl border border-border bg-card p-5 gap-4">
-              <View class="gap-1">
-                <Text class="text-foreground text-lg font-semibold" role="header">
-                  {t("connectYourXiaomiHomeAccount")}
-                </Text>
-                <Text class="text-muted-foreground text-xs">
-                  {t("cloudSyncOutletsLightsAndTemperaturehumiditySensors")}
-                </Text>
-              </View>
+                <View class="h-[1px] bg-border w-full my-0.5" />
 
-              <SelectField
-                testID="home-miot-region"
-                label={t("xiaomiHomeRegion")}
-                items={REGIONS()}
-                value={region()}
-                disabled={props.store.homeLoggingIn()}
-                onChange={(value) => region.set(value)}
-              />
+                <View class="flex-row items-center justify-between">
+                  <Text class="text-foreground text-sm font-medium">启用设备控制</Text>
+                  <Switch
+                    testID="home-miot-control-toggle"
+                    checked={Boolean(enabledSources().direct_miot)}
+                    onChange={(e) => void props.store.setHomeSourceEnabled("direct_miot", e.checked)}
+                  />
+                </View>
 
-              <View class="flex-row flex-wrap gap-2">
-                <ActionButton
-                  testID="home-miot-login"
-                  kind="primary"
-                  disabled={props.store.homeLoggingIn()}
-                  label={
-                    props.store.homeLoggingIn()
-                      ? t("waitingForXiaomiAuthorization")
-                      : savedMiotSelected()
-                        ? t("signInToXiaomiHomeAgain")
-                        : t("signInToXiaomiHome")
-                  }
-                  onPress={() => void loginXiaomi()}
-                />
+                {/* Explicit logout entry when logged in and configured */}
+                <If when={saved().mode === "direct_miot" && savedMiotSelected() && !props.store.homeLoggingIn()}>
+                  <View class="flex-row justify-end pt-1">
+                    <Button
+                      testID="home-miot-logout"
+                      onPress={() => void props.store.logoutMiot()}
+                      class="h-8 px-3 rounded-lg border border-destructive/40 bg-card items-center justify-center active:opacity-70"
+                    >
+                      <Text class="text-destructive text-xs font-medium">{t("signOutOfXiaomiHome")}</Text>
+                    </Button>
+                  </View>
+                </If>
                 <If when={props.store.homeLoggingIn()}>
-                  <ActionButton
-                    testID="home-miot-cancel"
-                    label={t("cancelXiaomiSignin")}
-                    onPress={() => props.store.cancelHomeLogin()}
-                  />
+                  <View class="flex-row justify-end pt-1">
+                    <Button
+                      testID="home-miot-cancel"
+                      onPress={() => props.store.cancelHomeLogin()}
+                      class="h-8 px-3 rounded-lg border border-border bg-card items-center justify-center active:opacity-70"
+                    >
+                      <Text class="text-foreground text-xs font-medium">{t("cancelXiaomiSignin")}</Text>
+                    </Button>
+                  </View>
                 </If>
-                <If when={savedMiotSelected()}>
-                  <ActionButton
-                    testID="home-miot-refresh"
-                    disabled={busy() || props.store.homeLoggingIn()}
-                    label={
-                      saved().mode === "direct_miot"
-                        ? t("refreshXiaomiDevices")
-                        : t("connectSavedXiaomiAccount")
+              </View>
+
+              {/* Block 2: Camera Video Card */}
+              <View class="rounded-2xl border border-border bg-card p-4 gap-3">
+                <View class="flex-row items-center justify-between gap-3">
+                  <View class="flex-row items-center gap-3 flex-1 min-w-0">
+                    <View class="w-10 h-10 rounded-xl bg-muted border border-border items-center justify-center">
+                      <ActionIcon name="video" size={20} tone="foreground" />
+                    </View>
+                    <View class="flex-1 min-w-0 gap-0.5">
+                      <View class="flex-row items-center gap-2">
+                        <Text class="text-foreground text-sm font-bold">摄像头视频</Text>
+                        <View class="flex-row items-center gap-1">
+                          <View
+                            class={
+                              isMiotVideoAuthorized()
+                                ? "w-1.5 h-1.5 rounded-full bg-verified"
+                                : "w-1.5 h-1.5 rounded-full bg-muted-foreground/60"
+                            }
+                          />
+                          <Text
+                            class={
+                              isMiotVideoAuthorized()
+                                ? "text-verified text-xs font-semibold"
+                                : "text-muted-foreground text-xs"
+                            }
+                          >
+                            {isMiotVideoAuthorized() ? "已授权" : "未连接"}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 1 }}>
+                        {isMiotVideoAuthorized()
+                          ? `已关联 ${props.store.xiaomiVideoAuth().cameraCount || 3} 台摄像头。`
+                          : "额外登录，用于查看实时画面。"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <If
+                    when={isMiotVideoAuthorized()}
+                    else={
+                      <Button
+                        testID="home-miot-connect-video-btn"
+                        onPress={() => props.store.startXiaomiVideoLogin()}
+                        class="h-9 px-4 rounded-full bg-[#f5e0a0] items-center justify-center active:opacity-80"
+                      >
+                        <Text class="text-[#2a2206] text-xs font-bold">连接视频···</Text>
+                      </Button>
                     }
-                    onPress={() => void refreshMiot()}
-                  />
-                </If>
-                <If
-                  when={
-                    saved().mode === "direct_miot" &&
-                    savedMiotSelected() &&
-                    !props.store.homeLoggingIn()
+                  >
+                    <Button
+                      testID="home-miot-view-cameras-btn"
+                      onPress={() => props.store.setHomeSubView("devices")}
+                      class="h-9 px-4 rounded-full border border-border bg-card items-center justify-center active:opacity-75"
+                    >
+                      <Text class="text-foreground text-xs font-semibold">查看摄像头</Text>
+                    </Button>
+                  </If>
+                </View>
+
+                <Text class="text-muted-foreground text-xs pt-0.5">
+                  使用摄像头所属的米家账号登录。
+                </Text>
+              </View>
+            </If>
+
+            {/* Home Assistant Detail Panel */}
+            <If when={activeServiceTab() === "external_ha"}>
+              <View class="flex-row items-center justify-between pb-1">
+                <Text class="text-foreground text-xl font-bold">Home Assistant</Text>
+              </View>
+
+              <View class="rounded-2xl border border-border bg-card p-5 gap-4">
+                <View class="gap-1">
+                  <Text class="text-foreground text-base font-semibold">
+                    {t("connectAHomeAssistantInstance")}
+                  </Text>
+                  <Text class="text-muted-foreground text-xs">
+                    {t("directLocalOrRemoteWebsocketApiConnection")}
+                  </Text>
+                </View>
+
+                <TextField
+                  testID="home-url"
+                  label={t("homeAssistantServerUrl")}
+                  value={haUrl()}
+                  onChange={(v) => haUrl.set(v)}
+                  placeholder="http://homeassistant.local:8123"
+                />
+                <TextField
+                  testID="home-token"
+                  label={t("longlivedAccessToken76")}
+                  value={token()}
+                  onChange={(v) => token.set(v)}
+                  masked={true}
+                  placeholder={
+                    saved().hasToken
+                      ? t("savedSecurelyLeaveBlankToReuseWith")
+                      : t("enterAccessToken")
                   }
-                >
+                />
+                <View class="flex-row flex-wrap gap-2 pt-2">
                   <ActionButton
-                    testID="home-miot-logout"
-                    kind="danger"
-                    label={t("signOutOfXiaomiHome")}
-                    onPress={() => void props.store.logoutMiot()}
+                    testID="home-connect"
+                    kind="primary"
+                    disabled={busy()}
+                    label={busy() ? t("connecting48") : t("connectHomeAssistant")}
+                    onPress={() => void saveHa()}
                   />
-                </If>
-              </View>
-            </View>
-          </If>
+                </View>
 
-          <If when={activeServiceTab() === "external_ha"}>
-            <View class="rounded-2xl border border-border bg-card p-5 gap-4">
-              <View class="gap-1">
-                <Text class="text-foreground text-lg font-semibold" role="header">
-                  {t("connectAHomeAssistantInstance")}
+                <View class="h-[1px] bg-border w-full my-1" />
+
+                <View class="flex-row items-center justify-between">
+                  <Text class="text-foreground text-sm font-medium">启用 Home Assistant</Text>
+                  <Switch
+                    testID="home-ha-source-toggle"
+                    checked={Boolean(enabledSources().external_ha)}
+                    onChange={(e) => void props.store.setHomeSourceEnabled("external_ha", e.checked)}
+                  />
+                </View>
+              </View>
+            </If>
+
+            {/* Offline Simulation Detail Panel */}
+            <If when={activeServiceTab() === "simulation"}>
+              <View class="flex-row items-center justify-between pb-1">
+                <Text class="text-foreground text-xl font-bold">离线演示</Text>
+              </View>
+
+              <View class="rounded-2xl border border-border bg-card p-5 gap-4">
+                <Text class="text-foreground text-base font-semibold">
+                  {t("offlineDemoEnvironment")}
                 </Text>
-                <Text class="text-muted-foreground text-xs">
-                  {t("directLocalOrRemoteWebsocketApiConnection")}
+                <Text class="text-muted-foreground text-sm">
+                  {t("tryAStudyCeilingLightDeskLamp")}
+                </Text>
+                <View class="flex-row items-center justify-between pt-2">
+                  <Text class="text-foreground text-sm font-medium">启用离线演示设备</Text>
+                  <Switch
+                    testID="home-simulation-toggle"
+                    checked={Boolean(enabledSources().simulation)}
+                    onChange={(e) => void props.store.setHomeSourceEnabled("simulation", e.checked)}
+                  />
+                </View>
+              </View>
+            </If>
+
+            {/* Error Message Alert */}
+            <If when={translateMessage(props.store.homeConnection()?.error || "")}>
+              <View class="rounded-xl border border-destructive bg-muted p-3">
+                <Text role="alert" class="text-destructive text-xs font-medium">
+                  {translateMessage(props.store.homeConnection()?.error || "")}
                 </Text>
               </View>
-
-              <TextField
-                testID="home-url"
-                label={t("homeAssistantServerUrl")}
-                value={haUrl()}
-                onChange={(v) => haUrl.set(v)}
-                placeholder="http://homeassistant.local:8123"
-              />
-              <TextField
-                testID="home-token"
-                label={t("longlivedAccessToken76")}
-                value={token()}
-                onChange={(v) => token.set(v)}
-                masked={true}
-                placeholder={
-                  saved().hasToken
-                    ? t("savedSecurelyLeaveBlankToReuseWith")
-                    : t("enterAccessToken")
-                }
-              />
-              <View class="flex-row flex-wrap gap-2">
-                <ActionButton
-                  testID="home-connect"
-                  kind="primary"
-                  disabled={busy()}
-                  label={busy() ? t("connecting48") : t("connectHomeAssistant")}
-                  onPress={() => void saveHa()}
-                />
-              </View>
-            </View>
-          </If>
-
-          <If when={activeServiceTab() === "simulation"}>
-            <View class="rounded-2xl border border-border bg-card p-5 gap-3">
-              <Text class="text-foreground text-lg font-semibold" role="header">
-                {t("offlineDemoEnvironment")}
-              </Text>
-              <Text class="text-muted-foreground text-sm">
-                {t("tryAStudyCeilingLightDeskLamp")}
-              </Text>
-              <View class="flex-row justify-end pt-1">
-                <ActionButton
-                  label={t("enableDemoDevices")}
-                  testID="home-simulation"
-                  kind="primary"
-                  compact={true}
-                  disabled={busy()}
-                  onPress={() => void props.store.setHomeSourceEnabled("simulation", true)}
-                />
-              </View>
-            </View>
-          </If>
-
-          <If when={translateMessage(props.store.homeConnection()?.error || "")}>
-            <View class="rounded-xl border border-destructive bg-muted p-3">
-              <Text role="alert" class="text-destructive text-xs font-medium">
-                {translateMessage(props.store.homeConnection()?.error || "")}
-              </Text>
-            </View>
-          </If>
-        </View>
-      </Scroll>
+            </If>
+          </View>
+        </Scroll>
+      </View>
     );
   };
 
@@ -3529,13 +3754,16 @@ export function HomeSpaceView(props: {
       <RetainedPage active={subView() === "services"}>
         {renderServicesSubView()}
       </RetainedPage>
+      <RetainedPage active={subView() === "video_login"}>
+        <XiaomiVideoLoginFlow store={props.store} />
+      </RetainedPage>
       <If when={subView() === "devices" && Boolean(inspectedAppliance())}>
-            <Each
-              of={inspectedAppliance() ? [inspectedAppliance()!] : []}
-              key={(appliance) => appliance.id}
-            >
-              {(app) => renderFullPageApplianceView(app)}
-            </Each>
+        <Each
+          of={inspectedAppliance() ? [inspectedAppliance()!] : []}
+          key={(appliance) => appliance.id}
+        >
+          {(app) => renderFullPageApplianceView(app)}
+        </Each>
       </If>
     </View>
   );

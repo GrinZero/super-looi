@@ -69,8 +69,8 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     }
 
     app.press("nav-voice")?;
-    app.wait_for("豆包实时语音凭证")?;
-    app.wait_for("豆包输出音色")?;
+    app.wait_for("服务配置")?;
+    app.wait_for("豆包 · 端到端实时语音")?;
     for hidden in [
         "当前状态",
         "待机监听唤醒词（本地离线 KWS）",
@@ -79,9 +79,7 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
         assert!(!app.shows(hidden), "unexpected voice-page text: {hidden}");
     }
     app.press("wake-toggle")?;
-    app.wait_for("开启 Hey LOOI 自动唤醒")?;
-    app.press("wake-toggle")?;
-    app.wait_for("关闭 Hey LOOI 自动唤醒")?;
+    app.wait_for("Hey LOOI 自动唤醒")?;
 
     app.press("nav-body")?;
     for label in [
@@ -234,7 +232,7 @@ fn language_and_appearance_preferences_survive_reopening() -> Result<(), String>
     restored.press("跟随系统")?;
     restored.wait_for("General settings")?;
     restored.press("nav-voice")?;
-    restored.wait_for("Doubao live voice credentials")?;
+    restored.wait_for("Service configuration")?;
     restored.press("nav-body")?;
     restored.wait_for("Directional Wheel")?;
     restored.wait_for("Speed 0 · Turn 0")?;
@@ -262,7 +260,7 @@ fn navigation_preserves_model_draft_and_selection() -> Result<(), String> {
         app.type_text("custom-model-id", "navigation-draft")?;
         let draft = app.screen().input_text("custom-model-id")?.unwrap().to_owned();
         app.press("nav-voice")?;
-        app.wait_for("voice-id")?;
+        app.wait_for("edit-voice-id")?;
         assert!(!app.shows("custom-model-id"));
         app.press("nav-models")?;
         app.wait_for("custom-model-id")?;
@@ -301,7 +299,7 @@ fn back_traverses_home_subpages_before_leaving_management() -> Result<(), String
     app.press("connection-settings")?;
     app.wait_for("nav-voice")?;
     app.press("nav-voice")?;
-    app.wait_for("voice-id")?;
+    app.wait_for("edit-voice-id")?;
     app.back()?;
     app.wait_for("connection-settings")?;
     Ok(())
