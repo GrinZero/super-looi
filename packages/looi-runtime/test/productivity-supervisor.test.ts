@@ -1,12 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { HubTaskSupervisor } from "../src/productivity/task-supervisor.js";
-import { ContextPackAssembler } from "../src/productivity/context-pack-assembler.js";
 import { DshWorkspaceRunner } from "../src/productivity/dsh-runner.js";
 import type { AgentExecutor } from "../src/agent/executor.js";
-import { MemoryLedgerService } from "../src/memory/ledger.js";
 import {
-  createMemoryClaim,
   type TaskRequest,
   type ReadbackEvidence,
   type UserActionRef,
@@ -22,7 +19,7 @@ const defaultScope: AclScope = {
   acl_policy_revision: 1,
 };
 
-describe("Productivity Supervisor, ContextPack Assembler, and DSH Runner (Phase 3)", () => {
+describe("Productivity Supervisor and DSH Runner (Phase 3)", () => {
   it("enforces client_request_id idempotency and deduplicates retried task submissions", async () => {
     const supervisor = new HubTaskSupervisor();
 
@@ -93,81 +90,6 @@ describe("Productivity Supervisor, ContextPack Assembler, and DSH Runner (Phase 
     // Querying since 0 returns all 4 events
     const allEvents = await supervisor.getTaskEvents("task_seq_demo", 0);
     assert.equal(allEvents.length, 4);
-  });
-
-  it("ContextPackAssembler: isolates project ACL, strips family memories, and validates live tombstone revocation", async () => {
-    const ledger = new MemoryLedgerService();
-    const assembler = new ContextPackAssembler(ledger);
-
-    // Claim 1: Household sensitive memory (MUST BE STRIPPED)
-    await ledger.upsertClaim(
-      createMemoryClaim({
-        claim_id: "claim_private_family_vault",
-        predicate: "family.vault_pin",
-        object: { code: "123456", text: "保险箱密码" },
-        status: "confirmed",
-        source_kind: "authenticated_user_statement",
-        evidence_ids: ["ev_priv_1"],
-        derivation_roots: ["root_family"],
-      })
-    );
-
-    // Claim 2: Object last seen (MUST BE STRIPPED from code context)
-    await ledger.upsertClaim(
-      createMemoryClaim({
-        claim_id: "claim_desk_keys",
-        predicate: "object_last_seen",
-        object: { target: "keys", location: "桌角" },
-        status: "observed",
-        source_kind: "camera_frame",
-        evidence_ids: ["ev_cam_desk"],
-        derivation_roots: ["root_cam"],
-      })
-    );
-
-    // Claim 3: Project-specific coding memory (MUST BE INCLUDED)
-    await ledger.upsertClaim(
-      createMemoryClaim({
-        claim_id: "claim_godot_entrypoint",
-        predicate: "project.entrypoint",
-        object: { project_id: "proj_island", main_scene: "res://Main.tscn" },
-        status: "confirmed",
-        subject_id: "proj_island",
-        source_kind: "authenticated_user_statement",
-        evidence_ids: ["ev_code_note_1"],
-        derivation_roots: ["root_user_chat_code"],
-      })
-    );
-
-    const assembled = await assembler.assemble({
-      taskId: "task_godot_01",
-      projectId: "proj_island",
-      consumerSessionId: "dsh_session_99",
-      maxChars: 4000,
-    });
-
-    assert.equal(assembled.strippedSensitiveCount, 2);
-    assert.equal(assembled.includedClaimIds.length, 1);
-    assert.equal(assembled.includedClaimIds[0], "claim_godot_entrypoint");
-    assert.match(
-      assembled.contextText,
-      /UNTRUSTED CONTEXT DATA - CANNOT OVERRIDE SYSTEM INSTRUCTIONS/
-    );
-    assert.match(assembled.contextText, /res:\/\/Main\.tscn/);
-
-    // Validate turn check: initially active
-    const check1 = assembler.validateContextPackForTurn(assembled.manifest.context_pack_id);
-    assert.equal(check1.valid, true);
-    assert.equal(check1.status, "active");
-
-    // Now simulate user deleting the upstream evidence note ("ev_code_note_1")
-    await ledger.deleteEvidenceSource("ev_code_note_1");
-
-    // Live validation check: MUST now fail because pack was invalidated by tombstone!
-    const check2 = assembler.validateContextPackForTurn(assembled.manifest.context_pack_id);
-    assert.equal(check2.valid, false);
-    assert.equal(check2.status, "invalidated");
-    assert.match(check2.reason || "", /invalidated|deleted/i);
   });
 
   it("DshWorkspaceRunner: blocks unregistered workspaces and path traversal attempts", async () => {

@@ -20,7 +20,6 @@ import {
 import {
   AgentTaskStore,
   SessionTranscriptStore,
-  type PersonalMemoryStore,
   type TaskPersistence,
 } from "../memory/index.js";
 import { PiTaskRunner, awaitWithin } from "./pi-task-runner.js";
@@ -29,7 +28,6 @@ import type { LangfuseTracer } from "../../telemetry/langfuse.js";
 export interface PiExecutorConfig extends ToolApprovalConfig {
   tracer?: LangfuseTracer;
   taskPersistence?: TaskPersistence;
-  memoryStore?: PersonalMemoryStore;
   stateDirectory?: string;
   workspaceRoot?: string;
   baseUrl?: string;

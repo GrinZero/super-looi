@@ -9,7 +9,6 @@ NSH 支持 `zh-CN` 与 `en-US`。默认跟随 NSH 响应式系统语言；管理
 - iOS 与 Android 的米家登录原生弹层接收应用语言，原生标题／取消按钮跟随应用覆盖值；网页登录内容由米家提供。
 - 文字 Agent 与 Realtime 共用语言规则：新会话默认界面语言，明确要求或另一语言的完整问题切换，短回应沿用最近回复语言。Pi 恢复历史时移除旧 system 消息，使用本轮系统提示；短回应按去掉引用和代码后的正文语言附加本轮语言指令。任务账本保留用户原文。
 - Realtime 在完整回复的 `text_done` 边界识别正文语言，仅在变化时通过 `session.update` 更新当前会话语言提示。更新只携带 instructions，保留音色和工具配置；不等待用户短语转写后再修改提示。
-- `PersonalMemoryStore.buildSystemPromptBlock` 接受语言参数并格式化时间；当前仓库没有它的运行调用方，本次未增加新的记忆链路。
 - 音色保留 `zh_female_vv_jupiter_bigtts`，未增加未经当前账号验证的英文专用音色。
 
 ## 体积

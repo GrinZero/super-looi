@@ -1,12 +1,11 @@
 import { AcceptanceRunner } from "../../looi-runtime/src/acceptance/runner.js";
 import { PiAgentExecutor } from "../../looi-runtime/src/agent/pi-executor.js";
-import { MemoryLedgerService } from "../../looi-runtime/src/memory/ledger.js";
 import { SqliteRuntimeStore } from "../../looi-runtime/src/storage/sqlite.js";
 import {
-  createMemoryClaim,
   type UserActionRef,
 } from "../../contracts/src/index.js";
 import { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import {
   createModels,
   fauxProvider,
@@ -18,72 +17,20 @@ import fs from "node:fs";
 import { assert, equal } from "./assert.js";
 
 const report = await new AcceptanceRunner().runFullSuite();
-equal(report.totalCases, 48);
+equal(report.totalCases, 33);
 equal(
   report.passedCases,
-  48,
+  33,
   JSON.stringify(report.cases.filter((item) => !item.passed)),
 );
 assert(report.success);
 equal(report.hardGates, {
   unauthorizedActions: 0,
-  crossSubjectLeaks: 0,
-  zombieResurrections: 0,
   unverifiedCompletions: 0,
 });
 const databasePath = "/home/looi-business.sqlite";
 let storage = new SqliteRuntimeStore(new DatabaseSync(databasePath));
-let ledger = new MemoryLedgerService(storage.ledger);
-const generation = ledger.getDeletionGeneration();
-const taskId = `task_nsh_business_${generation}`;
-const evidence = `evidence_${generation}`;
-const claim = createMemoryClaim({
-  claim_id: `claim_${generation}`,
-  predicate: "personal_note",
-  object: { text: "native persisted memory" },
-  status: "confirmed",
-  source_kind: "authenticated_user_statement",
-  evidence_ids: [evidence],
-  derivation_roots: [evidence],
-  deletion_generation: generation,
-});
-await ledger.upsertClaim(claim);
-const oldBackup = ledger.exportSnapshot();
-await ledger.deleteEvidenceSource(evidence);
-storage.close();
-storage = new SqliteRuntimeStore(new DatabaseSync(databasePath));
-ledger = new MemoryLedgerService(storage.ledger);
-ledger.restoreSnapshot(oldBackup);
-equal((await ledger.getClaim(claim.claim_id))?.status, "retracted");
-equal(ledger.getDeletionGeneration(), generation + 1);
-let staleRejected = false;
-try {
-  await ledger.commitDerivedWrite(
-    { ...claim, claim_id: "late_claim" },
-    {
-      scope_id: "scope_household_default",
-      capture_epoch: 1,
-      deletion_generation: generation,
-    },
-  );
-} catch {
-  staleRejected = true;
-}
-assert(staleRejected, "old backup resurrected deleted evidence");
-const fresh = createMemoryClaim({
-  ...claim,
-  claim_id: `fresh_${generation}`,
-  evidence_ids: [`fresh_evidence_${generation}`],
-  derivation_roots: [],
-  deletion_generation: generation + 1,
-});
-await ledger.upsertClaim(fresh);
-storage.close();
-storage = new SqliteRuntimeStore(new DatabaseSync(databasePath));
-ledger = new MemoryLedgerService(storage.ledger);
-equal((await ledger.getClaim(fresh.claim_id))?.object, {
-  text: "native persisted memory",
-});
+const taskId = `task_nsh_business_${randomUUID()}`;
 const faux = fauxProvider();
 const models = createModels();
 models.setProvider(faux.provider);
@@ -245,7 +192,7 @@ const stubborn = new PiAgentExecutor({
     },
   ],
 });
-const stoppedTask = `stop_${generation}`;
+const stoppedTask = `stop_${randomUUID()}`;
 const stalled = stubborn.run("hold", { taskId: stoppedTask }).then(
   () => false,
   () => true,
@@ -267,7 +214,7 @@ release();
 assert(await stalled);
 equal(stubborn.getTask(stoppedTask)?.state, "unknown");
 console.log(
-  "PASS portable LOOI runtime: 48 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite memory/task reopen, tombstone-safe restore and honest unconfirmed stop",
+  "PASS portable LOOI runtime: 33 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite task reopen and honest unconfirmed stop",
 );
 
 // A native cleanup failure is not evidence that the guest descendants exited.

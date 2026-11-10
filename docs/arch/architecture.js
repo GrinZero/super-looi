@@ -35,7 +35,7 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "agent", x: 535, y: 86, title: "Pi Agent Loop", symbol: "spark", category: "TypeScript · 任务执行", detail: "core / prompts / governance / memory / tools", path: "packages/looi-runtime/src/agent/core/pi-executor.ts",
-      description: "按五大正交维度分治：core/（PiAgentExecutor 准入调度、PiTaskRunner 单任务状态机、ModelResolver）、prompts/（系统提示词与双语跟随）、governance/（InteractionGate、ToolApproval、沙盒路径）、memory/（SessionTranscript、TaskStore、PersonalMemory）与 tools/（文件、五分钟超时 Shell 进程组、提问与产物哈希）。",
+      description: "按五大正交维度分治：core/（PiAgentExecutor 准入调度、PiTaskRunner 单任务状态机、ModelResolver）、prompts/（系统提示词与双语跟随）、governance/（InteractionGate、ToolApproval、沙盒路径）、memory/（SessionTranscript 会话消息与 TaskStore 任务快照）与 tools/（文件、五分钟超时 Shell 进程组、提问与产物哈希）。",
       files: [
         { path: "packages/looi-runtime/src/agent/core/pi-executor.ts", entry: "export class PiAgentExecutor", anchors: [{ label: "执行器入口", match: "export class PiAgentExecutor" }, { label: "任务准入", match: "run(prompt: string" }] },
         { path: "packages/looi-runtime/src/agent/core/pi-task-runner.ts", entry: "export class PiTaskRunner", anchors: [{ label: "单任务运行器", match: "export class PiTaskRunner" }, { label: "创建 Agent", match: "new Agent(" }, { label: "优雅停止", match: "cancel(): Promise<AgentStopResult>" }] },
@@ -46,7 +46,6 @@ globalThis.LOOI_ARCH = {
         { path: "packages/looi-runtime/src/agent/governance/tool-approval.ts", entry: "export function createToolApprovalPolicy" },
         { path: "packages/looi-runtime/src/agent/governance/workspace-path.ts", entry: "export function resolveWorkspacePath" },
         { path: "packages/looi-runtime/src/agent/memory/session-store.ts", entry: "export class SessionTranscriptStore" },
-        { path: "packages/looi-runtime/src/agent/memory/personal-memory.ts", entry: "export class PersonalMemoryStore" },
         { path: "packages/looi-runtime/src/agent/tools/index.ts", entry: "export function createWorkspaceCodingTools" },
         { path: "packages/looi-runtime/src/agent/tools/read-file.ts", entry: "export function createReadFileTools" },
         { path: "packages/looi-runtime/src/agent/tools/write-file.ts", entry: "export function createWriteFileTool" },
@@ -78,7 +77,7 @@ globalThis.LOOI_ARCH = {
       description: "VoiceRuntime 负责麦克风权限与本地 KWS 待机轮询；每次对话创建独立可销毁的 LiveVoiceSession 驱动 VoiceAudioPipeline；VoiceTaskCoordinator 实现短任务 2.5s 内直返、长任务转后台跨休眠存活及 WHEN_IDLE 主动播报。",
       files: [
         { path: "apps/nsh/runtime/voice.ts", entry: "export { VoiceRuntime }" },
-        { path: "apps/nsh/runtime/voice/runtime.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音监管", match: "export class VoiceRuntime" }, { label: "本地待机", match: "async enterStandby()" }, { label: "建立会话", match: "async start(" }, { label: "休眠收尾", match: "endSession()" }] },
+        { path: "apps/nsh/runtime/voice/runtime.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音监管", match: "export class VoiceRuntime" }, { label: "本地待机", match: "async enterStandby(" }, { label: "建立会话", match: "async start(" }, { label: "休眠收尾", match: "endSession()" }] },
         { path: "apps/nsh/runtime/voice/live-session.ts", entry: "export class LiveVoiceSession", anchors: [{ label: "会话对象", match: "export class LiveVoiceSession" }, { label: "空闲播报闸门", match: "private flushNoticeIfIdle()" }, { label: "事件循环", match: "private async readLoop(" }] },
         { path: "apps/nsh/runtime/voice/task-coordinator.ts", entry: "export class VoiceTaskCoordinator", anchors: [{ label: "异步任务协调", match: "export class VoiceTaskCoordinator" }, { label: "提交快慢分流", match: "async submit(" }, { label: "进度与取消", match: "inspect(" }] },
         { path: "apps/nsh/runtime/voice/audio-pipeline.ts", entry: "export class VoiceAudioPipeline" },
