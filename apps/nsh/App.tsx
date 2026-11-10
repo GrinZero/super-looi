@@ -171,7 +171,10 @@ function App() {
           ? "flex-1 bg-stage-bg"
           : "flex-1 bg-background"
       }
-      style={{ paddingLeft: missingCutout().left, paddingRight: missingCutout().right }}
+      style={{
+        paddingLeft: store.activeSpace() === "face" ? missingCutout().left : 0,
+        paddingRight: store.activeSpace() === "face" ? missingCutout().right : 0,
+      }}
     >
       <RetainedPage active={store.activeSpace() === "face"}>
         <View
@@ -322,7 +325,7 @@ function App() {
         </View>
       </RetainedPage>
       <RetainedPage active={store.activeSpace() !== "face"}>
-        <ManagementShell store={store} />
+        <ManagementShell store={store} cutoutInsets={missingCutout()} />
       </RetainedPage>
 
       {/* Global View Response Modal */}

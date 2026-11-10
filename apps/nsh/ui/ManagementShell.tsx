@@ -1,5 +1,5 @@
 import { t, translateMessage, formatDate } from "../i18n";
-import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
+import { effect, safeAreaInsets, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { LlmBrandId } from "../generated/looi-runtime.js";
 import type { createAppStore, AppSpace } from "../store";
@@ -14,7 +14,11 @@ import { RetainedPage } from "./RetainedPage";
 
 export function ManagementShell(props: {
   store: ReturnType<typeof createAppStore>;
+  cutoutInsets?: { left: number; right: number };
 }) {
+  const insets = safeAreaInsets();
+  const leftInset = () => insets().left + (props.cutoutInsets?.left ?? 0);
+  const rightInset = () => insets().right + (props.cutoutInsets?.right ?? 0);
   const selectedBrandId = signal<LlmBrandId>("openai");
   const homeModeTab = signal<"direct_miot" | "external_ha" | "simulation">(
     "direct_miot",
@@ -401,16 +405,14 @@ export function ManagementShell(props: {
         // Handheld portrait layout
         <View
           class="flex-1 bg-background"
-          style={{
-            paddingLeft: "env(safe-area-inset-left)",
-            paddingRight: "env(safe-area-inset-right)",
-          }}
         >
           {/* Top header */}
           <View
             class="min-h-12 border-b border-border px-3 py-1.5 flex-row items-center justify-between gap-2 bg-card"
             style={{
-              paddingTop: "calc(env(safe-area-inset-top) + 6px)",
+              paddingTop: insets().top + 6,
+              paddingLeft: leftInset() + 12,
+              paddingRight: rightInset() + 12,
             }}
           >
             <Button
@@ -433,7 +435,10 @@ export function ManagementShell(props: {
           </View>
 
           {/* Main Workspace */}
-          <View class="flex-1 p-3 min-h-0 relative">
+          <View
+            class="flex-1 p-3 min-h-0 relative"
+            style={{ paddingLeft: leftInset() + 12, paddingRight: rightInset() + 12 }}
+          >
             {renderActiveWorkspace()}
             <If when={props.store.toast()}>
               <View class="absolute top-2 inset-x-0 items-center pointer-events-none z-30">
@@ -446,7 +451,9 @@ export function ManagementShell(props: {
           <View
             class="min-h-14 bg-sidebar border-t border-border flex-row items-center justify-around px-2 py-1"
             style={{
-              paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)",
+              paddingBottom: insets().bottom + 4,
+              paddingLeft: leftInset() + 8,
+              paddingRight: rightInset() + 8,
             }}
           >
             {renderNavButton("models", () => t("models"), "nav-models")}
@@ -462,16 +469,16 @@ export function ManagementShell(props: {
       {/* Landscape dock layout */}
       <View
         class="flex-1 flex-row bg-background"
-        style={{
-          paddingTop: "env(safe-area-inset-top)",
-          paddingRight: "env(safe-area-inset-right)",
-          paddingBottom: "env(safe-area-inset-bottom)",
-          paddingLeft: "env(safe-area-inset-left)",
-        }}
       >
         {/* Left Slim Rail */}
         <View
           class="w-20 bg-sidebar border-r border-border pt-2.5 pb-2.5 items-center justify-between"
+          style={{
+            width: 80 + leftInset(),
+            paddingLeft: leftInset(),
+            paddingTop: insets().top + 10,
+            paddingBottom: insets().bottom + 10,
+          }}
         >
           <Button
             testID="back-to-face"
@@ -510,6 +517,7 @@ export function ManagementShell(props: {
           {/* Top 48pt Context Pill Bar */}
           <View
             class="min-h-12 border-b border-border px-4 py-1.5 flex-row items-center justify-between gap-3 bg-card"
+            style={{ paddingTop: insets().top + 6, paddingRight: rightInset() + 16 }}
           >
             {renderContextPillBar()}
             <IconButton
@@ -524,6 +532,7 @@ export function ManagementShell(props: {
           {/* Bottom Workspace Body */}
           <View
             class="flex-1 p-3.5 min-h-0 relative"
+            style={{ paddingRight: rightInset() + 14, paddingBottom: insets().bottom + 14 }}
           >
             {renderActiveWorkspace()}
             <If when={props.store.toast()}>
