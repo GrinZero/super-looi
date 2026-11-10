@@ -6,6 +6,7 @@
 - [ ] 当前 HLS 会话没有期限与续流接口；参考实现缺省 270 秒更新。先验证实际媒体通路，再按有效会话的真实期限接入续流。
 - [ ] 大厅 `chuangmi.camera.039a01` P2P action 输出为空；精确候选授权接口已定位为另一 OAuth 业务的 `device/miss_get_vendor_security`，当前 HA 会话权限仍未实证，见 `docs/xiaomi-camera-mobile-p2p-authorization.md`。
 - [ ] 采用公开 MISS/CS2 协议前，取得 `xiaomiio` 账号会话，验证两型号的 vendor、局域网握手和连续可解码帧；已有 MIT Python/Go 与 JS 源码，手机接入成本是 socket、会话加密及原生编码帧入口，见 `docs/xiaomi-camera-community-solutions.md`。Miloco 的桌面闭源产物与用途限制另见 `docs/xiaomi-miloco-camera-research.md`。
+- [ ] 社区协议探针的扫码回执返回 Xiaomi tengine HTTP 403，未取得会话；上游原生账号／验证码登录页面已就绪，待完成登录后执行媒体采样。实测见 `docs/xiaomi-camera-community-verification.md`。
 - [ ] 恢复魅族 20 Pro 的 USB/ADB 连接后，在已集成的正式详情上测首帧、延迟和播放/退出内存；包内 HLS 会话、单原生 Video 与取消/轮询/退出回归已完成。
 
 ## 智能家居能力与视觉还原

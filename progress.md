@@ -10,6 +10,16 @@
 - [x] Step 3：复用 NSH createMotion 加入 160ms、8pt 淡入过渡，遵循系统减少动态效果
 - [x] Step 4：30/30 测试、类型检查、构建、原生唤醒和独立 review 通过；模拟器语音页提交约 5.2ms、返回首页约 2.5ms，证据见 `docs/navigation-performance.md`
 
+### 社区 MISS/CS2 实机取流验证（2026-11-10）
+
+- [x] Step 1：检查现有会话与网络，准备最小独立协议探针
+  - [x] `.env` 无 xiaomiio 账号凭据；iOS 登录使用 nonPersistent WebView，已结束的网页登录会话未保留
+  - [x] 在临时目录准备上游协议与扫码登录；通用账号端点 TLS 连接失败，`cn.account.xiaomi.com` 可达；临时扫码回执持续 403，已改用上游原生账号／验证码登录页面
+  - [x] 独立复核并修正验证码域名适配、错误重输状态和采样提前结束的统计保留；登录实验结果见 `docs/xiaomi-camera-community-verification.md`
+- [ ] Step 2：完成 xiaomiio 登录，核对三台摄像头的型号、地址与 MISS 会话参数
+- [ ] Step 3：逐台验证 CS2、MISS 认证与连续视频帧，使用原生编解码工具检查媒体
+- [ ] Step 4：记录实测证据、独立 review、更新待办并提交
+
 ### 社区米家摄像头取流方案复核（2026-11-10）
 
 - [x] Step 1：深入用户指定的 `Kosztyk/xiaomi_camera_native`，核对协议源码、授权与依赖
