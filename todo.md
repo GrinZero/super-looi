@@ -1,5 +1,13 @@
 # 当前待办
 
+## 家居与表情接入语音
+
+实施依据：[家居控制与表情控制接入计划](docs/plans/voice-home-and-expression-integration-plan.md)。
+
+- [ ] 家居工具对齐页面控制元语，打通实时语音直接查询、参数控制与房间批量操作，并同步 Pi 工具。
+- [ ] 接入 72 表情口令及自主表达，统一显示优先级、到期恢复与会话清理。
+- [ ] 完成双协议多工具按轮回传与续说、自动化回归及开发真机验收。
+
 ## 米家摄像头取流
 
 三台摄像头的社区协议直连均已取得真实可解码视频，实测及原 HLS 失败证据分别见 [社区协议验证](docs/xiaomi-camera-community-verification.md) 与 [手机 HLS 验证](docs/xiaomi-camera-mobile-verification.md)。 接入按用户确认的「实时预览 + Agent 按需取帧」设计，见 [原生接入方案](docs/plans/xiaomi-camera-native-integration-plan.md) 与 [两端原生媒体研究](docs/xiaomi-camera-mobile-native-research.md)。
