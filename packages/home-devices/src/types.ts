@@ -367,3 +367,93 @@ export interface HomeDashboardModel {
   rooms: HomeRoomSection[];
   allAppliances: HomeAppliance[];
 }
+
+export type CardHeaderTrailing =
+  | {
+      kind: "power";
+      entityId: string;
+      domain: string;
+      isOn: boolean;
+      controllable: boolean;
+    }
+  | {
+      kind: "badge";
+      label: string;
+      tone: "warning" | "muted";
+    }
+  | {
+      kind: "none";
+    };
+
+export interface CycleStageStepView {
+  label: string;
+  state: "completed" | "current" | "upcoming";
+}
+
+export interface ResolvedCycleCardBody {
+  primaryReadout?: {
+    value: string;
+    caption: string;
+  };
+  stages: CycleStageStepView[];
+  actions: ApplianceActionTrigger[];
+}
+
+export interface ResolvedClimateCardBody {
+  thermostat?: {
+    entityId: string;
+    domain: string;
+    targetTemp: number;
+    minTemp: number;
+    maxTemp: number;
+    step: number;
+    unit: string;
+    controllable: boolean;
+    readoutText: string;
+  };
+  modeBar?: ModeBarCapability;
+  fanControl?: ChoiceControlPrimitive;
+  swingToggle?: ToggleControlPrimitive;
+  showModeBar: boolean;
+  showFanLevel: boolean;
+  showSwingToggle: boolean;
+}
+
+export interface ResolvedVacuumCardBody {
+  actions: ApplianceActionTrigger[];
+  consumables: VacuumConsumableMetric[];
+  fallbackStages?: CycleStageStepView[];
+}
+
+export interface ResolvedCameraCardBody {
+  statusPillText: string;
+  resolutionBadge?: string;
+  footnoteText: string;
+  storageBadge?: string;
+  featureToggles: NonNullable<ApplianceCapabilities["visionStream"]>["featureToggles"];
+}
+
+export interface ResolvedLightCardBody {
+  brightnessPercent: number;
+  controllable: boolean;
+  entityId: string;
+  colorTempPresets: number[];
+  activeColorTempKelvin?: number;
+}
+
+export interface ResolvedApplianceCardView {
+  span: TileSpan;
+  isExpanded: boolean;
+  header: {
+    title: string;
+    subtitle: string;
+    trailing: CardHeaderTrailing;
+  };
+  cycleBody?: ResolvedCycleCardBody;
+  vacuumBody?: ResolvedVacuumCardBody;
+  climateBody?: ResolvedClimateCardBody;
+  cameraBody?: ResolvedCameraCardBody;
+  lightBody?: ResolvedLightCardBody;
+  multiGangChannels?: MultiGangChannel[];
+  quickActions?: ApplianceActionTrigger[];
+}

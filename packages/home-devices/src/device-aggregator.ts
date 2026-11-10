@@ -1082,19 +1082,22 @@ function normalizeCycleStageText(rawStage: string, icon: ApplianceIconKind): str
     return "烘干中";
   }
   if (lower === "pre-wash") {
-    return "预洗";
+    return "预洗中";
   }
   if (lower === "main-wash") {
-    return "主洗";
+    return "主洗中";
   }
   if (lower === "rinse") {
-    return "漂洗";
+    return "漂洗中";
   }
   if (lower === "on" || lower === "cooking") {
     return icon === "cooker" ? "精煮中" : "运行中";
   }
   if (lower === "keep_warm" || lower === "keep warm" || /保温/.test(trimmed)) {
     return "保温中";
+  }
+  if (/^(预热|吸水|沸腾|焖饭|加热|烘烤|散温|称重|洗涤|预洗|主洗|漂洗|脱水|抖散|烘干|保管)$/.test(trimmed)) {
+    return `${trimmed}中`;
   }
   return trimmed;
 }
@@ -1107,12 +1110,12 @@ function buildCycleTaskCapability(
 ): CycleTaskCapability {
   const defaultStages: Record<string, string[]> = {
     cooker: ["预热", "吸水", "沸腾", "焖饭", "保温"],
-    microwave: ["待机", "预热", "烘烤", "完成"],
+    microwave: ["预热", "加热", "烘烤", "散温"],
     washer: ["称重", "洗涤", "漂洗", "脱水", "抖散"],
     dishwasher: ["预洗", "主洗", "漂洗", "烘干", "保管"],
-    vacuum: ["待机", "清扫", "回充", "洗拖布", "烘干"],
+    vacuum: ["清扫", "回充", "集尘", "洗拖布", "烘干"],
   };
-  const stages = defaultStages[icon] ?? ["待机", "运行中", "完成"];
+  const stages = defaultStages[icon] ?? ["预热", "运行", "散温"];
 
   if (icon === "vacuum" && vacuumCap) {
     const isRunning =
@@ -1123,14 +1126,16 @@ function buildCycleTaskCapability(
       vacuumCap.statusCode === "dust_collecting";
     const activeStageIndex =
       vacuumCap.statusCode === "cleaning"
-        ? 1
+        ? 0
         : vacuumCap.statusCode === "returning"
-          ? 2
-          : vacuumCap.statusCode === "washing" || vacuumCap.statusCode === "dust_collecting"
-            ? 3
-            : vacuumCap.statusCode === "drying"
-              ? 4
-              : 0;
+          ? 1
+          : vacuumCap.statusCode === "dust_collecting"
+            ? 2
+            : vacuumCap.statusCode === "washing"
+              ? 3
+              : vacuumCap.statusCode === "drying"
+                ? 4
+                : -1;
     return {
       stageLabel: vacuumCap.statusLabel,
       stages,
@@ -1185,22 +1190,22 @@ function buildCycleTaskCapability(
     (remainingMinutes !== undefined && remainingMinutes > 0) ||
     /煮|热|沸|焖|洗|漂|脱|烘|清扫|工作|运行|cooking|washing|cleaning|drying|boiling/i.test(stageLabel);
 
-  let activeStageIndex = 0;
+  let activeStageIndex = -1;
   for (let i = 0; i < stages.length; i++) {
     if (stageLabel.includes(stages[i]!)) {
       activeStageIndex = i;
       break;
     }
   }
-  if (isRunning && activeStageIndex === 0 && stages.length >= 3) {
-    activeStageIndex = Math.min(2, stages.length - 1);
+  if (activeStageIndex < 0 && isRunning && stages.length >= 2) {
+    activeStageIndex = icon === "cooker" ? Math.min(2, stages.length - 1) : 1;
   }
 
   const progressPercent = isRunning
     ? remainingMinutes !== undefined
       ? Math.max(12, Math.min(92, Math.round(100 - (remainingMinutes / 60) * 100)))
       : undefined
-    : stageLabel === "保温中"
+    : stageLabel === "保温中" || stageLabel === "保管中"
       ? 100
       : undefined;
 
@@ -2151,16 +2156,24 @@ export function buildHomeDashboardModel(
       } else {
         isActive = cycle.isRunning;
         statusBadge = cycle.stageLabel;
+        const distinctRecipe =
+          cycle.recipeLabel &&
+          !cycle.stageLabel.includes(cycle.recipeLabel) &&
+          !cycle.recipeLabel.includes(cycle.stageLabel)
+            ? cycle.recipeLabel
+            : undefined;
         if (cycle.remainingMinutes !== undefined && cycle.remainingMinutes > 0) {
-          conciseSubtitle = `剩余 ${cycle.remainingMinutes}m`;
+          conciseSubtitle = distinctRecipe
+            ? `${distinctRecipe} · 剩余 ${cycle.remainingMinutes}m`
+            : `剩余 ${cycle.remainingMinutes}m`;
         } else if (cycle.keepWarmMinutes !== undefined && cycle.keepWarmMinutes > 0) {
           conciseSubtitle = `已保温 ${cycle.keepWarmMinutes}m`;
         } else if (cycle.temperatureCelsius !== undefined) {
           conciseSubtitle = `${cycle.temperatureCelsius}°C · ${cycle.stageLabel}`;
-        } else if (cycle.recipeLabel) {
-          conciseSubtitle = `${cycle.recipeLabel} · ${cycle.stageLabel}`;
+        } else if (distinctRecipe) {
+          conciseSubtitle = `${distinctRecipe} · ${cycle.stageLabel}`;
         } else {
-          conciseSubtitle = `${cycle.stageLabel}就绪`;
+          conciseSubtitle = cycle.stageLabel;
         }
       }
     }

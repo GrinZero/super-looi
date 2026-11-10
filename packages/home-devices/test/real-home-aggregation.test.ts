@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   buildHomeDashboardModel,
+  collectCardVisibleTexts,
   createEmptyLayoutPreferences,
   createSimulationRawRecords,
   cycleTileSpan,
@@ -11,11 +12,13 @@ import {
   moveApplianceToIndexInList,
   parseLayoutPreferences,
   parseTileSpanDimensions,
+  resolveApplianceCardView,
   serializeLayoutPreferences,
   swapApplianceOrderInList,
   updateApplianceOrder,
   updateApplianceSpan,
   type RawHomeEntityRecord,
+  type TileSpan,
 } from "../src/index.js";
 
 const storageDir = resolve(import.meta.dirname, "../../../data/home-assistant/.storage");
@@ -600,5 +603,217 @@ describe("@super-looi/home-devices: Real Home Snapshot ('源心锁的家') & Ben
 
     const deskLamp = model.allAppliances.find((a) => a.model === "philips.light.lite")!;
     assert.equal(deskLamp.icon, "desk_lamp");
+  });
+
+  it("enforces single-slot ownership and prevents status duplication across all spans", () => {
+    // 1. Screenshot Case A: 洗碗机 in '保管中' with mode '智能'
+    // Previously repeated '保管中' / '保管' 5 times across Header, inner box title, inner box subtitle, and stage labels.
+    const dishwasherRecords: RawHomeEntityRecord[] = [
+      {
+        entity_id: "switch.miot_1145020874_s2_p1_on",
+        domain: "switch",
+        friendly_name: "洗碗机 · Switch Status",
+        device_id: "1145020874",
+        device_name: "洗碗机",
+        device_model: "qmdq88.dishwasher.s1",
+        room: "厨房",
+        source: "direct_miot",
+        original_name: "Dishwasher · Switch Status",
+        supported_features: ["read", "turn_on", "turn_off"],
+        snapshot: { entity_id: "switch.miot_1145020874_s2_p1_on", state: "on", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "sensor.miot_1145020874_s2_p2_status",
+        domain: "sensor",
+        friendly_name: "洗碗机 · Status",
+        device_id: "1145020874",
+        device_name: "洗碗机",
+        device_model: "qmdq88.dishwasher.s1",
+        room: "厨房",
+        source: "direct_miot",
+        original_name: "Dishwasher · Status",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.miot_1145020874_s2_p2_status", state: "保管中", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "select.miot_1145020874_s2_p3_mode",
+        domain: "select",
+        friendly_name: "洗碗机 · Mode",
+        device_id: "1145020874",
+        device_name: "洗碗机",
+        device_model: "qmdq88.dishwasher.s1",
+        room: "厨房",
+        source: "direct_miot",
+        original_name: "Dishwasher · Mode",
+        supported_features: ["read", "select_option"],
+        snapshot: {
+          entity_id: "select.miot_1145020874_s2_p3_mode",
+          state: "智能",
+          attributes: { options: ["智能", "标准洗", "强力洗"] },
+          last_updated: "",
+        },
+      },
+    ];
+    const dishwasherModel = buildHomeDashboardModel(dishwasherRecords);
+    const dishwasher = dishwasherModel.allAppliances[0]!;
+    const dishwasherView = resolveApplianceCardView(dishwasher, "2x1");
+    assert.equal(dishwasherView.header.subtitle, "智能 · 保管中");
+    assert.equal(dishwasherView.header.trailing.kind, "power");
+    assert.equal(dishwasherView.cycleBody?.primaryReadout, undefined);
+    assert.deepEqual(
+      dishwasherView.cycleBody?.stages.map((s) => ({ label: s.label, state: s.state })),
+      [
+        { label: "预洗", state: "completed" },
+        { label: "主洗", state: "completed" },
+        { label: "漂洗", state: "completed" },
+        { label: "烘干", state: "completed" },
+        { label: "保管", state: "current" },
+      ],
+    );
+    const dishwasherTexts = collectCardVisibleTexts(dishwasherView);
+    assert.equal(dishwasherTexts.filter((t) => t.includes("保管中")).length, 1);
+
+    // 2. Screenshot Case B: 主卧开关 (1x1 multi-gang switch with 1 channel on)
+    // Previously rendered '1/3 开启' badge in top-right (squeezing 4-char title '主卧开关' into 2 lines) AND '已开 1 路' subtitle.
+    const switchRecords: RawHomeEntityRecord[] = [
+      {
+        entity_id: "switch.master_sw_1",
+        domain: "switch",
+        friendly_name: "主卧开关 按键 1",
+        device_id: "master_sw",
+        device_name: "主卧开关",
+        device_model: "lumi.switch.b3lacn02",
+        room: "卧室",
+        source: "external_ha",
+        original_name: "左键开关",
+        supported_features: ["turn_on", "turn_off"],
+        snapshot: { entity_id: "switch.master_sw_1", state: "off", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "switch.master_sw_2",
+        domain: "switch",
+        friendly_name: "主卧开关 按键 2",
+        device_id: "master_sw",
+        device_name: "主卧开关",
+        device_model: "lumi.switch.b3lacn02",
+        room: "卧室",
+        source: "external_ha",
+        original_name: "中键开关",
+        supported_features: ["turn_on", "turn_off"],
+        snapshot: { entity_id: "switch.master_sw_2", state: "on", attributes: {}, last_updated: "" },
+      },
+      {
+        entity_id: "switch.master_sw_3",
+        domain: "switch",
+        friendly_name: "主卧开关 按键 3",
+        device_id: "master_sw",
+        device_name: "主卧开关",
+        device_model: "lumi.switch.b3lacn02",
+        room: "卧室",
+        source: "external_ha",
+        original_name: "右键开关",
+        supported_features: ["turn_on", "turn_off"],
+        snapshot: { entity_id: "switch.master_sw_3", state: "off", attributes: {}, last_updated: "" },
+      },
+    ];
+    const switchModel = buildHomeDashboardModel(switchRecords);
+    const masterSwitch = switchModel.allAppliances[0]!;
+    const switchView1x1 = resolveApplianceCardView(masterSwitch, "1x1");
+    assert.equal(switchView1x1.header.trailing.kind, "none");
+    assert.equal(switchView1x1.header.subtitle, "已开 1 路");
+    assert.equal(switchView1x1.multiGangChannels?.length, 3);
+
+    // 3. Screenshot Case C: 米家智能微烤一体机 in idle '待机' state without power switch
+    // Previously repeated '待机' 6 times and lit up stage bar[0] in black because stages[0] was '待机' and activeStageIndex defaulted to 0.
+    const microwaveRecords: RawHomeEntityRecord[] = [
+      {
+        entity_id: "sensor.microwave_status",
+        domain: "sensor",
+        friendly_name: "米家智能微烤一体机 · Status",
+        device_id: "mw_1",
+        device_name: "米家智能微烤一体机",
+        device_model: "chunmi.microwave.n20l01",
+        room: "厨房",
+        source: "direct_miot",
+        original_name: "Microwave · Status",
+        supported_features: ["read"],
+        snapshot: { entity_id: "sensor.microwave_status", state: "Idle", attributes: {}, last_updated: "" },
+      },
+    ];
+    const microwaveModel = buildHomeDashboardModel(microwaveRecords);
+    const microwave = microwaveModel.allAppliances[0]!;
+    assert.deepEqual(microwave.capabilities.cycleTask?.stages, ["预热", "加热", "烘烤", "散温"]);
+    assert.equal(microwave.capabilities.cycleTask?.activeStageIndex, -1);
+    const microwaveView = resolveApplianceCardView(microwave, "2x1");
+    assert.equal(microwaveView.header.trailing.kind, "none");
+    assert.equal(microwaveView.header.subtitle, "待机");
+    assert.equal(microwaveView.cycleBody?.primaryReadout, undefined);
+    assert.ok(microwaveView.cycleBody?.stages.every((s) => s.state === "upcoming"));
+    const microwaveTexts = collectCardVisibleTexts(microwaveView);
+    assert.equal(microwaveTexts.filter((t) => t.includes("待机")).length, 1);
+
+    // 4. Screenshot Case D: 空调 in 2x1 vs 1x1 when targetTemp === currentTemp === 22.5°C
+    // Previously repeated '22.5°C' in both Header ('制冷 · 22.5°C') and Body stepper ('22.5°C' + '室温 22.5°C').
+    const acRecords: RawHomeEntityRecord[] = [
+      {
+        entity_id: "climate.living_ac",
+        domain: "climate",
+        friendly_name: "空调",
+        device_id: "ac_1",
+        device_name: "空调",
+        device_model: "xiaomi.aircondition.mc5",
+        room: "大厅",
+        source: "external_ha",
+        original_name: "空调",
+        supported_features: ["turn_on", "turn_off", "set_temperature", "set_hvac_mode"],
+        snapshot: {
+          entity_id: "climate.living_ac",
+          state: "cool",
+          attributes: {
+            current_temperature: 22.5,
+            temperature: 22.5,
+            min_temp: 16,
+            max_temp: 31,
+            target_temp_step: 0.5,
+            hvac_modes: ["cool", "heat", "dry", "auto", "off"],
+          },
+          last_updated: "",
+        },
+      },
+    ];
+    const acModel = buildHomeDashboardModel(acRecords);
+    const ac = acModel.allAppliances[0]!;
+    const acView2x1 = resolveApplianceCardView(ac, "2x1");
+    assert.equal(acView2x1.header.subtitle, "制冷 · 室温 22.5°C");
+    assert.equal(acView2x1.climateBody?.thermostat?.readoutText, "22.5°C");
+    // In 1x1, Body is hidden, so Header folds target temperature back into subtitle
+    const acView1x1 = resolveApplianceCardView(ac, "1x1");
+    assert.equal(acView1x1.header.subtitle, "制冷 · 22.5°C");
+    assert.equal(acView1x1.climateBody, undefined);
+
+    // 5. Global Invariant Check across all 45 real-home appliances + simulation appliances across all 4 spans
+    const allDashboards = [
+      buildHomeDashboardModel(loadRealHomeSnapshotRecords()),
+      buildHomeDashboardModel(createSimulationRawRecords()),
+    ];
+    const spans: TileSpan[] = ["1x1", "2x1", "1x2", "2x2"];
+    for (const dashboard of allDashboards) {
+      for (const app of dashboard.allAppliances) {
+        for (const span of spans) {
+          const view = resolveApplianceCardView(app, span);
+          const slotTexts = collectCardVisibleTexts(view).slice(1); // exclude card title
+          const normalizedSeen = new Set<string>();
+          for (const text of slotTexts) {
+            const norm = text.trim();
+            if (!norm) continue;
+            assert.ok(
+              !normalizedSeen.has(norm),
+              `Duplicate visible text '${norm}' on appliance '${app.name}' (${app.id}) at span ${span}: [${slotTexts.join(", ")}]`,
+            );
+            normalizedSeen.add(norm);
+          }
+        }
+      }
+    }
   });
 });
