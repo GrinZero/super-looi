@@ -1,3 +1,6 @@
+import { VideoAccount, type XiaomiVideoLoginState, type XiaomiVideoAuthState } from "./runtime/video-account";
+import type { CameraVideoState } from "./ui/CameraVideo";
+export type { XiaomiVideoLoginStep, XiaomiVideoLoginState, XiaomiVideoAuthState } from "./runtime/video-account";
 import { uiMessage } from "./runtime/messages";
 import { HomePowerState } from "./runtime/home-power-state";
 import { bindLocale, resolveLocale, translateMessage, type LanguagePreference } from "./i18n";
@@ -18,6 +21,7 @@ import {
   NodeCompat,
   VoiceAudio,
   MiotLoginBrowser,
+  XiaomiCameraHost,
   LooiBle,
 } from "super-looi/native";
 import { connect } from "websocket";
@@ -61,24 +65,6 @@ export type AppSpace =
 
 export type HomeSubView = "devices" | "services" | "video_login";
 
-export interface XiaomiVideoAuthState {
-  authorized: boolean;
-  account: string;
-  cameraCount: number;
-}
-
-export type XiaomiVideoLoginStep = "credentials" | "captcha" | "two_factor";
-
-export interface XiaomiVideoLoginState {
-  step: XiaomiVideoLoginStep;
-  account: string;
-  region: string;
-  error: string | null;
-  busy: boolean;
-  captchaCode: string;
-  captchaHint: string;
-  smsCountdown: number;
-}
 export type AppearancePreference = "system" | "light" | "dark";
 export type TaskApprovalMode = "ask" | "local_auto" | "yolo";
 
@@ -439,32 +425,33 @@ export function createAppStore() {
     if (alive) homeDashboard.set(dashboard);
   });
   const homeSubView = signal<HomeSubView>("devices");
-  const xiaomiVideoAuth = signal<XiaomiVideoAuthState>({
-    authorized: false,
-    account: "",
-    cameraCount: 3,
-  });
+  let cameraHost: XiaomiCameraHost | undefined;
+  const xiaomiVideoAuth = signal<XiaomiVideoAuthState>({ authorized: false, account: "", cameraCount: 0 });
   const xiaomiVideoLogin = signal<XiaomiVideoLoginState>({
-    step: "credentials",
-    account: "",
-    region: "cn",
-    error: null,
-    busy: false,
-    captchaCode: "A7K9",
-    captchaHint: "A7K9",
-    smsCountdown: 0,
+    step: "credentials", attempt: 0, account: "", region: "cn", error: null, busy: false, canResume: false,
+    captchaImage: "", destination: "", smsCountdown: 0,
   });
-  let smsTimer: ReturnType<typeof setInterval> | null = null;
-  cleanup(() => {
-    if (smsTimer) clearInterval(smsTimer);
+  const videoAccount = new VideoAccount({
+    native: () => cameraHost,
+    onChange: () => {
+      if (!alive) return;
+      const becameAuthorized = !xiaomiVideoAuth().authorized && videoAccount.auth.authorized;
+      xiaomiVideoLogin.set({ ...videoAccount.login });
+      xiaomiVideoAuth.set({ ...videoAccount.auth });
+      if (becameAuthorized) cameraRetry.update(value => value + 1);
+    },
+    onAuthorized: () => {
+      homeSubView.set("services");
+    },
   });
+  cleanup(() => videoAccount.cancel());
   const homeSelectedRoom = signal<string>("all");
   const homeOverviewCollapsed = signal(false);
   const homeLayoutEditing = signal<string | null>(null);
   const homeInspectedApplianceId = signal<string | null>(null);
   const homeCamera = signal<{
     phase: "idle" | "loading" | "prepared" | "playing" | "error";
-    url: string | null;
+    sessionId: string | null;
     seconds: number;
     buffering: boolean;
     width?: number;
@@ -473,13 +460,15 @@ export function createAppStore() {
     requestedAt?: number;
     preparedAt?: number;
     progressAt?: number;
-  }>({ phase: "idle", url: null, seconds: 0, buffering: false });
+    firstTimestampMs?: number;
+    frames?: number;
+  }>({ phase: "idle", sessionId: null, seconds: 0, buffering: false });
   const cameraRetry = signal(0);
   let cameraKey = "";
   let cameraAttempt = 0;
   function stopHomeCamera() {
     ++cameraAttempt;
-    homeCamera.set({ phase: "idle", url: null, seconds: 0, buffering: false });
+    homeCamera.set({ phase: "idle", sessionId: null, seconds: 0, buffering: false });
     void runtime?.stopHomeCamera().catch(() => {});
   }
   cleanup(stopHomeCamera);
@@ -564,10 +553,10 @@ export function createAppStore() {
     cameraKey = key;
     stopHomeCamera();
     if (!visible || !runtime) return;
-    if (appliance.source !== "direct_miot" || kind !== "hls" || off) {
+    if (appliance.source !== "direct_miot" || off) {
       homeCamera.set({
         phase: "error",
-        url: null,
+        sessionId: null,
         seconds: 0,
         buffering: false,
         error: off ? "miot_camera_off" : "miot_camera_unsupported",
@@ -577,7 +566,7 @@ export function createAppStore() {
     const attempt = cameraAttempt;
     homeCamera.set({
       phase: "loading",
-      url: null,
+      sessionId: null,
       seconds: 0,
       buffering: true,
       requestedAt: Date.now(),
@@ -585,14 +574,14 @@ export function createAppStore() {
     void runtime.startHomeCamera(appliance.deviceId).then(
       (playback) => {
         if (!alive || attempt !== cameraAttempt) return;
-        homeCamera.update((state) => ({ ...state, url: playback.url }));
+        homeCamera.update((state) => ({ ...state, sessionId: playback.sessionId }));
       },
       (error: unknown) => {
         if (!alive || attempt !== cameraAttempt) return;
         const message = error instanceof Error ? error.message : "";
         homeCamera.set({
           phase: "error",
-          url: null,
+          sessionId: null,
           seconds: 0,
           buffering: false,
           error:
@@ -600,7 +589,7 @@ export function createAppStore() {
               message,
             )
               ? message
-              : "miot_camera_network",
+              : message.startsWith("camera_") ? message : "miot_camera_network",
         });
       },
     );
@@ -887,12 +876,19 @@ export function createAppStore() {
         taskApprovalMode.set(savedTaskApprovalMode);
       }
       const vault = new CredentialVault();
+      try {
+        cameraHost = new XiaomiCameraHost();
+        void videoAccount.initialize();
+      } catch (error) {
+        xiaomiVideoLogin.update(state => ({ ...state, error: String(error) }));
+      }
       const opened = await openRuntime(new NodeCompat(), vault);
       if (!alive) {
         await opened.close();
         return;
       }
       runtime = opened;
+      if (cameraHost) opened.attachNativeCamera(cameraHost);
       opened.setBodyForegroundActive(lifecycle() === "active");
       try {
         opened.attachNativeBle(new LooiBle());
@@ -1119,6 +1115,7 @@ export function createAppStore() {
       if (space !== "home" && homeLoggingIn()) {
         api.cancelHomeLogin();
       }
+      if (space !== "home" && homeSubView() === "video_login") api.cancelXiaomiVideoLogin();
       activeSpace.set(space);
       if (space === "tasks" && ready()) {
         api.refreshTasks(0);
@@ -1131,6 +1128,7 @@ export function createAppStore() {
       if (homeLoggingIn()) {
         api.cancelHomeLogin();
       }
+      if (homeSubView() === "video_login") api.cancelXiaomiVideoLogin();
       activeSpace.set("face");
     },
     goBack(): boolean {
@@ -1445,6 +1443,7 @@ export function createAppStore() {
     homeRefreshing: () => homeRefreshing(),
     homeSubView: () => homeSubView(),
     setHomeSubView(view: HomeSubView) {
+      if (homeSubView() === "video_login" && view !== "video_login") videoAccount.cancel();
       homeSubView.set(view);
       if (view !== "devices") {
         homeLayoutEditing.set(null);
@@ -1454,136 +1453,23 @@ export function createAppStore() {
     xiaomiVideoAuth: () => xiaomiVideoAuth(),
     xiaomiVideoLogin: () => xiaomiVideoLogin(),
     startXiaomiVideoLogin() {
-      if (smsTimer) {
-        clearInterval(smsTimer);
-        smsTimer = null;
-      }
-      const rawAccount = xiaomiVideoAuth().account || "13812345678";
-      xiaomiVideoLogin.set({
-        step: "credentials",
-        account: rawAccount,
-        region: homeConfiguration().region || "cn",
-        error: null,
-        busy: false,
-        captchaCode: "",
-        captchaHint: "A7K9",
-        smsCountdown: 0,
-      });
+      videoAccount.start(homeConfiguration().region || "cn");
       homeSubView.set("video_login");
     },
     cancelXiaomiVideoLogin() {
-      if (smsTimer) {
-        clearInterval(smsTimer);
-        smsTimer = null;
-      }
-      xiaomiVideoLogin.update((s) => ({ ...s, busy: false, error: null }));
+      videoAccount.cancel();
       homeSubView.set("services");
     },
-    submitVideoCredentials(params: { account: string; password?: string; region?: string }) {
-      if (!params.account.trim()) {
-        xiaomiVideoLogin.update((s) => ({ ...s, error: "请输入米家账号" }));
-        return;
-      }
-      xiaomiVideoLogin.update((s) => ({
-        ...s,
-        account: params.account.trim(),
-        region: params.region || s.region,
-        error: null,
-        step: "captcha",
-        captchaCode: "",
-        captchaHint: "A7K9",
-      }));
-    },
-    refreshVideoCaptcha() {
-      const candidates = ["A7K9", "8F3N", "4M2W", "9P6Q", "5H7Y"];
-      const current = xiaomiVideoLogin().captchaHint;
-      const next = candidates[(candidates.indexOf(current) + 1) % candidates.length];
-      xiaomiVideoLogin.update((s) => ({
-        ...s,
-        captchaHint: next,
-        captchaCode: "",
-        error: null,
-      }));
-    },
-    submitVideoCaptcha(code: string) {
-      const current = xiaomiVideoLogin();
-      if (!code || code.trim().toUpperCase() !== current.captchaHint) {
-        xiaomiVideoLogin.update((s) => ({
-          ...s,
-          error: "验证码不正确，请重新输入。",
-        }));
-        return;
-      }
-      if (smsTimer) {
-        clearInterval(smsTimer);
-        smsTimer = null;
-      }
-      let cd = 42;
-      xiaomiVideoLogin.update((s) => ({
-        ...s,
-        step: "two_factor",
-        error: null,
-        smsCountdown: cd,
-      }));
-      smsTimer = setInterval(() => {
-        cd -= 1;
-        if (cd <= 0) {
-          if (smsTimer) clearInterval(smsTimer);
-          smsTimer = null;
-          xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: 0 }));
-        } else {
-          xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: cd }));
-        }
-      }, 1000);
-    },
-    sendVideoSms() {
-      if (smsTimer) {
-        clearInterval(smsTimer);
-        smsTimer = null;
-      }
-      let cd = 60;
-      xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: cd, error: null }));
-      smsTimer = setInterval(() => {
-        cd -= 1;
-        if (cd <= 0) {
-          if (smsTimer) clearInterval(smsTimer);
-          smsTimer = null;
-          xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: 0 }));
-        } else {
-          xiaomiVideoLogin.update((s) => ({ ...s, smsCountdown: cd }));
-        }
-      }, 1000);
-    },
-    submitVideoTwoFactor(code: string) {
-      if (!code || code.trim().length < 4) {
-        xiaomiVideoLogin.update((s) => ({
-          ...s,
-          error: "请输入有效的验证码",
-        }));
-        return;
-      }
-      if (smsTimer) {
-        clearInterval(smsTimer);
-        smsTimer = null;
-      }
-      const raw = xiaomiVideoLogin().account;
-      const masked =
-        raw.length >= 7
-          ? raw.slice(0, 3) + "****" + raw.slice(-4)
-          : raw || "138****1234";
-      xiaomiVideoAuth.set({
-        authorized: true,
-        account: masked,
-        cameraCount: 3,
-      });
-      homeSubView.set("services");
-    },
-    disconnectXiaomiVideo() {
-      xiaomiVideoAuth.set({
-        authorized: false,
-        account: "",
-        cameraCount: 0,
-      });
+    submitVideoCredentials: (params: { account: string; password?: string; region?: string }) => videoAccount.credentials(params),
+    refreshVideoCaptcha: () => videoAccount.refreshCaptcha(),
+    submitVideoCaptcha: (code: string) => videoAccount.answer(code),
+    sendVideoSms: () => videoAccount.resend(),
+    submitVideoTwoFactor: (code: string) => videoAccount.answer(code),
+    resumeVideoLogin: () => videoAccount.resume(),
+    async disconnectXiaomiVideo() {
+      stopHomeCamera();
+      await videoAccount.disconnect();
+      cameraRetry.update(value => value + 1);
     },
     homeSelectedRoom: () => homeSelectedRoom(),
     homeOverviewCollapsed: () => homeOverviewCollapsed(),
@@ -1607,39 +1493,22 @@ export function createAppStore() {
     retryHomeCamera() {
       cameraRetry.update((value) => value + 1);
     },
-    homeCameraLoaded(url: string, size: { width: number; height: number }) {
-      if (homeCamera().url !== url) return;
-      homeCamera.update((state) => ({
-        ...state,
-        phase: "prepared",
-        width: size.width,
-        height: size.height,
-        preparedAt: Date.now(),
-      }));
-    },
-    homeCameraProgress(url: string, seconds: number) {
-      if (homeCamera().url !== url || seconds <= homeCamera().seconds) return;
-      homeCamera.update((state) => ({
-        ...state,
-        phase: "playing",
-        seconds,
-        buffering: false,
-        progressAt: state.progressAt ?? Date.now(),
-      }));
-    },
-    homeCameraBuffer(url: string, buffering: boolean) {
-      if (homeCamera().url === url)
-        homeCamera.update((state) => ({ ...state, buffering }));
-    },
-    homeCameraFailed(url: string) {
-      if (homeCamera().url !== url) return;
-      stopHomeCamera();
-      homeCamera.set({
-        phase: "error",
-        url: null,
-        seconds: 0,
-        buffering: false,
-        error: "miot_camera_playback",
+    homeCameraState(event: CameraVideoState) {
+      if (homeCamera().sessionId !== event.sessionId) return;
+      if (event.failure || event.closed) {
+        stopHomeCamera();
+        homeCamera.set({ phase: "error", sessionId: null, seconds: 0, buffering: false, error: event.failure ?? "camera_session_closed" });
+        return;
+      }
+      homeCamera.update(state => {
+        const progress = event.frames > (state.frames ?? 0);
+        const firstTimestampMs = state.firstTimestampMs ?? (event.frames > 0 ? event.timestampMs : undefined);
+        return { ...state, width:event.width, height:event.height, frames:event.frames, firstTimestampMs,
+          seconds:firstTimestampMs === undefined ? 0 : Math.max(0,(event.timestampMs-firstTimestampMs)/1000),
+          phase:event.displayed === true ? "playing" : event.frames > 0 ? "prepared" : "loading",
+          buffering:event.frames > 0 && !progress && Date.now()-(state.progressAt ?? Date.now()) > 2000,
+          preparedAt:state.preparedAt ?? (event.frames > 0 ? Date.now() : undefined),
+          progressAt:progress ? Date.now() : state.progressAt };
       });
     },
     homeLoggingIn: () => homeLoggingIn(),
@@ -1671,6 +1540,7 @@ export function createAppStore() {
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       homeLogin?.cancel();
       await runtime.logoutMiot(action());
+      await videoAccount.disconnect();
       homeDevices.set({});
       await syncHomeDashboard();
     },

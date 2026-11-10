@@ -26,6 +26,7 @@ import {
   type ModelVaultEnvelope,
 } from "@super-looi/runtime/agent/llm-providers";
 
+import type { NativeCamera } from "./camera.js";
 import { HomeRuntime, type HomeSettings } from "./home.js";
 import {
   BodyRuntime,
@@ -364,6 +365,7 @@ export class MobileRuntime {
   startHomeCamera(did: string) {
     return this.home.startCamera(did);
   }
+  attachNativeCamera(camera: NativeCamera) { this.home.attachCamera(camera); }
   stopHomeCamera() {
     return this.home.stopCamera();
   }

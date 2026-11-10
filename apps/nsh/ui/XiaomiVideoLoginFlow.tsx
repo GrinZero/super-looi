@@ -1,10 +1,10 @@
 import { t } from "../i18n";
-import { signal, Text, View, Scroll } from "nsh";
+import { effect, Image, signal, Text, View, Scroll } from "nsh";
 import { Button, Input } from "nsh/base";
 import type { createAppStore } from "../store";
 import { ActionIcon } from "./HomeIcons";
 import { MijiaBrandIcon } from "./brand-icons";
-import { SelectField } from "./Controls";
+import { LoadingIndicator, SelectField } from "./Controls";
 
 const REGION_OPTIONS: Array<{ value: string; title: string }> = [
   { value: "cn", title: "中国大陆" },
@@ -12,7 +12,7 @@ const REGION_OPTIONS: Array<{ value: string; title: string }> = [
   { value: "de", title: "Europe (Germany)" },
   { value: "sg", title: "Singapore" },
   { value: "ru", title: "Russia" },
-  { value: "in", title: "India" },
+  { value: "i2", title: "India" },
 ];
 
 export function XiaomiVideoLoginFlow(props: {
@@ -31,13 +31,35 @@ export function XiaomiVideoLoginFlow(props: {
 
   const maskedAccount = () => {
     const raw = accountInput().trim() || loginState().account;
-    if (!raw) return "138****1234";
+    if (!raw) return "";
     if (raw.includes("*")) return raw;
     if (raw.length >= 7) {
       return raw.slice(0, 3) + "****" + raw.slice(-4);
     }
     return raw;
   };
+
+  let lastAttempt = -1;
+  effect(() => {
+    if (loginState().attempt === lastAttempt) return;
+    lastAttempt = loginState().attempt;
+    accountInput.set(loginState().account);
+    regionValue.set(loginState().region);
+    passwordInput.set("");
+    captchaInput.set("");
+    twoFactorInput.set("");
+  });
+
+  effect(() => {
+    if (props.store.xiaomiVideoAuth().authorized) {
+      passwordInput.set("");
+      captchaInput.set("");
+      twoFactorInput.set("");
+    }
+  });
+  effect(() => {
+    if (loginState().captchaImage) captchaInput.set("");
+  });
 
   const handleCredentialsSubmit = () => {
     props.store.submitVideoCredentials({
@@ -102,11 +124,15 @@ export function XiaomiVideoLoginFlow(props: {
               <If when={step() === "two_factor"}>
                 <Text class="text-foreground text-2xl font-bold">验证你的账号</Text>
                 <Text class="text-muted-foreground text-sm leading-relaxed">
-                  验证码已发送至 {maskedAccount()}。
+                  {loginState().destination ? `验证码已发送至 ${loginState().destination}。` : "验证码已发送，请查看绑定的手机或邮箱。"}
                 </Text>
               </If>
             </View>
 
+            <If when={step() === "continuing"}>
+              <Text class="text-foreground text-2xl font-bold">完成账号连接</Text>
+              <Text class="text-muted-foreground text-sm">正在读取米家摄像头。</Text>
+            </If>
             {/* Region selector for Step 1 */}
             <If when={step() === "credentials"}>
               <View class="flex-row items-center justify-between pt-2">
@@ -168,18 +194,13 @@ export function XiaomiVideoLoginFlow(props: {
                 </View>
               </View>
 
-              <If when={Boolean(loginState().error)}>
-                <Text class="text-destructive text-xs font-medium">
-                  {loginState().error}
-                </Text>
-              </If>
-
               <Button
                 testID="video-login-submit-credentials"
+                disabled={loginState().busy}
                 onPress={() => handleCredentialsSubmit()}
-                class="min-h-11 w-full rounded-xl bg-[#f5e0a0] items-center justify-center active:opacity-80 mt-2"
+                class="min-h-11 w-full rounded-xl bg-primary items-center justify-center active:opacity-80 mt-2"
               >
-                <Text class="text-[#2a2206] text-sm font-bold">登录</Text>
+                <Text class="text-primary-foreground text-sm font-bold">{loginState().busy ? "正在登录…" : "登录"}</Text>
               </Button>
             </If>
 
@@ -203,14 +224,14 @@ export function XiaomiVideoLoginFlow(props: {
                     autoCorrect={false}
                     class="flex-1 h-11 rounded-xl border border-border bg-background px-3 text-foreground text-sm focus:border-ring"
                   />
-                  {/* Captcha image badge */}
-                  <View class="h-11 px-3 rounded-xl bg-muted border border-border items-center justify-center">
-                    <Text class="text-foreground text-base font-black tracking-widest italic select-none">
-                      {loginState().captchaHint}
-                    </Text>
-                  </View>
+                  <Image
+                    testID="video-login-captcha-image"
+                    src={loginState().captchaImage}
+                    class="h-10 w-28 rounded-xl"
+                  />
                   <Button
                     testID="video-login-refresh-captcha"
+                disabled={loginState().busy}
                     accessibilityLabel="换一张验证码"
                     onPress={() => props.store.refreshVideoCaptcha()}
                     class="h-11 px-2.5 rounded-xl border border-border bg-card flex-row items-center gap-1 active:opacity-75"
@@ -221,18 +242,13 @@ export function XiaomiVideoLoginFlow(props: {
                 </View>
               </View>
 
-              <If when={Boolean(loginState().error)}>
-                <Text class="text-destructive text-xs font-medium">
-                  {loginState().error}
-                </Text>
-              </If>
-
               <Button
                 testID="video-login-submit-captcha"
+                disabled={loginState().busy}
                 onPress={() => handleCaptchaSubmit()}
-                class="min-h-11 w-full rounded-xl bg-[#f5e0a0] items-center justify-center active:opacity-80 mt-2"
+                class="min-h-11 w-full rounded-xl bg-primary items-center justify-center active:opacity-80 mt-2"
               >
-                <Text class="text-[#2a2206] text-sm font-bold">继续</Text>
+                <Text class="text-primary-foreground text-sm font-bold">{loginState().busy ? "正在验证…" : "继续"}</Text>
               </Button>
             </If>
 
@@ -257,6 +273,7 @@ export function XiaomiVideoLoginFlow(props: {
                   else={
                     <Button
                       testID="video-login-resend-sms"
+                disabled={loginState().busy}
                       onPress={() => props.store.sendVideoSms()}
                       class="py-1 active:opacity-75"
                     >
@@ -270,19 +287,30 @@ export function XiaomiVideoLoginFlow(props: {
                 </If>
               </View>
 
-              <If when={Boolean(loginState().error)}>
-                <Text class="text-destructive text-xs font-medium">
-                  {loginState().error}
-                </Text>
-              </If>
-
               <Button
                 testID="video-login-submit-2fa"
+                disabled={loginState().busy}
                 onPress={() => handleTwoFactorSubmit()}
-                class="min-h-11 w-full rounded-xl bg-[#f5e0a0] items-center justify-center active:opacity-80 mt-2"
+                class="min-h-11 w-full rounded-xl bg-primary items-center justify-center active:opacity-80 mt-2"
               >
-                <Text class="text-[#2a2206] text-sm font-bold">继续</Text>
+                <Text class="text-primary-foreground text-sm font-bold">{loginState().busy ? "正在验证…" : "继续"}</Text>
               </Button>
+            </If>
+            <If when={loginState().busy}>
+              <LoadingIndicator label="正在连接小米账号" />
+            </If>
+            <If when={Boolean(loginState().error)}>
+              <Text testID="video-login-error" class="text-destructive text-xs font-medium">{loginState().error}</Text>
+              <If when={loginState().canResume}>
+              <Button
+                testID="video-login-retry"
+                disabled={loginState().busy}
+                onPress={() => props.store.resumeVideoLogin()}
+                class="min-h-10 px-3 rounded-xl border border-border bg-muted items-center justify-center active:opacity-75"
+              >
+                <Text class="text-foreground text-xs font-semibold">重试当前步骤</Text>
+              </Button>
+              </If>
             </If>
           </View>
         </View>

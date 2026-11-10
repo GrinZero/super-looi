@@ -94,7 +94,7 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
   androidDevice: option("--device"),
   iosReleaseSimulator: command === "package" && target === "ios-simulator",
   ios: isIos,
-  iosSimulator: isIos && (target === "ios-simulator" || (command !== "package" && !option("--device"))),
+  iosSimulator: isIos && (target === "ios-simulator" || command === "dev" || (command !== "package" && !option("--device"))),
   iosDevelopment:
     command !== "package" &&
     (command.endsWith("-ios") || target === "ios" || target === "ios-simulator"),

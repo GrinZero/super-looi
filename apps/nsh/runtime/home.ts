@@ -8,9 +8,7 @@ import type {
 } from "@super-looi/contracts";
 import {
   defineHaEntity,
-  createMiotCameraSession,
   MiotCameraError,
-  type MiotCameraSession,
   DirectMiotTransportAdapter,
   executeHomeVoiceTool,
   HomeAssistantGateway,
@@ -43,6 +41,7 @@ import {
   type RawHomeEntityRecord,
   type TileSpan,
 } from "@super-looi/home-devices";
+import type { NativeCamera } from "./camera.js";
 
 export type HomeMode =
   | "disabled"
@@ -212,7 +211,8 @@ export class HomeRuntime {
   private actions = new Set<string>();
   private commandQueue: Promise<unknown> = Promise.resolve();
   private cameraGeneration = 0;
-  private cameraSession?: MiotCameraSession;
+  private cameraSession?: string;
+  private camera?: NativeCamera;
   private cameraQueue: Promise<unknown> = Promise.resolve();
   private readonly sessionId: string;
   private readonly crypto: MiotCryptoProvider;
@@ -335,6 +335,7 @@ export class HomeRuntime {
     this.saved = next;
   }
   private invalidate() {
+    this.camera?.stopAll();
     void this.stopCamera().catch(() => {});
     ++this.generation;
     this.oauth?.cancelAuthSession();
@@ -458,17 +459,12 @@ export class HomeRuntime {
     return layout;
   }
 
-  /** The native view detaches immediately; this queue finishes the previous
-   * account's bounded cleanup before another camera may start. */
+  /** Release only the preview consumer; Agent captures keep their own lease. */
   stopCamera(): Promise<void> {
     ++this.cameraGeneration;
-    const closing = this.cameraSession?.close();
+    if (this.cameraSession) this.camera?.closePreview(this.cameraSession);
     this.cameraSession = undefined;
-    const pending = this.cameraQueue
-      .catch(() => {})
-      .then(async () => {
-        await closing;
-      });
+    const pending = this.cameraQueue.then(() => undefined, () => undefined);
     this.cameraQueue = pending;
     return pending;
   }
@@ -477,7 +473,7 @@ export class HomeRuntime {
     this.assertOpen();
     const generation = ++this.cameraGeneration;
     const connectionGeneration = this.generation;
-    const closing = this.cameraSession?.close();
+    if (this.cameraSession) this.camera?.closePreview(this.cameraSession);
     this.cameraSession = undefined;
     const current = () =>
       !this.closed &&
@@ -486,32 +482,20 @@ export class HomeRuntime {
     const pending = this.cameraQueue
       .catch(() => {})
       .then(async () => {
-        await closing;
         if (!current()) throw new MiotCameraError("cancelled");
         const capability = this.owner?.directMiot
           ?.listCameraCapabilities()
           .find((camera) => camera.did === did);
         if (!capability) throw new MiotCameraError("unsupported");
-        const region = this.saved.config.region;
-        const token = await this.auth(true).tokens.getAccessToken();
-        if (!current()) throw new MiotCameraError("cancelled");
-        // This client belongs only to this viewing attempt. Unlike dashboard
-        // requests it must survive generation invalidation to stop a late start.
-        const client = new MiotHttpClient({
-          region,
-          getAccessToken: async () => token,
-          fetch: this.options.fetch ?? fetch,
-          timeoutMs: 7000,
-        });
-        const session = createMiotCameraSession({ client, capability });
+        if (!this.camera) throw new Error("camera_decoder_unavailable");
+        const session = await this.camera.openPreview(did);
         this.cameraSession = session;
         try {
-          const playback = await session.ready;
           if (!current()) {
-            await session.close();
+            this.camera.closePreview(session);
             throw new MiotCameraError("cancelled");
           }
-          return playback;
+          return { sessionId: session, protocol: "native" as const };
         } catch (error) {
           if (this.cameraSession === session) this.cameraSession = undefined;
           throw error;
@@ -519,6 +503,25 @@ export class HomeRuntime {
       });
     this.cameraQueue = pending;
     return pending;
+  }
+
+  attachCamera(camera: NativeCamera) { this.camera = camera; }
+
+  async captureCamera(did: string, connectionId: string, signal?: AbortSignal) {
+    this.assertOpen();
+    const owner = this.owner;
+    if (!owner || owner.id !== connectionId || !owner.directMiot?.listCameraCapabilities().some(camera => camera.did === did))
+      throw new Error("camera_device_not_in_connection");
+    if (signal?.aborted) throw new Error("camera_request_cancelled");
+    if (!this.camera) throw new Error("camera_decoder_unavailable");
+    const camera=this.camera;
+    const requestId=camera.beginCapture(did);
+    const cancel=() => camera.cancelCapture(requestId);
+    signal?.addEventListener("abort",cancel,{once:true});
+    let frame;
+    try { frame=await camera.captureDevice(requestId); } finally { signal?.removeEventListener("abort",cancel); }
+    if (signal?.aborted || owner !== this.owner) throw new Error("camera_request_cancelled");
+    return frame;
   }
 
   private network(generation: number): typeof fetch {
@@ -1098,8 +1101,7 @@ export class HomeRuntime {
         continue;
       const vision = appliance.capabilities.visionStream;
       vision.playbackKind =
-        cameras.find((camera) => camera.did === appliance.deviceId)?.kind ??
-        "unsupported";
+        cameras.some((camera) => camera.did === appliance.deviceId) ? "native" : "unsupported";
       const powerState = rawRecords.find(
         (record) => record.entity_id === appliance.capabilities.power?.entityId,
       )?.snapshot?.state;
@@ -1108,7 +1110,7 @@ export class HomeRuntime {
       vision.streamActive = false;
       delete vision.resolutionBadge;
       vision.statusText =
-        vision.playbackKind === "hls"
+        vision.playbackKind === "native"
           ? lang === "en-US"
             ? "Open to view"
             : "打开详情查看画面"

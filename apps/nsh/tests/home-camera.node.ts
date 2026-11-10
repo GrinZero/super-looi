@@ -16,7 +16,7 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-async function fixture(hold: "properties" | "start") {
+async function fixture() {
   const callbackId = "00000000-0000-0000-0000-000000000001";
   const scope = {
     region: "cn" as const,
@@ -75,10 +75,7 @@ async function fixture(hold: "properties" | "start") {
           },
         };
       else if (url.endsWith("/miotspec/prop/get")) {
-        if (hold === "properties") {
-          entered.resolve();
-          await released.promise;
-        }
+
         const body = JSON.parse(String(init!.body));
         value = {
           code: 0,
@@ -95,10 +92,7 @@ async function fixture(hold: "properties" | "start") {
           authorization: (init!.headers as Record<string, string>)
             .Authorization,
         });
-        if (body.params.aiid === 1 && hold === "start") {
-          entered.resolve();
-          await released.promise;
-        }
+
         value = {
           code: 0,
           result: {
@@ -114,25 +108,35 @@ async function fixture(hold: "properties" | "start") {
       return new Response(JSON.stringify(value));
     },
   });
+  const closed: string[] = [];
+  let stopped = 0;
+  runtime.attachCamera({
+    refreshCaptcha: async () => "", resendTicket: async () => "", cancelLogin() {},
+    initialize: async () => '{"state":"ready"}', login: async () => '', submit: async () => '', resumeLogin: async () => '', logout: async () => {},
+    openPreview: async () => { entered.resolve(); await released.promise; return "native-session"; },
+    closePreview: id => { closed.push(id); },
+    beginCapture: () => "capture-request", cancelCapture: () => {},
+    captureDevice: async () => ({data:"/9j/test",mimeType:"image/jpeg",width:640,height:360,receivedAt:"1700000000000"}),
+    stopAll: () => { stopped++; },
+  });
   await runtime.connect();
-  return { runtime, entered, released, actions };
+  return { runtime, entered, released, actions, closed, stopped: () => stopped };
 }
 
-test("runtime exit during property reads prevents camera start", async () => {
-  const f = await fixture("properties");
+test("leaving detail before native dispatch prevents opening a preview", async () => {
+  const f = await fixture();
   const ready = f.runtime.startCamera("camera-a");
   const rejected = assert.rejects(ready, /cancelled/);
-  await f.entered.promise;
   const closing = f.runtime.stopCamera();
-  f.released.resolve();
   await rejected;
   await closing;
+  assert.equal(f.closed.length, 0);
   assert.equal(f.actions.length, 0);
   f.runtime.close();
 });
 
-test("changing account after dispatch cleans a late start with the original client despite generation invalidation", async () => {
-  const f = await fixture("start");
+test("changing home connection releases a native preview that opens late", async () => {
+  const f = await fixture();
   const ready = f.runtime.startCamera("camera-a");
   const rejected = assert.rejects(ready, /cancelled/);
   await f.entered.promise;
@@ -140,10 +144,18 @@ test("changing account after dispatch cleans a late start with the original clie
   f.released.resolve();
   await rejected;
   await f.runtime.stopCamera();
-  assert.deepEqual(
-    f.actions.map((action) => action.aiid),
-    [1, 2],
-  );
-  assert.equal(f.actions[1]?.authorization, "BearerORIGINAL_ACCOUNT_TOKEN");
+  assert.deepEqual(f.closed, ["native-session"]);
+  assert.ok(f.stopped() > 0);
+  assert.equal(f.actions.length, 0);
+  f.runtime.close();
+});
+
+test("camera capture works without detail and rejects devices outside the connection", async () => {
+  const f = await fixture();
+  const connectionId = f.runtime.connection().connectionId!;
+  const frame = await f.runtime.captureCamera("camera-a", connectionId);
+  assert.equal(frame.mimeType,"image/jpeg");
+  await assert.rejects(f.runtime.captureCamera("missing",connectionId),/camera_device_not_in_connection/);
+  await assert.rejects(f.runtime.captureCamera("camera-a","old-connection"),/camera_device_not_in_connection/);
   f.runtime.close();
 });

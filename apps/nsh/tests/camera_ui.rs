@@ -14,7 +14,7 @@ fn camera_native_node_survives_dashboard_poll_and_unmounts_on_exit() -> Result<(
     let captured = videos.clone();
     app.observe(move |_step, batch| {
         for item in &batch.items {
-            if let MountItem::Create {id,kind:ViewKind::Video} = item { captured.lock().unwrap().push(*id); println!("native Video created: node={id}"); }
+            if let MountItem::Create {id,kind:ViewKind::Native} = item { captured.lock().unwrap().push(*id); println!("native camera created: node={id}"); }
         }
     });
     app.wait_for_within("home-camera-video", Duration::from_secs(5))?;
@@ -24,10 +24,10 @@ fn camera_native_node_survives_dashboard_poll_and_unmounts_on_exit() -> Result<(
     for _ in 0..3 { app.press("Poll dashboard")?; }
     assert!(app.screen().texts().iter().any(|text| text.contains("Room") && text.contains("Off")),
         "the stable camera detail must still update its device status");
-    println!("after 3 dashboard replacements: Video nodes={:?}", *videos.lock().unwrap());
+    println!("after 3 dashboard replacements: Camera nodes={:?}", *videos.lock().unwrap());
     assert_eq!(*videos.lock().unwrap(), initial_ids, "polling must retain the native player's node ID");
     app.press("home-detail-back")?;
     assert_eq!(app.screen().count("home-camera-video")?, 0);
-    println!("after leaving detail: native Video count=0");
+    println!("after leaving detail: native camera count=0");
     Ok(())
 }

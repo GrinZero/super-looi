@@ -36,7 +36,7 @@ function Probe() {
         controllable: true,
       },
       visionStream: {
-        playbackKind: "hls",
+        playbackKind: "native",
         cameraOn: true,
         streamActive: false,
         statusText: "View camera",
@@ -83,7 +83,7 @@ function Probe() {
     homeConnection: () => undefined,
     homeCamera: () => ({
       phase: "loading",
-      url: "https://video.invalid/fixture.m3u8",
+      sessionId: "test-session",
       seconds: 0,
       buffering: true,
     }),

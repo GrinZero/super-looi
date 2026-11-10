@@ -133,7 +133,7 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "home", x: 280, y: 462, title: "HomeRuntime + 设备聚合", symbol: "home", category: "TypeScript · 家居业务与组件模型", detail: "多源并发 / 房间 Bento / 通用控制原语", path: "apps/nsh/runtime/home.ts",
-      description: "支持米家直连（direct_miot）、Home Assistant（external_ha）与离线演示（simulation）多源并发挂载；由 @super-looi/home-devices 将零散实体按物理设备与所属房间归一化，聚合为 6 大设备原型与统一控制原语（Toggle/Range/Choice/Action/Metric），并支持房间级 1×1 / 2×1 / 1×2 / 2×2 Bento 拖边布局。摄像头观看会话由手机持有，HLS 地址交 NSH 原生 Video；离开详情或退后台时结束会话。",
+      description: "支持米家直连（direct_miot）、Home Assistant（external_ha）与离线演示（simulation）多源并发挂载；由 @super-looi/home-devices 将零散实体按物理设备与所属房间归一化，聚合为 6 大设备原型与统一控制原语（Toggle/Range/Choice/Action/Metric），并支持房间级 1×1 / 2×1 / 1×2 / 2×2 Bento 拖边布局。摄像头视频使用独立的 xiaomiio 账号：VideoAccount 对接真实图形／短信挑战，XiaomiCameraHost 完成 STS、设备发现、系统凭据保存及 MISS/CS2 取流；CameraVideo 按 sessionId 显示系统解码结果。离开详情或退后台时结束媒体会话。",
       files: [
         { path: "apps/nsh/runtime/home.ts", entry: "export class HomeRuntime" },
         { path: "packages/home-devices/src/device-aggregator.ts", entry: "export function buildHomeDashboardModel" },
@@ -141,6 +141,10 @@ globalThis.LOOI_ARCH = {
         { path: "packages/home-devices/src/layout-store.ts", entry: "export function parseLayoutPreferences" },
         { path: "packages/home-devices/src/simulation-catalog.ts", entry: "export function createRichSimulationCatalog" },
         { path: "apps/nsh/runtime/miot-login.ts", entry: "export class MiotLoginFlow" },
+        { path: "apps/nsh/runtime/video-account.ts", entry: "export class VideoAccount" },
+        { path: "apps/nsh/src/camera/cloud.rs", entry: "pub struct Cloud" },
+        { path: "apps/nsh/src/camera/mod.rs", entry: "pub struct XiaomiCameraHost" },
+        { path: "apps/nsh/ui/CameraVideo.tsx", entry: "export const CameraVideo" },
         { path: "apps/nsh/ui/HomeSpaceView.tsx", entry: "export function HomeSpaceView" },
       ],
     },

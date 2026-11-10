@@ -1,5 +1,6 @@
+import { CameraVideo } from "./CameraVideo";
 import { t, translateMessage } from "../i18n";
-import { effect, signal, Text, View, Scroll, Video, windowSize } from "nsh";
+import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button, Switch } from "nsh/base";
 import { RetainedPage } from "./RetainedPage";
 import type { createAppStore, HomeSubView } from "../store";
@@ -79,33 +80,10 @@ function CameraMonitor(props: {
         class="w-full rounded-xl overflow-hidden bg-secondary items-center justify-center"
         style={{ aspectRatio: "16 / 9", minHeight: 210, maxHeight: 310 }}
       >
-        <Each of={playback().url ? [playback().url!] : []} key={(url) => url}>
-          {(source) => {
-            const url = source();
-            return (
-              <Video
-                testID="home-camera-video"
-                src={url}
-                muted
-                controls={false}
-                class="absolute inset-0"
-                progressUpdateInterval={1000}
-                onLoad={(event) =>
-                  props.store.homeCameraLoaded(url, event.size)
-                }
-                onProgress={(event) =>
-                  props.store.homeCameraProgress(url, event.currentTime)
-                }
-                onBuffer={(event) =>
-                  props.store.homeCameraBuffer(url, event.isBuffering)
-                }
-                onError={() => props.store.homeCameraFailed(url)}
-                onEnd={() => props.store.homeCameraFailed(url)}
-              />
-            );
-          }}
+        <Each of={playback().sessionId ? [playback().sessionId!] : []} key={(id) => id}>
+          {(id) => <CameraVideo testID="home-camera-video" sessionId={id()} class="absolute inset-0" onState={event => props.store.homeCameraState(event)} />}
         </Each>
-        <If when={!playback().url}>
+        <If when={!playback().sessionId}>
           <View class="items-center gap-3 p-4">
             <ApplianceIcon kind="camera" active={false} size="lg" />
             <If when={playback().phase === "loading"}>
@@ -3616,7 +3594,7 @@ export function HomeSpaceView(props: {
                       </View>
                       <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 1 }}>
                         {isMiotVideoAuthorized()
-                          ? `已关联 ${props.store.xiaomiVideoAuth().cameraCount || 3} 台摄像头。`
+                          ? `已关联 ${props.store.xiaomiVideoAuth().cameraCount} 台摄像头。`
                           : "额外登录，用于查看实时画面。"}
                       </Text>
                     </View>

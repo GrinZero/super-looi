@@ -20,7 +20,7 @@
 
 三台摄像头的社区协议直连均已取得真实可解码视频，实测及原 HLS 失败证据分别见 [社区协议验证](docs/xiaomi-camera-community-verification.md) 与 [手机 HLS 验证](docs/xiaomi-camera-mobile-verification.md)。 接入按用户确认的「实时预览 + Agent 按需取帧」设计，见 [原生接入方案](docs/plans/xiaomi-camera-native-integration-plan.md) 与 [两端原生媒体研究](docs/xiaomi-camera-mobile-native-research.md)。
 
-- [ ] 先在真机验证前台无预览 JPEG、同 DID 共享解码与另一 DID 临时取帧，再将已验证的 MISS/CS2/TCP 链路接入手机进程：现有 App 仍使用返回 404 的云 HLS；社区链路需要 xiaomiio 账号会话、socket、会话加密和原生编码帧入口。复用范围与复杂度见 `docs/xiaomi-camera-community-solutions.md`。
+- [ ] 在真机验证前台无预览 JPEG、同 DID 共享解码与另一 DID 临时取帧，并接回 Agent 图片工具。现有 App 已接入 xiaomiio 账号和 MISS/CS2 原生预览；iPhone 16e 已显示大厅实时画面。复用范围与复杂度见 `docs/xiaomi-camera-community-solutions.md`。
 - [ ] 新增 Pi 家居图片工具，返回真实 JPEG 图像块并接通当前视觉模型；现有家居工具仅返回文本，旧 VisionProvider 不是本链路。
 - [ ] 在手机开发宿主验证真实显示首帧、连续播放、退出释放与前后台恢复；本轮成功证据来自 Mac 的三次约 20 秒媒体采样。
 - [ ] 恢复魅族 20 Pro 的 USB/ADB 连接后，执行手机内置链路的延迟与播放／退出内存验收。
@@ -133,3 +133,7 @@
 ## 家居设备网格交互优化
 
 - [ ] 真机验证缩放手感与折叠布局：代码、7 项回归与独立审查已通过；当前 Android 未连接，历史 Wi-Fi ADB 地址连接被拒绝，devicectl 未发现 iPhone。
+
+## 米家视频真实接线
+
+- [ ] 在真机补充新账号完整验证码登录与 Android 原生预览；iPhone 16e 已验证保存的视频账号恢复、真实设备发现与大厅实时画面，验证码请求序列已有原生 HTTP 回放和页面交互回归。

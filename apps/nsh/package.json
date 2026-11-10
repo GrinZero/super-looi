@@ -8,7 +8,7 @@
     "build:probe": "node --import tsx scripts/build-compat-probe.ts",
     "build": "pnpm build:probe && node --import tsx scripts/nsh.ts build",
     "typecheck": "pnpm build:probe && tsc -p tsconfig.runtime.json && node --import tsx scripts/nsh.ts check",
-    "test": "pnpm test:voice-runtime && pnpm test:model-list && pnpm test:home-power && pnpm test:home-camera && pnpm test:build-env && pnpm build:probe && node --import tsx scripts/nsh.ts test",
+    "test": "pnpm test:voice-runtime && pnpm test:model-list && pnpm test:home-power && pnpm test:home-camera && pnpm test:video-account && pnpm test:build-env && pnpm build:probe && node --import tsx scripts/nsh.ts test",
     "test:home-power": "node --import tsx --test tests/home-power-state.node.ts",
     "test:build-env": "node --import tsx --test tests/build-env.node.ts",
     "test:model-list": "node --import tsx --test tests/model-list.node.ts",
@@ -29,6 +29,7 @@
     "test:login:android": "node --import tsx scripts/nsh.ts login-android",
     "test:linux:android": "pnpm build:probe && node --import tsx scripts/nsh.ts linux-android",
     "test:linux:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts linux-ios",
+    "test:video-account": "node --import tsx --test tests/video-account.node.ts",
     "test:home-camera": "node --import tsx --test tests/home-camera.node.ts"
   },
   "devDependencies": {
