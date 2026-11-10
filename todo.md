@@ -2,9 +2,10 @@
 
 ## 米家摄像头取流
 
-三台摄像头的社区协议直连均已取得真实可解码视频，实测及原 HLS 失败证据分别见 [社区协议验证](docs/xiaomi-camera-community-verification.md) 与 [手机 HLS 验证](docs/xiaomi-camera-mobile-verification.md)。
+三台摄像头的社区协议直连均已取得真实可解码视频，实测及原 HLS 失败证据分别见 [社区协议验证](docs/xiaomi-camera-community-verification.md) 与 [手机 HLS 验证](docs/xiaomi-camera-mobile-verification.md)。 接入按用户确认的「实时预览 + Agent 按需取帧」设计，见 [原生接入方案](docs/plans/xiaomi-camera-native-integration-plan.md) 与 [两端原生媒体研究](docs/xiaomi-camera-mobile-native-research.md)。
 
-- [ ] 将已验证的 MISS/CS2/TCP 链路接入手机进程：现有 App 仍使用返回 404 的云 HLS；社区链路需要 xiaomiio 账号会话、socket、会话加密和原生编码帧入口。复用范围与复杂度见 `docs/xiaomi-camera-community-solutions.md`。
+- [ ] 先在真机验证前台无预览 JPEG、同 DID 共享解码与另一 DID 临时取帧，再将已验证的 MISS/CS2/TCP 链路接入手机进程：现有 App 仍使用返回 404 的云 HLS；社区链路需要 xiaomiio 账号会话、socket、会话加密和原生编码帧入口。复用范围与复杂度见 `docs/xiaomi-camera-community-solutions.md`。
+- [ ] 新增 Pi 家居图片工具，返回真实 JPEG 图像块并接通当前视觉模型；现有家居工具仅返回文本，旧 VisionProvider 不是本链路。
 - [ ] 在手机开发宿主验证真实显示首帧、连续播放、退出释放与前后台恢复；本轮成功证据来自 Mac 的三次约 20 秒媒体采样。
 - [ ] 恢复魅族 20 Pro 的 USB/ADB 连接后，执行手机内置链路的延迟与播放／退出内存验收。
 

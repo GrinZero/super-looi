@@ -1,5 +1,7 @@
 # 手机内置家居运行时：米家摄像头取流
 
+本页保留原 HLS 探索与实施记录。三台摄像头的 MISS/CS2 路径已通过真实媒体验证；当前接入设计见 [原生预览与 Agent 取帧方案](xiaomi-camera-native-integration-plan.md)。
+
 目标设备：两台 `isa.camera.hlc7`、一台 `chuangmi.camera.039a01`。
 
 ## 架构边界

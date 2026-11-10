@@ -10,6 +10,18 @@
 - [x] Step 3：复用 NSH createMotion 加入 160ms、8pt 淡入过渡，遵循系统减少动态效果
 - [x] Step 4：30/30 测试、类型检查、构建、原生唤醒和独立 review 通过；模拟器语音页提交约 5.2ms、返回首页约 2.5ms，证据见 `docs/navigation-performance.md`
 
+### 米家摄像头手机内接入设计（2026-11-10）
+
+- [x] Step 1：对照已实测协议，核对家居运行时、凭据、原生注册及播放器边界
+  - [x] 查明现有 Video 仅接 URL、HomeRuntime/store 为单预览；视频账号需独立会话，Pi 工具已支持图片内容
+- [x] Step 2：比较协议移植和媒体接入路径，查证两端系统 API 与新增依赖成本
+  - [x] 用户确认预览 + Agent 取帧；推荐 Rust 协议、iOS VT 像素共享、Android 独立 SurfaceTexture/EGL 与按需 JPEG
+  - [x] 核对原生组件注册、iOS 15 基线、Android target 35 与插件接线，整理官方／AOSP 来源
+- [x] Step 3：明确账号、会话、显示与退出生命周期的契约，形成接入方案和实施步骤
+  - [x] 单 DID 共享解码、前台无预览取帧、取消／退出消费者、图片模型工具链与新增成本已写入 `docs/plans/xiaomi-camera-native-integration-plan.md`
+- [x] Step 4：独立复核关键接口、来源与取舍，更新待办并提交文档
+  - [x] 双消费者、无预览取帧、两端 API 与 Android 注册时序、Pi 图片链路及依赖成本复核通过；旧计划已指向新方案，待办按确认用途更新
+
 ### 社区 MISS/CS2 实机取流验证（2026-11-10）
 
 - [x] Step 1：检查现有会话与网络，准备最小独立协议探针
