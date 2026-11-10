@@ -1,5 +1,13 @@
 # 当前待办
 
+## 语音配置与同页调试
+
+实施依据：[图二语音配置与同页调试计划](docs/plans/voice-debug-workspace-plan.md)。
+
+- [ ] 按图二实现服务卡片、对应配置、用户转写／回复与固定会话栏，直接在当前页开始和结束对话。
+- [ ] 完成豆包音色草稿试听、保存、应用并重连；试听采用不采集麦克风的短会话，结束后恢复原唤醒偏好。
+- [ ] 完成 VoiceRuntime 服务切换、每服务音色与默认选择迁移，实测 OpenAI Realtime 的音色和试听后开放卡片。
+
 ## 家居与表情接入语音
 
 实施依据：[家居控制与表情控制接入计划](docs/plans/voice-home-and-expression-integration-plan.md)。
