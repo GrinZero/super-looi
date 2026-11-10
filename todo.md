@@ -2,7 +2,8 @@
 
 ## 米家摄像头取流
 
-- [ ] 两台 `isa.camera.hlc7` 已用手机现有 OAuth 取得 HLS 地址，一次原生 Video 有 640×360 加载和进度；按房间复测卧室与天台均为媒体 master 404，短暂等待未恢复。继续定位并验证真实画面与跨 5 分钟稳定播放。
+- [ ] 两台 `isa.camera.hlc7` 的 Android 临时探针仅有瞬时加载/进度，正式详情验收前设备离线；iOS 正式详情未出画面，同设备直接 start 与 stop→start 都是动作成功、新地址 GET 404。需查明设备/云端实际建流与媒体来源；证据见 `docs/xiaomi-camera-mobile-verification.md`。
+- [ ] 当前 HLS 会话没有期限与续流接口；参考实现缺省 270 秒更新。先验证实际媒体通路，再按有效会话的真实期限接入续流。
 - [ ] 大厅 `chuangmi.camera.039a01` P2P action 输出为空；精确候选授权接口已定位为另一 OAuth 业务的 `device/miss_get_vendor_security`，当前 HA 会话权限仍未实证，见 `docs/xiaomi-camera-mobile-p2p-authorization.md`。
 - [ ] 恢复魅族 20 Pro 的 USB/ADB 连接后，在已集成的正式详情上测首帧、延迟和播放/退出内存；包内 HLS 会话、单原生 Video 与取消/轮询/退出回归已完成。
 

@@ -1,0 +1,19 @@
+Timestamp               Ty Process[PID:TID]
+2026-11-10 10:40:12.972 Df nsh-ios-host[90901:3db54e4] [com.apple.coremedia:] HTTPRequest -[FigHTTPRequestSessionDataDelegate URLSession:dataTask:didReceiveResponse:completionHandler:]: received http response 404 (error -12938) for []
+2026-11-10 10:40:13.058 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/ALQ.01|0x60000002dea0> currentItem KVO: called
+2026-11-10 10:40:13.058 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/ALQ.01|0x60000002dea0> currentItem KVO
+2026-11-10 10:40:13.058 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayer >>>> -[AVPlayer dealloc]: AVPlayer [0x60000002f4a0] P/CV releasing figPlayer 0x600003911e10
+2026-11-10 10:41:23.522 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/GSH.01|0x60000005b000> currentItem KVO: called
+2026-11-10 10:41:23.522 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/GSH.01|0x60000005b000> currentItem KVO
+2026-11-10 10:41:23.522 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayer >>>> -[AVPlayer dealloc]: AVPlayer [0x600000059820] P/HX releasing figPlayer 0x600003a2f740
+2026-11-10 10:41:27.934 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/MYY.01|0x6000000477a0> currentItem KVO: called
+2026-11-10 10:41:27.934 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/MYY.01|0x6000000477a0> currentItem KVO
+2026-11-10 10:41:27.934 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayer >>>> -[AVPlayer dealloc]: AVPlayer [0x6000000477e0] P/MQ releasing figPlayer 0x600003a00b60
+2026-11-10 10:41:28.960 Df nsh-ios-host[90901:3dbf622] [com.apple.coremedia:] HTTPRequest -[FigHTTPRequestSessionDataDelegate URLSession:dataTask:didReceiveResponse:completionHandler:]: received http response 404 (error -12938) for []
+2026-11-10 10:41:29.045 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/ZUS.01|0x6000000070e0> currentItem KVO: called
+2026-11-10 10:41:29.046 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/ZUS.01|0x6000000070e0> currentItem KVO
+2026-11-10 10:41:29.046 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayer >>>> -[AVPlayer dealloc]: AVPlayer [0x600000005a50] P/RT releasing figPlayer 0x600003a2f740
+2026-11-10 10:42:12.600 Df nsh-ios-host[90901:3dbe68a] [com.apple.coremedia:] HTTPRequest -[FigHTTPRequestSessionDataDelegate URLSession:dataTask:didReceiveResponse:completionHandler:]: received http response 404 (error -12938) for []
+2026-11-10 10:42:12.650 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/VFF.01|0x600000019050> currentItem KVO: called
+2026-11-10 10:42:12.650 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayerItem >>>> -[AVPlayerItem dealloc]: <I/VFF.01|0x600000019050> currentItem KVO
+2026-11-10 10:42:12.651 Df nsh-ios-host[90901:3db0bbb] [com.apple.coremedia:] <<<< AVPlayer >>>> -[AVPlayer dealloc]: AVPlayer [0x60000001a820] P/JM releasing figPlayer 0x600003a1a220

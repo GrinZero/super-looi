@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-10",
+  "device": "iPhone 16e",
+  "os": "iOS 26.3 Simulator",
+  "cases": [
+    {
+      "case": "direct_start",
+      "camera": "bedroom",
+      "model": "isa.camera.hlc7",
+      "actionSequence": [
+        "9/1",
+        "9/2"
+      ],
+      "actionHttp": 200,
+      "apiCode": 0,
+      "actionCode": 0,
+      "startInput": [
+        1
+      ],
+      "urlCount": 1,
+      "urlLength": 142,
+      "mediaHost": "cn02.livestreaming.io.mi.com",
+      "mediaHttp": 404,
+      "mediaBytes": 0,
+      "isManifest": false
+    },
+    {
+      "case": "stop_then_start",
+      "camera": "bedroom",
+      "model": "isa.camera.hlc7",
+      "actionSequence": [
+        "9/2",
+        "9/1",
+        "9/2"
+      ],
+      "actionHttp": 200,
+      "apiCode": 0,
+      "actionCode": 0,
+      "startInput": [
+        1
+      ],
+      "urlCount": 1,
+      "urlLength": 142,
+      "mediaHost": "cn01.livestreaming.io.mi.com",
+      "mediaHttp": 404,
+      "mediaBytes": 0,
+      "isManifest": false
+    }
+  ]
+}

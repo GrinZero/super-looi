@@ -44,3 +44,33 @@ HA 包 51 项测试、Runtime 摄像头时序 2 项、NSH 类型检查及构建�
 正式 App 已构建并送达开发宿主；开始正式详情验收前，USB 连接消失，核验为同一 serial 的 WiFi ADB 随后 offline，重新连接超时。因此没有取得有效的正式详情 PSS/RSS/CPU、截图、首帧、延迟或长播数据。[采样结果说明](artifacts/camera-mobile-direct/performance.txt)不包含播放性能数值。
 
 本次临时 8792 服务已停止。手机离线时无法发送恢复 8790 的 Intent，也无法查询最后一次 WiFi 8792 转发是否已随断线移除。交付前复查时 8790 也已无监听；设备恢复连接后需在当前 root 工作树启动 8790、切回该开发会话，并检查移除 8792 转发。没有安装新宿主或测试 helper，没有新增 8123 转发。
+
+## iOS 复测与原接入流程审计（2026-11-10）
+
+iPhone 16e、iOS 26.3 模拟器在米家登录后加载了 44 台设备。卧室与天台在正式详情均未出现画面；AVPlayer 的媒体请求收到 HTTP 404，CoreMedia 错误为 `-12938`，随后出现 AVPlayerItem 与 AVPlayer 的析构日志。原生日志见 [native-player.log](artifacts/camera-ios-direct/native-player.log)。失败发生在播放列表获取阶段，尚未进入可用于评估解码、首帧和播放内存的阶段。
+
+`f124d87` 接入的调用链为：
+
+1. `DirectMiotTransportAdapter.discover()` 从规格中的 `start-hls-stream` 发现能力。
+2. `HomeRuntime.startCamera()` 使用现有 OAuth 创建客户端，交给 `createMiotCameraSession()`。
+3. 会话读取电源与同服务流状态，调用 Google Home 服务 `9/1`、输入 `[1]`，提取 `out[0]` 的地址。
+4. store 保存该 URL，`CameraMonitor` 把它直接传给 NSH `Video.src`。
+5. 原生加载失败后，store 卸载 Video，runtime 调用 `9/2` 结束会话。
+
+这条链只实现了 MIoT 动作到云 HLS 播放器的接线，没有实现 MISS/CS2 的密钥协商、摄像头媒体连接和编码帧接收。大厅的 `p2p_pending` 正是未实现取流的分支。
+
+### 同设备初始化对照
+
+保持卧室同一台摄像头、同一 OAuth、同一 `9/1 in=[1]`，对比直接 start 与先 `9/2 stop` 再 start。两次开流和停止动作均为 HTTP 200、顶层及动作 code 0；返回 142 字节 URL，分别指向 `cn02`、`cn01.livestreaming.io.mi.com`。原样 GET 两个新返回地址均为 HTTP 404、零字节响应。第二次预先 stop 的动作也确认成功。结构化结果见 [comparison.json](artifacts/camera-ios-direct/comparison.json)。
+
+因此，该样本已排除“只需补开流前 stop 即可恢复”的解释。404 是新返回地址的实际 HTTP 结果；单凭这个响应还不能区分米家端会话建立、设备上传或云转码资源环节的内部原因。
+
+### 原探针与参考实现的缺口
+
+原 session 的探针在 `onProgress.currentTime > 0` 时立即置空 source、销毁 Video，然后 stop。那次 master GET 200、child HEAD 200、640×360 的 onLoad 和瞬时进度仍是有效事件记录，但没有画面留证、媒体片段或持续播放记录，不能据此认定真实直播已经跑通。
+
+参考实现 `MiotCameraEntity.async_get_stream_address()` 在获取新地址前执行 stop→start，并解析期限；没有期限输出时使用 270 秒的更新周期。当前会话没有期限与续流接口。hlc7 的实际 start 输出规格只有 URL，`expiration-time` 虽在服务中声明，却不属于该动作输出，不能从属性范围推导本次会话期限。[参考源码](https://github.com/al-one/hass-xiaomi-miot/blob/829d61206610d8c3cc697594d57393cc258ecb6e/custom_components/xiaomi_miot/camera.py#L439)
+
+该组件维护者在同型号 hlc7 的 Issue #1744 中于 2025-12-01 明确表示组件不支持实时视频流，且没有支持计划。这使其遗留 HLS 代码不足以作为本项目直播可用性的依据；这一声明也不等于证明米家所有 HLS 服务已关闭。[维护者回复](https://github.com/al-one/hass-xiaomi-miot/issues/1744)
+
+现有证据支持的结论是：该 HLS 接入尚未完成真实媒体闭环；当前可复现的直接失败点是米家新返回播放地址的 HTTP 404，另有独立的续流功能缺失。
