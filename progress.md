@@ -2,6 +2,7 @@
 
 ### 家居服务绑定页 UI 方案发散（2026-11-10）
 
+- [x] Step 4：生成米家视频登录、图形验证、短信／邮箱验证和返回绑定页四状态效果图；按需验证及验证码错误在同页展示，图片与提示词保存至 docs/artifacts/home-services-options/video-login-flow*
 - [x] Step 1：核对现有服务选择卡、配置表单、全局导航与 NSH 设计指南
 - [x] Step 2：用 imagegen 生成主从分栏、紧凑列表、双栏服务卡三种横屏方案
 - [x] Step 3：纳入米家视频独立登录，生成同一服务内区分设备控制与摄像头视频的第四版；四张效果图与提示词保存至 docs/artifacts/home-services-options/
