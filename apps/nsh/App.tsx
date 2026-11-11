@@ -251,31 +251,6 @@ function App() {
                 </View>
               </View>
 
-              <If when={compose()}>
-                <View class="rounded-2xl border border-stage-pill-border bg-ask-bar-bg px-3 py-1.5 flex-row items-center gap-2">
-                  <Input
-                    testID="message-input"
-                    value={draft()}
-                    onChange={(e) => draft.set(e.value)}
-                    onSubmit={send}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                    maxLength={8192}
-                    placeholder={t("askLooiEgListFilesOrWrite")}
-                    class="flex-1 h-10 rounded-xl border border-transparent bg-transparent px-2 text-stage-fg text-sm focus:border-ring"
-                  />
-                  <Button
-                    testID="send-message"
-                    disabled={!draft().trim() || !store.ready() || store.busy()}
-                    onPress={send}
-                    class="rounded-full bg-eye-core px-4 items-center justify-center active:opacity-75 disabled:opacity-40"
-                    style={{ minHeight: 44 }}
-                  >
-                    <Text class="text-stage-bg text-xs font-bold">{t("send")}</Text>
-                  </Button>
-                </View>
-              </If>
-
               <If when={store.toast()}>
                 <View class="items-center">
                   <LightToast text={store.toast()} stage={true} />
@@ -283,7 +258,10 @@ function App() {
               </If>
             </View>
 
-            <View class="items-center gap-2">
+            <View
+              class="items-center gap-2"
+              style={{ marginBottom: "env(keyboard-inset-height)" }}
+            >
               <If when={store.busy()}>
                 <View class="w-full flex-row justify-end">
                   <Button
@@ -319,6 +297,32 @@ function App() {
                   text={responseText()}
                   onOpen={() => responseOpen.set(true)}
                 />
+              </If>
+
+              <If when={compose()}>
+                <View class="w-full rounded-2xl border border-stage-pill-border bg-ask-bar-bg px-3 py-1.5 flex-row items-center gap-2">
+                  <Input
+                    testID="message-input"
+                    accessibilityLabel={t("sendAMessageToLooi")}
+                    value={draft()}
+                    onChange={(e) => draft.set(e.value)}
+                    onSubmit={send}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    maxLength={8192}
+                    placeholder={t("askLooiEgListFilesOrWrite")}
+                    class="flex-1 h-10 rounded-xl border border-transparent bg-transparent px-2 text-stage-fg text-sm placeholder:text-stage-pill-muted focus:border-ring"
+                  />
+                  <Button
+                    testID="send-message"
+                    disabled={!draft().trim() || !store.ready() || store.busy()}
+                    onPress={send}
+                    class="rounded-full bg-eye-core px-4 items-center justify-center active:opacity-75 disabled:opacity-40"
+                    style={{ minHeight: 44 }}
+                  >
+                    <Text class="text-stage-bg text-xs font-bold">{t("send")}</Text>
+                  </Button>
+                </View>
               </If>
             </View>
           </View>
