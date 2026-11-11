@@ -50,6 +50,23 @@
 
 当前 GPT-Live 官方文档还提供客户端自有后端委派、会话上下文补充及结果表达；sideband（旁路连接）可接收会话事件、更新指令和处理工具。它是应用连接同一个语音会话的通道，并不会自动创建导演模型。自有后端和额外模型的状态仍由应用管理。[Delegation and tools](https://developers.openai.com/api/docs/guides/live-delegation)、[Server-side controls](https://developers.openai.com/api/docs/guides/voice-server-controls)
 
+### GPT-Live 与持久协调架构的对应关系
+
+官方将 GPT-Live（语音交流与独立后台）、Realtime（同一语音会话推理与调用工具）和串联 STT/LLM/TTS 分开列为不同架构。旧 Chat-Supervisor 是 Realtime 上的应用层示例，不能用它的等待行为代表 GPT-Live。[官方语音架构比较](https://developers.openai.com/api/docs/guides/voice-agents)
+
+GPT-Live 有两种后台委派方式：[官方委派契约](https://developers.openai.com/api/docs/guides/live-delegation)
+
+| 责任 | Responses 托管委派 | Client 自有后端委派 |
+| --- | --- | --- |
+| 后台模型调用与背景 | Live 服务准备对话背景并调用配置的 Responses 模型 | 应用从转写和任务状态准备背景，调用自有 Agent 或服务 |
+| 自定义函数执行与任务状态 | 应用负责 | 应用负责 |
+| 持久协调与独立任务 | 需要应用定义，不由并行工具调用自动产生 | 可接当前设计的持久协调 Agent，并由其管理内部任务 |
+| 语音与后台执行 | 可独立推进 | 可独立推进 |
+
+Client 委派事件带委派标识和时间等元数据，不含用户话语或任务正文。应用需要保存输入与输出转写，结合当前任务状态理解请求和改口。回传时可分别选择静默背景 `session.thinking.append`、希望表达的结果 `session.commentary.append` 或行为指令 `session.instructions.append`。这些事件是语音与应用之间的接口，不承担长期目标保存和任务调度。[上下文与回传事件](https://developers.openai.com/api/docs/guides/live-delegation#keep-the-conversation-context-in-your-application)
+
+对 Super-LOOI 的对应关系是：GPT-Live client delegation 可作为一种语音提供方适配，后端仍可采用统一的持久协调 Agent；Qwen 的会话和多任务机制可作为其内部实现参考。两者分别提供语音委派接口和任务组织范式。使用 GPT-Live 仍需实现应用侧上下文与任务状态；直接复用其 OpenAI 协议事件不能覆盖豆包通道。
+
 这些机制可作协议适配参考；OpenAI 的具体事件名称不直接适用于豆包。
 
 ## DeepSeek Super-agent：主会话保持响应，独立 Worker 持续推进任务
