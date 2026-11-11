@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses";
 import type { Model } from "@earendil-works/pi-ai";
 import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { createLangfuseTracer, type TraceObservation } from "../src/telemetry/langfuse.js";
 
 const model: Model<"openai-responses"> = {
   id: "gpt-5.4", name: "GPT-5.4", provider: "openai", api: "openai-responses",
@@ -48,7 +49,10 @@ function responseBody(search = true, failure = false, refusal?: string, output?:
 test("official OpenAI enables hosted search alongside local tools, records calls and persists clickable citations", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-search-"));
   const requests: Record<string, any>[] = [];
+  const observations = new Map<string, TraceObservation>();
+  const tracer = createLangfuseTracer({ onObservation: node => observations.set(node.spanId, node) });
   const executor = new PiAgentExecutor({
+    tracer,
     stateDirectory: root, workspaceRoot: join(root, "work"), modelSpec: model,
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
@@ -74,6 +78,16 @@ test("official OpenAI enables hosted search alongside local tools, records calls
     assert.equal(followUp.toolCallsCount, 0);
     assert.equal(followUp.answer, "你好。");
     assert.match(JSON.stringify(requests[1].input), /https:\/\/example.com\/grin/);
+    const nodes = [...observations.values()];
+    const search = nodes.find(node => node.name === "agent.tool.web_search")!;
+    const generations = nodes.filter(node => node.name === "llm.chat");
+    assert.equal(search.parentSpanId, generations[0].spanId);
+    assert.deepEqual(search.attributes["langfuse.observation.output"], { status: "completed", action: { type: "search", queries: ["GRIN ZERO"] } });
+    assert.deepEqual(JSON.parse(JSON.stringify(generations[0].attributes["langfuse.observation.metadata.request"])), requests[0]);
+    const context = nodes.filter(node => node.name === "agent.context")[1];
+    assert.match(JSON.stringify(context.attributes["langfuse.observation.input"]), /搜索 GRIN ZERO 的基本介绍/);
+    assert.equal(executor.getTask(followUp.taskId)?.trace?.traceId, context.traceId);
+    assert.ok(generations.every(node => node.endedAt !== undefined));
   } finally {
     await executor.close();
     rmSync(root, { recursive: true, force: true });

@@ -5,6 +5,7 @@ import type { LangfuseTracer, TraceContext } from "./langfuse.js";
 export function wrapStreamFnWithLangfuse(baseStreamFn: StreamFn, options: {
   tracer: LangfuseTracer;
   getTraceContext: () => TraceContext | undefined;
+  onGeneration?: (context: TraceContext) => void;
 }): StreamFn {
   if (!options.tracer.enabled) return baseStreamFn;
   return async (model, context, streamOptions) => {
@@ -14,10 +15,18 @@ export function wrapStreamFnWithLangfuse(baseStreamFn: StreamFn, options: {
       "langfuse.observation.model.parameters": { samplingParams: model.samplingParams, thinkingLevel: streamOptions?.reasoning },
       "langfuse.observation.input": { systemPrompt: system?.content, messages: context.messages, tools: system?.toolsAdded },
     });
+    options.onGeneration?.(observation.context);
+    let requestPayload: unknown;
+    const observedOptions = { ...streamOptions, onPayload: async (payload: unknown, requestModel: Model<Api>) => {
+      const replacement = await streamOptions?.onPayload?.(payload, requestModel);
+      requestPayload = structuredClone(replacement ?? payload);
+      return replacement;
+    } };
+    const requestAttributes = () => requestPayload === undefined ? {} : { "langfuse.observation.metadata.request": requestPayload };
     let source;
-    try { source = await baseStreamFn(model, context, streamOptions); }
+    try { source = await baseStreamFn(model, context, observedOptions); }
     catch (error) {
-      observation.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": String(error) });
+      observation.end({ ...requestAttributes(), "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": String(error) });
       throw error;
     }
     const target = createAssistantMessageEventStream();
@@ -28,13 +37,13 @@ export function wrapStreamFnWithLangfuse(baseStreamFn: StreamFn, options: {
           if (!firstDelta && ["text_delta", "thinking_delta", "toolcall_delta"].includes(event.type)) firstDelta = Date.now();
           if (event.type === "done" || event.type === "error") {
             const message = event.type === "done" ? event.message : event.error;
-            observation.end(observationResult(model, message, firstDelta));
+            observation.end({ ...requestAttributes(), ...observationResult(model, message, firstDelta) });
           }
           target.push(event);
         }
         target.end(await source.result());
       } catch (error) {
-        observation.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": String(error) });
+        observation.end({ ...requestAttributes(), "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": String(error) });
         const failed = {
           role: "assistant", content: [], api: model.api, provider: model.provider,
           model: model.id, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
@@ -53,6 +62,7 @@ function observationResult(model: Model<Api>, message: AssistantMessage, firstDe
   const priced = usage.cost.totalFromProvider === true || [model.cost.input, model.cost.output, model.cost.cacheRead, model.cost.cacheWrite].some((value) => value > 0);
   return {
     "langfuse.observation.output": message.content,
+    ...(message.stopReason === "aborted" ? { "langfuse.observation.metadata.cancelled": true } : {}),
     ...(firstDelta ? { "langfuse.observation.completion_start_time": firstDelta } : {}),
     "langfuse.observation.usage_details": {
       input: usage.input, output: usage.output, cacheRead: usage.cacheRead,

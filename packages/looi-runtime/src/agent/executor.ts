@@ -66,6 +66,7 @@ export interface AgentTask {
   createdAt: string;
   updatedAt: string;
   steps: AgentStepEvent[];
+  trace?: { traceId: string; spanId: string };
   interaction?: AgentInteraction;
   result?: AgentRunResult;
   error?: string;

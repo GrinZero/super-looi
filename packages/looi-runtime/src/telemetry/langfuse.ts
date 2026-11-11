@@ -8,6 +8,17 @@ export interface TraceContext {
   sessionId?: string;
 }
 export type ObservationAttributes = Record<string, unknown>;
+/** The same observation used by the local inspector and the remote exporter. */
+export interface TraceObservation {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  name: string;
+  type: "span" | "agent" | "generation" | "tool";
+  startedAt: number;
+  endedAt?: number;
+  attributes: ObservationAttributes;
+}
 export interface Observation {
   readonly context: TraceContext;
   readonly spanId: string;
@@ -52,10 +63,12 @@ export function createLangfuseTracer(config?: {
   secretKey?: string;
   fetch?: typeof fetch;
   flushIntervalMs?: number;
+  onObservation?: (observation: TraceObservation) => void;
 }): LangfuseTracer {
-  if (!config?.baseUrl || !config.publicKey || !config.secretKey) return NOOP_TRACER;
+  const remote = Boolean(config?.baseUrl && config.publicKey && config.secretKey);
+  if (!remote && !config?.onObservation) return NOOP_TRACER;
   const queue: Record<string, unknown>[] = [];
-  const secrets = new Set<string>([config.secretKey]);
+  const secrets = new Set<string>(config?.secretKey ? [config.secretKey] : []);
   const scrub = (value: unknown): unknown => {
     if (typeof value === "string") {
       let result = value;
@@ -68,9 +81,9 @@ export function createLangfuseTracer(config?: {
   };
   let flushing: Promise<void> | undefined;
   let closed = false;
-  const send = config.fetch || fetch;
-  const url = `${config.baseUrl.replace(/\/$/, "")}/api/public/otel/v1/traces`;
-  const authorization = `Basic ${Buffer.from(`${config.publicKey}:${config.secretKey}`).toString("base64")}`;
+  const send = config?.fetch || fetch;
+  const url = `${config?.baseUrl?.replace(/\/$/, "")}/api/public/otel/v1/traces`;
+  const authorization = `Basic ${Buffer.from(`${config?.publicKey}:${config?.secretKey}`).toString("base64")}`;
   let exportFailureReported = false;
   const flush = async (): Promise<void> => {
     if (flushing) return flushing;
@@ -95,8 +108,8 @@ export function createLangfuseTracer(config?: {
     })();
     await flushing;
   };
-  const timer = setInterval(() => { void flush(); }, config.flushIntervalMs ?? 5000);
-  timer.unref?.();
+  const timer = remote ? setInterval(() => { void flush(); }, config?.flushIntervalMs ?? 5000) : undefined;
+  timer?.unref?.();
   return {
     enabled: true,
     registerSecret(value) { if (value.length >= 4) secrets.add(value); },
@@ -108,6 +121,15 @@ export function createLangfuseTracer(config?: {
         ...(parent?.sessionId ? { sessionId: parent.sessionId } : {}),
       };
       const started = startTimeMs ?? Date.now();
+      const initialAttributes = scrub(initial) as ObservationAttributes;
+      const record: TraceObservation = {
+        traceId: context.traceId, spanId,
+        ...(parent?.parentSpanId ? { parentSpanId: parent.parentSpanId } : {}),
+        name, type, startedAt: started,
+        attributes: { "langfuse.trace.name": context.traceName,
+          ...(context.sessionId ? { "session.id": context.sessionId } : {}), ...initialAttributes },
+      };
+      config?.onObservation?.(structuredClone(record));
       let ended = false;
       return {
         context, spanId,
@@ -115,6 +137,11 @@ export function createLangfuseTracer(config?: {
           if (ended) return;
           ended = true;
           const endedAt = endTimeMs ?? Date.now();
+          const finalAttributes = scrub(final) as ObservationAttributes;
+          record.endedAt = endedAt;
+          record.attributes = { ...record.attributes, ...finalAttributes };
+          config?.onObservation?.(structuredClone(record));
+          if (!remote) return;
           if (queue.length >= 500) queue.shift();
           queue.push({
             traceId: context.traceId, spanId,
@@ -124,7 +151,7 @@ export function createLangfuseTracer(config?: {
               "langfuse.observation.type": type,
               "langfuse.trace.name": context.traceName,
               ...(context.sessionId ? { "session.id": context.sessionId, "langfuse.session.id": context.sessionId } : {}),
-              ...initial, ...final,
+              ...initialAttributes, ...finalAttributes,
             }) as ObservationAttributes),
           });
         },
@@ -134,7 +161,7 @@ export function createLangfuseTracer(config?: {
     async shutdown() {
       if (closed) return;
       closed = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
       if (flushing) await flushing;
       await flush();
     },

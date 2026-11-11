@@ -1,5 +1,6 @@
 import type { AgentTask } from "../agent/executor.js";
 import type { TaskPersistence } from "../agent/task-store.js";
+import type { TraceObservation } from "../telemetry/langfuse.js";
 
 type Value = string | number | null;
 export interface RuntimeDatabase {
@@ -27,7 +28,17 @@ export class SqliteRuntimeStore {
 
   constructor(private readonly db: RuntimeDatabase) {
     db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
-      CREATE TABLE IF NOT EXISTS runtime_tasks (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS runtime_tasks (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS runtime_observations (span_id TEXT PRIMARY KEY, trace_id TEXT NOT NULL, started_at INTEGER NOT NULL, snapshot TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS runtime_observations_trace ON runtime_observations(trace_id, started_at);`);
+    // Open observations belong to the previous runtime, which is no longer running.
+    for (const row of db.prepare("SELECT snapshot FROM runtime_observations").all()) {
+      const node = JSON.parse(String(row.snapshot)) as TraceObservation;
+      if (node.endedAt === undefined && node.attributes["langfuse.observation.metadata.interrupted"] !== true) {
+        node.attributes["langfuse.observation.metadata.interrupted"] = true;
+        this.saveObservation(node);
+      }
+    }
     this.tasks = {
       load: () => {
         this.assertOpen();
@@ -48,6 +59,18 @@ export class SqliteRuntimeStore {
         ).run(task.id, encode(task));
       },
     };
+  }
+
+  saveObservation(observation: TraceObservation): void {
+    this.assertOpen();
+    this.db.prepare("INSERT INTO runtime_observations(span_id,trace_id,started_at,snapshot) VALUES(?,?,?,?) ON CONFLICT(span_id) DO UPDATE SET snapshot=excluded.snapshot")
+      .run(observation.spanId, observation.traceId, observation.startedAt, JSON.stringify(observation));
+  }
+
+  traceObservations(traceId: string): TraceObservation[] {
+    this.assertOpen();
+    return this.db.prepare("SELECT snapshot FROM runtime_observations WHERE trace_id = ? ORDER BY started_at, rowid")
+      .all(traceId).map(row => JSON.parse(String(row.snapshot)) as TraceObservation);
   }
 
   private assertOpen(): void {

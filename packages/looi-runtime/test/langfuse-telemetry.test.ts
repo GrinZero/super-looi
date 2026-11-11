@@ -263,7 +263,7 @@ test("voice tool context connects agent, generation and tool observations", asyn
     const tool = spans().find((span: any) => span.name === "agent.tool.ping");
     assert.equal(agent.parentSpanId, traceContext.parentSpanId);
     assert.equal(generations.length, 2);
-    assert.equal(tool.parentSpanId, agent.spanId);
+    assert.equal(tool.parentSpanId, generations[0].spanId);
     for (const span of [agent, ...generations, tool]) {
       assert.equal(span.traceId, traceContext.traceId);
       assert.equal(attrs(span)["session.id"].stringValue, "voice-42");

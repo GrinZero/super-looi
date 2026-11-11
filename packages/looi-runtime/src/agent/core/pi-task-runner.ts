@@ -32,7 +32,7 @@ import {
   type ModelStreamConfig,
 } from "./model-resolver.js";
 import { createOpenAIWebSearch, hasOpenAIWebSearch } from "./openai-web-search.js";
-import type { LangfuseTracer, Observation } from "../../telemetry/langfuse.js";
+import type { LangfuseTracer, Observation, TraceContext } from "../../telemetry/langfuse.js";
 import { wrapStreamFnWithLangfuse } from "../../telemetry/llm-observer.js";
 
 export async function awaitWithin(
@@ -90,6 +90,8 @@ export class PiTaskRunner {
   private readonly pendingShell = new Set<string>();
   private readonly killShells = new Set<() => void>();
   private readonly interactionGate: InteractionGate;
+  private trace?: Observation;
+  private generationContext?: TraceContext;
 
   constructor(
     private readonly task: AgentTask,
@@ -170,6 +172,20 @@ export class PiTaskRunner {
     );
   }
 
+  private async waitForInteraction(kind: "approval" | "question", details: Record<string, unknown>, signal?: AbortSignal): Promise<AgentInteractionAnswer> {
+    const observation = this.host.config.tracer?.start(`agent.${kind}`, "span", this.generationContext ?? this.trace?.context, {
+      "langfuse.observation.input": details,
+    });
+    try {
+      const answer = await this.interactionGate.wait(kind, details, signal);
+      observation?.end({ "langfuse.observation.output": answer });
+      return answer;
+    } catch (error) {
+      observation?.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": String(error) });
+      throw error;
+    }
+  }
+
   private async execute(): Promise<AgentRunResult> {
     const { task, prompt, options, host } = this;
     const { config } = host;
@@ -177,17 +193,25 @@ export class PiTaskRunner {
     const trace = config.tracer?.start(
       "agent.run",
       "agent",
-      options.traceContext ?? {
+      options.traceContext ?? (options.resume && task.trace ? {
+        traceId: task.trace.traceId, parentSpanId: task.trace.spanId,
+        traceName: "agent.run", sessionId: task.sessionId,
+      } : {
         traceId: "",
         traceName: "agent.run",
         sessionId: task.sessionId,
-      },
+      }),
       {
         "langfuse.observation.input": prompt,
         "langfuse.observation.metadata.taskId": task.id,
         "langfuse.observation.metadata.mode": options.mode ?? "text",
       },
     );
+    this.trace = trace;
+    if (trace?.spanId) {
+      task.trace = { traceId: trace.context.traceId, spanId: trace.spanId };
+      host.updateTask(task);
+    }
     const toolTraces = new Map<string, Observation>();
     let tracedAnswer: string | undefined;
     let traceError = false;
@@ -223,8 +247,9 @@ export class PiTaskRunner {
         if (trace && config.tracer) {
           toolTraces.set(
             callId,
-            config.tracer.start(`agent.tool.${toolName}`, "tool", trace.context, {
+            config.tracer.start(`agent.tool.${toolName}`, "tool", this.generationContext ?? trace.context, {
               "langfuse.observation.input": args,
+              "langfuse.observation.metadata.callId": callId,
             }),
           );
         }
@@ -260,7 +285,7 @@ export class PiTaskRunner {
         }
       };
       const webSearch = createOpenAIWebSearch((event) => {
-        if (event.phase === "start") startTool(event.callId, "web_search", {});
+        if (event.phase === "start") startTool(event.callId, "web_search", { type: "provider_hosted" });
         else {
           endTool(event.callId, "web_search", event.result, event.result?.status === "failed");
         }
@@ -279,7 +304,7 @@ export class PiTaskRunner {
           isStopped: () => this.stopped,
           onShellOutput: options.onShellOutput,
           askUserQuestion: (requestId, questions, signal) =>
-            this.interactionGate.wait(
+            this.waitForInteraction(
               "question",
               {
                 requestId,
@@ -298,6 +323,13 @@ export class PiTaskRunner {
         restoredMessages,
         webSearchEnabled: hasOpenAIWebSearch(model),
       });
+      config.tracer?.start("agent.context", "span", trace?.context, {
+        "langfuse.observation.input": {
+          sessionId: task.sessionId,
+          history: (restoredMessages ?? []).filter(message => message.role !== "system"),
+          systemPrompt, userPrompt,
+        },
+      }).end({ "langfuse.observation.output": { historyMessages: (restoredMessages ?? []).filter(message => message.role !== "system").length } });
 
       const agent = new Agent({
         initialState: {
@@ -321,6 +353,7 @@ export class PiTaskRunner {
           ? wrapStreamFnWithLangfuse(streamFn, {
               tracer: config.tracer,
               getTraceContext: () => trace?.context,
+              onGeneration: (context) => { this.generationContext = context; },
             })
           : streamFn,
         beforeToolCall: async (
@@ -343,7 +376,7 @@ export class PiTaskRunner {
             approvalMode: options.approvalMode ?? "ask",
           });
           if (details) {
-            const decision = await this.interactionGate.wait(
+            const decision = await this.waitForInteraction(
               "approval",
               details,
               signal,
@@ -496,6 +529,8 @@ export class PiTaskRunner {
       trace?.end({
         "langfuse.observation.output": tracedAnswer ?? "",
         "langfuse.observation.metadata.toolCallsCount": toolCallsCount,
+        "langfuse.observation.metadata.state": task.state,
+        ...(task.error ? { "langfuse.observation.status_message": task.error } : {}),
         ...(traceError ? { "langfuse.observation.level": "ERROR" } : {}),
       });
       if (timer) clearTimeout(timer);

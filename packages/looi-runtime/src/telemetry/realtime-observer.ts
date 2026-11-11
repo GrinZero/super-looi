@@ -9,6 +9,7 @@ interface Socket {
 export interface ObservedVoiceSocket extends Socket {
   finalizeSession(reason?: string): void;
   getToolTraceContext(callId: string): TraceContext | undefined;
+  setResponseTraceContext(context?: TraceContext): void;
 }
 const bytes = (base64: string) => Math.max(0, Math.floor(base64.length * 3 / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0));
 
@@ -29,6 +30,7 @@ export function observeVoiceSocket(socket: Socket, options: {
   let turn: Turn | undefined;
   const pendingTurns: Turn[] = [];
   let response: Observation | undefined, responseStarted = 0, responseOrder = 0, responseTurnOrder = 0, firstAudio = 0, responseFrames = 0, responseBytes = 0, responseText = "";
+  let nextResponseContext: TraceContext | undefined;
   const transcripts: string[] = [], assistantTranscripts: string[] = [];
   const conversation: Array<{ role: "user" | "assistant"; content: string; order: number }> = [];
   let eventOrder = 0;
@@ -83,7 +85,12 @@ export function observeVoiceSocket(socket: Socket, options: {
   };
   const ensureResponse = () => {
     if (!response) {
-      response = tracer.start("realtime.response", "generation", root.context, { "langfuse.observation.model.name": protocol.model });
+      response = tracer.start("realtime.response", "generation", nextResponseContext ?? root.context, {
+        "langfuse.observation.model.name": protocol.model,
+        "langfuse.observation.metadata.voiceSessionTraceId": root.context.traceId,
+        "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      });
+      nextResponseContext = undefined;
       responseStarted = Date.now();
       responseOrder = ++eventOrder;
       responseTurnOrder = latestTurnOrder;
@@ -137,6 +144,7 @@ export function observeVoiceSocket(socket: Socket, options: {
       "langfuse.observation.input": lastIsAssistant ? messages.slice(0, -1) : messages,
       "langfuse.observation.output": lastIsAssistant ? [messages[messages.length - 1]] : [],
       "langfuse.observation.metadata.userTranscripts": transcripts,
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
       "langfuse.observation.metadata.assistantTranscripts": assistantTranscripts,
       "langfuse.observation.metadata.turnsCount": turns,
       "langfuse.observation.metadata.toolCallsCount": tools,
@@ -149,6 +157,7 @@ export function observeVoiceSocket(socket: Socket, options: {
   return {
     finalizeSession,
     getToolTraceContext: (callId) => toolSpans.get(callId)?.context,
+    setResponseTraceContext: (context) => { nextResponseContext = context; },
     async read() {
       const raw = await socket.read();
       if (typeof raw !== "string" || closed || !tracer.enabled) return raw;
@@ -193,11 +202,11 @@ export function observeVoiceSocket(socket: Socket, options: {
         case "tool_calls":
           for (const call of normalized.calls) {
             if (!call.callId || toolSpans.has(call.callId)) continue;
-            toolSpans.set(call.callId, tracer.start("realtime.tool_call", "tool", root.context, { "langfuse.observation.input": { name: call.name, arguments: call.argumentsJson } }));
+            toolSpans.set(call.callId, tracer.start("realtime.tool_call", "tool", response?.context ?? root.context, { "langfuse.observation.input": { name: call.name, arguments: call.argumentsJson }, "langfuse.observation.metadata.callId": call.callId }));
             tools++;
           }
           break;
-        case "response_cancelled": finishResponse(true); break;
+        case "response_cancelled": finishResponse(true); nextResponseContext = undefined; break;
         case "response_done": finishResponse(); break;
       }
       return raw;
@@ -206,6 +215,9 @@ export function observeVoiceSocket(socket: Socket, options: {
       if (!closed && tracer.enabled) {
         try {
           const event = JSON.parse(value);
+          if (event.type === "session.update") {
+            tracer.start("realtime.context", "span", root.context, { "langfuse.observation.input": event }).end();
+          }
           if (event.type === "input_audio_buffer.append" && typeof event.audio === "string") {
             if (turn) {
               turn.frames++;
