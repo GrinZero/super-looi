@@ -159,7 +159,7 @@
 
 ## 语音主 Agent 与长期导演
 
-社区依据见 [语音与多任务架构调研](docs/voice-agent-community-architecture-research.md)。
+实施顺序见 [Agent 架构微步骤计划](docs/plans/agent-coordinator-microsteps-plan.md)，社区依据见 [语音与多任务架构调研](docs/voice-agent-community-architecture-research.md)。
 
-- [ ] 基于唯一持久协调 Agent 的任务入口，确定观察触发频率、语音与协调会话的摘要预算，以及任务结果汇总和表达时机。
-- [ ] 定义语音命令行的实际操作范围；短等待仅保证响应时间，不能替代任务范围定义。
+- [ ] 从微步骤 01 开始实施单任务启动入口，按 8 轮、56 步推进唯一持久协调 Agent 与多任务主链。
+- [ ] 第 6 轮用真机对话记录调整观察频率与摘要预算；初版按完整对话轮次触发观察，结果汇总经过协调 Agent，表达复用语音空闲窗口。
