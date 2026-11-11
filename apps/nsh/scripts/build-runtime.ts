@@ -74,7 +74,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     resolve(root, "generated/looi-runtime.d.ts"),
     `
 export interface VoiceState {phase:"idle"|"standby"|"permission"|"connecting"|"listening"|"speaking"|"error";muted:boolean;wakeEnabled:boolean;transcript:string;userTranscript?:string;purpose?:"conversation"|"preview";activeVoiceId?:string;error:string}
-export interface VoiceProactiveNotice {id:string;spokenText:string;contextNote?:string}
+export interface VoiceProactiveNotice {id:string;taskId?:string;traceContext?:TraceContext;spokenText:string;contextNote?:string}
 export type VoiceTaskSubmissionResult = {status:"completed";taskId:string;answer:string}|{status:"running_in_background";taskId:string;latestSummary:string}|{status:"waiting_user_confirmation";taskId:string;interactionKind:"approval"|"question";latestSummary:string}|{status:"busy";taskId:string;latestSummary:string}|{status:"failed";taskId?:string;error:string};
 export interface VoiceTaskStatusSnapshot {taskId:string;prompt:string;state:"running"|"waiting_user"|"completed"|"failed"|"cancelled";latestSummary:string;answer?:string;error?:string}
 export interface VoiceTaskBridge {submit(prompt:string,traceContext?:TraceContext):Promise<VoiceTaskSubmissionResult>;inspect(taskId?:string):VoiceTaskStatusSnapshot|null;cancel(taskId?:string):Promise<{cancelled:boolean;taskId?:string}>}
@@ -96,7 +96,8 @@ export function utf8Tail(text:string,limit:number):string;
 export interface NativeShellOutput {taskId:string;callId:string;command:string;stream:"stdout"|"stderr"|"status";chunk:string}
 export interface NativeStep {step:number;phase:string;summary:string;taskId?:string;interaction?:{id:string;kind:"approval"|"question";details:Record<string,unknown>;expiresAt:string}}
 export interface NativeTaskSummary {id:string;prompt:string;state:string;updatedAt:string}
-export interface NativeTask extends NativeTaskSummary {homeActions:Array<{requestId:string;connectionId:string;command:Record<string,unknown>;simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;bodyActions?:Array<{requestId:string;command:{action:string;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number};simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;sessionId:string;createdAt:string;error?:string;runtimeExited?:boolean;steps:NativeStep[];result?:{answer:string;executions?:Array<{callId:string;stdout?:string;stderr?:string;command:string;exitCode:number|null;signal:string|null;timedOut:boolean;aborted:boolean}>;artifacts?:Array<{path:string;sha256:string;size:number}>}}
+export interface NativeObservation {traceId:string;spanId:string;parentSpanId?:string;name:string;type:"span"|"agent"|"generation"|"tool";startedAt:number;endedAt?:number;attributes:Record<string,unknown>}
+export interface NativeTask extends NativeTaskSummary {trace?:{traceId:string;spanId:string};observations?:NativeObservation[];homeActions:Array<{requestId:string;connectionId:string;command:Record<string,unknown>;simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;bodyActions?:Array<{requestId:string;command:{action:string;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number};simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;sessionId:string;createdAt:string;error?:string;runtimeExited?:boolean;steps:NativeStep[];result?:{answer:string;executions?:Array<{callId:string;stdout?:string;stderr?:string;command:string;exitCode:number|null;signal:string|null;timedOut:boolean;aborted:boolean}>;artifacts?:Array<{path:string;sha256:string;size:number}>}}
 export interface NativeTaskPage {total:number;offset:number;items:NativeTaskSummary[]}
 export type HomeSourceId = "direct_miot" | "external_ha" | "simulation";
 export type TileSpan = "1x1" | "2x1" | "1x2" | "2x2";
@@ -158,7 +159,8 @@ export type LlmOAuthUiEvent =
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
 export interface NativeRuntime {
- readonly tracer:unknown;
+ readonly tracer:{start(name:string,type:"span"|"agent"|"generation"|"tool",context?:TraceContext,attributes?:Record<string,unknown>):{end(attributes?:Record<string,unknown>):void}};
+ subscribeTrace(listener:()=>void):()=>void;
  homeConfiguration():HomeConfiguration;
  homeConnection():HomeConnection;
  configureHome(input:{mode:HomeConfiguration["mode"];haUrl?:string;haToken?:string;region?:HomeConfiguration["region"];enabledSources?:Partial<Record<HomeSourceId,boolean>>},action:UiAction):Promise<HomeConfiguration>;

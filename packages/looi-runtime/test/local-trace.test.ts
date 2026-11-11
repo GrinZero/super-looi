@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { SqliteRuntimeStore } from "../src/storage/sqlite.js";
-import { createLangfuseTracer } from "../src/telemetry/langfuse.js";
+import { createLangfuseTracer, type TraceObservation } from "../src/telemetry/langfuse.js";
 import { PiAgentExecutor } from "../src/agent/pi-executor.js";
 import { observeVoiceSocket } from "../src/telemetry/realtime-observer.js";
 import { createOpenAiRealtimeProtocol } from "../src/voice/realtime-protocol.js";
@@ -104,4 +104,42 @@ test("repeated tools retain separate calls, actual arguments, errors and generat
     assert.equal(nodes.find(node => node.spanId === task.trace!.spanId)!.attributes["langfuse.observation.output"], result.answer);
     assert.equal(storage.tasks.load()[0].trace?.spanId, task.trace?.spanId);
   } finally { await executor.close(); await tracer.shutdown(); storage.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("provider failure before delivered speech begins is recorded on the task's response", async () => {
+  const storage = new SqliteRuntimeStore(new DatabaseSync(":memory:"));
+  const tracer = createLangfuseTracer({ onObservation: node => storage.saveObservation(node) });
+  const delivery = tracer.start("voice.delivery", "span");
+  const incoming = [{ type: "error", error: { code: "model_error", message: "Voice model unavailable" } }].map(JSON.stringify);
+  const socket = observeVoiceSocket({ read: async () => incoming.shift() ?? null, write: async () => {}, close: async () => {} }, {
+    tracer, protocol: createOpenAiRealtimeProtocol(), sessionId: "failed-connection", fromWakeWord: false,
+  });
+  try {
+    socket.setResponseTraceContext(delivery.context);
+    await socket.read();
+    socket.finalizeSession();
+    const response = storage.traceObservations(delivery.context.traceId).find(node => node.name === "realtime.response")!;
+    assert.equal(response.attributes["langfuse.observation.level"], "ERROR");
+    assert.equal(response.attributes["langfuse.observation.status_message"], "Voice model unavailable");
+    assert.equal(response.attributes["langfuse.observation.metadata.statusCode"], "model_error");
+  } finally { delivery.end(); await tracer.shutdown(); storage.close(); }
+});
+
+test("the expected no-active-response cancellation receipt does not become a provider failure", async () => {
+  const observations = new Map<string, TraceObservation>();
+  const tracer = createLangfuseTracer({ onObservation: node => observations.set(node.spanId, node) });
+  const incoming = [{ type: "response.created", response: { id: "response" } }, { type: "error", error: { event_id: "cancel-1", message: "no active response" } }].map(JSON.stringify);
+  const socket = observeVoiceSocket({ read: async () => incoming.shift() ?? null, write: async () => {}, close: async () => {} }, {
+    tracer, protocol: createOpenAiRealtimeProtocol(), sessionId: "cancel-connection", fromWakeWord: false,
+  });
+  try {
+    await socket.read();
+    await socket.write(JSON.stringify({ type: "response.cancel", event_id: "cancel-1" }));
+    await socket.read();
+    socket.finalizeSession();
+    const task = [...observations.values()];
+    assert.ok(task.every(node => node.attributes["langfuse.observation.level"] !== "ERROR"));
+    assert.equal(task.find(node => node.name === "realtime.response")!.attributes["langfuse.observation.metadata.cancelled"], true);
+    assert.match(JSON.stringify(task.find(node => node.name === "realtime.cancel")!.attributes["langfuse.observation.output"]), /no active response/);
+  } finally { socket.finalizeSession(); await tracer.shutdown(); }
 });

@@ -31,6 +31,8 @@ export function observeVoiceSocket(socket: Socket, options: {
   const pendingTurns: Turn[] = [];
   let response: Observation | undefined, responseStarted = 0, responseOrder = 0, responseTurnOrder = 0, firstAudio = 0, responseFrames = 0, responseBytes = 0, responseText = "";
   let nextResponseContext: TraceContext | undefined;
+  let sessionError: string | undefined;
+  let cancelRequest: { eventId?: string; observation: Observation } | undefined;
   const transcripts: string[] = [], assistantTranscripts: string[] = [];
   const conversation: Array<{ role: "user" | "assistant"; content: string; order: number }> = [];
   let eventOrder = 0;
@@ -98,7 +100,7 @@ export function observeVoiceSocket(socket: Socket, options: {
       responseText = "";
     }
   };
-  const finishResponse = (cancelled = false, statusCode?: string) => {
+  const finishResponse = (cancelled = false, statusCode?: string, error?: string) => {
     if (!response) return;
     const observation = response, order = responseOrder, turnOrder = responseTurnOrder;
     const output = responseText;
@@ -118,6 +120,7 @@ export function observeVoiceSocket(socket: Socket, options: {
         "langfuse.observation.metadata.outputBytes": outputBytes,
         "langfuse.observation.metadata.audioDurationMs": Math.round(outputBytes / 48),
         "langfuse.observation.metadata.cancelled": cancelled,
+        ...(error ? { "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": error } : {}),
         ...(statusCode ? { "langfuse.observation.metadata.statusCode": statusCode } : {}),
       }, finishedAt);
     } });
@@ -133,6 +136,8 @@ export function observeVoiceSocket(socket: Socket, options: {
     for (const pending of pendingTurns) finishTurn(pending);
     pendingTurns.length = 0;
     finishResponse();
+    cancelRequest?.observation.end({ "langfuse.observation.output": { status: "interrupted" } });
+    cancelRequest = undefined;
     for (const pending of pendingResponses) pending.end();
     pendingResponses.length = 0;
     for (const span of toolSpans.values()) span.end({ "langfuse.observation.output": { status: "interrupted" } });
@@ -141,6 +146,7 @@ export function observeVoiceSocket(socket: Socket, options: {
     const messages = conversation.map(({ role, content }) => ({ role, content }));
     const lastIsAssistant = messages.at(-1)?.role === "assistant";
     root.end({
+      ...(sessionError ? { "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": sessionError } : {}),
       "langfuse.observation.input": lastIsAssistant ? messages.slice(0, -1) : messages,
       "langfuse.observation.output": lastIsAssistant ? [messages[messages.length - 1]] : [],
       "langfuse.observation.metadata.userTranscripts": transcripts,
@@ -206,8 +212,31 @@ export function observeVoiceSocket(socket: Socket, options: {
             tools++;
           }
           break;
-        case "response_cancelled": finishResponse(true); nextResponseContext = undefined; break;
+        case "response_cancelled":
+          finishResponse(true);
+          cancelRequest?.observation.end({ "langfuse.observation.output": event });
+          cancelRequest = undefined;
+          nextResponseContext = undefined;
+          break;
         case "response_done": finishResponse(); break;
+        case "error":
+          // LiveVoiceSession treats a matching cancel error as its cancellation receipt.
+          if (normalized.clientEventId && normalized.clientEventId === cancelRequest?.eventId) {
+            cancelRequest.observation.end({ "langfuse.observation.output": event });
+            cancelRequest = undefined;
+            finishResponse(true);
+            nextResponseContext = undefined;
+            break;
+          }
+          sessionError = normalized.message;
+          if (nextResponseContext) ensureResponse();
+          if (response) finishResponse(false, normalized.code, normalized.message);
+          else tracer.start("realtime.error", "span", root.context, { "langfuse.observation.input": event }).end({
+            "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": normalized.message,
+          });
+          if (!ready) handshake.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": normalized.message });
+          nextResponseContext = undefined;
+          break;
       }
       return raw;
     },
@@ -215,6 +244,10 @@ export function observeVoiceSocket(socket: Socket, options: {
       if (!closed && tracer.enabled) {
         try {
           const event = JSON.parse(value);
+          if (event.type === "response.cancel") {
+            cancelRequest?.observation.end({ "langfuse.observation.output": { status: "superseded" } });
+            cancelRequest = { eventId: event.event_id, observation: tracer.start("realtime.cancel", "span", response?.context ?? root.context, { "langfuse.observation.input": event }) };
+          }
           if (event.type === "session.update") {
             tracer.start("realtime.context", "span", root.context, { "langfuse.observation.input": event }).end();
           }

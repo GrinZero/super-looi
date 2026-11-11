@@ -669,6 +669,7 @@ export function createAppStore() {
     onStateChange: () => face.set(driver.getState()),
   });
   const face = signal(driver.getState());
+  let unsubscribeTrace: (() => void) | undefined;
   let runtime: NativeRuntime | undefined,
     alive = true,
     sequence = 0;
@@ -902,6 +903,9 @@ export function createAppStore() {
         return;
       }
       runtime = opened;
+      unsubscribeTrace = opened.subscribeTrace(() => {
+        if (alive && activeSpace() === "tasks" && task()) refreshInspectedTask();
+      });
       if (cameraHost) opened.attachNativeCamera(cameraHost);
       opened.setBodyForegroundActive(lifecycle() === "active");
       try {
@@ -972,7 +976,13 @@ export function createAppStore() {
           }
         },
         onNotice: (notice) => {
-          if (alive) voice?.enqueueNotice(notice);
+          if (!alive) return;
+          const task = notice.taskId ? opened.taskDetails(notice.taskId) : undefined;
+          const traceContext = task?.trace ? { traceId: task.trace.traceId, parentSpanId: task.trace.spanId, traceName: "agent.run", sessionId: task.sessionId } : undefined;
+          if (traceContext) opened.tracer.start("voice.notice", "span", traceContext, {
+            "langfuse.observation.input": notice,
+          }).end({ "langfuse.observation.output": { status: "queued" } });
+          voice?.enqueueNotice({ ...notice, traceContext });
         },
         onContextNote: (note) => {
           if (alive) voice?.setContextNote(note);
@@ -1084,6 +1094,7 @@ export function createAppStore() {
   })();
   cleanup(() => {
     alive = false;
+    unsubscribeTrace?.();
     if (toastTimer) clearTimeout(toastTimer);
     if (dockExpressionTimer) clearTimeout(dockExpressionTimer);
     voiceTaskCoordinator?.markExternallyCancelled();

@@ -292,6 +292,7 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     const taskId = this.publicId(record);
     this.options.onNotice?.({
       id: `${taskId}:interaction:${interactionId}`,
+      taskId: record.runtimeTaskId,
       spokenText,
       contextNote: formatContextReceipt(record, taskId),
     });
@@ -308,6 +309,7 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     const spokenText = plain || (language === "en-US" ? "That's done." : "刚才的事情处理好了。");
     this.options.onNotice?.({
       id: `${taskId}:completed`,
+      taskId: record.runtimeTaskId,
       spokenText,
       contextNote: receipt,
     });
@@ -325,6 +327,7 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
         : "刚才的事情没能做完，你可以问我具体情况。";
     this.options.onNotice?.({
       id: `${taskId}:failed`,
+      taskId: record.runtimeTaskId,
       spokenText,
       contextNote: receipt,
     });

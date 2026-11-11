@@ -6,7 +6,7 @@ globalThis.LOOI_ARCH = {
     { id: "all", label: "架构总览", description: "手机本地运行 Agent，直接连接模型、语音、具身底座与家居服务。", nodes: [] },
     { id: "agent", label: "任务执行", description: "Pi 的异步 Shell 经宿主 ShellRunner 执行 Alpine 命令，流式输出进入任务详情，终态回执写入 SQLite。", nodes: ["app", "store", "runtime", "agent", "models", "compat", "native", "contracts", "body"] },
     { id: "voice", label: "语音唤醒", description: "Rust 本地 KWS 待机；语音委派立即受理，结果空闲时交付；后台 LLM 在 15 分钟活跃窗口内复用上下文，待交付结果跨语音连接保留。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native", "body"] },
-    { id: "telemetry", label: "可观测性", description: "Voice Socket、Agent Loop 与 LLM StreamFn 共用 TraceContext；本地 Langfuse v4 接收 OTLP 观测。", nodes: ["voice", "store", "runtime", "agent", "doubao"] },
+    { id: "telemetry", label: "可观测性", description: "Voice Socket、Agent Loop 与模型请求共用 observation；开始和结束写入本机 SQLite，同一 trace/span ID 可导出至 Langfuse，任务页展示真实输入、工具回执与跨连接语音交付。", nodes: ["voice", "store", "runtime", "agent", "doubao"] },
     { id: "home", label: "家居控制", description: "管理界面与 Agent 家居工具共用 HomeRuntime，经网关访问 HA 或 MIoT。", nodes: ["app", "store", "runtime", "agent", "home", "gateway", "services", "contracts"] },
   ],
   nodes: [
@@ -16,13 +16,16 @@ globalThis.LOOI_ARCH = {
       files: [
         { path: "apps/nsh/App.tsx", entry: "function App()", anchors: [{ label: "组件入口", match: "function App()" }, { label: "挂载应用", match: "mount(App)" }] },
         { path: "apps/nsh/ui/ManagementShell.tsx", entry: "export function ManagementShell" },
+        { path: "apps/nsh/ui/TasksSpaceView.tsx", entry: "export function TasksSpaceView" },
+        { path: "apps/nsh/ui/TaskTraceView.tsx", entry: "export function TaskTraceView" },
+        { path: "apps/nsh/ui/task-trace-model.ts", entry: "export function traceRows" },
         { path: "apps/nsh/ui/BodySpaceView.tsx", entry: "export function BodySpaceView" },
         { path: "apps/nsh/ui/RobotFace.tsx", entry: "export function RobotFace" },
       ],
     },
     {
       id: "runtime", x: 280, y: 86, title: "MobileRuntime", symbol: "layers", category: "TypeScript · 本机业务", detail: "会话 / 任务 / 模型 / 家居 / 底座", path: "apps/nsh/runtime/application.ts",
-      description: "本机业务入口，维护任务与会话，创建共享 LangfuseTracer、Pi 执行器、模型目录、HomeRuntime 与 BodyRuntime。任务与具身动作回执保存在 SQLite 中。",
+      description: "本机业务入口，维护任务与会话，创建共享 observation 记录器、Pi 执行器、模型目录、HomeRuntime 与 BodyRuntime。任务保存根 span 引用，模型输入与输出、工具回执、语音转写和交付记录保存在 SQLite，Langfuse 导出使用相同 ID。",
       files: [
         { path: "apps/nsh/runtime/application.ts", entry: "export class MobileRuntime", anchors: [{ label: "运行时入口", match: "export class MobileRuntime" }, { label: "创建执行器", match: "private createExecutorForSelection(" }] },
         { path: "apps/nsh/runtime/tools/body-tools.ts", entry: "export function createBodyTools" },
@@ -30,7 +33,7 @@ globalThis.LOOI_ARCH = {
         { path: "apps/nsh/runtime/body.ts", entry: "export class BodyRuntime" },
         { path: "packages/looi-runtime/src/agent/memory/task-store.ts", entry: "export class AgentTaskStore" },
         { path: "packages/looi-runtime/src/storage/sqlite.ts", entry: "export class SqliteRuntimeStore" },
-        { path: "packages/looi-runtime/src/telemetry/langfuse.ts", entry: "export function createLangfuseTracer", anchors: [{ label: "OTLP 客户端", match: "export function createLangfuseTracer(" }, { label: "关闭刷新", match: "async shutdown()" }] },
+        { path: "packages/looi-runtime/src/telemetry/langfuse.ts", entry: "export function createLangfuseTracer", anchors: [{ label: "本地记录与 OTLP 导出", match: "export function createLangfuseTracer(" }, { label: "关闭刷新", match: "async shutdown()" }] },
       ],
     },
     {

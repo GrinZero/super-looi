@@ -131,13 +131,18 @@ export type LlmOAuthUiEvent =
 /** One foreground app owns the database and executor. No Hub endpoint exists. */
 export class MobileRuntime {
   private readonly voiceConversation = new VoiceConversationWindow();
+  private readonly traceListeners = new Set<() => void>();
+  private readonly database = new DatabaseSync("/home/looi.sqlite");
+  private readonly storage = new SqliteRuntimeStore(this.database);
   readonly tracer = createLangfuseTracer({
     baseUrl: process.env.LANGFUSE_BASE_URL,
     publicKey: process.env.LANGFUSE_PUBLIC_KEY,
     secretKey: process.env.LANGFUSE_SECRET_KEY,
+    onObservation: (observation) => {
+      this.storage.saveObservation(observation);
+      for (const listener of this.traceListeners) listener();
+    },
   });
-  private readonly database = new DatabaseSync("/home/looi.sqlite");
-  private readonly storage = new SqliteRuntimeStore(this.database);
   private readonly recoveredTasks = new AgentTaskStore(
     "/home/agent/tasks",
     this.storage.tasks,
@@ -590,7 +595,13 @@ export class MobileRuntime {
       )
       .all(task.id)
       .map((row) => JSON.parse(String(row.evidence)));
-    return { ...structuredClone(task), homeActions, bodyActions };
+    return { ...structuredClone(task), homeActions, bodyActions,
+      observations: task.trace ? this.storage.traceObservations(task.trace.traceId) : [] };
+  }
+
+  subscribeTrace(listener: () => void): () => void {
+    this.traceListeners.add(listener);
+    return () => this.traceListeners.delete(listener);
   }
 
   newConversation(action: UserActionRef): void {

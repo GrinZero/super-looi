@@ -1,9 +1,10 @@
-import { t, translateMessage, formatDate } from "../i18n";
+import { t, formatDate } from "../i18n";
 import { Text, View, Scroll, windowSize } from "nsh";
-import { TextView } from "nsh/base";
+import { Button, TextView } from "nsh/base";
 import type { createAppStore } from "../store";
 import { TaskShellOutput } from "./TaskShellOutput";
 import { ActionButton } from "./Controls";
+import { TaskTraceView } from "./TaskTraceView";
 
 export function taskStateLabel(state: string): string {
   switch (state) {
@@ -31,7 +32,7 @@ export function taskStateLabel(state: string): string {
 }
 
 export function TasksSpaceView(props: {
-  store: ReturnType<typeof createAppStore>;
+  store: Pick<ReturnType<typeof createAppStore>, "task" | "tasks" | "recoveryCount" | "inspectTask" | "closeTask" | "refreshTasks" | "shellOutput">;
 }) {
   const currentTask = () => props.store.task();
 
@@ -75,11 +76,14 @@ export function TasksSpaceView(props: {
               const isUnknown = () => item().state === "unknown";
 
               return (
-                <View
+                <Button
+                  testID={`task-${item().id}`}
+                  selected={isSelected()}
+                  onPress={() => props.store.inspectTask(item().id)}
                   class={
                     isSelected()
-                      ? "rounded-xl border border-primary bg-muted p-3 gap-1.5"
-                      : "rounded-xl border border-border bg-card p-3 gap-1.5"
+                      ? "rounded-xl bg-muted p-3 gap-2 min-h-11 active:opacity-70 focus:border-ring"
+                      : "rounded-xl bg-card p-3 gap-2 min-h-11 active:bg-muted focus:border-ring"
                   }
                 >
                   <View class="flex-row items-center justify-between">
@@ -102,16 +106,7 @@ export function TasksSpaceView(props: {
                   >
                     {item().prompt}
                   </Text>
-                  <View class="flex-row justify-end pt-1">
-                    <ActionButton
-                      label={t("viewDetails")}
-                      testID={`task-${item().id}`}
-                      compact={true}
-                      kind={isSelected() ? "primary" : undefined}
-                      onPress={() => props.store.inspectTask(item().id)}
-                    />
-                  </View>
-                </View>
+                </Button>
               );
             }}
           </Each>
@@ -164,7 +159,7 @@ export function TasksSpaceView(props: {
       >
         <View class="gap-3">
           <View class="flex-row items-center justify-between border-b border-border pb-2.5">
-            <View class="flex-row items-center gap-2">
+            <View class="flex-1 min-w-0 gap-1">
               <Text
                 class={
                   currentTask()?.state === "unknown"
@@ -174,11 +169,12 @@ export function TasksSpaceView(props: {
               >
                 {taskStateLabel(currentTask()?.state ?? "unknown")}
               </Text>
-              <Text class="text-muted-foreground text-xs font-mono">
+              <Text class="text-muted-foreground text-xs font-mono" style={{ numberOfLines: 1 }}>
                 {currentTask()?.id}
               </Text>
             </View>
             <ActionButton
+              testID="task-detail-close"
               label={t("closeDetails")}
               compact={true}
               onPress={() => props.store.closeTask()}
@@ -203,7 +199,7 @@ export function TasksSpaceView(props: {
 
           <If when={Boolean(currentTask()?.result?.answer)}>
             <View class="gap-1">
-              <Text class="text-muted-foreground text-xs">{t("agentReply")}</Text>
+              <Text class="text-muted-foreground text-xs">{t("traceFinalAnswer")}</Text>
               <View class="rounded-xl border border-border bg-muted p-3" selectable={true}>
                 <TextView
                   class="text-foreground text-sm"
@@ -216,24 +212,8 @@ export function TasksSpaceView(props: {
           </If>
 
           <TaskShellOutput output={props.store.shellOutput()} taskId={currentTask()?.id} />
-          <If when={(currentTask()?.steps.length ?? 0) > 0}>
-            <View class="gap-1.5">
-              <Text class="text-muted-foreground text-xs">{t("executionSteps")}</Text>
-              <View class="gap-1.5">
-                <Each of={currentTask()?.steps ?? []} key={(s) => String(s.step)}>
-                  {(s) => (
-                    <View class="rounded-xl border border-border bg-muted p-2.5 flex-row items-center justify-between">
-                      <Text class="text-foreground text-xs">
-                        {s().step}. {translateMessage(s().summary)}
-                      </Text>
-                      <Text class="text-muted-foreground text-xs font-mono">
-                        {s().phase}
-                      </Text>
-                    </View>
-                  )}
-                </Each>
-              </View>
-            </View>
+          <If when={Boolean(currentTask())}>
+            <TaskTraceView task={currentTask()!} />
           </If>
 
           <If when={(currentTask()?.result?.executions?.length ?? 0) > 0}>
@@ -356,7 +336,7 @@ export function TasksSpaceView(props: {
       }
     >
       <View class="flex-1 flex-row gap-3.5 min-h-0">
-        <View style={{ flex: 5, minWidth: 0, minHeight: 0 }}>
+        <View style={{ flex: 3, minWidth: 0, minHeight: 0 }}>
           <Scroll class="flex-1" contentClass="gap-3 pb-4">
             {renderTaskList()}
           </Scroll>

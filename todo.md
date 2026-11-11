@@ -1,7 +1,12 @@
 # 当前待办
 
+## 任务真实链路
+
+- [ ] 连接开发真机横屏验收任务选择、长上下文展开、搜索动作、失败／取消标记，以及查看任务后返回语音的跨连接播报；方案见 `docs/plans/task-execution-trace-plan.md`。
+
 ## Voice Agent 只读工具与自然委派
 
+- [ ] 根据真实请求记录调整历史对话追问中的额外 `web_search` 调用；本地链路已能独立展示历史输入、搜索动作与最终回答。
 - [ ] 接入语音直接只读 shell：覆盖文件／日志／环境及设备／任务／App 数据查询，执行接口取舍依据见 `docs/voice-agent-readonly-shell-and-handoff-research.md`。
 - [ ] 连接手机开发真机后横屏验证自然委派：接下要求后继续闲聊、说话期间完成后空闲汇报、结束／重连后交付待发结果、语音停止工作及温热窗口内追问；当前 iOS 与 ADB 设备列表均为空。实现依据见 `docs/plans/voice-natural-handoff-plan.md`。
 

@@ -39,6 +39,7 @@ export interface VoiceSocket {
   close(): Promise<void>;
   finalizeSession?(reason?: string): void;
   getToolTraceContext?(callId: string): TraceContext | undefined;
+  setResponseTraceContext?(context?: TraceContext): void;
 }
 
 export interface VoiceState {
@@ -61,6 +62,8 @@ export interface VoiceState {
 
 export interface VoiceProactiveNotice {
   id: string;
+  taskId?: string;
+  traceContext?: TraceContext;
   spokenText: string;
   contextNote?: string;
 }

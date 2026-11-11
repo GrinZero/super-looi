@@ -1,6 +1,7 @@
 import { AcceptanceRunner } from "../../looi-runtime/src/acceptance/runner.js";
 import { PiAgentExecutor } from "../../looi-runtime/src/agent/pi-executor.js";
 import { SqliteRuntimeStore } from "../../looi-runtime/src/storage/sqlite.js";
+import { createLangfuseTracer } from "../../looi-runtime/src/telemetry/langfuse.js";
 import {
   type UserActionRef,
 } from "../../contracts/src/index.js";
@@ -30,11 +31,13 @@ equal(report.hardGates, {
 });
 const databasePath = "/home/looi-business.sqlite";
 let storage = new SqliteRuntimeStore(new DatabaseSync(databasePath));
+const localTracer = createLangfuseTracer({ onObservation: node => storage.saveObservation(node) });
 const taskId = `task_nsh_business_${randomUUID()}`;
 const faux = fauxProvider();
 const models = createModels();
 models.setProvider(faux.provider);
 const executor = new PiAgentExecutor({
+  tracer: localTracer,
   stateDirectory: "/home/looi-runtime-test",
   workspaceRoot: "/workspace/looi-runtime-test",
   modelSpec: faux.getModel(),
@@ -153,6 +156,12 @@ try {
   storage.close();
 }
 storage = new SqliteRuntimeStore(new DatabaseSync(databasePath));
+const tracedTask = storage.tasks.load().find(task => task.id === taskId)!;
+assert(Boolean(tracedTask.trace));
+const localTrace = storage.traceObservations(tracedTask.trace!.traceId);
+assert(localTrace.some(node => node.name === "agent.context"));
+assert(localTrace.some(node => node.name === "llm.chat" && node.endedAt !== undefined));
+await localTracer.shutdown();
 equal(
   storage.tasks.load().find((task) => task.id === taskId)?.state,
   "succeeded",

@@ -405,6 +405,10 @@ export class LiveVoiceSession {
     this.startAwaitingTimer();
 
     let speechTriggered = false;
+    const delivery = notice.traceContext ? this.options.tracer?.start("voice.delivery", "span", notice.traceContext, {
+      "langfuse.observation.input": { noticeId: notice.id, spokenText: notice.spokenText, contextNote: notice.contextNote, frames },
+    }) : undefined;
+    if (delivery) this.socket?.setResponseTraceContext?.(delivery.context);
     void (async () => {
       for (const frame of frames) {
         if (
@@ -415,6 +419,8 @@ export class LiveVoiceSession {
           if (!this.disposed && !speechTriggered) {
             this.noticeQueue.unshift(notice);
           }
+          delivery?.end({ "langfuse.observation.output": { status: "interrupted", speechTriggered } });
+          if (delivery) this.socket?.setResponseTraceContext?.();
           return;
         }
         const frameType = (frame as { type?: unknown }).type;
@@ -432,8 +438,11 @@ export class LiveVoiceSession {
         }
         await this.send(frame);
       }
+      delivery?.end({ "langfuse.observation.output": { status: "sent", providerId: this.options.protocol.providerId } });
     })()
-      .catch(() => {
+      .catch((error) => {
+        if (delivery) this.socket?.setResponseTraceContext?.();
+        delivery?.end({ "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": String(error) });
         this.fail("@looi:runtimeVoiceNetworkSendFailed");
       })
       .finally(() => {

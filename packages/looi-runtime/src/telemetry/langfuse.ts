@@ -81,7 +81,7 @@ export function createLangfuseTracer(config?: {
   };
   let flushing: Promise<void> | undefined;
   let closed = false;
-  const send = config?.fetch || fetch;
+  const send = config?.fetch;
   const url = `${config?.baseUrl?.replace(/\/$/, "")}/api/public/otel/v1/traces`;
   const authorization = `Basic ${Buffer.from(`${config?.publicKey}:${config?.secretKey}`).toString("base64")}`;
   let exportFailureReported = false;
@@ -91,7 +91,7 @@ export function createLangfuseTracer(config?: {
     const batch = queue.splice(0, queue.length);
     flushing = (async () => {
       try {
-        const response = await send(url, {
+        const response = await (send ?? fetch)(url, {
           method: "POST",
           headers: { Authorization: authorization, "Content-Type": "application/json", "x-langfuse-ingestion-version": "4" },
           body: JSON.stringify({ resourceSpans: [{ resource: { attributes: attributes({ "service.name": "super-looi" }) }, scopeSpans: [{ scope: { name: "super-looi" }, spans: batch }] }] }),
