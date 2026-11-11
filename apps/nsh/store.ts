@@ -319,6 +319,8 @@ export function createAppStore() {
     message = signal(""),
     toast = signal(""),
     wakeGuideDismissed = signal(true);
+  const voiceTaskRunning = signal(false);
+  const foregroundBusy = computed(() => busy() && !voiceTaskRunning());
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   const notify = (text: string) => {
     if (!alive) return;
@@ -774,7 +776,7 @@ export function createAppStore() {
           ? "listening"
           : voiceState().phase === "connecting"
             ? "curious"
-            : busy()
+            : foregroundBusy()
               ? "thinking"
               : (transientDockExpression() ?? "neutral");
     if (!active) {
@@ -809,7 +811,7 @@ export function createAppStore() {
   effect(() => {
     if (lifecycle() !== "active" || reduceMotion()) return;
     const timer = setInterval(() => {
-      if (!busy()) driver.triggerBlink();
+      if (!foregroundBusy()) driver.triggerBlink();
     }, 4800);
     return () => clearInterval(timer);
   });
@@ -917,19 +919,17 @@ export function createAppStore() {
           api.dismissWakeGuide();
           busy.set(true);
           shellOutput.set(undefined);
-          message.set("");
-          status.set("@looi:runtimeAgentIsThinking");
           try {
             const result = await runtime.run(
               prompt,
               action(),
               (event) => {
                 if (!alive) return;
-                status.set(event.summary);
                 refreshInspectedTask();
                 if (event.interaction && event.taskId) {
                   interaction.set({ ...event.interaction, taskId: event.taskId });
                 }
+          voiceTaskRunning.set(true);
                 hooks.onStep(event);
               },
               {
@@ -941,22 +941,7 @@ export function createAppStore() {
                 defaultLanguage: effectiveLocale(),
               },
             );
-            if (alive) {
-              message.set(result.answer);
-              status.set(
-                result.runtimeExited
-                  ? "@looi:runtimeStandingBy"
-                  : "@looi:runtimeTaskResultUnverified",
-              );
-            }
             return { answer: result.answer, taskId: result.taskId };
-          } catch (error) {
-            if (alive) {
-              const text = error instanceof Error ? error.message : String(error);
-              message.set(text);
-              status.set("@looi:runtimeCouldNotCompleteTheRequest");
-            }
-            throw error;
           } finally {
             if (alive) {
               busy.set(false);
@@ -975,6 +960,7 @@ export function createAppStore() {
             if (alive) {
               status.set(
                 stopped?.confirmed
+              voiceTaskRunning.set(false);
                   ? "@looi:runtimeTaskStopped"
                   : "@looi:runtimeStopResultUnverified",
               );
@@ -1034,6 +1020,7 @@ export function createAppStore() {
               ...(extra?.turn !== undefined ? { turn: extra.turn } : {}),
             },
             "voice_realtime",
+        onConversationActivity: () => opened.touchVoiceConversation(),
           );
           if (alive) syncBodyStatus(runtime.bodyStatus());
           return receipt;
@@ -1463,7 +1450,7 @@ export function createAppStore() {
       void Storage.setItem(WAKE_GUIDE_DISMISSED_KEY, "true").catch(fail);
     },
     status: () => translateMessage(
-      busy()
+      foregroundBusy()
         ? status()
         : voiceState().phase === "connecting"
           ? "@looi:runtimeConnectingLive"

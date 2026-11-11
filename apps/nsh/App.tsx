@@ -262,23 +262,6 @@ function App() {
               class="items-center gap-2"
               style={{ marginBottom: "env(keyboard-inset-height)" }}
             >
-              <If when={store.busy()}>
-                <View class="w-full flex-row justify-end">
-                  <Button
-                    testID="stop-task"
-                    accessibilityLabel={t("stopTheCurrentTask")}
-                    onPress={() => {
-                      void store.stop();
-                    }}
-                    class="rounded-full bg-agent-stop px-4 items-center justify-center active:opacity-75"
-                    style={{ minHeight: 44 }}
-                  >
-                    <Text class="text-stage-fg text-xs font-semibold">
-                      {t("stopTask")}</Text>
-                  </Button>
-                </View>
-              </If>
-
               <If
                 when={responseText()}
                 else={

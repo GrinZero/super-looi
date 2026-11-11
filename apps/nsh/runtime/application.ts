@@ -43,6 +43,7 @@ import { chooseConnectedModelId, fetchOnlineModels, type OnlineModel } from "./m
 import { createBodyTools, createHomeTools } from "./tools/index.js";
 import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import { VoiceConversationWindow } from "./voice/conversation-window.js";
 
 type MutableModels = ReturnType<typeof createLooiModelsRegistry>;
 type Credential = ModelVaultEnvelope["credentials"][string];
@@ -129,6 +130,7 @@ export type LlmOAuthUiEvent =
 
 /** One foreground app owns the database and executor. No Hub endpoint exists. */
 export class MobileRuntime {
+  private readonly voiceConversation = new VoiceConversationWindow();
   readonly tracer = createLangfuseTracer({
     baseUrl: process.env.LANGFUSE_BASE_URL,
     publicKey: process.env.LANGFUSE_PUBLIC_KEY,
@@ -853,6 +855,10 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
+  touchVoiceConversation(): void {
+    this.voiceConversation.touch();
+  }
+
       throw new Error("@looi:runtimeATaskOrSigninIsActiveStopIt");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
@@ -865,13 +871,16 @@ export class MobileRuntime {
       if (
         this.allTasks().some(
           (task) =>
-            task.sessionId === this.conversationId && task.state === "unknown",
+            task.sessionId === sessionId && task.state === "unknown",
         )
       )
         throw new Error(
           "@looi:runtimeThisConversationHasUnverifiedActionsReviewTaskHistory",
         );
       if (!this.conversationPersisted && this.vault.get("model")) {
+    const sessionId = options.mode === "voice"
+      ? this.voiceConversation.begin()
+      : this.conversationId;
         this.credentialStore.updateEnvelope((draft) => {
           draft.conversationId = this.conversationId;
           return draft;
@@ -881,7 +890,7 @@ export class MobileRuntime {
       this.taskId = `task_${randomUUID()}`;
       const result = await this.executor.run(text, {
         taskId: this.taskId,
-        sessionId: this.conversationId,
+        sessionId,
         mode: options.mode,
         approvalMode: options.approvalMode,
         defaultLanguage: options.defaultLanguage,
@@ -908,6 +917,7 @@ export class MobileRuntime {
 
   async cancel() {
     this.cancelMiotLogin();
+      if (options.mode === "voice") this.voiceConversation.finish();
     this.cancelProviderOAuth();
     this.home.suspend();
     void this.body.stop("user_stop");

@@ -43,6 +43,7 @@ export interface LiveVoiceSessionOptions {
   tracer?: LangfuseTracer;
   requestTask?: (prompt: string, traceContext?: TraceContext) => Promise<string>;
   taskBridge?: VoiceTaskBridge;
+  onConversationActivity?: () => void;
   controlBody?: (
     action: string,
     durationMs?: number,
@@ -163,6 +164,10 @@ export class LiveVoiceSession {
     }
     this.noticeQueue.push(notice);
     this.flushNoticeIfIdle();
+  }
+
+  takePendingNotices(): VoiceProactiveNotice[] {
+    return this.noticeQueue.splice(0);
   }
 
   updateContextNote(note: string, syncImmediately = false): void {
@@ -674,6 +679,7 @@ export class LiveVoiceSession {
           this.userTranscript = normalized.text.slice(-1024);
           this.publish({ userTranscript: this.userTranscript });
         } else if (normalized.kind === "user_speech_stopped") {
+          this.options.onConversationActivity?.();
           if (normalized.transcript && normalized.transcript.trim()) {
             this.userTranscript = normalized.transcript.trim().slice(-1024);
             this.publish({ userTranscript: this.userTranscript });

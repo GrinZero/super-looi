@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { VoiceConversationWindow } from "../runtime/voice/conversation-window.js";
 import {
   VoiceRuntime,
   VoiceTaskCoordinator,
@@ -106,6 +107,47 @@ function createMockAudio() {
 }
 
 export async function verifyAsyncVoiceTasks() {
+  // Warm context follows user activity, not a disposable voice connection.
+  let now = 0;
+  const minute = 60_000;
+  const window = new VoiceConversationWindow(15 * minute, () => now);
+  const firstContext = window.begin();
+  window.finish();
+  now = 14 * minute;
+  window.touch();
+  now = 28 * minute;
+  check(window.begin() === firstContext, "user activity did not renew warm context");
+  window.finish();
+  now = 44 * minute;
+  const nextContext = window.begin();
+  check(nextContext !== firstContext, "idle context did not expire");
+  now = 80 * minute;
+  window.touch();
+  window.finish();
+  now = 94 * minute;
+  check(window.begin() === nextContext, "long work lost its context or completion did not renew it");
+  window.finish();
+  now = 110 * minute;
+  window.touch();
+  check(window.begin() !== nextContext, "new speech revived an already expired context");
+  window.finish();
+
+  let immediateStarted = false;
+  const immediateNotices: string[] = [];
+  const immediate = new VoiceTaskCoordinator({
+    runTask: async () => {
+      immediateStarted = true;
+      return { answer: "客厅主灯已打开。", taskId: "rt_fast_1" };
+    },
+    cancelRunningTask: async () => true,
+    onNotice: (notice) => immediateNotices.push(notice.spokenText),
+  });
+  const immediateReceipt = await immediate.submit("打开客厅主灯");
+  check(immediateReceipt.status === "running_in_background" && !immediateStarted,
+    "task startup ran before the submission acknowledgement");
+  await wait(20);
+  check(immediateNotices.length === 1 && immediateNotices[0] === "客厅主灯已打开。",
+    "short work did not deliver its result exactly once");
   // 1. Plain-text spoken sanitizer strips Markdown, code fences, and truncates at sentence boundary.
   const cleaned = toSpokenPlainText(
     "### 重构总结\n- 已更新 `AuthService.ts` 与 [登录文档](https://example.com)。\n```ts\nconst secret = 42;\n```\n全部 **24** 个测试均已通过！接下来你可以直接在设置页切换账号体验新流程。",
@@ -120,7 +162,7 @@ export async function verifyAsyncVoiceTasks() {
     `toSpokenPlainText did not sanitize or cut cleanly: ${cleaned}`,
   );
 
-  // 2. Doubao Duplex V3: fast inline task + slow background promotion + WHEN_IDLE gate + endSession survival.
+  // 2. Doubao Duplex V3: immediate acknowledgement, WHEN_IDLE delivery, and connection survival.
   const slots = new Map<string, string>([
     ["voice", JSON.stringify({ apiKey: "test-doubao-key", wakeEnabled: true })],
   ]);
@@ -144,17 +186,11 @@ export async function verifyAsyncVoiceTasks() {
         reject: (error: Error) => void;
       }
     | undefined;
-  let nextMode: "fast" | "controlled" = "fast";
 
   let voice!: VoiceRuntime;
   const coordinator = new VoiceTaskCoordinator({
-    fastPathMs: 70,
     defaultLanguage: () => "zh-CN",
     runTask: async (prompt, hooks) => {
-      if (nextMode === "fast") {
-        await wait(15);
-        return { answer: "客厅主灯已打开。", taskId: "rt_fast_1" };
-      }
       return new Promise((resolve, reject) => {
         activeRun = { prompt, hooks, resolve, reject };
       });
@@ -192,31 +228,7 @@ export async function verifyAsyncVoiceTasks() {
   s1.push({ type: "session.created" });
   await wait(25);
 
-  // 2a. Fast task (< fastPathMs) finishes inline within a single turn, emitting zero proactive speech commits.
-  s1.push({
-    type: "response.function_call_arguments.done",
-    call_id: "call_fast_1",
-    name: "run_agent_task",
-    arguments: JSON.stringify({ prompt: "打开客厅主灯" }),
-  });
-  await wait(45);
-  const fastPayload = readDoubaoToolOutput(s1.writes, "call_fast_1");
-  check(
-    fastPayload.status === "completed" &&
-      fastPayload.taskId === "rt_fast_1" &&
-      fastPayload.answer === "客厅主灯已打开。",
-    "fast task did not complete inline",
-  );
-  check(
-    !s1.writes.some((w) => w.type === "speech_text_buffer.commit"),
-    "fast inline task emitted redundant proactive speech",
-  );
-  // Complete the assistant's reply to the fast tool call so turn returns to waiting_user.
-  s1.push({ type: "response.done", response: { id: "r_fast_done" } });
-  await wait(20);
-
-  // 2b. Slow task (> fastPathMs) promotes to running_in_background, supports status inspection, and gates proactive speech until WHEN_IDLE.
-  nextMode = "controlled";
+  // 2a. Delegation acknowledges while the actual work is still unresolved.
   s1.push({
     type: "response.function_call_arguments.done",
     call_id: "call_slow_1",
@@ -232,16 +244,15 @@ export async function verifyAsyncVoiceTasks() {
     taskId: "rt_long_1",
   });
 
-  await wait(75);
   const promotedPayload = readDoubaoToolOutput(s1.writes, "call_slow_1");
   check(
     promotedPayload.status === "running_in_background" &&
-      promotedPayload.taskId === "rt_long_1" &&
-      promotedPayload.latestSummary === "正在修改 AuthService 并运行测试",
-    "slow task did not promote to running_in_background with step summary",
+      promotedPayload.taskId === "vtask_1" &&
+      promotedPayload.latestSummary === "starting",
+    "long work did not immediately return its submission receipt",
   );
 
-  // Assistant acknowledges background promotion and starts speaking.
+  // Assistant acknowledges the request and starts speaking while work continues.
   s1.push({ type: "response.output_audio.started", response_id: "r_ack" });
   s1.push({
     type: "response.output_audio.delta",
@@ -354,9 +365,47 @@ export async function verifyAsyncVoiceTasks() {
       ),
     "new session after standby lost detached background task receipt",
   );
+  s2.push({ type: "session.created" });
+  await wait(30);
+  check(s2.writes.some((w) => w.type === "speech_text_buffer.commit" &&
+    w.text === "会议纪要已归档到 docs/weekly.md。"),
+    "result completed during standby was not delivered on the next voice connection");
+  s2.push({ type: "response.done", response: { id: "r_resumed_notice" } });
+  await wait(15);
+  check(s2.writes.filter((w) => w.type === "speech_text_buffer.commit").length === 1,
+    "resumed result was delivered more than once");
+
+  // A result waiting behind user speech survives ending the connection before delivery.
+  s2.push({
+    type: "response.function_call_arguments.done",
+    call_id: "call_pending_result",
+    name: "run_agent_task",
+    arguments: JSON.stringify({ prompt: "查一下明天的会议" }),
+  });
+  await wait(20);
+  s2.push({ type: "input_audio_buffer.speech_started" });
+  await wait(15);
+  activeRun!.resolve({ answer: "明天上午十点开会。", taskId: "rt_pending_result" });
+  activeRun = undefined;
+  await wait(15);
+  check(!s2.writes.some((w) => w.type === "speech_text_buffer.commit" &&
+    w.text === "明天上午十点开会。"), "result interrupted user speech");
+  voice.endSession();
+  await wait(0);
+  await voice.start();
+  // End this connection during handshake; its pending notices must survive as well.
+  voice.endSession();
+  await wait(0);
+  await voice.start();
+  const s4 = sockets[3];
+  s4.push({ type: "session.created" });
+  await wait(30);
+  check(s4.writes.filter((w) => w.type === "speech_text_buffer.commit" &&
+    w.text === "明天上午十点开会。").length === 1,
+    "queued result was lost across a speaking or connecting session ending");
   voice.close();
 
-  // 3. OpenAI Realtime: early approval yield + user_speaking gate + proactive notice + task cancellation.
+  // 3. OpenAI Realtime: acknowledgement, interaction notices, speech gating, and cancellation.
   const openAiSlots = new Map<string, string>([
     ["voice", JSON.stringify({ apiKeys: { openai: "sk-test-openai" }, wakeEnabled: false })],
   ]);
@@ -382,7 +431,6 @@ export async function verifyAsyncVoiceTasks() {
 
   let openAiVoice!: VoiceRuntime;
   const openAiCoordinator = new VoiceTaskCoordinator({
-    fastPathMs: 120,
     defaultLanguage: () => "en-US",
     runTask: async (_prompt, hooks) =>
       new Promise((resolve, reject) => {
@@ -415,7 +463,7 @@ export async function verifyAsyncVoiceTasks() {
   os.push({ type: "session.updated", session: { id: "sess_oa" } });
   await wait(25);
 
-  // 3a. Approval interaction during fast window yields immediately without waiting full 120ms and without duplicate notice.
+  // 3a. Submission acknowledges first; an approval arrives through the notice channel once.
   os.push({
     type: "response.function_call_arguments.done",
     call_id: "oa_call_1",
@@ -440,24 +488,23 @@ export async function verifyAsyncVoiceTasks() {
   );
   const approvalPayload = JSON.parse(approvalToolReply?.item?.output ?? "{}");
   check(
-    approvalPayload.status === "waiting_user_confirmation" &&
-      approvalPayload.interactionKind === "approval" &&
-      approvalPayload.taskId === "rt_oa_1",
-    "approval interaction did not yield early from fast window",
+    approvalPayload.status === "running_in_background" &&
+      approvalPayload.taskId === "vtask_1",
+    "submission waited for the approval rather than acknowledging immediately",
   );
   os.push({ type: "response.done", response: { id: "r_oa_1" } });
   await wait(25);
   check(
-    !os.writes.some(
-      (w) =>
-        w.type === "conversation.item.create" &&
-        w.item?.role === "user" &&
-        JSON.stringify(w.item).includes("[Background Task Update]"),
-    ),
-    "early-yielded interaction emitted duplicate proactive notice",
+    os.writes.filter(
+      (w) => w.type === "conversation.item.create" && w.item?.role === "user" &&
+        JSON.stringify(w.item).includes("permission on screen"),
+    ).length === 1,
+    "approval was not delivered exactly once after acknowledgement",
   );
+  os.push({ type: "response.done", response: { id: "r_approval_notice" } });
+  await wait(20);
 
-  // 3b. Post-promotion question interaction while user is speaking waits until user stops speaking!
+  // 3b. A question arriving during user speech waits for the conversation to become idle.
   os.push({ type: "input_audio_buffer.speech_started" });
   await wait(15);
   openAiRun!.hooks.onStep({
@@ -477,7 +524,7 @@ export async function verifyAsyncVoiceTasks() {
       (w) =>
         w.type === "conversation.item.create" &&
         w.item?.role === "user" &&
-        JSON.stringify(w.item).includes("[Background Task Update]"),
+        JSON.stringify(w.item).includes("quick question on screen"),
     ),
     "proactive notice interrupted user_speaking on OpenAI",
   );
@@ -489,7 +536,7 @@ export async function verifyAsyncVoiceTasks() {
     (w) =>
       w.type === "conversation.item.create" &&
       w.item?.role === "user" &&
-      JSON.stringify(w.item).includes("[Background Task Update]"),
+      JSON.stringify(w.item).includes("quick question on screen"),
   );
   check(
     Boolean(oaNoticeItem) &&
@@ -545,12 +592,12 @@ export async function verifyAsyncVoiceTasks() {
   let finishUnconfirmed!: (value: { answer: string; taskId: string }) => void;
   const unconfirmedNotices: string[] = [];
   const unconfirmed = new VoiceTaskCoordinator({
-    fastPathMs: 50,
     runTask: () => new Promise((resolve) => { finishUnconfirmed = resolve; }),
     cancelRunningTask: async () => false,
     onNotice: (notice) => unconfirmedNotices.push(notice.spokenText),
   });
   const unconfirmedSubmission = await unconfirmed.submit("查看今天的日程");
+  await wait(0);
   const unconfirmedCancellation = await unconfirmed.cancel(unconfirmedSubmission.taskId);
   check(!unconfirmedCancellation.cancelled, "unconfirmed cancellation was reported as successful");
   check(
@@ -610,14 +657,13 @@ export async function verifyAsyncVoiceTasks() {
 
   openAiVoice.close();
 
-  // 4. Coordinator edge cases: external foreground busy, fast-window confirmed cancel, fast-path failure & promoted background failure.
+  // 4. Coordinator: foreground contention, cancellation, and asynchronous failures.
   let externalBusy = true;
   const edgeNotices: string[] = [];
   const edgeNotes: string[] = [];
   let edgeMode: "hang" | "fast_fail" | "slow_fail" = "hang";
   let rejectSlowFail!: (err: Error) => void;
   const edgeCoordinator = new VoiceTaskCoordinator({
-    fastPathMs: 60,
     defaultLanguage: () => "zh-CN",
     isExternalBusy: () => externalBusy,
     runTask: async () => {
@@ -646,7 +692,7 @@ export async function verifyAsyncVoiceTasks() {
     "external foreground busy polluted coordinator state or context notes",
   );
 
-  // 4b. Confirmed cancel inside fastPathMs settles submit() immediately instead of hanging.
+  // 4b. Cancelling an accepted submission leaves no active work.
   externalBusy = false;
   edgeMode = "hang";
   const pendingFastSubmit = edgeCoordinator.submit("卡住的任务");
@@ -655,26 +701,27 @@ export async function verifyAsyncVoiceTasks() {
   const fastSubmitResult = await pendingFastSubmit;
   check(
     fastCancel.cancelled === true &&
-      fastSubmitResult.status === "failed" &&
+      fastSubmitResult.status === "running_in_background" &&
       !edgeCoordinator.hasActiveTask,
-    "confirmed cancel inside fast window left submit() hanging",
+    "confirmed cancellation left accepted work active",
   );
 
-  // 4c. Fast-path failure (< fastPathMs) returns failed inline without proactive notice; promoted failure emits failure notice + context receipt.
+  // 4c. Both short and long failures deliver one notice and a context receipt.
   edgeMode = "fast_fail";
   const fastFailRes = await edgeCoordinator.submit("快失败任务");
-  check(
-    fastFailRes.status === "failed" && edgeNotices.length === 0,
-    "fast-path failure did not fail inline cleanly",
-  );
+  check(fastFailRes.status === "running_in_background", "short work did not acknowledge");
+  await wait(25);
+  check(edgeNotices.length === 1 && edgeNotes.some((n) => n.includes("disk full")),
+    "short failure did not deliver its notice and receipt");
   edgeMode = "slow_fail";
   const slowFailSubmit = await edgeCoordinator.submit("慢失败后台任务");
-  check(slowFailSubmit.status === "running_in_background", "slow_fail did not promote");
+  check(slowFailSubmit.status === "running_in_background", "long work did not acknowledge");
+  await wait(0);
   rejectSlowFail(new Error("compilation failed"));
   await wait(20);
   check(
-    edgeNotices.length === 1 &&
-      edgeNotices[0].includes("没能顺利完成") &&
+    Number(edgeNotices.length) === 2 &&
+      edgeNotices[1].includes("没能做完") &&
       edgeNotes.some((n) => n.includes("failed") && n.includes("compilation failed")),
     "promoted background task failure did not emit failure notice and receipt",
   );

@@ -5,7 +5,7 @@ globalThis.LOOI_ARCH = {
   views: [
     { id: "all", label: "架构总览", description: "手机本地运行 Agent，直接连接模型、语音、具身底座与家居服务。", nodes: [] },
     { id: "agent", label: "任务执行", description: "Pi 的异步 Shell 经宿主 ShellRunner 执行 Alpine 命令，流式输出进入任务详情，终态回执写入 SQLite。", nodes: ["app", "store", "runtime", "agent", "models", "compat", "native", "contracts", "body"] },
-    { id: "voice", label: "语音唤醒", description: "Rust 本地 KWS 待机，命中后复用音频流建立可销毁的 LiveVoiceSession；VoiceTaskCoordinator 协同短任务直返与长任务后台 WHEN_IDLE 播报。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native", "body"] },
+    { id: "voice", label: "语音唤醒", description: "Rust 本地 KWS 待机；语音委派立即受理，结果空闲时交付；后台 LLM 在 15 分钟活跃窗口内复用上下文，待交付结果跨语音连接保留。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native", "body"] },
     { id: "telemetry", label: "可观测性", description: "Voice Socket、Agent Loop 与 LLM StreamFn 共用 TraceContext；本地 Langfuse v4 接收 OTLP 观测。", nodes: ["voice", "store", "runtime", "agent", "doubao"] },
     { id: "home", label: "家居控制", description: "管理界面与 Agent 家居工具共用 HomeRuntime，经网关访问 HA 或 MIoT。", nodes: ["app", "store", "runtime", "agent", "home", "gateway", "services", "contracts"] },
   ],
@@ -67,19 +67,20 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "store", x: 28, y: 274, title: "响应式应用状态", symbol: "sliders", category: "TypeScript · 状态编排", detail: "signal / 生命周期 / 运行时接线", path: "apps/nsh/store.ts",
-      description: "createAppStore 把原生宿主、MobileRuntime、VoiceRuntime、VoiceTaskCoordinator 和界面接在一起。前台恢复本地唤醒，后台与米家登录时停麦；语音状态优先驱动说话/聆听口型，空闲时后台任务驱动思考表情。",
+      description: "createAppStore 把原生宿主、MobileRuntime、VoiceRuntime、VoiceTaskCoordinator 和界面接在一起。前台恢复本地唤醒，后台与米家登录时停麦；执行占用与前台任务呈现分开，语音委派不改写首页进度与文字回复。",
       files: [
         { path: "apps/nsh/store.ts", entry: "export function createAppStore", anchors: [{ label: "状态入口", match: "export function createAppStore" }, { label: "原生接线", match: "const opened = await openRuntime" }, { label: "唤醒恢复", match: "void voice.enterStandby()" }, { label: "语音协同任务", match: "voiceTaskCoordinator = new VoiceTaskCoordinator(" }] },
       ],
     },
     {
       id: "voice", x: 280, y: 274, title: "VoiceRuntime", symbol: "wave", category: "TypeScript · 语音编排", detail: "待机唤醒 / 会话对象 / 异步协同", path: "apps/nsh/runtime/voice/runtime.ts",
-      description: "VoiceRuntime 负责麦克风权限与本地 KWS 待机轮询；每次对话创建独立可销毁的 LiveVoiceSession 驱动 VoiceAudioPipeline；VoiceTaskCoordinator 实现短任务 2.5s 内直返、长任务转后台跨休眠存活及 WHEN_IDLE 主动播报。",
+      description: "VoiceRuntime 负责麦克风权限、本地 KWS 待机与跨连接待交付通知；LiveVoiceSession 驱动音频与空闲播报。VoiceTaskCoordinator 立即受理委派，统一回传结果；VoiceConversationWindow 让后台 LLM 在 15 分钟活跃窗口内复用历史，运行中保留，结束后续期。",
       files: [
         { path: "apps/nsh/runtime/voice.ts", entry: "export { VoiceRuntime }" },
         { path: "apps/nsh/runtime/voice/runtime.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音监管", match: "export class VoiceRuntime" }, { label: "本地待机", match: "async enterStandby(" }, { label: "建立会话", match: "async start(" }, { label: "休眠收尾", match: "endSession()" }] },
         { path: "apps/nsh/runtime/voice/live-session.ts", entry: "export class LiveVoiceSession", anchors: [{ label: "会话对象", match: "export class LiveVoiceSession" }, { label: "空闲播报闸门", match: "private flushNoticeIfIdle()" }, { label: "事件循环", match: "private async readLoop(" }] },
-        { path: "apps/nsh/runtime/voice/task-coordinator.ts", entry: "export class VoiceTaskCoordinator", anchors: [{ label: "异步任务协调", match: "export class VoiceTaskCoordinator" }, { label: "提交快慢分流", match: "async submit(" }, { label: "进度与取消", match: "inspect(" }] },
+        { path: "apps/nsh/runtime/voice/task-coordinator.ts", entry: "export class VoiceTaskCoordinator", anchors: [{ label: "异步任务协调", match: "export class VoiceTaskCoordinator" }, { label: "立即受理委派", match: "async submit(" }, { label: "进度与取消", match: "inspect(" }] },
+        { path: "apps/nsh/runtime/voice/conversation-window.ts", entry: "export class VoiceConversationWindow" },
         { path: "apps/nsh/runtime/voice/audio-pipeline.ts", entry: "export class VoiceAudioPipeline" },
         { path: "apps/nsh/runtime/voice/credentials.ts", entry: "export class VoiceCredentialStore" },
         { path: "apps/nsh/runtime/voice/tools/index.ts", entry: "export function createVoiceTools", anchors: [{ label: "工具分发", match: "handle(item:" }, { label: "工具回执", match: "reply(callId:" }] },

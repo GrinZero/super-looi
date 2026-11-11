@@ -6,7 +6,7 @@
 
 语音 Agent 直接调用查询工具，有明确的官方支持；LiveKit 与 Pipecat 也提供让长工具与语音对话分开运行的机制。让 LOOI 直接做轻量读取、耗时工作异步交付，是有依据的方向。“只读 shell 已是语音行业标准”则缺少足够证据：官方语音示例通常使用查订单、搜索等函数工具；shell 是一种可选执行接口。
 
-对 LOOI，值得比较的改动是复用现有 shell 运行时提供直接查询，以及让长工作提交后尽快释放当前工具调用。语音交付也可以与前台任务操作界面分开。以上是候选边界；只读工具具体用途、按钮影响范围和交流的 session 定义，仍需与用户对齐。
+LOOI 的只读查询需求覆盖文件／日志／环境和设备／任务／App 数据。流程采用立即受理、异步交付，首页移除右下角停止任务按钮；后台 LLM 在 15 分钟滑动空闲窗口内复用逻辑上下文。只读执行接口的两种取舍见第 3 节，会话机制依据见第 7 节。
 
 ## 1. 官方实践支持什么
 
@@ -45,7 +45,9 @@ NSH 的 Node 兼容层把 `spawn` 映射为 `shell.create`、`shell.drain`、`__
 
 当前读取到的 shell 请求和工具接口没有只读模式字段。复用运行时可以减少新增依赖；是否需要原生权限改动，取决于选受限命令接口还是完整 shell。
 
-## 5. 现有流程的具体耦合
+## 5. 改动前流程的具体耦合
+
+本节和第 6 节的项目定位基于实施前版本 `643303b`；自然委派改动见[实施计划](plans/voice-natural-handoff-plan.md)。
 
 - `VoiceTaskCoordinator` 的默认快速窗口是 2,500 ms；`run_agent_task` 等待 `submit()` 回执，窗口之后才报告转后台。语音工具调用本身没有立即完成。[task-coordinator.ts](../apps/nsh/runtime/voice/task-coordinator.ts)、[run-agent-task.ts](../apps/nsh/runtime/voice/tools/run-agent-task.ts)
 - store 的 coordinator 回调仍调用 `runtime.run()`，并设置全局 `busy`、`status`、`message`。`App.tsx` 由 `store.busy()` 显示右下角 `stop-task`，因此后台语音工作也触发前台任务 UI。[store.ts](../apps/nsh/store.ts#L925)、[App.tsx](../apps/nsh/App.tsx#L265)
@@ -60,14 +62,20 @@ OpenAI Realtime 把 session（会话）定义为有状态的连接交互，其�
 
 LiveKit 同样将 session 与当前 Agent 分开；切换 Agent 时可显式携带、裁剪或总结上下文。新 Agent/任务默认的新历史，不等于必须重建语音连接。[LiveKit：Agents and handoffs](https://docs.livekit.io/agents/logic/agents-handoffs/)
 
-本项目当前语义还存在一处反差：`LiveVoiceSession` 的静默结束阈值为 12 秒，工具忙碌、通知和播放等条件会影响结束时机。`VoiceRuntime.start()` 创建新的 `LiveVoiceSession`，只注入最新任务回执 `latestContextNote`，不恢复普通语音的完整历史；而 `MobileRuntime.run()` 每次生成新 taskId，却使用相同的 `this.conversationId` 作为执行 sessionId。[live-session.ts](../apps/nsh/runtime/voice/live-session.ts)、[runtime.ts](../apps/nsh/runtime/voice/runtime.ts)、[application.ts](../apps/nsh/runtime/application.ts#L856)
+改动前的项目存在一处反差：`LiveVoiceSession` 的静默结束阈值为 12 秒，工具忙碌、通知和播放等条件会影响结束时机。`VoiceRuntime.start()` 创建新的 `LiveVoiceSession`，只注入最新任务回执 `latestContextNote`，不恢复普通语音的完整历史；而 `MobileRuntime.run()` 每次生成新 taskId，却使用相同的 `this.conversationId` 作为执行 sessionId。[live-session.ts](../apps/nsh/runtime/voice/live-session.ts)、[runtime.ts](../apps/nsh/runtime/voice/runtime.ts)、[application.ts](../apps/nsh/runtime/application.ts#L856)
 
 `VoiceRuntime.enqueueNotice()` 仅向当前活动语音会话投递通知；没有活动会话时只保留上下文附注，下次启动不会自动把这条完成通知加入播报队列。如果一项工作跨越多次短交流，“完成后交回来”还需要明确下一次交流的通知投递行为。[runtime.ts](../apps/nsh/runtime/voice/runtime.ts#L127)
 
-因此，对齐时应分别决定三个生命周期，而不是新增三套管理对象：
+LOOI 的生命周期按实际用途区分：语音连接承载音频与事件，后台逻辑上下文使用温热窗口，单次执行通过任务 ID 查询和取消。语音连接关闭不结束后台逻辑上下文或正在执行的工作。用户确认的目标是相邻交流延续后台上下文，具体窗口规则见第 7 节。
 
-- **语音连接**：承载音频与事件；连接何时关闭是传输层决定。
-- **一段交流的上下文**：需要明确“每次新 session”是每次唤醒、一次请求，还是用户显式换话题。
-- **后台工作的上下文**：需要明确独立请求是否新建执行 session，以及补充同一件事时是否关联原工作。
+## 7. 后台 LLM 的 15 分钟温热会话
 
-因此，“频繁交流分别是新 session”可以落实为业务上下文分段，并与持续可说话、后台工作继续运行同时成立。是否每次都重开语音连接，需要用户先明确所说的 session 边界。
+本需求的温热会话应定义为：在连续交流的空闲窗口内，后续后台请求复用同一逻辑 session 和历史上下文。机制可行。OpenAI 的 Conversations 支持跨连接、设备和工作复用对话；Agents SDK 的客户端 session 则在运行前加载历史、运行后保存新消息。同一逻辑会话可以由多次独立模型请求完成。[OpenAI：Conversation state](https://developers.openai.com/api/docs/guides/conversation-state?api-mode=responses)、[Agents SDK：Sessions](https://openai.github.io/openai-agents-python/sessions/)
+
+这与 HTTP 连接复用、模型进程持续驻留、prompt cache（提示词缓存）是不同的机制。缓存优化重复前缀的处理与计费；其保留策略取决于模型，官方也明确缓存最低保留时间不保证每次请求都复用 KV 张量或获得更低延迟。保留 sessionId 和完整历史能实现上下文延续，不能据此承诺模型在 GPU 上驻留。[OpenAI：Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)
+
+这些官方会话文档未把 15 分钟规定为上限或默认值。15 分钟可以作为 LOOI 的 sliding inactivity window（滑动空闲窗口）：连续交流续期，真正空闲超过窗口才为下一次请求建立新执行 session。这是应用层策略，和语音连接的静默关闭时间独立。
+
+本项目已经具备最小实现基础：`PiTaskRunner` 按 `task.sessionId` 加载 `SessionTranscriptStore`，将历史传入新 `Agent` 的 `initialState.messages`，成功完成后保存消息。因此无需引入另一个会话存储或长期持有 Agent 实例；只需为语音后台工作持有独立 sessionId，并管理其复用期限。[session-store.ts](../packages/looi-runtime/src/agent/memory/session-store.ts)、[pi-task-runner.ts](../packages/looi-runtime/src/agent/core/pi-task-runner.ts)
+
+可采用的最小规则：运行中及等待用户补充期间保留原 session；工作结束后开始或刷新 15 分钟空闲窗口；下次提交时检查窗口，未过期则复用、已过期则新建。空闲过期只改变下一次请求的归属，不能取消、切断或清空仍在运行的长任务。这样增加的状态仅是语音 sessionId 和空闲截止时间，用途是保留相邻请求的上下文，避免每次委派从零开始。

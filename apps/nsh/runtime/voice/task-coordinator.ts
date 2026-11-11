@@ -10,7 +10,6 @@ import type {
   VoiceTaskSubmissionResult,
 } from "./types.js";
 
-const DEFAULT_FAST_PATH_MS = 2_500;
 const MAX_SPOKEN_SUMMARY_CHARS = 180;
 const MAX_CONTEXT_RECEIPT_CHARS = 800;
 
@@ -31,7 +30,6 @@ export interface VoiceTaskRunHooks {
 }
 
 export interface VoiceTaskCoordinatorOptions {
-  fastPathMs?: number;
   defaultLanguage?: () => ConversationLanguage;
   /** Optional check for foreground non-voice tasks already occupying the runtime. */
   isExternalBusy?: () => boolean;
@@ -51,10 +49,8 @@ interface ManagedTaskRecord {
   prompt: string;
   state: "running" | "waiting_user" | "completed" | "failed" | "cancelled";
   latestSummary: string;
-  promoted: boolean;
   announcedInteractions: Set<string>;
   cancelPromise?: Promise<boolean>;
-  cancelFastWindow?: (taskId: string) => void;
   answer?: string;
   error?: string;
 }
@@ -92,18 +88,15 @@ function formatContextReceipt(record: ManagedTaskRecord, taskId: string): string
 
 /**
  * Coordinates voice-originated Agent tasks independently of individual voice
- * WebSocket lifetimes: short tasks finish inline within `fastPathMs`; longer
- * tasks promote to background execution and push `WHEN_IDLE` spoken notices.
+ * WebSocket lifetimes. Submission acknowledges immediately; results and questions
+ * return through spoken notices when the conversation is idle.
  */
 export class VoiceTaskCoordinator implements VoiceTaskBridge {
-  private readonly fastPathMs: number;
   private sequence = 0;
   private currentTask?: ManagedTaskRecord;
   private latestTask?: ManagedTaskRecord;
 
-  constructor(private readonly options: VoiceTaskCoordinatorOptions) {
-    this.fastPathMs = Math.max(50, options.fastPathMs ?? DEFAULT_FAST_PATH_MS);
-  }
+  constructor(private readonly options: VoiceTaskCoordinatorOptions) {}
 
   get hasActiveTask(): boolean {
     return Boolean(
@@ -143,68 +136,35 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
       prompt: trimmed,
       state: "running",
       latestSummary: "starting",
-      promoted: false,
       announcedInteractions: new Set<string>(),
     };
     this.currentTask = record;
     this.latestTask = record;
 
-    let settleFastWindow: ((result: VoiceTaskSubmissionResult) => void) | undefined;
-    let windowTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const closeWindow = (result: VoiceTaskSubmissionResult) => {
-      if (!settleFastWindow) return;
-      const resolve = settleFastWindow;
-      settleFastWindow = undefined;
-      record.cancelFastWindow = undefined;
-      if (windowTimer) {
-        clearTimeout(windowTimer);
-        windowTimer = undefined;
-      }
-      resolve(result);
+    // Let the tool receipt leave before task startup touches the model or storage.
+    setTimeout(() => void this.run(record, traceContext), 0);
+    return {
+      status: "running_in_background",
+      taskId: record.localId,
+      latestSummary: record.latestSummary,
     };
+  }
 
-    record.cancelFastWindow = (taskId: string) => {
-      closeWindow({ status: "failed", taskId, error: "任务已取消。" });
-    };
-
-    const fastWindowPromise = new Promise<VoiceTaskSubmissionResult>((resolve) => {
-      settleFastWindow = resolve;
-      windowTimer = setTimeout(() => {
-        if (record.state !== "running" && record.state !== "waiting_user") return;
-        record.promoted = true;
-        closeWindow({
-          status: "running_in_background",
-          taskId: this.publicId(record),
-          latestSummary: record.latestSummary,
-        });
-      }, this.fastPathMs);
-    });
-
-    void this.options
-      .runTask(
-        trimmed,
+  private async run(record: ManagedTaskRecord, traceContext?: TraceContext): Promise<void> {
+    if (this.currentTask !== record) return;
+    try {
+      const outcome = await this.options.runTask(
+        record.prompt,
         {
           onStep: (event) => {
+            if (record.state === "cancelled") return;
             if (event.taskId) record.runtimeTaskId = event.taskId;
-            if (typeof event.summary === "string" && event.summary.trim()) {
-              record.latestSummary = event.summary.trim();
-            }
-            if (event.interaction && record.state !== "cancelled") {
+            if (event.summary.trim()) record.latestSummary = event.summary.trim();
+            if (event.interaction) {
               record.state = "waiting_user";
               if (!record.announcedInteractions.has(event.interaction.id)) {
                 record.announcedInteractions.add(event.interaction.id);
-                if (settleFastWindow) {
-                  record.promoted = true;
-                  closeWindow({
-                    status: "waiting_user_confirmation",
-                    taskId: this.publicId(record),
-                    interactionKind: event.interaction.kind,
-                    latestSummary: record.latestSummary,
-                  });
-                } else if (record.promoted) {
-                  this.emitInteractionNotice(record, event.interaction.id, event.interaction.kind);
-                }
+                this.emitInteractionNotice(record, event.interaction.id, event.interaction.kind);
               }
             } else if (record.state === "waiting_user") {
               record.state = "running";
@@ -212,63 +172,31 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
           },
         },
         traceContext,
-      )
-      .then(async (outcome) => {
-        if (outcome.taskId) record.runtimeTaskId = outcome.taskId;
-        if (record.cancelPromise) {
-          await record.cancelPromise;
-        }
-        if (this.currentTask === record) this.currentTask = undefined;
-        if (record.state === "cancelled") {
-          closeWindow({ status: "failed", taskId: this.publicId(record), error: "任务已取消。" });
-          return;
-        }
-        record.state = "completed";
-        record.answer = outcome.answer;
-        record.latestSummary = "completed";
-        const taskId = this.publicId(record);
-        const receipt = formatContextReceipt(record, taskId);
-        this.options.onContextNote?.(receipt);
-
-        if (settleFastWindow) {
-          closeWindow({
-            status: "completed",
-            taskId,
-            answer: outcome.answer,
-          });
-        } else if (record.promoted) {
-          this.emitCompletionNotice(record, taskId, receipt);
-        }
-      })
-      .catch(async (error: unknown) => {
-        if (record.cancelPromise) {
-          await record.cancelPromise;
-        }
-        if (this.currentTask === record) this.currentTask = undefined;
-        if (record.state === "cancelled") {
-          closeWindow({ status: "failed", taskId: this.publicId(record), error: "任务已取消。" });
-          return;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        record.state = "failed";
-        record.error = message;
-        record.latestSummary = message || "failed";
-        const taskId = this.publicId(record);
-        const receipt = formatContextReceipt(record, taskId);
-        this.options.onContextNote?.(receipt);
-
-        if (settleFastWindow) {
-          closeWindow({
-            status: "failed",
-            taskId,
-            error: "任务未获确认或未完成，不得声称成功。",
-          });
-        } else if (record.promoted) {
-          this.emitFailureNotice(record, taskId, receipt);
-        }
-      });
-
-    return fastWindowPromise;
+      );
+      if (outcome.taskId) record.runtimeTaskId = outcome.taskId;
+      if (record.cancelPromise) await record.cancelPromise;
+      if (record.state === "cancelled") return;
+      record.state = "completed";
+      record.answer = outcome.answer;
+      record.latestSummary = "completed";
+      const taskId = this.publicId(record);
+      const receipt = formatContextReceipt(record, taskId);
+      this.options.onContextNote?.(receipt);
+      this.emitCompletionNotice(record, taskId, receipt);
+    } catch (error) {
+      if (record.cancelPromise) await record.cancelPromise;
+      if (record.state === "cancelled") return;
+      const message = error instanceof Error ? error.message : String(error);
+      record.state = "failed";
+      record.error = message;
+      record.latestSummary = message || "failed";
+      const taskId = this.publicId(record);
+      const receipt = formatContextReceipt(record, taskId);
+      this.options.onContextNote?.(receipt);
+      this.emitFailureNotice(record, taskId, receipt);
+    } finally {
+      if (this.currentTask === record) this.currentTask = undefined;
+    }
   }
 
   inspect(taskId?: string): VoiceTaskStatusSnapshot | null {
@@ -325,7 +253,6 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     if (this.currentTask === record) {
       this.currentTask = undefined;
     }
-    record.cancelFastWindow?.(this.publicId(record));
   }
 
   private matchTask(taskId?: string): ManagedTaskRecord | undefined {
@@ -357,11 +284,11 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     const spokenText =
       language === "en-US"
         ? kind === "approval"
-          ? "Your background task needs permission on screen before I can continue."
-          : "Your background task has a quick question on screen for you."
+          ? "I need your permission on screen before I can continue."
+          : "I have a quick question on screen for you."
         : kind === "approval"
-          ? "刚才的后台任务需要你在屏幕上点一下授权确认，确认后我继续执行。"
-          : "刚才的后台任务在屏幕上有个问题需要你确认一下。";
+          ? "需要你在屏幕上确认一下，确认后我继续。"
+          : "有个问题需要你看一下屏幕。";
     const taskId = this.publicId(record);
     this.options.onNotice?.({
       id: `${taskId}:interaction:${interactionId}`,
@@ -378,14 +305,7 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     const rawAnswer = record.answer ?? "";
     const language = this.resolveLanguage(rawAnswer || record.prompt);
     const plain = toSpokenPlainText(rawAnswer);
-    const spokenText =
-      language === "en-US"
-        ? plain
-          ? `Quick update, your background task is finished: ${plain}`
-          : "Quick update, your background task is finished."
-        : plain
-          ? `跟你说一声，刚才的后台任务已经完成啦：${plain}`
-          : "跟你说一声，刚才的后台任务已经完成啦。";
+    const spokenText = plain || (language === "en-US" ? "That's done." : "刚才的事情处理好了。");
     this.options.onNotice?.({
       id: `${taskId}:completed`,
       spokenText,
@@ -401,8 +321,8 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     const language = this.resolveLanguage(record.prompt);
     const spokenText =
       language === "en-US"
-        ? "Heads up, the background task couldn't be completed. You can check the task panel for details."
-        : "跟你说一声，刚才的后台任务没能顺利完成，可以在任务面板查看具体原因。";
+        ? "I couldn't finish that. You can ask me what happened."
+        : "刚才的事情没能做完，你可以问我具体情况。";
     this.options.onNotice?.({
       id: `${taskId}:failed`,
       spokenText,

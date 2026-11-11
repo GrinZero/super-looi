@@ -2,10 +2,8 @@
 
 ## Voice Agent 只读工具与自然委派
 
-- [ ] 明确语音只读 shell 首批用途：文件／日志／环境查询，或设备／任务／App 数据查询。
-- [ ] 调整语音委派的工具受理与全局 UI 接线，消除快路径等待及右下角停止按钮对日常语音交流的干扰；按钮对文字任务的适用范围待对齐。
-- [ ] 明确频繁交流的 session 语义：当前每次执行新建 taskId，但复用前台 conversationId；语音 WebSocket 上下文另由 LiveVoiceSession 持有。
-- [ ] 明确跨短交流的成果交付：当前没有活动语音会话时仅保存 latestContextNote，下次启动不会自动播报完成通知。
+- [ ] 接入语音直接只读 shell：覆盖文件／日志／环境及设备／任务／App 数据查询，执行接口取舍依据见 `docs/voice-agent-readonly-shell-and-handoff-research.md`。
+- [ ] 连接手机开发真机后横屏验证自然委派：接下要求后继续闲聊、说话期间完成后空闲汇报、结束／重连后交付待发结果、语音停止工作及温热窗口内追问；当前 iOS 与 ADB 设备列表均为空。实现依据见 `docs/plans/voice-natural-handoff-plan.md`。
 
 ## 实时语音转写重复与文字越界
 

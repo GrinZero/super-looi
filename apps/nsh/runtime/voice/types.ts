@@ -105,9 +105,11 @@ export interface VoiceRuntimeOptions {
   ) => Promise<VoiceSocket>;
   onState: (state: VoiceState) => void;
   onAudioLevel?: (level: number) => void;
+  /** Keeps backend conversation context warm when a user finishes speaking. */
+  onConversationActivity?: () => void;
   /** Legacy synchronous task callback retained for backward compatibility. */
   requestTask?: (prompt: string, traceContext?: TraceContext) => Promise<string>;
-  /** Detached task bridge supporting fast-path inline completion & async promotion. */
+  /** Detached task bridge acknowledging submissions before execution finishes. */
   taskBridge?: VoiceTaskBridge;
   controlBody?: (
     action: string,

@@ -27,6 +27,7 @@ export class VoiceRuntime {
   private state: VoiceState;
   private session?: LiveVoiceSession;
   private latestContextNote = "";
+  private readonly pendingNotices: VoiceProactiveNotice[] = [];
   private standbyTimer?: ReturnType<typeof setTimeout>;
   private cueStopTimer?: ReturnType<typeof setTimeout>;
   private standbyGeneration = 0;
@@ -129,7 +130,11 @@ export class VoiceRuntime {
     if (notice.contextNote) {
       this.latestContextNote = notice.contextNote.trim();
     }
-    this.session?.enqueueNotice(notice);
+    if (this.session?.sessionPurpose === "conversation") {
+      this.session.enqueueNotice(notice);
+    } else {
+      this.pendingNotices.push(notice);
+    }
   }
 
   /** Updates background context note for future turns or active session instructions. */
@@ -257,6 +262,7 @@ export class VoiceRuntime {
       tracer: this.options.tracer,
       requestTask: this.options.requestTask,
       taskBridge: this.options.taskBridge,
+      onConversationActivity: this.options.onConversationActivity,
       controlBody: this.options.controlBody,
       onStatePatch: (patch) => {
         if (this.session === session) this.publish(patch);
@@ -271,6 +277,9 @@ export class VoiceRuntime {
     });
     this.session = session;
     await session.open();
+    if (this.session === session && !session.isDisposed) {
+      for (const notice of this.pendingNotices.splice(0)) session.enqueueNotice(notice);
+    }
   }
 
   async preview(options: { voiceId?: string; sampleText?: string } = {}): Promise<void> {
@@ -425,6 +434,7 @@ export class VoiceRuntime {
     this.prePreviewTranscript = undefined;
     this.session = undefined;
     if (active) {
+      this.pendingNotices.push(...active.takePendingNotices());
       active.dispose("graceful");
     } else {
       this.options.audio.clearPlayback();
@@ -473,7 +483,10 @@ export class VoiceRuntime {
           : undefined;
     this.prePreviewTranscript = undefined;
     this.session = undefined;
-    active?.dispose("immediate");
+    if (active) {
+      this.pendingNotices.push(...active.takePendingNotices());
+      active.dispose("immediate");
+    }
     this.options.audio.stop();
     this.options.onAudioLevel?.(0);
     (this.options.onSessionEnd ?? this.options.cancelTask)?.();

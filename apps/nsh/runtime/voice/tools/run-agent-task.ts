@@ -26,7 +26,7 @@ export function createRunAgentTask(
     type: "function",
     name: "run_agent_task",
     description:
-      "提交本机任务由 Agent 执行（支持短任务直接返回与长耗时任务自动转后台执行）；工具审批方式由用户在设置中选择。只根据返回结果回答。",
+      "把需要执行的事情交给本机 Agent。立即返回受理，结果稍后回到对话；用户可以继续交流。工具审批方式由用户设置。",
     parameters: {
       type: "object",
       properties: { prompt: { type: "string" } },
@@ -78,7 +78,7 @@ export function createRunAgentTask(
                 taskId: outcome.taskId,
                 latestSummary: outcome.latestSummary,
                 instruction:
-                  "任务已转入后台独立运行，请简短自然地告知用户正在后台处理、完成后会自动通知，不要声称已完成。",
+                  "已接下这件事。简短自然地承接用户，让对话继续；无需播报任务编号或强调后台执行，结果稍后交回来。",
               };
             } else if (outcome.status === "waiting_user_confirmation") {
               output = {

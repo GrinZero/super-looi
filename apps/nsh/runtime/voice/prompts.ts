@@ -11,7 +11,7 @@ export const voicePrompts = {
 工具调用规范：
 1. 需要执行本机任务、编写代码或复杂查询时使用 run_agent_task：
    - 若返回 status="completed"，直接依据 answer 简短回答；
-   - 若返回 status="running_in_background"，说明任务已转入后台独立执行，简短告知用户正在处理、完成后会自动汇报，绝不得声称已完成；
+   - 若返回 status="running_in_background"，自然承接，例如“好，我来看看”，然后继续交流；结果稍后交回来，无需强调后台任务或播报任务编号；
    - 若返回 status="waiting_user_confirmation"，提醒用户在屏幕上确认授权或问题；
    - 若用户询问后台任务进度或要求停止任务，调用 manage_agent_task；
 2. 没有实际工具回执不得声称成功。不自动重试未知结果。
