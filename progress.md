@@ -1961,3 +1961,17 @@
   - [x] NSH 类型检查与 App 构建通过；独立子 agent review PASS。
   - [x] 架构图移除个人记忆入口，修正既有语音待机签名锚点并重新生成 96 份源码快照。
 - [x] Step 4：记录验证结果并提交本轮变更。
+
+
+## 语音主 Agent、多任务与长期导演的社区架构调研（2026-11-11）
+
+- [x] Step 1：核验实时语音与执行模型协作的一手资料。
+  - [x] 对照 OpenAI Chat-Supervisor 示例的工具分工与上下文传递。
+  - [x] 核验 LiveKit 长耗时工具、进展更新与主动表达机制。
+- [x] Step 2：核验多任务、结果通知与长期观察者的社区实现。
+  - [x] 对照 DeepSeek Super-agent、OpenClaw 与 Letta 的具体职责和实现范围。
+- [x] Step 3：汇总机制映射、来源与差异，记录影响本项目的取舍。
+  - [x] 增补 Qwen Audio Agent 固定提交的前台工具、持久协调会话、并行项目与结果播报源码。
+  - [x] 区分 LiveKit 异步委派、单向观察注入和 OpenAI 等待式 Supervisor。
+- [x] Step 4：复核调研记录并隔离提交本轮文档。
+  - [x] 子 agent 独立复核 Qwen、LiveKit 与 OpenAI 新增证据，结论 PASS。
