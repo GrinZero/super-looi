@@ -42,6 +42,7 @@ import {
   type TileSpan,
 } from "@super-looi/home-devices";
 import type { NativeCamera } from "./camera.js";
+import type { HomeCache } from "./home-cache.js";
 
 export type HomeMode =
   | "disabled"
@@ -136,8 +137,15 @@ interface ConnectionOwner {
       original_name?: string;
     }
   >;
+  lastKnownSnapshots: Map<string, HomeStateSnapshot>;
   transport: HaTransportAdapter;
 }
+interface CachedHomeDashboard {
+  scope: string;
+  records: RawHomeEntityRecord[];
+  cameraDeviceIds: string[];
+}
+const dashboardCacheKey = "dashboard-v1";
 const modes: HomeMode[] = [
   "disabled",
   "simulation",
@@ -195,6 +203,7 @@ function resolveEnabledSources(config: SavedHome["config"]): Record<HomeSourceId
  * slot, never in NodeCompat files or public state. No commands are retried. */
 export class HomeRuntime {
   private saved: SavedHome;
+  private dashboardSnapshot?: CachedHomeDashboard;
   private generation = 0;
   private closed = false;
   private owner?: ConnectionOwner;
@@ -220,6 +229,7 @@ export class HomeRuntime {
   constructor(
     private readonly options: {
       vault: HomeVault;
+      cache?: HomeCache;
       fetch?: typeof fetch;
       crypto?: MiotCryptoProvider;
       registry?: (
@@ -252,11 +262,40 @@ export class HomeRuntime {
     } catch {
       throw new Error("home_configuration_unavailable");
     }
+    try {
+      const snapshot = JSON.parse(options.cache?.get(dashboardCacheKey) ?? "null") as CachedHomeDashboard | null;
+      if (snapshot?.scope === this.cacheScope()) this.dashboardSnapshot = snapshot;
+    } catch { /* A missing cache does not prevent a fresh connection. */ }
   }
 
+  private miotCredentialKey(region = this.saved.config.region): string {
+    return `super-looi.miot.${region}.${MIOT_CLIENT_ID}.${encodeURIComponent(`http://homeassistant.local:8123/api/webhook/${this.saved.config.callbackId}`)}`;
+  }
   private hasMiotCredential(region = this.saved.config.region): boolean {
-    const key = `super-looi.miot.${region}.${MIOT_CLIENT_ID}.${encodeURIComponent(`http://homeassistant.local:8123/api/webhook/${this.saved.config.callbackId}`)}`;
-    return Boolean(this.saved.credentials[key]);
+    return Boolean(this.saved.credentials[this.miotCredentialKey(region)]);
+  }
+  private cacheScope(): string {
+    const { haUrl, region } = this.saved.config;
+    const enabled = resolveEnabledSources(this.saved.config);
+    let miotDeviceId: string | undefined;
+    const credential = this.saved.credentials[this.miotCredentialKey()];
+    if (enabled.direct_miot && credential) {
+      try { miotDeviceId = JSON.parse(credential).deviceId; } catch { /* Invalid credentials are handled by login. */ }
+    }
+    return createHash("sha256").update(JSON.stringify({
+      enabled,
+      ha: enabled.external_ha ? [haUrl, this.saved.credentials[credentialKey(haUrl)]] : null,
+      miot: enabled.direct_miot ? [region, miotDeviceId] : null,
+    })).digest("hex");
+  }
+  private cachedStates(): Map<string, HomeStateSnapshot> {
+    return new Map(this.dashboardSnapshot?.records.flatMap((record) =>
+      record.snapshot ? [[record.entity_id, record.snapshot] as const] : []) ?? []);
+  }
+  cachedDashboard(lang: "zh-CN" | "en-US" = "zh-CN"): HomeDashboardModel | null {
+    this.assertOpen();
+    const snapshot = this.dashboardSnapshot;
+    return snapshot ? this.buildDashboard(snapshot.records, snapshot.cameraDeviceIds, lang) : null;
   }
 
   configuration(): HomeConfiguration {
@@ -322,6 +361,7 @@ export class HomeRuntime {
   /** Every mutation of the encrypted envelope is synchronous: no await can split
    * read/modify/commit and concurrent OAuth/configuration writes cannot lose data. */
   private commit(next: SavedHome) {
+    const previousScope = this.cacheScope();
     const raw = JSON.stringify(next);
     if (new TextEncoder().encode(raw).byteLength > 32_768)
       throw new Error("home_credential_capacity_exceeded");
@@ -333,6 +373,10 @@ export class HomeRuntime {
       }
     }
     this.saved = next;
+    if (previousScope !== this.cacheScope()) {
+      this.dashboardSnapshot = undefined;
+      try { this.options.cache?.remove(dashboardCacheKey); } catch { /* Cache writes are optional. */ }
+    }
   }
   private invalidate() {
     this.camera?.stopAll();
@@ -715,6 +759,16 @@ export class HomeRuntime {
       getLastVerifiedAt: () => transport.getLastVerifiedAt(),
     };
   }
+  private specResolver(generation: number): MiotSpecResolver {
+    const cache = this.options.cache;
+    return new MiotSpecResolver({
+      fetch: this.network(generation),
+      ...(cache ? { cache: {
+        get: async (key: string) => cache.get(key),
+        set: async (key: string, value: string) => { cache.set(key, value); },
+      } } : {}),
+    });
+  }
   /** A fresh connection has a new opaque identity; callers cannot replay an old
    * task's command against a different account, reconnect or app session. */
   connect(): Promise<HomeConnection> {
@@ -836,7 +890,7 @@ export class HomeRuntime {
               fetch: this.network(generation),
               getAccessToken: () => auth.tokens.getAccessToken(),
             }),
-            specs: new MiotSpecResolver({ fetch: this.network(generation) }),
+            specs: this.specResolver(generation),
             allowedEntities: ["*"],
           });
           definitions = await direct.discover();
@@ -865,6 +919,7 @@ export class HomeRuntime {
             initialEntities: dashboardEntities,
           }),
           dashboardEntities,
+          lastKnownSnapshots: this.cachedStates(),
           ...(transport instanceof DirectMiotTransportAdapter
             ? { directMiot: transport }
             : {}),
@@ -946,7 +1001,7 @@ export class HomeRuntime {
                 fetch: this.network(generation),
                 getAccessToken: () => auth.tokens.getAccessToken(),
               }),
-              specs: new MiotSpecResolver({ fetch: this.network(generation) }),
+              specs: this.specResolver(generation),
               allowedEntities: ["*"],
             });
             const defs = await direct.discover();
@@ -1048,6 +1103,7 @@ export class HomeRuntime {
           initialEntities: allDashboardEntities,
         }),
         dashboardEntities: allDashboardEntities,
+        lastKnownSnapshots: this.cachedStates(),
         directMiot: subTransports.get("direct_miot") as
           | DirectMiotTransportAdapter
           | undefined,
@@ -1078,21 +1134,51 @@ export class HomeRuntime {
     }
     const owner = this.owner;
     if (!owner) {
-      return buildHomeDashboardModel([], this.saved.config.layout, lang);
+      return this.cachedDashboard(lang) ?? buildHomeDashboardModel([], this.saved.config.layout, lang);
     }
     const states = await owner.uiGateway.getStates();
     this.assertCurrent(owner.generation);
-    const snapshotMap = new Map(states.map((s) => [s.entity_id, s.snapshot]));
+    for (const s of states) {
+      if (s.snapshot) {
+        owner.lastKnownSnapshots.set(s.entity_id, s.snapshot);
+      }
+    }
+    const snapshotMap = new Map(
+      states.map((s) => [
+        s.entity_id,
+        s.snapshot ?? owner.lastKnownSnapshots.get(s.entity_id) ?? null,
+      ]),
+    );
     const rawRecords: RawHomeEntityRecord[] = owner.dashboardEntities.map((ent) => ({
       ...ent,
       snapshot: snapshotMap.get(ent.entity_id) ?? null,
     }));
+    // An unavailable source has no fresh directory; keep its previous cards.
+    // These display records never become gateway entities or control bindings.
+    rawRecords.push(...(this.dashboardSnapshot?.records.filter((record) => {
+      const status = record.source && this.sourceStatuses[record.source];
+      return status && status.enabled && !status.healthy;
+    }) ?? []));
+    const cameraDeviceIds = this.sourceStatuses.direct_miot.enabled && !this.sourceStatuses.direct_miot.healthy
+      ? this.dashboardSnapshot?.cameraDeviceIds ?? []
+      : owner.directMiot?.listCameraCapabilities().map((camera) => camera.did) ?? [];
+    this.dashboardSnapshot = { scope: this.cacheScope(), records: rawRecords, cameraDeviceIds };
+    try {
+      this.options.cache?.set(dashboardCacheKey, JSON.stringify(this.dashboardSnapshot));
+    } catch { /* Keep the live dashboard when the cache cannot be written. */ }
+    return this.buildDashboard(rawRecords, cameraDeviceIds, lang);
+  }
+
+  private buildDashboard(
+    rawRecords: RawHomeEntityRecord[],
+    cameraDeviceIds: string[],
+    lang: "zh-CN" | "en-US",
+  ): HomeDashboardModel {
     const dashboard = buildHomeDashboardModel(
       rawRecords,
       this.saved.config.layout,
       lang,
     );
-    const cameras = owner.directMiot?.listCameraCapabilities() ?? [];
     for (const appliance of dashboard.allAppliances) {
       if (
         appliance.source !== "direct_miot" ||
@@ -1101,7 +1187,7 @@ export class HomeRuntime {
         continue;
       const vision = appliance.capabilities.visionStream;
       vision.playbackKind =
-        cameras.some((camera) => camera.did === appliance.deviceId) ? "native" : "unsupported";
+        cameraDeviceIds.includes(appliance.deviceId) ? "native" : "unsupported";
       const powerState = rawRecords.find(
         (record) => record.entity_id === appliance.capabilities.power?.entityId,
       )?.snapshot?.state;

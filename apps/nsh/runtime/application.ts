@@ -28,6 +28,7 @@ import {
 
 import type { NativeCamera } from "./camera.js";
 import { HomeRuntime, type HomeSettings } from "./home.js";
+import { createHomeCache } from "./home-cache.js";
 import {
   BodyRuntime,
   type BodyActionReceipt,
@@ -175,7 +176,7 @@ export class MobileRuntime {
       this.database.exec(
         "CREATE TABLE IF NOT EXISTS body_action_evidence (request_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, evidence TEXT NOT NULL)",
       );
-      this.home = new HomeRuntime({ vault });
+      this.home = new HomeRuntime({ vault, cache: createHomeCache(this.database) });
       this.body = new BodyRuntime({ vault });
       this.credentialStore = new VaultCredentialStore(vault, {
         conversationId: () => this.conversationId,
@@ -334,6 +335,10 @@ export class MobileRuntime {
   async homeDashboard(lang: "zh-CN" | "en-US" = "zh-CN") {
     if (this.loginPending) throw new Error("@looi:runtimeFinishOrCancelXiaomiSigninFirst");
     return this.home.dashboard(lang);
+  }
+
+  cachedHomeDashboard(lang: "zh-CN" | "en-US" = "zh-CN") {
+    return this.home.cachedDashboard(lang);
   }
 
   async setHomeSourceEnabled(

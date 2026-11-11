@@ -497,6 +497,14 @@ export function createAppStore() {
     homeSyncInFlight = withHomeLoading(async () => {
       homeConfiguration.set(runtime!.homeConfiguration());
       homeConnection.set(runtime!.homeConnection());
+      if (!homeConnection()?.connectionId) {
+        homePowerState.replaceDashboard(
+          runtime!.cachedHomeDashboard(effectiveLocale()) ?? {
+            homeName: "", totalAppliances: 0, activeAppliances: 0, rooms: [], allAppliances: [],
+          },
+          null,
+        );
+      }
       try {
         const nextDashboard = await runtime!.homeDashboard(effectiveLocale());
         if (!alive) return false;
@@ -1060,14 +1068,14 @@ export function createAppStore() {
       });
       homeConfiguration.set(opened.homeConfiguration());
       homeConnection.set(opened.homeConnection());
-      await syncHomeDashboard();
-      if (opened.homeConfiguration().mode !== "disabled") {
+      if (opened.homeConfiguration().mode === "disabled") {
+        await syncHomeDashboard();
+      } else {
         void withHomeLoading(async () => {
           try {
-            await opened.connectHome();
+            await syncHomeDashboard();
             if (alive) {
               homeDevices.set(await opened.listHome());
-              await syncHomeDashboard();
             }
           } catch {}
         });

@@ -169,6 +169,7 @@ export interface NativeRuntime {
  logoutMiot(action:UiAction):Promise<void>;
  listHome(query?:string,offset?:number):Promise<Record<string,unknown>>;
  homeDashboard(lang?:"zh-CN"|"en-US"):Promise<HomeDashboardModel>;
+ cachedHomeDashboard(lang?:"zh-CN"|"en-US"):HomeDashboardModel|null;
  setHomeSourceEnabled(source:HomeSourceId,enabled:boolean,action:UiAction):Promise<HomeConnection>;
  startHomeCamera(did:string):Promise<{sessionId:string;protocol:"native"}>;
  attachNativeCamera(camera: import("../runtime/camera.js").NativeCamera):void;
