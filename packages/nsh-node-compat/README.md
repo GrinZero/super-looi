@@ -42,6 +42,7 @@ pnpm --filter @super-looi/nsh-node-compat verify:codemode
 
 - `@super-looi/nsh-node-compat`：`installNodeCompatGlobals()`、同步桥接、SQLite、Shell。
 - `@super-looi/nsh-node-compat/bundler`：`nshNodeCompatPlugin()` / `getNshNodeCompatAliases()`；同时处理裸模块与 `node:`，缺失模块直接构建失败。
+- `stream/promises`、`node:stream/promises` 与 `stream.promises`：共享 `pipeline()`、`finished()`；对接本包 Readable / Writable / PassThrough 和文件流，支持 iterable 来源、异步生成器转换、函数终点、背压、AbortSignal、`end: false` 和完成监听清理。
 - `@super-looi/nsh-node-compat/pi-coding-bundler`：显式启用 Pi 1.5.0 headless 内部入口；只限 SessionManager 与七工具。关闭 TUI、图片处理和二进制下载；find/bash 使用注入 Operations，grep 使用 Rust 搜索。不能由此导出完整 SDK。
 - `@super-looi/nsh-node-compat/pi-sdk-bundler`：`nshPiSdkPlugin()`，实际 createAgentSession / AgentSession / ModelRuntime / SettingsManager / SessionManager / DefaultResourceLoader 与 skills；组合 codemode、coding-tools 和 Node 插件使用。七个默认工具在真 QuickJS 执行；图片处理明确拒绝，扩展只接受预编译注册，OAuth 需宿主注册深链适配器，没有本机 TCP 回调。
 - `@super-looi/nsh-node-compat/codemode-bundler` / `adapters/codemode`：`nshCodemodePlugin()` 解析精确 upstream PRELUDE_SOURCE；`createNshCodemodeSandbox()` 实现上游 portable Remote 协议，但每个 VM 都在本机 Rust 线程内，没有 Wasm 或外部服务。该 adapter 的虚拟 prelude 导入必须经过插件打包。

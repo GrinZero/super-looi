@@ -1,5 +1,9 @@
 # 当前待办
 
+## Node 兼容包导出检查
+
+- [ ] 修复 `packages/nsh-node-compat/scripts/check-exports.ts` 在 Node 中直接加载 `dist/shims/crypto.js` 的方式；当前因原生专用导入 `__nsh_native/crypto` 无法解析而失败。
+
 ## 任务真实链路
 
 - [ ] 连接开发真机横屏验收任务选择、长上下文展开、搜索动作、失败／取消标记，以及查看任务后返回语音的跨连接播报；方案见 `docs/plans/task-execution-trace-plan.md`。

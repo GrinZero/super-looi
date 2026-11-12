@@ -9,6 +9,7 @@ import { createInterface } from "node:readline";
 import http from "node:http";
 import { cloneValue } from "../src/polyfills.js";
 import { StringDecoder } from "../src/shims/string_decoder.js";
+await import("./verify-stream-promises.js");
 fs.mkdirSync("/workspace/test", { recursive: true });
 fs.writeFileSync("/workspace/test/hello.txt", "hello 世界\nsecond\nthird\n");
 equal(

@@ -23,6 +23,7 @@ const shimNames: Record<string, string> = {
   process: "process",
   events: "events",
   stream: "stream",
+  "stream/promises": "stream-promises",
   string_decoder: "string_decoder",
   readline: "readline",
   "readline/promises": "readline",

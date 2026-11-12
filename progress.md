@@ -1,5 +1,16 @@
 # Super-LOOI 重构与演进进度
 
+### QuickJS stream/promises（2026-11-12）
+
+- [x] Step 1：核对 stream 垫片、打包别名与 Node Promise API
+  - [x] 确认缺失模块映射及流完成／错误状态，复用现有事件与文件流
+- [x] Step 2：补齐 pipeline、finished 与必要的流生命周期状态
+  - [x] 支持两种模块导入、完成等待、错误传播、取消和背压
+- [x] Step 3：QuickJS 回归、类型检查、独立 review 与隔离提交
+  - [x] 在真实 QuickJS 验证文件传输、转换链、完成／失败及取消；类型检查和包构建通过
+  - [x] 修正独立审查发现的提前返回、resume 与终点早关问题，QuickJS 专项和完整兼容层回归通过
+  - [x] 子 agent 复核通过，隔离提交本次改动；原有 Node 导出检查的原生模块解析问题记入 todo.md
+
 ### Pi SessionManager 接入（2026-11-12）
 
 - [x] Step 1：核对 Pi 1.5.0 的会话 API、消息事件和 NSH 构建边界
