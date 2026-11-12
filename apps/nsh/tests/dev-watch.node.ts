@@ -13,10 +13,14 @@ test("dev ignores unrelated outputs, reloads imported code, and recovers new imp
   const dir = await mkdtemp(join(tmpdir(), "looi-dev-watch-"));
   await writeFile(join(dir, "nsh.json"), '{"name":"Watch regression"}');
   await writeFile(join(dir, "label.ts"), 'export const label = "first";');
+  await writeFile(join(dir, "active-label.ts"), 'export const label = "active";');
   const entry = 'import {mount,Text} from "nsh"; import {label} from "./label"; mount(()=><Text>{label}</Text>);';
   await writeFile(join(dir, "App.tsx"), entry);
   const child = spawn(binary, ["dev", dir, "--server-only", "--release", "--port", "0"], {
-    env: { ...process.env, NO_COLOR: "1" }, stdio: ["ignore", "ignore", "pipe"],
+    env: {
+      ...process.env, NO_COLOR: "1",
+      NSH_DEV_RESOLVE_ALIAS: JSON.stringify({ "./label": join(dir, "active-label.ts") }),
+    }, stdio: ["ignore", "ignore", "pipe"],
   });
   const closed = once(child, "close");
   let log = "";
@@ -37,9 +41,10 @@ test("dev ignores unrelated outputs, reloads imported code, and recovers new imp
       await mkdir(join(dir, folder), { recursive: true });
       await writeFile(join(dir, path), path.endsWith("json") ? "{}" : "export const unused = 1;");
     }
+    await writeFile(join(dir, "label.ts"), 'export const label = "ordinary output changed";');
     await new Promise(resolve => setTimeout(resolve, 1000));
     assert.doesNotMatch(log.slice(offset), /rebuilt|error/);
-    await writeFile(join(dir, "label.ts"), 'export const label = "second";');
+    await writeFile(join(dir, "active-label.ts"), 'export const label = "second";');
     await waitFor(/rebuilt .*App\.tsx/, offset);
     offset = log.length;
     await writeFile(join(dir, "App.tsx"), entry.replace('"./label"', '"./new-label"'));
