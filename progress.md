@@ -17,6 +17,23 @@
   - [x] 规则与结构化错误接口隔离提交 `d9f7ee1`
   - [x] 隔离提交本次改动；额外用排除既有工作区变更的代码快照验证类型检查与 33 项定向回归
 
+### Pi 标准运行时与生态接入（2026-11-12）
+
+- [x] Step 1：核对官方 SDK 与现有任务、凭据、工具和兼容层，确定职责与迁移方案
+  - [x] 采用 `createAgentSession`、标准资源加载器与官方扩展入口，计划见 `docs/plans/pi-ecosystem-runtime-plan.md`
+- [x] Step 2：迁移 AgentSession、模型访问、审批、观测与完成语义
+  - [x] 使用官方 SDK，会话消息、压缩、重试和排队由 Pi 管理；标准扩展命令按官方处理结果完成
+  - [x] 覆盖启动取消和扩展关闭，将原生确认对话、通知及 Shell 回执接到 Pi 接口
+- [x] Step 3：接通标准工具、Skills、规则、模板、扩展、MCP 和消息队列
+  - [x] 使用标准 read/write/edit 与宿主 BashOperations；接通官方 MCP、tool_search 和 codemode 扩展
+  - [x] 语音 manage_agent_task 支持 steer / follow_up；App 凭据和 Pi 目录归手机自身持有
+- [x] Step 4：完成自动化验证、独立 review、架构说明与隔离提交
+  - [x] Runtime 104 项、语音队列回归及真实 Rust QuickJS 的 node-shims／looi-runtime／looi-ecosystem／mobile-runtime／pi-sdk 通过
+  - [x] 原生生态专项覆盖资源加载、扩展、codemode 嵌套工具、压缩摘要恢复和 MCP OAuth 刷新保存
+  - [x] Runtime／兼容包构建、NSH 类型检查及 App 构建通过；独立复核发现均修复
+  - [x] 更新 `docs/pi-runtime.md`、研究结论及架构页面；分阶段提交 `70b32a3`、`58714f5`、`b5e0a20`
+  - [ ] 真机横屏安装验收；ADB／devicectl 无连接真机，MCP 首次登录界面与回调接线另记 todo
+
 ### QuickJS stream/promises（2026-11-12）
 
 - [x] Step 1：核对 stream 垫片、打包别名与 Node Promise API

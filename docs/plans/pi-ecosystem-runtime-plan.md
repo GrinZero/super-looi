@@ -18,22 +18,31 @@ App 持有凭据和设备连接，直接访问目标云服务。`PiAgentExecutor
 ## 实施步骤
 
 - [x] Step 1：核对 Pi SDK、现有调用方、兼容层和测试，确定状态归属。
-- [ ] Step 2：迁移官方会话、模型运行时和事件桥接。
-  - [ ] 接通 `AgentSession`、Settings 与资源加载，移除手动会话同步。
-  - [ ] 将审批、语言、搜索与观测接入 Pi 扩展生命周期。
-  - [ ] 保留 App 凭据与 Shell 执行回执的归属。
-- [ ] Step 3：接通标准生态入口。
-  - [ ] 标准文件工具、Skills、规则与提示模板。
-  - [ ] 扩展、MCP、工具发现及 codemode 的官方注册入口。
-  - [ ] 压缩、重试和执行中消息队列。
-- [ ] Step 4：行为验证、独立 review 与交付。
-  - [ ] 验证资源加载、压缩恢复、错误重试、排队、审批、取消、历史恢复和工具回执。
-  - [ ] 执行 runtime / NSH 类型检查、相关回归、应用构建与真实 QuickJS 宿主验证。
-  - [ ] 仅在可用真机上安装开发包并覆盖横屏；无设备时记录未执行项。
-  - [ ] 独立子 agent review，修复发现，更新架构、进度与待办，隔离提交。
+- [x] Step 2：迁移官方会话、模型运行时和事件桥接。
+  - [x] 接通 `AgentSession`、Settings 与资源加载，移除手动会话同步。
+  - [x] 将审批、语言、搜索与观测接入 Pi 扩展生命周期。
+  - [x] 保留 App 凭据与 Shell 执行回执的归属。
+- [x] Step 3：接通标准生态入口。
+  - [x] 标准文件工具、Skills、规则与提示模板。
+  - [x] 扩展、MCP、工具发现及 codemode 的官方注册入口。
+  - [x] 压缩、重试和执行中消息队列。
+- [x] Step 4：行为验证、独立 review 与交付。
+  - [x] 验证资源加载、压缩恢复、错误重试、排队、审批、取消、历史恢复和工具回执。
+  - [x] 执行 runtime / NSH 类型检查、相关回归、应用构建与真实 QuickJS 宿主验证。
+  - [x] 仅在可用真机上安装开发包并覆盖横屏；无设备时记录未执行项。
+  - [x] 独立子 agent review，修复发现，更新架构、进度与待办，隔离提交。
 
 ## 依据
 
 - [Pi SDK](https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/docs/sdk.md)
 - [扩展接口](https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/docs/extensions.md)
 - [MCP 与 codemode 官方示例](https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/examples/sdk/14-codemode-mcp.ts)
+
+## 验证结果
+
+- Runtime 104 项测试通过，覆盖标准资源、扩展命令、原生交互、压缩与恢复、重试、消息队列及取消竞争。
+- Rust QuickJS 的 node-shims、looi-runtime、looi-ecosystem、mobile-runtime 与 pi-sdk 专项通过。生态专项覆盖预编译扩展、原生 codemode 嵌套工具、真实压缩摘要恢复、MCP 工具发现与 OAuth 过期令牌刷新保存。
+- Runtime／兼容包构建、NSH 类型检查、语音回归及 App 构建通过。
+- 独立复核发现的生命周期、交互、工具设置与兼容问题均已修复并验证。
+- ADB 与 devicectl 未发现真机，未安装或运行开发包；真机横屏验收保留在 `todo.md`。
+- MCP 首次浏览器授权所需的 App deep link 回调及界面保留在 `todo.md`；已验证的 OAuth 范围是现有令牌的保存与刷新。

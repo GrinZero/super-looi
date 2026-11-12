@@ -80,7 +80,8 @@
 
 依据见 [社区机制调研](docs/agent-memory-context-research.md)。
 
-- [ ] 比较 Pi 1.5.0 压缩逻辑独立复用与整体接入 `AgentSession` 的集成面，明确现有 SQLite 任务、审批和消息检查点的归属。
+- [ ] 连接真机，横屏验收 Pi 标准资源与会话恢复、执行中补充要求、取消和 codemode 嵌套工具；自动化结果与接口见 [Pi 运行时接入](docs/pi-runtime.md)。
+- [ ] 接通 MCP 首次浏览器登录：在 App 注册 `installNativeOAuthCallbackAdapter` 的 deep link 回调，并提供授权入口；已有令牌的保存与刷新已在真实 QuickJS 中验证。
 - [ ] 基于现有 SQLite 持久化能力确定个人事实存储与统一写入入口，接通记住、纠正、遗忘及检索注入。
 - [ ] 核对豆包/OpenAI 语音转写的持久化与摘要注入能力，确定语音重连接续逻辑会话的方式，并按实际模型窗口确定上下文预算。
 

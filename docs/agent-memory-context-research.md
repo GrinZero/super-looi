@@ -72,7 +72,7 @@ Prompt caching（提示词缓存）复用未变化前缀的计算状态，解决
 
 ### 4.1 Pi：与现有技术栈最接近
 
-`pi-agent-core` 的裸 `Agent` 提供上下文处理挂钩，自动 session 压缩属于 `pi-coding-agent` 的 `AgentSession`。当前 Super-LOOI 仅创建前者，没有配置自动压缩所需的上层逻辑。[agent-core 文档](https://github.com/earendil-works/pi/blob/main/packages/agent/README.md)、[本仓库执行器](../packages/looi-runtime/src/agent/pi-executor.ts)
+`pi-agent-core` 的裸 `Agent` 提供上下文处理挂钩，自动 session 压缩属于 `pi-coding-agent` 的 `AgentSession`。Super-LOOI 的执行入口采用后者，由官方会话管理压缩与恢复，接入方式见 [Pi 运行时](pi-runtime.md)。[agent-core 文档](https://github.com/earendil-works/pi/blob/main/packages/agent/README.md)、[本仓库执行器](../packages/looi-runtime/src/agent/pi-executor.ts)
 
 核对本机 1.5.0：默认 `reserveTokens=16384`、`keepRecentTokens=20000`；阈值为 `contextTokens > contextWindow - reserveTokens`。它选择保留边界，结合旧摘要更新较早历史，追加 `CompactionEntry` 与 `firstKeptEntryId`，下一次模型请求使用摘要加近期消息，原始日志仍保留。切分不会从 toolResult 开始，避免拆散调用与结果。[压缩文档](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/compaction.md)
 
@@ -120,11 +120,9 @@ flowchart TD
 | 后台压缩或 Dreaming | 降低达到阈值时的等待、自动整理经验 | 快照/后缀协调、调度、取消、额外费用 | 先以同步压缩确认实际等待成本 |
 | 向量数据库或知识图谱 | 大量事实的语义检索或关系查询 | embedding、索引、更新与运行依赖 | 当前缺少规模和检索失败证据支持引入 |
 
-### 5.3 Pi 接入应先比较状态所有权
+### 5.3 Pi 接入与状态所有权
 
-整体采用 `AgentSession`，可以取得压缩、session 树与恢复，但需要协调我们现有 JSON 消息、SQLite 任务、审批与 NSH 宿主生命周期。沿用裸 `Agent` 并复用摘要/切分思路，集成面较小，但检查点与恢复要由现有执行器负责。两者都应从现有调用契约评估，不能因为包已安装就假定自动压缩已经可用。
-
-对当前范围，优先评估复用 Pi 的压缩算法与摘要格式、保留现有任务所有权；是否整体切换 `AgentSession`，需要比较实际 API 与移动宿主依赖后决定。这里尚无足够证据支持为了压缩同时替换整个执行框架。
+Super-LOOI 使用官方 `createAgentSession()`、`ModelRuntime` 与 `DefaultResourceLoader`。模型轮次、工具调度、压缩、重试、消息队列和会话 JSONL 均由 Pi 管理；App 保留 SQLite 任务、设备凭据、交互与原生执行能力。复用单独压缩函数会让 App 重复维护阈值检查、检查点恢复和排队状态，整体采用官方会话可删除这些重复职责。[会话工厂](../packages/looi-runtime/src/agent/core/pi-session.ts)、[运行时接入](pi-runtime.md)
 
 ### 5.4 文字与语音要共享可恢复的任务状态
 
@@ -132,7 +130,7 @@ flowchart TD
 
 ## 6. 实施前需要回答的具体问题
 
-1. Pi 1.5.0 的压缩入口能否独立复用并保留现有 SQLite 任务与审批生命周期，还是需要一个薄的上下文适配层？
+1. 按实际会话与模型窗口观察 Pi 自动压缩后的任务连续性及等待成本。
 2. 个人事实采用什么存储结构和更新语义？记住、纠正、遗忘与检索注入应使用同一个事实入口。
 3. 当前豆包/OpenAI 语音链路哪些转写事件能稳定落盘，重连时能注入多少摘要？据此确定文字与语音的逻辑 session 边界。
 4. 应按实际选用模型的窗口、工具输出增长和输出预留量确定阈值；Pi/OpenCode 的默认数字可作参考，不直接复制为本项目常量。
