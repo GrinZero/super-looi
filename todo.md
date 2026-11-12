@@ -7,7 +7,7 @@
 ## Codex Cloud 插件
 
 - [ ] 在 App 内通过 `codex_exec` 委派创建／配置环境，再通过 `codex_cloud` 在该环境启动任务，核对真实受理回执；按实际执行结果处理缺少的能力或访问条件，不将单独实现环境管理 API 作为前置条件。
-- [ ] 让 Cloud 封装支持新版环境提交：同账号的旧 wham 环境接口返回 HTTP 200 空数组；App 自有 CLI 登录态请求新版 /api/codex-cloud/v1/environment-configs 已实际返回 video2rig，provider=caas、状态 ready。继续核对新版提交协议与真实任务受理。证据见 [Codex Linux 登录修复](docs/codex-linux-login-diagnosis.md)。
+- [ ] 让 Cloud 封装支持新版环境的会话创建、任务提交与结果查询：同账号的新接口已返回 video2rig；稳定版 0.167.2 的旧 wham 链路不兼容。#50182／#56995 有公开复现，上游新客户端尚未进入该稳定版，不能仅替换 GET 或沿用旧 POST。来源与具体能力差异见 [Cloud 兼容性调研](docs/codex-cloud-cli-compatibility-research.md)。
 - [ ] 处理 Codex EXEC 默认 sandbox 策略：App Linux 的 PR_SET_PDEATHSIG／getppid 修复及四组回归已通过，CLI 在 App Linux 隔离边界内实际执行 pwd 成功；默认 workspace-write 依赖当前 guest 未提供的 bubblewrap。
 - [ ] 定位 iSH 中 vendored OpenSSL 的记录解密错误：reqwest 0.12.28／native-tls 0.2.14 返回 `0A000119 decryption failed or bad record mac`，X509VerifyResult=ok；同一进程的 rustls 路径成功。Codex 当前已固定使用验证通过的 rustls 路径。
 - [ ] 补齐固定 NSH 版本的 Android 打包 runtime 后完成 APK 编译；本轮命令报告 `/private/tmp/super-looi-nsh-v040/target/android/debug` 不存在，Android 插件打包回归已通过。

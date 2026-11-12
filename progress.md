@@ -73,6 +73,11 @@
     - [x] 最终 NshDev 的四组进程回归全部通过；使用 App Linux 隔离边界的 CLI 实际执行 pwd，输出 /workspace、命令退出码 0；默认 workspace-write 仍缺 bubblewrap
     - [x] 网页与 App 请求对照确认同账号 video2rig 来自新版 /api/codex-cloud/v1/environment-configs；App 自有 CLI 登录态请求新版接口也实际返回 video2rig，旧 wham 接口为 HTTP 200 空数组
     - [ ] 处理默认命令 sandbox 策略，并让现有 Cloud 封装支持新版环境提交协议
+  - [x] Step 3.2：按用户要求查官方 Cloud 兼容性 issue／PR
+    - [x] 官方 GitHub latest 与 npm latest 均为 0.167.2，与 App 内置版本一致
+    - [x] #50182 直接匹配、仍 open；#56995 表明旧提交接口也不支持新环境；未找到维护者提供的已发布修复版本
+    - [x] 核对原生 Cloud PR 已合入 main，但不在 0.167.2；开发中的 TUI 入口与指定环境选择不能直接代替现有命令；研究落地 docs/codex-cloud-cli-compatibility-research.md
+    - [x] 撤下临时探针，恢复 NshDev 主程序，插件页实际保持已登录；Cloud 未创建任务
   - [x] 独立 review、更新架构与待办，隔离提交实现
   - [x] 完整 NSH check 与 Node 兼容包构建通过
 
