@@ -16,6 +16,7 @@ import { NOOP_TRACER, type LangfuseTracer, type TraceContext } from "../../telem
 import { wrapStreamFnWithLangfuse } from "../../telemetry/llm-observer.js";
 
 export interface PiSessionConfig extends ModelStreamConfig {
+  taskTools?: (context: { taskId: string; workspaceRoot: string; approvalMode: "ask" | "local_auto" | "yolo"; commandTimeoutMs: number }) => { tools: AgentTool<any>[]; skillPaths?: readonly string[] };
   customTools?: AgentTool<any>[];
   agentDirectory?: string;
   credentialStore?: CredentialStore;

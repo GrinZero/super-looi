@@ -321,6 +321,7 @@ export class PiTaskRunner {
           endTool(event.callId, "web_search", event.result, event.result?.status === "failed");
         }
       });
+      const contribution = config.taskTools?.({ taskId: task.id, workspaceRoot: task.workspaceRoot, approvalMode: options.approvalMode ?? "ask", commandTimeoutMs: config.commandTimeoutMs ?? 300_000 });
       const tools =
         config.customTools ??
         createWorkspaceCodingTools({
@@ -344,7 +345,7 @@ export class PiTaskRunner {
               },
               signal,
             ),
-          additionalTools: config.additionalTools,
+          additionalTools: [...(config.additionalTools ?? []), ...(contribution?.tools ?? [])],
         });
 
       const extension: ExtensionFactory = (pi) => {
@@ -408,7 +409,7 @@ export class PiTaskRunner {
         });
       };
       const session = await createPiSession({
-        config,
+        config: { ...config, resources: { ...config.resources, additionalSkillPaths: [...(config.resources?.additionalSkillPaths ?? []), ...(contribution?.skillPaths ?? [])] } },
         workspaceRoot: task.workspaceRoot,
         stateDirectory: path.dirname(host.sessionsDirectory),
         sessionManager: manager,
