@@ -13,7 +13,7 @@ const nodes: NativeObservation[] = [
   { traceId: "trace", spanId: "model", parentSpanId: "task", name: "llm.chat", type: "generation", startedAt: startedAt + 2, attributes: { "langfuse.observation.model.name": "test-model" } },
   { traceId: "trace", spanId: "search", parentSpanId: "model", name: "agent.tool.web_search", type: "tool", startedAt: startedAt + 3, attributes: { "langfuse.observation.input": { type: "provider_hosted" } } },
 ];
-const initial: NativeTask = { id: "fixture-task", sessionId: "fixture-session", prompt: "我上一轮问了什么？", state: "running", createdAt: new Date(startedAt).toISOString(), updatedAt: new Date(startedAt).toISOString(), homeActions: [], steps: [], trace: { traceId: "trace", spanId: "task" }, observations: nodes };
+const initial: NativeTask = { id: "fixture-task", sessionId: "fixture-session", prompt: "我上一轮问了什么？", state: "running", needsReview: false, createdAt: new Date(startedAt).toISOString(), updatedAt: new Date(startedAt).toISOString(), homeActions: [], steps: [], trace: { traceId: "trace", spanId: "task" }, observations: nodes };
 
 function Fixture() {
   const task = signal(initial);
@@ -23,6 +23,7 @@ function Fixture() {
     tasks: () => ({ items: [task()], offset: 0, total: 1 }),
     recoveryCount: () => 0,
     inspectTask: () => { selected.set(true); },
+    reviewTask: () => {},
     closeTask: () => { selected.set(false); },
     refreshTasks: () => {},
     shellOutput: () => undefined,

@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { UserActionRef } from "@super-looi/contracts";
 import { PiAgentExecutor } from "@super-looi/runtime/agent/pi-executor";
+import { taskNeedsReview } from "@super-looi/runtime/agent/executor";
 import type {
   AgentTask,
   AgentStepEvent,
@@ -144,10 +145,6 @@ export class MobileRuntime {
       for (const listener of this.traceListeners) listener();
     },
   });
-  private readonly recoveredTasks = new AgentTaskStore(
-    "/home/agent/tasks",
-    this.storage.tasks,
-  );
   private readonly home: HomeRuntime;
   private readonly body: BodyRuntime;
   private readonly credentialStore: VaultCredentialStore;
@@ -178,6 +175,7 @@ export class MobileRuntime {
     private readonly releaseHost: () => void,
   ) {
     try {
+      new AgentTaskStore("/home/agent/tasks", this.storage.tasks);
       this.database.exec(
         "CREATE TABLE IF NOT EXISTS home_action_evidence (request_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, evidence TEXT NOT NULL)",
       );
@@ -541,12 +539,20 @@ export class MobileRuntime {
   }
 
   recoveryCount(): number {
-    return this.allTasks().filter((task) => task.state === "unknown").length;
+    return this.allTasks().filter(taskNeedsReview).length;
+  }
+
+  reviewTask(id: string): void {
+    const task = this.executor?.getTask(id) ?? this.storage.tasks.load().find((task) => task.id === id);
+    if (!task) throw new Error("@looi:runtimeTaskNotFound");
+    if (this.executor) this.executor.reviewTask(id);
+    else if (!task.reviewedAt)
+      this.storage.tasks.save({ ...task, reviewedAt: new Date().toISOString() });
   }
 
   private allTasks(): AgentTask[] {
     if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
-    return (this.executor?.listTasks() ?? this.recoveredTasks.list()).map(
+    return (this.executor?.listTasks() ?? this.storage.tasks.load()).map(
       (task) =>
         this.hasUnknownHome(task.id)
           ? { ...task, state: "unknown", runtimeExited: false }
@@ -566,7 +572,7 @@ export class MobileRuntime {
       throw new Error("@looi:runtimeInvalidTaskPage");
     const tasks = this.allTasks().sort(
       (a, b) =>
-        Number(b.state === "unknown") - Number(a.state === "unknown") ||
+        Number(taskNeedsReview(b)) - Number(taskNeedsReview(a)) ||
         b.updatedAt.localeCompare(a.updatedAt),
     );
     return {
@@ -576,6 +582,8 @@ export class MobileRuntime {
         id: task.id,
         prompt: task.prompt.slice(0, 160),
         state: task.state,
+        reviewedAt: task.reviewedAt,
+        needsReview: taskNeedsReview(task),
         updatedAt: task.updatedAt,
       })),
     };
@@ -596,7 +604,7 @@ export class MobileRuntime {
       )
       .all(task.id)
       .map((row) => JSON.parse(String(row.evidence)));
-    return { ...structuredClone(task), homeActions, bodyActions,
+    return { ...structuredClone(task), needsReview: taskNeedsReview(task), homeActions, bodyActions,
       observations: task.trace ? this.storage.traceObservations(task.trace.traceId) : [] };
   }
 
@@ -893,7 +901,7 @@ export class MobileRuntime {
       if (
         this.allTasks().some(
           (task) =>
-            task.sessionId === sessionId && task.state === "unknown",
+            task.sessionId === sessionId && taskNeedsReview(task),
         )
       )
         throw new Error(

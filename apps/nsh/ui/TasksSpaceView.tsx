@@ -1,4 +1,4 @@
-import { t, formatDate } from "../i18n";
+import { t, formatDate, translateMessage } from "../i18n";
 import { Text, View, Scroll, windowSize } from "nsh";
 import { Button, TextView } from "nsh/base";
 import type { createAppStore } from "../store";
@@ -6,7 +6,8 @@ import { TaskShellOutput } from "./TaskShellOutput";
 import { ActionButton } from "./Controls";
 import { TaskTraceView } from "./TaskTraceView";
 
-export function taskStateLabel(state: string): string {
+export function taskStateLabel(state: string, reviewedAt?: string): string {
+  if (state === "unknown" && reviewedAt) return t("taskReviewed");
   switch (state) {
     case "queued":
       return t("queued");
@@ -32,16 +33,14 @@ export function taskStateLabel(state: string): string {
 }
 
 export function TasksSpaceView(props: {
-  store: Pick<ReturnType<typeof createAppStore>, "task" | "tasks" | "recoveryCount" | "inspectTask" | "closeTask" | "refreshTasks" | "shellOutput">;
+  store: Pick<ReturnType<typeof createAppStore>, "task" | "tasks" | "recoveryCount" | "inspectTask" | "reviewTask" | "closeTask" | "refreshTasks" | "shellOutput">;
 }) {
   const currentTask = () => props.store.task();
 
   const sortedItems = () => {
     const raw = props.store.tasks().items;
     return [...raw].sort((a, b) => {
-      if (a.state === "unknown" && b.state !== "unknown") return -1;
-      if (a.state !== "unknown" && b.state === "unknown") return 1;
-      return 0;
+      return Number(b.needsReview) - Number(a.needsReview);
     });
   };
 
@@ -73,7 +72,7 @@ export function TasksSpaceView(props: {
           <Each of={sortedItems()} key={(item) => item.id}>
             {(item) => {
               const isSelected = () => currentTask()?.id === item().id;
-              const isUnknown = () => item().state === "unknown";
+              const isUnknown = () => item().needsReview;
 
               return (
                 <Button
@@ -94,7 +93,7 @@ export function TasksSpaceView(props: {
                           : "text-muted-foreground text-xs font-medium"
                       }
                     >
-                      {taskStateLabel(item().state)}
+                      {taskStateLabel(item().state, item().reviewedAt)}
                     </Text>
                     <Text class="text-muted-foreground text-xs font-mono">
                       {formatDate(item().updatedAt, { dateStyle: "short", timeStyle: "short" })}
@@ -162,12 +161,12 @@ export function TasksSpaceView(props: {
             <View class="flex-1 min-w-0 gap-1">
               <Text
                 class={
-                  currentTask()?.state === "unknown"
+                  currentTask()?.needsReview
                     ? "text-destructive text-sm font-bold"
                     : "text-foreground text-sm font-semibold"
                 }
               >
-                {taskStateLabel(currentTask()?.state ?? "unknown")}
+                {taskStateLabel(currentTask()?.state ?? "unknown", currentTask()?.reviewedAt)}
               </Text>
               <Text class="text-muted-foreground text-xs font-mono" style={{ numberOfLines: 1 }}>
                 {currentTask()?.id}
@@ -181,10 +180,33 @@ export function TasksSpaceView(props: {
             />
           </View>
 
-          <If when={currentTask()?.state === "unknown"}>
-            <View class="rounded-xl border border-destructive bg-muted p-3">
-              <Text class="text-destructive text-xs font-medium">
-                {t("theTaskEndedUnexpectedlyOrTimedOut")}</Text>
+          <If when={currentTask()?.needsReview}>
+            <View class="gap-2.5">
+              <Text class="text-muted-foreground text-xs">
+                {t("taskReviewHelp")}
+              </Text>
+              <ActionButton
+                testID="review-task-btn"
+                label={t("markTaskReviewed")}
+                kind="primary"
+                compact={true}
+                onPress={() => {
+                  const id = currentTask()?.id;
+                  if (id) props.store.reviewTask(id);
+                }}
+              />
+            </View>
+          </If>
+          <If when={Boolean(currentTask()?.reviewedAt)}>
+            <Text class="text-muted-foreground text-xs">
+              {t("taskReviewedAt", { time: formatDate(currentTask()?.reviewedAt ?? "", {
+                dateStyle: "short", timeStyle: "short",
+              }) })}
+            </Text>
+          </If>
+          <If when={Boolean(currentTask()?.error)}>
+            <View class="min-w-0" selectable={true}>
+              <Text class="text-destructive text-xs">{translateMessage(currentTask()?.error ?? "")}</Text>
             </View>
           </If>
 

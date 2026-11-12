@@ -71,6 +71,12 @@ export interface AgentTask {
   result?: AgentRunResult;
   error?: string;
   runtimeExited?: boolean;
+  /** Human acknowledgement of an uncertain outcome; execution evidence stays intact. */
+  reviewedAt?: string;
+}
+
+export function taskNeedsReview(task: Pick<AgentTask, "state" | "reviewedAt">): boolean {
+  return task.state === "unknown" && !task.reviewedAt;
 }
 
 export interface AgentShellOutput {

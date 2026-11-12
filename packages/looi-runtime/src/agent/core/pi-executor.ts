@@ -4,6 +4,7 @@ import type { AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import {
   AgentExecutionError,
+  taskNeedsReview,
   type AgentExecutor,
   type AgentInteractionAnswer,
   type AgentRunOptions,
@@ -90,6 +91,10 @@ export class PiAgentExecutor implements AgentExecutor {
     return structuredClone(this.store.list());
   }
 
+  reviewTask(id: string): void {
+    this.store.review(id);
+  }
+
   sendMessage(taskId: string, message: string, behavior: "steer" | "followUp" = "followUp"): Promise<"queued" | "handled"> {
     const runner = this.runners.get(taskId);
     if (!runner) return Promise.reject(new AgentExecutionError("Task has no active Pi run", taskId));
@@ -164,7 +169,7 @@ export class PiAgentExecutor implements AgentExecutor {
             id,
           ),
         );
-      if (siblings.some((task) => task.state === "unknown"))
+      if (siblings.some(taskNeedsReview))
         return Promise.reject(
           new AgentExecutionError(
             "Conversation has an unverified task outcome",
@@ -223,6 +228,7 @@ export class PiAgentExecutor implements AgentExecutor {
     delete task.result;
     delete task.error;
     delete task.interaction;
+    delete task.reviewedAt;
     this.store.save(task);
 
     const runner = new PiTaskRunner(task, prompt, options, {

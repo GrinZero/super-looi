@@ -15,6 +15,7 @@ import {
   setColorScheme,
   signal,
   Storage,
+  windowSize,
 } from "nsh";
 import {
   CredentialVault,
@@ -1486,6 +1487,10 @@ export function createAppStore() {
     face: () => face(),
     configuration: () => configuration(),
     recoveryCount: () => recoveryCount(),
+    recoveryNoticeVisible: () => recoveryCount() > 0 && (
+      message() === uiMessage("recoveryNotice", { count: recoveryCount() }) ||
+      message() === "@looi:runtimeThisConversationHasUnverifiedActionsReviewTaskHistory"
+    ),
     homeConfiguration: () => homeConfiguration(),
     homeConnection: () => homeConnection(),
     homeDevices: () => homeDevices(),
@@ -2168,9 +2173,18 @@ export function createAppStore() {
     refreshTasks(offset = 0) {
       if (!runtime) return;
       try {
-        tasks.set(runtime.taskPage(offset));
+        const currentId = task()?.id;
+        const page = runtime.taskPage(offset);
+        tasks.set(page);
         recoveryCount.set(runtime.recoveryCount());
-        task.set(undefined);
+        const preferredId =
+          currentId && page.items.some((item) => item.id === currentId)
+            ? currentId
+            : windowSize().width >= 600
+              ? page.items.find((item) => item.needsReview)?.id ??
+                page.items[0]?.id
+              : undefined;
+        task.set(preferredId ? runtime.taskDetails(preferredId) : undefined);
       } catch (error) {
         fail(error);
       }
@@ -2179,6 +2193,20 @@ export function createAppStore() {
       if (!runtime) return;
       try {
         task.set(runtime.taskDetails(id));
+      } catch (error) {
+        fail(error);
+      }
+    },
+    reviewTask(id: string) {
+      if (!runtime) return;
+      try {
+        const wasRecoveryNotice = api.recoveryNoticeVisible();
+        runtime.reviewTask(id);
+        api.refreshTasks(tasks().offset);
+        if (wasRecoveryNotice) message.set(recoveryCount()
+          ? uiMessage("recoveryNotice", { count: recoveryCount() }) : "");
+        if (!recoveryCount() && (status() === "@looi:runtimePreviousTaskResultUnverified" || wasRecoveryNotice && !busy()))
+          status.set("@looi:runtimeStandingBy");
       } catch (error) {
         fail(error);
       }
