@@ -187,3 +187,20 @@ test("cancelling login suppresses authorization links from trailing process outp
     assert.equal(f.plugin.snapshot().auth?.state, "signed_out");
   } finally { await f.close(); }
 });
+
+test("a login cleanup failure ends the authorization challenge and retains its actual error", async () => {
+  const f = fixture(); f.setSignedIn(false);
+  try {
+    await f.plugin.auth.begin(); await new Promise(resolve => setImmediate(resolve));
+    f.login().request.onOutput?.("stderr", "https://auth.openai.com/oauth/authorize?state=expired\n");
+    assert.equal(f.plugin.snapshot().auth?.state, "authorizing");
+    f.login().finish({ state: "stop_unconfirmed", exitCode: null, failure: { stage: "codex.login", code: "ERR_SHELL_CLEANUP", reason: "Alpine iSH process cleanup was not confirmed" } });
+    await new Promise(resolve => setImmediate(resolve));
+    const snapshot = f.plugin.snapshot();
+    assert.equal(snapshot.lifecycle, "failed");
+    assert.equal(snapshot.auth?.state, "unavailable");
+    assert.equal(snapshot.auth?.url, undefined);
+    assert.equal(snapshot.lastError?.code, "ERR_SHELL_CLEANUP");
+    assert.equal(snapshot.lastError?.stage, "codex.login");
+  } finally { try { await f.plugin.stop("app_shutdown"); } catch {} fs.rmSync(f.directory, { recursive: true, force: true }); }
+});

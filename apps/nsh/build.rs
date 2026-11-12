@@ -57,6 +57,7 @@ fn main() {
             println!("cargo:rerun-if-env-changed=LOOI_LINUX_CACHE_DIR");
             println!("cargo:rerun-if-changed=native/linux/ish_host.m");
             for library in ["ish", "ish_emu", "fakefs"] {
+                println!("cargo:rerun-if-changed={}", build.join(format!("lib{library}.a")).display());
                 println!("cargo:rustc-link-search=native={}", build.display());
                 println!("cargo:rustc-link-lib=static={library}");
             }

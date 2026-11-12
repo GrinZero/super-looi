@@ -62,7 +62,9 @@ export class CodexPlugin implements PluginRuntime {
   private checkCleanup(receipt: CliReceipt) {
     if (receipt.state !== "stop_unconfirmed") return;
     this.stopFailure = receipt.failure ?? { stage: receipt.stage, code: "ERR_CODEX_STOP_UNCONFIRMED", reason: "Codex process exit is unconfirmed" };
-    this.update({ lifecycle: "failed", lastExecution: receipt, lastError: this.stopFailure });
+    this.update({ lifecycle: "failed", lastExecution: receipt, lastError: this.stopFailure,
+      ...(this.state.auth?.state === "authorizing" ? { auth: { state: "unavailable" as const } } : {}),
+    });
   }
   private assertCleanup() { if (this.stopFailure) throw Object.assign(new Error(this.stopFailure.reason), { code: this.stopFailure.code }); }
   async configure(configuration: Record<string, string>) { this.update({ configuration: { environment: configuration.environment?.trim() ?? this.state.configuration.environment, branch: configuration.branch?.trim() ?? this.state.configuration.branch } }); }

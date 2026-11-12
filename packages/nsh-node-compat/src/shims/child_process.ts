@@ -139,7 +139,7 @@ export function spawn(
       deliver(response.tailChunks);
       child.cleanupUnconfirmed = response.error?.startsWith("ERR_SHELL_CLEANUP:") ?? false;
       if (response.error && !response.error.startsWith("ABORT_ERR"))
-        throw new Error(response.error);
+        throw Object.assign(new Error(response.error), child.cleanupUnconfirmed ? { code: "ERR_SHELL_CLEANUP" } : {});
       const result = response.value;
       if (result?.stdout) child.stdout.push(result.stdout);
       if (result?.stderr) child.stderr.push(result.stderr);
