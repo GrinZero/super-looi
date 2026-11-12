@@ -27,7 +27,7 @@ export function createBodyTools(host: BodyToolsHost): AgentTool<any>[] {
       name: "get_looi_body_status",
       label: "查看底座状态",
       description:
-        "Read current LOOI physical dock connection, docked status, battery/external power status, head pitch angle, fill light brightness, and active motion vector.",
+        "Read only the LOOI robot's own physical dock connection, docked status, battery/external power status, head pitch angle, built-in fill light brightness, and active motion vector. This says nothing about smart-home device availability; use list_home_devices for lamps and appliances.",
       parameters: obj({}),
       execute: async () => result(host.body.status()),
     },
@@ -35,7 +35,7 @@ export function createBodyTools(host: BodyToolsHost): AgentTool<any>[] {
       name: "control_looi_body",
       label: "控制底座动作",
       description:
-        "Control LOOI dock head pitch (head_up 85°, head_center 55°, head_down 25°, or head_set with head_degrees 25..85 where 25=down, 55=level, 85=up), bounded wheel movement (forward/backward/turn_left/turn_right or move with signed speed +1..127 forward / -1..-127 backward and turn +1..127 turn left / -1..-127 turn right), fill light (light_on/light_off or light_set with brightness 0 off, 1..255 on), power readback (read_power), or stop. A BLE connection is required; docked status does not gate control.",
+        "Control only the LOOI robot's own dock head pitch (head_up 85°, head_center 55°, head_down 25°, or head_set with head_degrees 25..85 where 25=down, 55=level, 85=up), bounded wheel movement (forward/backward/turn_left/turn_right or move with signed speed +1..127 forward / -1..-127 backward and turn +1..127 turn left / -1..-127 turn right), built-in fill light (light_on/light_off or light_set with brightness 0 off, 1..255 on), power readback (read_power), or stop. A BLE connection is required for these dock actions; docked status does not gate control. Cannot control household lamps or appliances: use list_home_devices and control_home_device, which do not require this BLE connection.",
       parameters: obj({
         action: oneOf([
           "head_up",

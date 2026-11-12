@@ -41,6 +41,7 @@ import {
 } from "./body.js";
 import { chooseConnectedModelId, fetchOnlineModels, type OnlineModel } from "./model-list.js";
 import { createBodyTools, createHomeTools } from "./tools/index.js";
+import { deviceControlInstructions } from "./device-control-instructions.js";
 import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import { VoiceConversationWindow } from "./voice/conversation-window.js";
@@ -832,6 +833,7 @@ export class MobileRuntime {
       requireApprovalForAllWrites: true,
       maxConcurrentTasks: 1,
       deadlineMs: 600_000,
+      systemPrompt: deviceControlInstructions + "\n家居查询使用 list_home_devices；仅在用户要求控制时，再用返回的 entity_id 和 connectionId 调用 control_home_device。不要先检查底座状态。工具未提供时，说明当前未启用对应能力。",
       additionalTools: [
         ...(homeEnabled ? this.homeTools() : []),
         ...(bodyEnabled ? this.bodyTools() : []),

@@ -96,10 +96,13 @@ test("legacy JSON is ignored and explicit resume requires a JSONL session", asyn
   models.setProvider(faux.provider);
   const executor = new PiAgentExecutor({
     stateDirectory, workspaceRoot, modelSpec: faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models),
+    systemPrompt: "Household lamps use the home service independently of the robot dock.",
   });
   try {
     faux.setResponses([context => {
-      const messages = resolveTranscript(context, undefined).messages.filter(message => message.role !== "system");
+      const transcript = resolveTranscript(context, undefined).messages;
+      assert.match(JSON.stringify(transcript.filter(message => message.role === "system")), /Household lamps use the home service independently of the robot dock/);
+      const messages = transcript.filter(message => message.role !== "system");
       assert.equal(messages.length, 1);
       assert.doesNotMatch(JSON.stringify(messages), /OLD HISTORY/);
       return fauxAssistantMessage("Fresh JSONL history");

@@ -39,7 +39,7 @@ export function createControlLooiBody(
     type: "function",
     name: "control_looi_body",
     description:
-      "控制 LOOI 机器人底座：头部俯仰（head_up/head_center/head_down 或 head_set 搭配 head_degrees 25..85）、方向或合成向量脉冲移动（forward/backward/turn_left/turn_right 或 move 搭配 speed/turn -127..127）、补光灯（light_on/light_off 或 light_set 搭配 brightness 0..255）、读取电量与外接供电（read_power）或立即停止（stop）。",
+      "仅控制 LOOI 机器人自身的蓝牙底座：头部俯仰（head_up/head_center/head_down 或 head_set 搭配 head_degrees 25..85）、方向或合成向量脉冲移动（forward/backward/turn_left/turn_right 或 move 搭配 speed/turn -127..127）、底座自带补光灯（light_on/light_off 或 light_set 搭配 brightness 0..255）、读取电量与外接供电（read_power）或立即停止（stop）。不能控制台灯、房间灯或其他家居设备；家居请求使用 run_agent_task，不依赖底座连接。",
     parameters: {
       type: "object",
       properties: {
@@ -57,7 +57,7 @@ export function createControlLooiBody(
         },
         brightness: {
           type: "string",
-          description: "补光灯亮度（0..255，配合 light_set 或 light_on）",
+          description: "底座自带补光灯亮度（0..255，配合 light_set 或 light_on）",
         },
         speed: {
           type: "string",

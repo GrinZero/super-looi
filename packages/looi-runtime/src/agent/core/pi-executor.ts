@@ -33,6 +33,8 @@ export interface PiExecutorConfig extends ToolApprovalConfig, PiSessionConfig {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+  /** App-specific instructions appended to the task session's system prompt. */
+  systemPrompt?: string;
   deadlineMs?: number;
   maxSteps?: number;
   maxToolCalls?: number;

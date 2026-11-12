@@ -23,7 +23,7 @@ export function createHomeTools(host: HomeToolsHost): AgentTool<any>[] {
       name: "list_home_devices",
       label: "查看家居设备",
       description:
-        "Find devices and current readbacks. Use actual entity_id and connectionId for control. Simulation is explicitly labelled and never represents real devices. Ask when multiple matches exist.",
+        "Find smart-home devices (lamps, room lights, sockets, appliances) and current readbacks through the App's configured Mi Home / Home Assistant service. Independent of the LOOI robot dock and its BLE connection; no body status check is needed. Use actual entity_id and connectionId for control. Simulation is explicitly labelled and never represents real devices. Ask when multiple matches exist.",
       parameters: obj({
         query: opt(str()),
         offset: opt(int({ minimum: 0 })),
@@ -35,7 +35,7 @@ export function createHomeTools(host: HomeToolsHost): AgentTool<any>[] {
       name: "control_home_device",
       label: "控制家居设备",
       description:
-        "Control one device using the task's approval setting. Requires entity_id and connectionId from a recent list. Only a verified receipt confirms success. For failures report diagnostics.stage and the actual error/return code; claim acceptance only when diagnostics.write_acknowledged is true. Unknown must not be retried automatically. Simulation changes no real device.",
+        "Control one smart-home device through Mi Home / Home Assistant using the task's approval setting; no LOOI dock or BLE connection is required. Requires entity_id and connectionId from a recent list_home_devices call; connectionId identifies the home-service connection. Only a verified receipt confirms success. For failures report diagnostics.stage and the actual error/return code; claim acceptance only when diagnostics.write_acknowledged is true. Unknown must not be retried automatically. Simulation changes no real device.",
       parameters: obj({
         entity_id: str(),
         connectionId: str(),

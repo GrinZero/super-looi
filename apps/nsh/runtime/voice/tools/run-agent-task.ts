@@ -26,7 +26,7 @@ export function createRunAgentTask(
     type: "function",
     name: "run_agent_task",
     description:
-      "把需要执行的事情交给本机 Agent。立即返回受理，结果稍后回到对话；用户可以继续交流。工具审批方式由用户设置。",
+      "查询或控制智能家居（台灯、房间灯、插座、空调等），或执行本机任务、编写代码与复杂查询。家居通过已配置的米家／Home Assistant 服务执行，无需连接 LOOI 底座。prompt 应包含用户指定的设备、房间和动作。可能直接返回完成结果，也可能先返回受理并稍后将结果带回对话；用户可以继续交流。工具审批方式由用户设置。",
     parameters: {
       type: "object",
       properties: { prompt: { type: "string" } },
