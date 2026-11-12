@@ -46,7 +46,8 @@ export function createCodexRunner(options: {
           if (request.signal?.aborted) { receipt.state = "cancelled"; finish(); return; }
           const child = spawn("/usr/local/bin/codex", ["-c", 'cli_auth_credentials_store="file"', ...request.args], {
             cwd: request.cwd ?? "/workspace", stdio: ["ignore", "pipe", "pipe"], timeout: request.timeoutMs,
-            env: { CODEX_HOME: "/root/.codex", ...(process.env.LOOI_CODEX_PROXY ? { HTTP_PROXY: process.env.LOOI_CODEX_PROXY, HTTPS_PROXY: process.env.LOOI_CODEX_PROXY, NO_PROXY: "localhost,127.0.0.1,::1" } : {}) },
+            // Codex creates ~/.codex on first login; explicit CODEX_HOME must already exist.
+            env: { HOME: "/root", ...(process.env.LOOI_CODEX_PROXY ? { HTTP_PROXY: process.env.LOOI_CODEX_PROXY, HTTPS_PROXY: process.env.LOOI_CODEX_PROXY, NO_PROXY: "localhost,127.0.0.1,::1" } : {}) },
           });
           const nativeChild = child as typeof child & { timedOut?: boolean; cleanupUnconfirmed?: boolean };
           cancel = () => { aborted = true; child.kill("SIGTERM"); };
