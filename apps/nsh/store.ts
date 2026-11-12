@@ -11,6 +11,7 @@ import {
   effect,
   lifecycle,
   locale,
+  openUrl,
   reduceMotion,
   setColorScheme,
   signal,
@@ -46,6 +47,7 @@ import {
   type HomeSourceId,
   type TileSpan,
   type NativeRuntime,
+  type PluginSnapshot,
   type NativeStep,
   type NativeTask,
   type NativeTaskPage,
@@ -62,7 +64,8 @@ export type AppSpace =
   | "home"
   | "body"
   | "tasks"
-  | "settings";
+  | "settings"
+  | "plugins";
 
 export type HomeSubView = "devices" | "services" | "video_login";
 
@@ -352,6 +355,18 @@ export function createAppStore() {
   };
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
+  const plugins = signal<PluginSnapshot[]>([]);
+  const pluginBusy = signal("");
+  const pluginUiError = signal("");
+  let unsubscribePlugins: (() => void) | undefined;
+  const pluginAction = async (id: string, run: (host: NativeRuntime) => Promise<unknown>) => {
+    if (!runtime || pluginBusy()) return;
+    pluginBusy.set(id);
+    pluginUiError.set("");
+    try { await run(runtime); }
+    catch (error) { if (alive) pluginUiError.set(String(error)); }
+    finally { if (alive) { if (runtime) plugins.set(runtime.pluginsSnapshot()); pluginBusy.set(""); } }
+  };
   const appearancePreference = signal<AppearancePreference>("system");
   const taskApprovalMode = signal<TaskApprovalMode>("ask");
   let languagePreferenceTouched = false;
@@ -903,6 +918,15 @@ export function createAppStore() {
         return;
       }
       runtime = opened;
+      plugins.set(opened.pluginsSnapshot());
+      unsubscribePlugins = opened.subscribePlugins(event => {
+        if (!alive) return;
+        if (event.type === "state_changed") plugins.update(current => current.map(item => item.id === event.pluginId ? event.snapshot : item));
+        if (event.type === "auth_challenge") {
+          const current = plugins().find(item => item.id === event.pluginId);
+          if (current?.enabled && current.auth?.state === "authorizing" && current.auth.sessionId === event.sessionId) void openUrl(event.url).catch(error => { if (alive) pluginUiError.set(String(error)); });
+        }
+      });
       unsubscribeTrace = opened.subscribeTrace(() => {
         if (alive && activeSpace() === "tasks" && task()) refreshInspectedTask();
       });
@@ -1099,6 +1123,7 @@ export function createAppStore() {
   cleanup(() => {
     alive = false;
     unsubscribeTrace?.();
+    unsubscribePlugins?.();
     if (toastTimer) clearTimeout(toastTimer);
     if (dockExpressionTimer) clearTimeout(dockExpressionTimer);
     voiceTaskCoordinator?.markExternallyCancelled();
@@ -1110,6 +1135,15 @@ export function createAppStore() {
   });
 
   const api = {
+    plugins: () => plugins(),
+    pluginBusy: () => pluginBusy(),
+    pluginUiError: () => pluginUiError(),
+    refreshPlugin: (id: string) => pluginAction(id, host => host.refreshPlugin(id)),
+    configurePlugin: (id: string, values: Record<string, string>) => pluginAction(id, host => host.configurePlugin(id, plugins().find(item => item.id === id)?.enabled ?? true, values, action())),
+    setPluginEnabled: (id: string, enabled: boolean) => pluginAction(id, host => host.configurePlugin(id, enabled, plugins().find(item => item.id === id)?.configuration ?? {}, action())),
+    beginPluginLogin: (id: string) => pluginAction(id, host => host.beginPluginLogin(id, action())),
+    cancelPluginLogin: (id: string) => pluginAction(id, host => host.cancelPluginLogin(id)),
+    logoutPlugin: (id: string) => pluginAction(id, host => host.logoutPlugin(id, action())),
     languagePreference: () => languagePreference(),
     effectiveLocale,
     async setLanguagePreference(value: LanguagePreference) {

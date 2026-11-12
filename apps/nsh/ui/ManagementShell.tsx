@@ -9,6 +9,7 @@ import { VoiceServiceBar, VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
 import { BodySpaceView } from "./BodySpaceView";
 import { TasksSpaceView } from "./TasksSpaceView";
+import { PluginsSpaceView } from "./PluginsSpaceView";
 import { SettingsSpaceView } from "./SettingsSpaceView";
 import { RetainedPage } from "./RetainedPage";
 
@@ -158,6 +159,7 @@ export function ManagementShell(props: {
         </Scroll>
       </If>
 
+      <If when={props.store.activeSpace() === "plugins"}><Text class="text-foreground text-base font-semibold">{t("plugins")}</Text></If>
       <If when={props.store.activeSpace() === "voice"}>
         <VoiceServiceBar store={props.store} />
       </If>
@@ -373,6 +375,9 @@ export function ManagementShell(props: {
       <RetainedPage active={props.store.activeSpace() === "tasks"}>
         <TasksSpaceView store={props.store} />
       </RetainedPage>
+      <RetainedPage active={props.store.activeSpace() === "plugins"}>
+        <PluginsSpaceView store={props.store} />
+      </RetainedPage>
       <RetainedPage active={props.store.activeSpace() === "settings"}>
         <SettingsSpaceView store={props.store} />
       </RetainedPage>
@@ -442,6 +447,7 @@ export function ManagementShell(props: {
             {renderNavButton("home", () => t("home"), "nav-home")}
             {renderNavButton("body", () => t("body"), "nav-body")}
             {renderNavButton("tasks", () => t("tasks"), "nav-tasks")}
+            {renderNavButton("plugins", () => t("plugins"), "nav-plugins")}
             {renderNavButton("settings", () => t("settings"), "nav-settings")}
           </View>
         </View>
@@ -481,6 +487,7 @@ export function ManagementShell(props: {
             {renderNavButton("home", () => t("home"), "nav-home", true)}
             {renderNavButton("body", () => t("body"), "nav-body", true)}
             {renderNavButton("tasks", () => t("tasks"), "nav-tasks", true)}
+            {renderNavButton("plugins", () => t("plugins"), "nav-plugins", true)}
             {renderNavButton("settings", () => t("settings"), "nav-settings", true)}
           </Scroll>
 

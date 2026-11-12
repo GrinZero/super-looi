@@ -45,6 +45,9 @@ import { deviceControlInstructions } from "./device-control-instructions.js";
 import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import { VoiceConversationWindow } from "./voice/conversation-window.js";
+import { PluginHost } from "./plugins/host.js";
+import { codexDefinition } from "./plugins/codex/index.js";
+import type { PluginEvent } from "./plugins/contracts.js";
 
 type MutableModels = ReturnType<typeof createLooiModelsRegistry>;
 type Credential = ModelVaultEnvelope["credentials"][string];
@@ -146,6 +149,7 @@ export class MobileRuntime {
   });
   private readonly home: HomeRuntime;
   private readonly body: BodyRuntime;
+  private readonly plugins: PluginHost;
   private readonly credentialStore: VaultCredentialStore;
   private readonly modelsRegistry: MutableModels;
   private readonly fetchedModels = new Map<string, OnlineModel[]>();
@@ -183,6 +187,13 @@ export class MobileRuntime {
       );
       this.home = new HomeRuntime({ vault, cache: createHomeCache(this.database) });
       this.body = new BodyRuntime({ vault });
+      this.plugins = new PluginHost(this.database, [codexDefinition({
+        tracer: this.tracer,
+        traceContext: () => {
+          const trace = this.taskId ? this.executor?.getTask(this.taskId)?.trace : undefined;
+          return trace ? { traceId: trace.traceId, parentSpanId: trace.spanId, traceName: "codex" } : undefined;
+        },
+      })]);
       this.credentialStore = new VaultCredentialStore(vault, {
         conversationId: () => this.conversationId,
       });
@@ -222,6 +233,19 @@ export class MobileRuntime {
   homeConfiguration() {
     return this.home.configuration();
   }
+
+  pluginsSnapshot() { return this.plugins.snapshots(); }
+  subscribePlugins(listener: (event: PluginEvent) => void) { return this.plugins.subscribe(listener); }
+  async refreshPlugin(id: string) { await this.plugins.get(id).auth?.refresh(); return this.pluginsSnapshot(); }
+  private assertPluginAction(action: UserActionRef) {
+    if (this.closed) throw new Error("Runtime is closed");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId) throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
+  }
+  async configurePlugin(id: string, enabled: boolean, values: Record<string, string>, action: UserActionRef) { this.assertPluginAction(action); return this.plugins.configure(id, enabled, values); }
+  async beginPluginLogin(id: string, action: UserActionRef) { this.assertPluginAction(action); const auth = this.plugins.get(id).auth; if (!auth) throw new Error(`Plugin has no login: ${id}`); return auth.begin(); }
+  async cancelPluginLogin(id: string) { await this.plugins.get(id).auth?.cancel(); }
+  async logoutPlugin(id: string, action: UserActionRef) { this.assertPluginAction(action); await this.plugins.get(id).auth?.logout(); }
 
   homeConnection() {
     return this.home.connection();
@@ -815,6 +839,8 @@ export class MobileRuntime {
         ...(homeEnabled ? this.homeTools() : []),
         ...(bodyEnabled ? this.bodyTools() : []),
       ],
+      taskTools: context => this.plugins.contribution(context),
+      toolApprovalRules: Object.fromEntries(["codex_exec", "codex_cloud"].map(name => [name, ({ approvalMode, arguments: input }: { approvalMode: string; arguments: Record<string, unknown> }) => approvalMode === "ask" ? { operation: name, ...input } : undefined])),
       approvalRequiredTools: homeEnabled ? ["control_home_device"] : [],
     });
   }
@@ -933,9 +959,11 @@ export class MobileRuntime {
       try {
         await this.executor?.close();
       } finally {
-        await this.tracer.shutdown();
-        this.storage.close();
-        this.releaseHost();
+        try { await this.plugins.close(); }
+        finally {
+          try { await this.tracer.shutdown(); }
+          finally { this.storage.close(); this.releaseHost(); }
+        }
       }
     })();
     return this.closing;

@@ -3,13 +3,14 @@ import "@formatjs/intl-pluralrules/polyfill.js";
 import "@formatjs/intl-pluralrules/locale-data/en.js";
 import "@formatjs/intl-pluralrules/locale-data/zh.js";
 import i18next from "i18next";
+import { pluginsEn, pluginsZh } from "./plugins-catalog";
 import { extraEn, extraZh } from "./extra-catalog";
 import { en, zh } from "./catalog";
 import { runtimeEn, runtimeZh } from "./runtime-catalog";
 
 export type AppLocale = "zh-CN" | "en-US";
 export type LanguagePreference = "system" | AppLocale;
-export type MessageKey = keyof typeof zh | keyof typeof runtimeZh | keyof typeof extraZh | "taskCount";
+export type MessageKey = keyof typeof zh | keyof typeof runtimeZh | keyof typeof extraZh | keyof typeof pluginsZh | "taskCount";
 
 export function resolveLocale(preference: LanguagePreference, systemLocale: string): AppLocale {
   if (preference !== "system") return preference;
@@ -21,7 +22,7 @@ void engine.init({
   initAsync: false,
   lng: "zh-CN",
   fallbackLng: "zh-CN",
-  resources: { "zh-CN": { translation: { ...zh, ...runtimeZh, ...extraZh } }, "en-US": { translation: { ...en, ...runtimeEn, ...extraEn } } },
+  resources: { "zh-CN": { translation: { ...zh, ...runtimeZh, ...extraZh, ...pluginsZh } }, "en-US": { translation: { ...en, ...runtimeEn, ...extraEn, ...pluginsEn } } },
   interpolation: { escapeValue: false },
 });
 

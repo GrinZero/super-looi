@@ -30,11 +30,16 @@ export async function isLangfuseRunning(values) {
     signal: AbortSignal.timeout(1500),
   }).then(response => response.ok, () => false);
 }
-export function loadRuntimeVariables({ release = false, debugTelemetry = false } = {}) {
+export function isIosSimulatorBuild(command, target, device) {
+  const ios = command.endsWith("-ios") || target === "ios" || target === "ios-simulator";
+  return ios && (target === "ios-simulator" || command === "dev" || (command !== "package" && !device));
+}
+export function loadRuntimeVariables({ release = false, debugTelemetry = false, simulator = false } = {}) {
   const file = resolve(import.meta.dirname, "../../../.env");
   const values = { ...(existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {}), ...process.env };
   const telemetry = debugTelemetry && values.LOOI_DEBUG_TELEMETRY === "1" && !release;
   return {
+    LOOI_CODEX_PROXY: simulator ? values.LOOI_SIMULATOR_PROXY || "" : "",
     VOICE_PROVIDER: values.VOICE_PROVIDER || "doubao",
     VOICE_BASE_URL: values.VOICE_BASE_URL || "",
     VOICE_MODEL: values.VOICE_MODEL || "",

@@ -2,6 +2,7 @@
 // Recovery follows OpenMinis/ISHKernel.m at the revision in sources.lock.json.
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
+#import <TargetConditionals.h>
 #include <mach/mach.h>
 #include <os/proc.h>
 #include <stdatomic.h>
@@ -63,15 +64,34 @@ static void install_jit_crash_handler(void) {
 }
 
 static _Atomic bool critical_pressure;
+static int available_memory(uint64_t *bytes) {
+#if TARGET_OS_SIMULATOR
+    // Simulator processes have no iOS jetsam allowance; query their host VM.
+    vm_statistics64_data_t vm;
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    mach_port_t host = mach_host_self();
+    kern_return_t result = host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&vm, &count);
+    mach_port_deallocate(mach_task_self(), host);
+    if (result != KERN_SUCCESS) return result;
+    *bytes = ((uint64_t)vm.free_count + vm.inactive_count) * getpagesize();
+#else
+    *bytes = os_proc_available_memory();
+#endif
+    return 0;
+}
 static void memory_tick(void) {
     task_vm_info_data_t info;
     mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
     if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) != KERN_SUCCESS) return;
-    uint64_t available = os_proc_available_memory();
+    uint64_t available;
+    int result = available_memory(&available);
+    if (result) { fprintf(stderr, "iSH memory read failed (stage=linux.memory, code=%d)\n", result); return; }
     ish_set_memory_status(info.phys_footprint + available, available, atomic_load(&critical_pressure));
 }
-static void memory_start(void) {
-    uint64_t available = os_proc_available_memory();
+static int memory_start(void) {
+    uint64_t available;
+    int result = available_memory(&available);
+    if (result) return result;
     ish_set_anon_page_limit((long)(available / 2 / getpagesize()));
     dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
     static dispatch_source_t timer, pressure;
@@ -87,6 +107,7 @@ static void memory_start(void) {
     });
     dispatch_resume(pressure);
     memory_tick();
+    return 0;
 }
 
 struct shell_job {
@@ -138,22 +159,34 @@ static void process_exit(struct task *task, int code) {
     }
 }
 
-struct boot_data { char *root, *workspace, *dns; int result; pthread_mutex_t mutex; pthread_cond_t ready; bool done; };
+struct boot_data { char *root, *workspace, *dns, *codex; const char *stage; int result; pthread_mutex_t mutex; pthread_cond_t ready; bool done; };
 static void *kernel_thread(void *opaque) {
     struct boot_data *boot = opaque;
     @autoreleasepool {
         setenv("ISH_NETLINK_STUB", "1", 1);
+        boot->stage = "linux.socket-directory";
+#if TARGET_OS_SIMULATOR
+        char directory[] = "/tmp/looi-ish-XXXXXX";
+        char *created = mkdtemp(directory);
+        NSString *prefix = created ? [[NSString stringWithUTF8String:created] stringByAppendingString:@"/is"] : nil;
+#else
         NSString *prefix = [NSTemporaryDirectory() stringByAppendingString:@"is"];
+#endif
         if ([prefix hasPrefix:@"/private/"]) prefix = [prefix substringFromIndex:8];
-        int error = 0;
-        if (strlen(prefix.UTF8String) + 12 >= sizeof(((struct sockaddr_un *)0)->sun_path)) error = -1;
-        else sock_tmp_prefix = strdup(prefix.UTF8String);
+        int error = prefix ? 0 : -errno;
+        if (!error && strlen(prefix.UTF8String) + 12 >= sizeof(((struct sockaddr_un *)0)->sun_path)) error = -ENAMETOOLONG;
+        if (!error) sock_tmp_prefix = strdup(prefix.UTF8String);
         if (!error) {
             install_jit_crash_handler();
-            memory_start();
+            boot->stage = "linux.memory";
+            error = memory_start();
+        }
+        if (!error) {
+            boot->stage = "linux.mount-rootfs";
             error = mount_root(&fakefs, boot->root);
         }
         if (!error) {
+            boot->stage = "linux.init-process";
             char real[PATH_MAX];
             if (realpath(boot->root, real)) fakefs_set_rootfs_data_path(real);
             error = become_first_process();
@@ -168,8 +201,26 @@ static void *kernel_thread(void *opaque) {
                 generic_mknodat(AT_PWD, names[i], S_IFCHR | 0666, dev_make(MEM_MAJOR, minors[i]));
             do_mount(&procfs, "proc", "/proc", "", 0);
             do_mount(&devptsfs, "devpts", "/dev/pts", "", 0);
+            boot->stage = "linux.mount-workspace";
             error = do_mount(&realfs, boot->workspace, "/workspace", "", 0);
-            if (!error) error = fakefs_bind_mount("/etc/resolv.conf", boot->dns, false);
+            if (!error) {
+                boot->stage = "linux.mount-dns";
+                error = fakefs_bind_mount("/etc/resolv.conf", boot->dns, false);
+            }
+            if (!error) {
+                boot->stage = "linux.mount-codex";
+                generic_mkdirat(AT_PWD, "/opt", 0755);
+                generic_mkdirat(AT_PWD, "/opt/looi", 0755);
+                generic_mkdirat(AT_PWD, "/usr/local", 0755);
+                generic_mkdirat(AT_PWD, "/usr/local/bin", 0755);
+                error = do_mount(&realfs, boot->codex, "/opt/looi", "", 0);
+                if (!error) {
+                    boot->stage = "linux.link-codex";
+                    int removed = generic_unlinkat(AT_PWD, "/usr/local/bin/codex");
+                    if (removed && removed != _ENOENT) error = removed;
+                    if (!error) error = generic_symlinkat("/opt/looi/codex", AT_PWD, "/usr/local/bin/codex");
+                }
+            }
             exit_hook = process_exit;
         }
         pthread_mutex_lock(&boot->mutex);
@@ -187,8 +238,8 @@ static void *kernel_thread(void *opaque) {
         }
     }
 }
-int looi_ish_boot(const char *root, const char *workspace, const char *dns) {
-    struct boot_data boot = { .root = strdup(root), .workspace = strdup(workspace), .dns = strdup(dns),
+int looi_ish_boot(const char *root, const char *workspace, const char *dns, const char *codex, const char **failed_stage) {
+    struct boot_data boot = { .root = strdup(root), .workspace = strdup(workspace), .dns = strdup(dns), .codex = strdup(codex), .stage = "linux.kernel-thread",
         .mutex = PTHREAD_MUTEX_INITIALIZER, .ready = PTHREAD_COND_INITIALIZER };
     pthread_t thread;
     pthread_mutex_lock(&boot.mutex);
@@ -199,12 +250,16 @@ int looi_ish_boot(const char *root, const char *workspace, const char *dns) {
         error = boot.result;
     }
     pthread_mutex_unlock(&boot.mutex);
-    free(boot.root); free(boot.workspace); free(boot.dns);
+    *failed_stage = boot.stage;
+    free(boot.root); free(boot.workspace); free(boot.dns); free(boot.codex);
     pthread_mutex_destroy(&boot.mutex); pthread_cond_destroy(&boot.ready);
     return error;
 }
 const char *looi_ish_archive(void) {
     return [[NSBundle.mainBundle pathForResource:@"alpine-fakefs" ofType:@"tar.gz"] fileSystemRepresentation];
+}
+const char *looi_ish_codex_directory(void) {
+    return [[NSBundle.mainBundle pathForResource:@"LinuxTools" ofType:nil] fileSystemRepresentation];
 }
 
 static struct fd *host_fd(int number) {

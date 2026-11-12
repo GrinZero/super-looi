@@ -4,6 +4,12 @@
 
 - [ ] 开发真机横屏复测：底座断连时仍可通过家居服务控制大厅台灯，“自己的补光灯”操作底座，家居服务错误按实际回执解释。语音／任务提示词与工具描述已分离，运行时回归及 GPT-4o 工具选择评估通过。
 
+## Codex Cloud 插件
+
+- [ ] 在 App 内通过 `codex_exec` 委派创建／配置环境，再通过 `codex_cloud` 在该环境启动任务，核对真实受理回执；按实际执行结果处理缺少的能力或访问条件，不将单独实现环境管理 API 作为前置条件。
+- [ ] 修复 iOS 26.3 模拟器 Safari 登录页的中文缺字方框并完成 App 自有账号登录。苹方简体已下载，CoreText 能取得实际中文字形；WebKit 页面仍缺字。网络已恢复：Safari QUIC 原命中 UDP→DIRECT，现仅对 CoreSimulator WebKit UDP/443 阻止直连，实际 `auth.openai.com` 连接走 HTTPS 美国代理；App CLI 使用模拟器构建专用代理变量。
+- [ ] 补齐固定 NSH 版本的 Android 打包 runtime 后完成 APK 编译；本轮命令报告 `/private/tmp/super-looi-nsh-v040/target/android/debug` 不存在，Android 插件打包回归已通过。
+
 ## 语音过早接话与重复收音
 
 - [ ] 在原生 `VoiceAudio` 选择并接入厂商无关的 AEC；优先比较 AEC3 / Sonora 与 LocalVQE 仅去回声模型，统一播放参考和采集时钟，在真机横屏核对外放与自然插话。用户提供的 SAMI 模型若继续使用，还需匹配的独立运行库及离线授权。协议与框架取舍见 [通用 Realtime 与独立 AEC 调研](docs/realtime-portability-and-aec-research.md)。

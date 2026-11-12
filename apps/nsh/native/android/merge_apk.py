@@ -68,7 +68,7 @@ def merge(original, dex, out, application, backup, orientation, permissions=()):
         linux = os.environ.get("LOOI_LINUX_CACHE_DIR")
         linux_sources = {}
         if linux and "lib/arm64-v8a/libnsh.so" in names:
-            for library in ("libproot.so", "libproot-loader.so"):
+            for library in ("libproot.so", "libproot-loader.so", "liblooi-codex.so"):
                 name = f"lib/arm64-v8a/{library}"
                 source = Path(linux) / "android/jniLibs/arm64-v8a" / library
                 linux_sources[name] = source

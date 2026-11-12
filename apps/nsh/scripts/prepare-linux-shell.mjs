@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadBuildVariables } from "./build-env.mjs";
@@ -8,6 +8,8 @@ import { loadBuildVariables } from "./build-env.mjs";
 const app = resolve(import.meta.dirname, "..");
 export const linuxLock = JSON.parse(readFileSync(join(app, "native/linux/sources.lock.json"), "utf8"));
 export const linuxCache = join(homedir(), "Library/Caches/super-looi-linux");
+const codexDirectory = join(linuxCache, "codex", linuxLock.codex.version);
+export const codexBinary = join(codexDirectory, "package/vendor", linuxLock.codex.target, "bin/codex");
 const upstream = join(linuxCache, "openminis");
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -53,6 +55,13 @@ export async function prepareLinuxShell(target, buildEnvironment = process.env) 
     if (rev(join(upstream, "deps", name)) !== linuxLock[name]) throw new Error(`${name} revision mismatch`);
   }
   await download(linuxLock.alpine.url, join(linuxCache, "alpine-minirootfs.tar.gz"), linuxLock.alpine.sha256);
+  mkdirSync(codexDirectory, { recursive: true });
+  const codexArchive = join(codexDirectory, "linux-arm64.tgz");
+  await download(linuxLock.codex.url, codexArchive, linuxLock.codex.sha256);
+  if (!existsSync(codexBinary)) {
+    run("tar", ["-xzf", codexArchive, "-C", codexDirectory, `package/vendor/${linuxLock.codex.target}/bin/codex`]);
+  }
+  chmodSync(codexBinary, 0o755);
   if (android) {
     const destination = join(linuxCache, "android/jniLibs/arm64-v8a");
     mkdirSync(destination, { recursive: true });
@@ -74,6 +83,8 @@ export async function prepareLinuxShell(target, buildEnvironment = process.env) 
     await download(`https://raw.githubusercontent.com/OpenMinis/OpenMinis/${linuxLock.openminis}/${linuxLock.loader.path}`, loader, linuxLock.loader.sha256);
     checkElfAlignment(proot);
     checkElfAlignment(loader);
+    copyFileSync(codexBinary, join(destination, "liblooi-codex.so"));
+    checkElfAlignment(join(destination, "liblooi-codex.so"));
   }
   if (ios) {
     const ish = join(upstream, "deps/ish");

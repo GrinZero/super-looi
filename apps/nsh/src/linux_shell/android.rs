@@ -90,6 +90,8 @@ pub fn run(
         .arg(format!("{}:/workspace", workspace.display()))
         .arg("-b")
         .arg(format!("{}:/etc/resolv.conf", dns.display()))
+        .arg("-b")
+        .arg(format!("{}:/usr/local/bin/codex", host.libraries.join("liblooi-codex.so").display()))
         .arg("-w")
         .arg(&request.cwd)
         .args(["/bin/sh", "-c", &wrapper])

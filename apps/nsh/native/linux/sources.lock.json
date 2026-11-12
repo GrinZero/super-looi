@@ -7,6 +7,12 @@
     "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.3-aarch64.tar.gz",
     "sha256": "ead8a4b37867bd19e7417dd078748e2312c0aea364403d96758d63ea8ff261ea"
   },
+  "codex": {
+    "version": "0.167.2",
+    "target": "aarch64-unknown-linux-musl",
+    "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.2-linux-arm64.tgz",
+    "sha256": "cf2827197edee6a430485b68979fb2b8f27cf97e30f71a6334fe02b0e6e73e11"
+  },
   "loader": {
     "version": "Termux proot 5.1.107-70",
     "path": "src/android/app/src/main/jniLibs/arm64-v8a/libproot-loader.so",

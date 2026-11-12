@@ -17,7 +17,7 @@ import {
 import { dirname, resolve, join, delimiter } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
-import { linuxCache } from "./prepare-linux-shell.mjs";
+import { codexBinary, linuxCache, linuxLock } from "./prepare-linux-shell.mjs";
 import { cache as sherpaCache } from "./prepare-sherpa-kws.mjs";
 
 const app = resolve(import.meta.dirname, ".."),
@@ -166,6 +166,9 @@ export function patchIosApp(target) {
   const archive = join(linuxCache, "ios/rootfs.tar.gz");
   if (!existsSync(archive)) throw new Error("Prepare iSH rootfs before packaging iOS");
   copyFileSync(archive, join(target, "alpine-fakefs.tar.gz"));
+  mkdirSync(join(target, "LinuxTools"), { recursive: true });
+  copyFileSync(codexBinary, join(target, "LinuxTools/codex"));
+  writeFileSync(join(target, "LinuxTools/version"), linuxLock.codex.version);
   cpSync(join(app,"native/linux/licenses"),join(target,"ThirdPartyLicenses/LinuxShell"),{recursive:true});
   cpSync(join(app,"native/licenses/xiaomi-camera"),join(target,"ThirdPartyLicenses/XiaomiCamera"),{recursive:true});
   run("plutil", ["-replace", "NSLocalNetworkUsageDescription", "-string", config.ios.localNetworkUsageDescription, plist]);

@@ -22,6 +22,44 @@
   - [x] GPT-4o 补充评估：纠正底座断连导致台灯失败的错误归因；修正失败转述省略错误码的问题，write／503 复测按“米家写入阶段错误码 503，指令未确认受理”回答。
   - [x] 独立 review 发现并修复只读查询误导为控制、公开类型缺少 systemPrompt 两项问题，复审通过。
 
+### Codex 插件与双工具落地（2026-11-12）
+
+- [x] Step 1：实现插件运行时与 Codex 适配器
+  - [x] 接通插件定义、启停、状态和 SQLite 持久化配置
+  - [x] 实现 App Linux 官方浏览器登录、取消、退出和真实错误回执
+  - [x] 实现 `codex_exec`／`codex_cloud`、会话与云端受理记录
+- [x] Step 2：接入 Task Agent 与插件页面
+  - [x] 每轮贡献工具和标准 Skill，继承现有运行配置与 trace
+  - [x] 新增横屏插件页，接通账号、默认环境／分支与执行详情；模拟器实际显示 CLI 0.167.2 并打开官方登录页
+- [ ] Step 3：实际验证与交付
+  - [x] 插件 10 项、构建环境 4 项与 runtime 105 项通过；NSH 类型检查与完整构建已通过，核心提交 `d5d3a08`
+  - [x] 安装不受开发热重载影响的独立模拟器包；CLI 已接入模拟器代理配置，Safari 登录请求实际走代理
+  - [x] 定位 Safari QUIC 命中 UDP 直连规则；仅对 CoreSimulator WebKit 的 UDP/443 拒绝直连，实际 auth 请求已改为 HTTPS 美国代理；真机打包排除模拟器代理并通过独立复核
+  - [ ] 模拟器 Safari 中文字体修复；苹方简体已下载，CoreText 字形探针通过，官方登录页仍显示缺字方框
+  - [ ] 定位实际登录失败，验证同一登录态下两工具的执行结果
+  - [x] 独立 review、更新架构与待办，隔离提交实现
+  - [ ] 并行语音修改完成后重跑完整 App 检查；本轮 NSH check 报告 VoiceSpaceView 缺少豆包定义及 selectProvider 类型，runtime tsc 报告播放回执字段，Codex 范围无报错
+
+### Codex CLI 随 App Linux 内置（2026-11-12）
+
+- [x] Step 1：固定运行边界与接入目标
+  - [x] 复用用户现有 ChatGPT 账号和 `video2rig` 云端环境；由 App 自行登录
+  - [x] 将禁止开发机 CLI、登录态及中转服务成为产品依赖的约束写入 `AGENTS.md`
+  - [x] 确认本次验证环境为 iOS／Android 系统模拟器，界面仅覆盖横屏
+- [x] Step 2：核对官方文档、客户端实现与移动端现有能力
+  - [x] 用户选定官方 Codex CLI 随 Alpine Linux 打包；客户端和登录态归 App 所有
+  - [x] 官方提供 Linux ARM64 musl 包；项目现有两端 rootfs 同为 Alpine aarch64
+  - [x] 核对 Cloud 环境、提交、查询、结果读取与设备码登录的官方实现
+- [x] Step 3：实现内置发行包与调用入口
+  - [x] 固定官方 CLI 0.167.2，接通两端插件打包入口和 guest 挂载；iOS 版本安装保留已有 guest
+  - [x] 按插件方案实现账号授权与专用 Task Agent 工具
+- [ ] Step 4：模拟器验证、独立 review 与提交
+  - [x] iOS 模拟器 App Linux 实际返回 `codex-cli 0.167.2`、Cloud 帮助和未登录退出码 1
+  - [x] 修正实际触发的 socket 路径、模拟器内存读数和 iOS ELF 执行位问题；独立审查发现的 Mach port 引用已释放
+  - [x] runtime 89 项回归、类型检查、NSH 类型检查及 Android 插件打包回归通过
+  - [ ] 官方登录与 Cloud 任务闭环；Safari 中文缺字和 Android runtime 缺失记录在 `todo.md`
+  - [ ] 独立复核最终实现，更新架构和交付文档并隔离提交
+
 ### 家居控制底层错误透传（2026-11-12）
 
 - [x] Step 1：核对大厅台灯执行证据与失败分支

@@ -18,7 +18,7 @@ CLI 在 Linux 准备流程中下载并打入移动端安装包，首次使用不
 
 - [x] 固定 App 自有运行环境与账号边界，核对官方 Linux 发行包。
 - [x] 接通 iOS／Android 插件打包入口和 guest 的 CLI 挂载。
-- [ ] Codex 插件贡献 `codex_exec(prompt,sessionId?,cwd?)` 与 `codex_cloud(prompt,environment?,branch?,attempts?)` 两个工具和 Pi 标准 Skill；执行记录关联会话或云端 task ID，保留原始 CLI 结果。
+- [x] Codex 插件贡献 `codex_exec(prompt,sessionId?,cwd?)` 与 `codex_cloud(prompt,environment?,branch?,attempts?)` 两个工具和 Pi 标准 Skill；执行记录关联会话或云端 task ID，保留原始 CLI 结果。
 - [x] 在 iOS 模拟器的 App 中验证版本、Cloud 命令帮助和未登录回执。
 - [ ] 在 App 插件页完成官方登录、Cloud 列表及任务提交；Android 完整 APK 编译。
 - [ ] 完成独立 review、定向检查和文档更新。

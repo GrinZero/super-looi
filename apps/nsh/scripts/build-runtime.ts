@@ -9,7 +9,7 @@ import { loadRuntimeVariables } from "./build-env.mjs";
 import { writeGenerated } from "./write-generated.mjs";
 
 /** Separate from the test probe: no faux provider or acceptance fixtures ship. */
-export async function buildRuntime(options: { release?: boolean; debugTelemetry?: boolean; development?: boolean } = {}) {
+export async function buildRuntime(options: { release?: boolean; debugTelemetry?: boolean; development?: boolean; simulator?: boolean } = {}) {
   const root = resolve(import.meta.dirname, "..");
   const variables = loadRuntimeVariables(options);
   await mkdir(resolve(root, "generated"), { recursive: true });
@@ -174,7 +174,16 @@ export type LlmOAuthUiEvent =
  | {kind:"auth_url";url:string;instructions?:string}
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
+import type {PluginSnapshot,PluginEvent} from "../runtime/plugins/contracts.js";
+export type {PluginSnapshot,PluginEvent} from "../runtime/plugins/contracts.js";
 export interface NativeRuntime {
+ pluginsSnapshot():PluginSnapshot[];
+ subscribePlugins(listener:(event:PluginEvent)=>void):()=>void;
+ refreshPlugin(id:string):Promise<PluginSnapshot[]>;
+ configurePlugin(id:string,enabled:boolean,values:Record<string,string>,action:UiAction):Promise<PluginSnapshot>;
+ beginPluginLogin(id:string,action:UiAction):Promise<{sessionId:string}>;
+ cancelPluginLogin(id:string):Promise<void>;
+ logoutPlugin(id:string,action:UiAction):Promise<void>;
  readonly tracer:{start(name:string,type:"span"|"agent"|"generation"|"tool",context?:TraceContext,attributes?:Record<string,unknown>):{end(attributes?:Record<string,unknown>):void}};
  subscribeTrace(listener:()=>void):()=>void;
  homeConfiguration():HomeConfiguration;

@@ -2,13 +2,15 @@ use super::*;
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     os::fd::{FromRawFd, IntoRawFd},
+    os::unix::fs::PermissionsExt,
     sync::atomic::AtomicBool,
     time::Instant,
 };
 
 unsafe extern "C" {
     fn looi_ish_archive() -> *const c_char;
-    fn looi_ish_boot(root: *const c_char, workspace: *const c_char, dns: *const c_char) -> i32;
+    fn looi_ish_codex_directory() -> *const c_char;
+    fn looi_ish_boot(root: *const c_char, workspace: *const c_char, dns: *const c_char, codex: *const c_char, failed_stage: *mut *const c_char) -> i32;
     fn looi_ish_start(
         command: *const c_char,
         cwd: *const c_char,
@@ -49,6 +51,33 @@ fn pipe() -> Result<(std::fs::File, std::fs::File), String> {
         )
     })
 }
+
+/// iOS installs non-Mach-O bundle resources without execute bits. Install the
+/// bundled Linux ELF into this app's private data before exposing it to iSH.
+fn install_codex(root: &Path) -> Result<PathBuf, String> {
+    let path = unsafe { looi_ish_codex_directory() };
+    if path.is_null() {
+        return Err("Bundled Codex CLI directory is missing (stage=linux.codex.resource)".into());
+    }
+    let source = PathBuf::from(unsafe { CStr::from_ptr(path) }.to_string_lossy().as_ref());
+    let failure = |error: std::io::Error| format!("Codex CLI installation failed (stage=linux.codex.install): {error}");
+    let version = std::fs::read_to_string(source.join("version")).map_err(failure)?;
+    let destination = root.parent().unwrap().join("linux-tools");
+    let installed = match std::fs::read_to_string(destination.join("version")) {
+        Ok(value) => Some(value),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(failure(error)),
+    };
+    if installed.as_deref() != Some(version.as_str()) {
+        std::fs::create_dir_all(&destination).map_err(failure)?;
+        let staging = destination.join("codex.installing");
+        std::fs::copy(source.join("codex"), &staging).map_err(failure)?;
+        std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o555)).map_err(failure)?;
+        std::fs::rename(staging, destination.join("codex")).map_err(failure)?;
+        std::fs::write(destination.join("version"), version).map_err(failure)?;
+    }
+    Ok(destination)
+}
 pub fn run(
     root: &Path,
     workspace: &Path,
@@ -63,9 +92,13 @@ pub fn run(
             let root_data = cstr(root.join("data").to_string_lossy())?;
             let work = cstr(workspace.to_string_lossy())?;
             let dns = cstr(dns.to_string_lossy())?;
-            let result = unsafe { looi_ish_boot(root_data.as_ptr(), work.as_ptr(), dns.as_ptr()) };
+            let codex = install_codex(root)?;
+            let codex_path = cstr(codex.to_string_lossy())?;
+            let mut failed_stage = std::ptr::null();
+            let result = unsafe { looi_ish_boot(root_data.as_ptr(), work.as_ptr(), dns.as_ptr(), codex_path.as_ptr(), &mut failed_stage) };
             if result != 0 {
-                return Err(format!("Alpine iSH kernel initialization failed: {result}"));
+                let stage = unsafe { CStr::from_ptr(failed_stage) }.to_string_lossy();
+                return Err(format!("Alpine iSH initialization failed (stage={stage}, code={result})"));
             }
             Ok(root.to_path_buf())
         })

@@ -310,9 +310,9 @@ Task Agent 委派给 Codex 已属于 Agent 间协作。标准 A2A（Agent2Agent�
   - [ ] 同一 `CODEX_HOME` 下运行 `codex exec --json`，取得实际回答和会话 ID，保留已有登录请求失败的底层诊断。
   - [ ] 使用会话 ID 继续任务，读取进度、完整回答和原始失败回执。
   - [ ] 用 `codex_exec` 以自然语言要求创建／配置环境，再用 `codex_cloud` 直接提交任务，取得真实 task ID 与链接。
-- [ ] Step 2：落地插件契约与宿主，通过 Pi 接入两个工具、Skill 和启停行为。
-- [ ] Step 3：实现 `codex_exec(prompt,sessionId?,cwd?)` 与 `codex_cloud(prompt,environment?,branch?,attempts?)`，接通 JSONL／受理回执、完整输出读取及本地任务关联。
-- [ ] Step 4：实现横屏插件页，接通登录状态、默认环境／分支及执行详情。
+- [x] Step 2：落地插件契约与宿主，通过 Pi 接入两个工具、Skill 和启停行为。
+- [x] Step 3：实现 `codex_exec(prompt,sessionId?,cwd?)` 与 `codex_cloud(prompt,environment?,branch?,attempts?)`，接通 JSONL／受理回执、完整输出读取及本地任务关联。
+- [x] Step 4：实现横屏插件页，接通登录状态、默认环境／分支及执行详情。
 - [ ] Step 5：在模拟器完成登录 → 自然语言委派 → 继续会话 → Cloud 启动与回执 → 结果读取，以及重启复用登录态；独立 review 后交付。
 
 验收围绕实际行为：同一登录态用于两个工具；自然语言目标能进入真实执行；显式会话 ID 可继续普通 Codex 任务；Cloud 启动返回真实 task ID 和链接；进度和完整回答可读取；界面离开后授权会话继续；取消后旧回调不覆盖新会话；启停影响后续插件贡献；Codex 本轮结束与远端任务完成分别呈现；真实失败可定位。

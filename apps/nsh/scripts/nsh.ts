@@ -6,7 +6,7 @@ import { parseEnv } from "node:util";
 import { nativePluginEnvironment, patchIosApp } from "./native-plugins.mjs";
 import { runIosDevice } from "./ios-device.mjs";
 import { buildRuntime } from "./build-runtime.js";
-import { isLangfuseRunning, pickBuildVariables } from "./build-env.mjs";
+import { isIosSimulatorBuild, isLangfuseRunning, pickBuildVariables } from "./build-env.mjs";
 import { prepareLinuxShell } from "./prepare-linux-shell.mjs";
 import { prepareSherpaKws } from "./prepare-sherpa-kws.mjs";
 import { prepareDevCli } from "./prepare-dev-cli.mjs";
@@ -68,6 +68,7 @@ const option = (name: string) => {
     : args[index + 1];
 };
 const target = option("--target");
+const iosSimulator = isIosSimulatorBuild(command, target, option("--device"));
 const androidDevice = target === "android" ? option("--device") : undefined;
 if (command === "run" && androidDevice) {
   const values = { ...config, ...process.env };
@@ -85,7 +86,7 @@ if (command === "run" && androidDevice) {
 }
 // Generated business code must be fresh even for a clean checkout's direct run.
 const runtimeBuild = command !== "--help" && command !== "--version"
-  ? await buildRuntime({ release: command === "package" || command.startsWith("release-"), debugTelemetry: command === "run" || command === "dev", development: command === "dev", simulator: target === "ios-simulator" || target === "ios" && !option("--device") })
+  ? await buildRuntime({ release: command === "package" || command.startsWith("release-"), debugTelemetry: command === "run" || command === "dev", development: command === "dev", simulator: iosSimulator })
   : undefined;
 const buildVariables = pickBuildVariables(config);
 if (command === "build" || command === "package" || target === "android" || target === "ios" || target === "ios-simulator" || command.endsWith("-android") || command.endsWith("-ios"))
@@ -98,7 +99,7 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
   androidDevice: option("--device"),
   iosReleaseSimulator: command === "package" && target === "ios-simulator",
   ios: isIos,
-  iosSimulator: isIos && (target === "ios-simulator" || command === "dev" || (command !== "package" && !option("--device"))),
+  iosSimulator,
   iosDevelopment:
     command !== "package" &&
     (command.endsWith("-ios") || target === "ios" || target === "ios-simulator"),
