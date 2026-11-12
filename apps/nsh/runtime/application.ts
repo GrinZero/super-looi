@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { UserActionRef } from "@super-looi/contracts";
 import { PiAgentExecutor } from "@super-looi/runtime/agent/pi-executor";
-import { taskNeedsReview } from "@super-looi/runtime/agent/executor";
 import type {
   AgentTask,
   AgentStepEvent,
@@ -538,43 +537,15 @@ export class MobileRuntime {
     };
   }
 
-  recoveryCount(): number {
-    return this.allTasks().filter(taskNeedsReview).length;
-  }
-
-  reviewTask(id: string): void {
-    const task = this.executor?.getTask(id) ?? this.storage.tasks.load().find((task) => task.id === id);
-    if (!task) throw new Error("@looi:runtimeTaskNotFound");
-    if (this.executor) this.executor.reviewTask(id);
-    else if (!task.reviewedAt)
-      this.storage.tasks.save({ ...task, reviewedAt: new Date().toISOString() });
-  }
-
   private allTasks(): AgentTask[] {
     if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
-    return (this.executor?.listTasks() ?? this.storage.tasks.load()).map(
-      (task) =>
-        this.hasUnknownHome(task.id)
-          ? { ...task, state: "unknown", runtimeExited: false }
-          : task,
-    );
-  }
-
-  private hasUnknownHome(taskId: string): boolean {
-    return this.database
-      .prepare("SELECT evidence FROM home_action_evidence WHERE task_id = ?")
-      .all(taskId)
-      .some((row) => JSON.parse(String(row.evidence)).status === "unknown");
+    return this.executor?.listTasks() ?? this.storage.tasks.load();
   }
 
   taskPage(offset = 0) {
     if (!Number.isSafeInteger(offset) || offset < 0)
       throw new Error("@looi:runtimeInvalidTaskPage");
-    const tasks = this.allTasks().sort(
-      (a, b) =>
-        Number(taskNeedsReview(b)) - Number(taskNeedsReview(a)) ||
-        b.updatedAt.localeCompare(a.updatedAt),
-    );
+    const tasks = this.allTasks().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return {
       total: tasks.length,
       offset,
@@ -582,8 +553,6 @@ export class MobileRuntime {
         id: task.id,
         prompt: task.prompt.slice(0, 160),
         state: task.state,
-        reviewedAt: task.reviewedAt,
-        needsReview: taskNeedsReview(task),
         updatedAt: task.updatedAt,
       })),
     };
@@ -604,7 +573,7 @@ export class MobileRuntime {
       )
       .all(task.id)
       .map((row) => JSON.parse(String(row.evidence)));
-    return { ...structuredClone(task), needsReview: taskNeedsReview(task), homeActions, bodyActions,
+    return { ...structuredClone(task), homeActions, bodyActions,
       observations: task.trace ? this.storage.traceObservations(task.trace.traceId) : [] };
   }
 
@@ -898,15 +867,6 @@ export class MobileRuntime {
       : this.conversationId;
     try {
       if (!this.executor) throw new Error("@looi:runtimeConfigureAChatModelInConnectionsFirst");
-      if (
-        this.allTasks().some(
-          (task) =>
-            task.sessionId === sessionId && taskNeedsReview(task),
-        )
-      )
-        throw new Error(
-          "@looi:runtimeThisConversationHasUnverifiedActionsReviewTaskHistory",
-        );
       if (!this.conversationPersisted && this.vault.get("model")) {
         this.credentialStore.updateEnvelope((draft) => {
           draft.conversationId = this.conversationId;
@@ -928,8 +888,7 @@ export class MobileRuntime {
       return {
         answer: result.answer,
         taskId: result.taskId,
-        runtimeExited:
-          result.runtimeExited && !this.hasUnknownHome(result.taskId),
+        runtimeExited: result.runtimeExited,
       };
     } finally {
       if (options.mode === "voice") this.voiceConversation.finish();
@@ -961,9 +920,7 @@ export class MobileRuntime {
       taskId && this.executor
         ? await this.executor.cancel(taskId)
         : { state: "cancelled", runtimeExited: true, confirmed: true };
-    return taskId && !this.closed && this.hasUnknownHome(taskId)
-      ? { state: "unknown", runtimeExited: false, confirmed: false }
-      : result;
+    return result;
   }
 
   async close(): Promise<void> {

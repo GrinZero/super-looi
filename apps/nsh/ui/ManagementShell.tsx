@@ -82,9 +82,6 @@ export function ManagementShell(props: {
           >
             {label()}
           </Text>
-          <If when={space === "tasks" && props.store.recoveryCount() > 0}>
-            <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-destructive" />
-          </If>
           <If
             when={
               space === "body" &&

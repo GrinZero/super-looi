@@ -42,8 +42,6 @@ export function TasksPanel(props: {
         when={props.store.task()}
         else={
           <View class="gap-4">
-            <Text class="text-muted-foreground text-sm">
-              {t("unverifiedTasksAppearFirstANewConversation")}</Text>
             <View class="flex-row gap-2">
               <ActionButton
                 label={t("newConversation")}
@@ -120,10 +118,6 @@ export function TasksPanel(props: {
           <Text class="text-foreground text-lg font-semibold">
             {taskState(props.store.task()?.state ?? "unknown")}
           </Text>
-          <If when={props.store.task()?.state === "unknown"}>
-            <Text class="text-destructive text-sm">
-              {t("thePreviousActionsOutcomeIsUnknownCheck")}</Text>
-          </If>
           <View selectable={true} class="gap-3">
             <Text class="text-muted-foreground text-xs">
               {props.store.task()?.id}

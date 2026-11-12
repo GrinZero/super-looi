@@ -515,11 +515,11 @@ export function WakeGuideBar(props: { onPress: () => void; active: boolean }) {
 }
 
 /** Glass subtitle capsule matching ConversationSubtitleOverlay. */
-export function ResponsePreview(props: { text: string; onOpen: () => void; actionLabel?: string }) {
+export function ResponsePreview(props: { text: string; onOpen: () => void }) {
   return (
     <Button
       testID="subtitle-capsule"
-      accessibilityLabel={props.actionLabel ?? t("viewFullReply")}
+      accessibilityLabel={t("viewFullReply")}
       class="w-full rounded-full border border-stage-pill-border bg-glass-bg px-5 py-3 flex-row items-center gap-3 active:opacity-75"
       style={{ maxWidth: 720, minHeight: 54 }}
       onPress={() => props.onOpen()}
@@ -536,8 +536,8 @@ export function ResponsePreview(props: { text: string; onOpen: () => void; actio
         >
           {props.text}
         </Text>
-        <If when={props.actionLabel || props.text.length > 48 || props.text.includes("\n")}>
-          <Text class="text-stage-muted text-xs">{props.actionLabel ?? t("tapToViewFullReply")}</Text>
+        <If when={props.text.length > 48 || props.text.includes("\n")}>
+          <Text class="text-stage-muted text-xs">{t("tapToViewFullReply")}</Text>
         </If>
       </View>
     </Button>

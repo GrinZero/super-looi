@@ -9,7 +9,7 @@ import { runtimeEn, runtimeZh } from "./runtime-catalog";
 
 export type AppLocale = "zh-CN" | "en-US";
 export type LanguagePreference = "system" | AppLocale;
-export type MessageKey = keyof typeof zh | keyof typeof runtimeZh | keyof typeof extraZh | "taskCount" | "recoveryCount";
+export type MessageKey = keyof typeof zh | keyof typeof runtimeZh | keyof typeof extraZh | "taskCount";
 
 export function resolveLocale(preference: LanguagePreference, systemLocale: string): AppLocale {
   if (preference !== "system") return preference;

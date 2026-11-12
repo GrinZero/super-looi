@@ -646,7 +646,6 @@ export function createAppStore() {
   const bodyActiveCommand = signal<BodyControlAction | null>(null);
   let bodyDriveOperation = 0;
   let bodyConnectionOperation = 0;
-  const recoveryCount = signal(0);
   const tasks = signal<NativeTaskPage>({ total: 0, offset: 0, items: [] });
   const task = signal<NativeTask | undefined>(undefined);
   const shellOutput = signal<{taskId:string;callId:string;command:string;text:string;status:string} | undefined>(undefined);
@@ -955,7 +954,6 @@ export function createAppStore() {
             if (alive) {
               busy.set(false);
               interaction.set(undefined);
-              recoveryCount.set(runtime.recoveryCount());
               refreshInspectedTask();
               syncBodyStatus(runtime.bodyStatus());
             }
@@ -1088,13 +1086,8 @@ export function createAppStore() {
           } catch {}
         });
       }
-      recoveryCount.set(opened.recoveryCount());
       ready.set(true);
-      status.set(recoveryCount() ? "@looi:runtimePreviousTaskResultUnverified" : "@looi:runtimeStandingBy");
-      if (recoveryCount())
-        message.set(
-          uiMessage("recoveryNotice", { count: recoveryCount() }),
-        );
+      status.set("@looi:runtimeStandingBy");
     } catch (error) {
       if (alive) {
         homeLoading.set(false);
@@ -1486,11 +1479,6 @@ export function createAppStore() {
     message: () => translateMessage(message()),
     face: () => face(),
     configuration: () => configuration(),
-    recoveryCount: () => recoveryCount(),
-    recoveryNoticeVisible: () => recoveryCount() > 0 && (
-      message() === uiMessage("recoveryNotice", { count: recoveryCount() }) ||
-      message() === "@looi:runtimeThisConversationHasUnverifiedActionsReviewTaskHistory"
-    ),
     homeConfiguration: () => homeConfiguration(),
     homeConnection: () => homeConnection(),
     homeDevices: () => homeDevices(),
@@ -2176,13 +2164,11 @@ export function createAppStore() {
         const currentId = task()?.id;
         const page = runtime.taskPage(offset);
         tasks.set(page);
-        recoveryCount.set(runtime.recoveryCount());
         const preferredId =
           currentId && page.items.some((item) => item.id === currentId)
             ? currentId
             : windowSize().width >= 600
-              ? page.items.find((item) => item.needsReview)?.id ??
-                page.items[0]?.id
+              ? page.items[0]?.id
               : undefined;
         task.set(preferredId ? runtime.taskDetails(preferredId) : undefined);
       } catch (error) {
@@ -2193,20 +2179,6 @@ export function createAppStore() {
       if (!runtime) return;
       try {
         task.set(runtime.taskDetails(id));
-      } catch (error) {
-        fail(error);
-      }
-    },
-    reviewTask(id: string) {
-      if (!runtime) return;
-      try {
-        const wasRecoveryNotice = api.recoveryNoticeVisible();
-        runtime.reviewTask(id);
-        api.refreshTasks(tasks().offset);
-        if (wasRecoveryNotice) message.set(recoveryCount()
-          ? uiMessage("recoveryNotice", { count: recoveryCount() }) : "");
-        if (!recoveryCount() && (status() === "@looi:runtimePreviousTaskResultUnverified" || wasRecoveryNotice && !busy()))
-          status.set("@looi:runtimeStandingBy");
       } catch (error) {
         fail(error);
       }
@@ -2259,7 +2231,7 @@ export function createAppStore() {
         );
         if (alive) {
           message.set(result.answer);
-          status.set(result.runtimeExited ? "@looi:runtimeStandingBy" : "@looi:runtimeTaskResultUnverified");
+          status.set("@looi:runtimeStandingBy");
         }
         return true;
       } catch (error) {
@@ -2269,7 +2241,6 @@ export function createAppStore() {
         if (alive) {
           busy.set(false);
           interaction.set(undefined);
-          recoveryCount.set(runtime.recoveryCount());
           refreshInspectedTask();
           syncBodyStatus(runtime.bodyStatus());
         }

@@ -17,7 +17,7 @@ fn request(bridge: &Bridge, input: Value) -> Result<Value, String> {
 fn open_app(data: &Path, locale: &str) -> Result<Headless, String> {
     let sets = vec![nsh_base::registry(), nsh_app_nsh::registry()];
     let bundle = compile_tsx(Path::new(env!("CARGO_MANIFEST_DIR")).join("App.tsx"), &sets)?;
-    let mut config = EngineConfig::new(bundle.with_app_id(Some("com.superlooi.task-review-test")));
+    let mut config = EngineConfig::new(bundle.with_app_id(Some("com.superlooi.task-recovery-test")));
     config.ui_sets = sets;
     config.data_dir = Some(data.to_owned());
     config.storage = Some(MemoryStorage::new([]));
@@ -31,7 +31,7 @@ fn open_app(data: &Path, locale: &str) -> Result<Headless, String> {
 }
 
 #[test]
-fn human_review_clears_reminders_and_survives_reopening_in_both_languages() -> Result<(), String> {
+fn past_task_errors_do_not_require_review_or_show_startup_reminders() -> Result<(), String> {
     for locale in ["zh-CN", "en-US"] {
         let data = tempfile::tempdir().map_err(|error| error.to_string())?;
         let original = json!({
@@ -48,7 +48,7 @@ fn human_review_clears_reminders_and_survives_reopening_in_both_languages() -> R
         });
         let evidence = json!({"requestId":"home-action", "status":"unknown", "receipt":{"code":503}});
         {
-            let bridge = Bridge::new(&data.path().join("com.superlooi.task-review-test/node-compat"))?;
+            let bridge = Bridge::new(&data.path().join("com.superlooi.task-recovery-test/node-compat"))?;
             let id = request(&bridge, json!({"op":"sqlite.open", "path":"/home/looi.sqlite"}))?;
             request(&bridge, json!({"op":"sqlite.exec", "id":id, "sql":
                 "CREATE TABLE runtime_tasks(id TEXT PRIMARY KEY,snapshot TEXT NOT NULL); CREATE TABLE home_action_evidence(request_id TEXT PRIMARY KEY,task_id TEXT NOT NULL,evidence TEXT NOT NULL);"}))?;
@@ -58,34 +58,29 @@ fn human_review_clears_reminders_and_survives_reopening_in_both_languages() -> R
             request(&bridge, json!({"op":"sqlite.run", "id":id, "sql":"INSERT INTO home_action_evidence VALUES(?,?,?)", "args":["home-action", "home", evidence.to_string()]}))?;
         }
         let chinese = locale == "zh-CN";
-        let pending = if chinese { "查看待审阅任务" } else { "Review pending tasks" };
-        let reviewed = if chinese { "已审阅" } else { "Reviewed" };
         let standing_by = if chinese { "陪伴待机" } else { "Standing by" };
         let mut app = open_app(data.path(), locale)?;
-        app.wait_for(pending)?;
-        app.press("subtitle-capsule")?;
+        app.wait_for(standing_by)?;
+        assert!(!app.shows("subtitle-capsule"));
+        app.press("connection-settings")?;
+        app.press("nav-tasks")?;
         app.wait_for("Inspect interrupted execution")?;
-        app.press("review-task-btn")?;
-        app.wait_for(reviewed)?;
+        assert!(!app.shows("review-task-btn"));
+        app.press("task-interrupted")?;
         app.wait_for("text:write: MIOT_ERROR_503")?;
-        app.press("task-home")?;
-        app.press("review-task-btn")?;
-        app.wait_for(reviewed)?;
         app.press("back-to-face")?;
         app.wait_for(standing_by)?;
-        assert!(!app.shows(pending));
+        assert!(!app.shows("subtitle-capsule"));
         drop(app);
         let mut restored = open_app(data.path(), locale)?;
         restored.wait_for(standing_by)?;
-        assert!(!restored.shows(pending));
+        assert!(!restored.shows("subtitle-capsule"));
         drop(restored);
-        let bridge = Bridge::new(&data.path().join("com.superlooi.task-review-test/node-compat"))?;
+        let bridge = Bridge::new(&data.path().join("com.superlooi.task-recovery-test/node-compat"))?;
         let id = request(&bridge, json!({"op":"sqlite.open", "path":"/home/looi.sqlite"}))?;
         for task in [&original, &home_task] {
             let row = request(&bridge, json!({"op":"sqlite.get", "id":id, "sql":"SELECT snapshot FROM runtime_tasks WHERE id=?", "args":[task["id"]]}))?;
-            let mut saved: Value = serde_json::from_str(row["snapshot"].as_str().unwrap()).unwrap();
-            assert!(saved["reviewedAt"].is_string());
-            saved.as_object_mut().unwrap().remove("reviewedAt");
+            let saved: Value = serde_json::from_str(row["snapshot"].as_str().unwrap()).unwrap();
             assert_eq!(saved, *task);
         }
         let row = request(&bridge, json!({"op":"sqlite.get", "id":id, "sql":"SELECT evidence FROM home_action_evidence WHERE request_id='home-action'"}))?;

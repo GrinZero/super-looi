@@ -10,7 +10,6 @@ import {
   resolveTranscript,
 } from "@earendil-works/pi-ai";
 import { PiAgentExecutor } from "../src/agent/pi-executor.js";
-import { taskNeedsReview } from "../src/agent/executor.js";
 import { AgentTaskStore } from "../src/agent/task-store.js";
 
 test("conversation history survives new task IDs and executor restart without crossing sessions", async () => {
@@ -107,7 +106,7 @@ test("conversation history survives new task IDs and executor restart without cr
   }
 });
 
-test("conversation admission rejects concurrent turns and unresolved crash outcomes", async () => {
+test("conversation admission rejects concurrent turns and allows turns after a runtime restart", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-chat-guard-"));
   const faux = fauxProvider(),
     models = createModels();
@@ -166,10 +165,9 @@ test("conversation admission rejects concurrent turns and unresolved crash outco
       },
     });
     try {
-      await assert.rejects(
-        recovered.run("Continue", { sessionId: "shared" }),
-        /unverified task outcome/,
-      );
+      faux.setResponses([fauxAssistantMessage("Continued after restart")]);
+      assert.equal((await recovered.run("Continue", { sessionId: "shared" })).answer, "Continued after restart");
+      assert.equal(recovered.getTask("crashed")?.state, "unknown");
       assert.deepEqual(
         await recovered.run("Cached turn", {
           sessionId: "shared",
@@ -187,8 +185,8 @@ test("conversation admission rejects concurrent turns and unresolved crash outco
   }
 });
 
-test("human review survives restart and releases the conversation without changing execution evidence", async () => {
-  const root = mkdtempSync(join(tmpdir(), "looi-chat-review-"));
+test("past task errors do not block the conversation or change the recorded failure", async () => {
+  const root = mkdtempSync(join(tmpdir(), "looi-chat-errors-"));
   const faux = fauxProvider(), models = createModels();
   models.setProvider(faux.provider);
   const config = {
@@ -196,33 +194,19 @@ test("human review survives restart and releases the conversation without changi
     modelSpec: faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models),
   };
   const store = new AgentTaskStore(join(root, "state/tasks"));
-  const crashed = {
-    id: "crashed", sessionId: "shared", workspaceRoot: config.workspaceRoot,
-    prompt: "Turn on the light", state: "unknown" as const,
+  const previous = ["unknown", "failed", "cancelled"].map(state => ({
+    id: state, sessionId: "shared", workspaceRoot: config.workspaceRoot,
+    prompt: "Previous task", state: state as "unknown" | "failed" | "cancelled",
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     steps: [{ step: 1, phase: "error" as const, summary: "write: MIOT_ERROR_503" }],
     error: "write: MIOT_ERROR_503", runtimeExited: false,
-  };
-  store.save(crashed);
-  let executor = new PiAgentExecutor(config);
+  }));
+  for (const task of previous) store.save(task);
+  const executor = new PiAgentExecutor(config);
   try {
-    await assert.rejects(executor.run("Continue", { sessionId: "shared" }), /unverified task outcome/);
-    executor.reviewTask("crashed");
-    const reviewed = executor.getTask("crashed")!;
-    assert.ok(reviewed.reviewedAt);
-    assert.equal(taskNeedsReview(reviewed), false);
-    const { reviewedAt, ...evidence } = reviewed;
-    assert.deepEqual(evidence, crashed);
-    executor.reviewTask("crashed");
-    assert.equal(executor.getTask("crashed")?.reviewedAt, reviewedAt);
-    await executor.close();
-    executor = new PiAgentExecutor(config);
-    assert.deepEqual(executor.getTask("crashed"), reviewed);
-    faux.setResponses([fauxAssistantMessage("Continue after review")]);
-    assert.equal((await executor.run("Continue", { sessionId: "shared" })).answer, "Continue after review");
-    faux.setResponses([fauxAssistantMessage("Explicit rerun")]);
-    await executor.run("Try again", { taskId: "crashed", resume: true });
-    assert.equal(executor.getTask("crashed")?.reviewedAt, undefined);
+    faux.setResponses([fauxAssistantMessage("Conversation continues")]);
+    assert.equal((await executor.run("Continue", { sessionId: "shared" })).answer, "Conversation continues");
+    for (const task of previous) assert.deepEqual(executor.getTask(task.id), task);
   } finally {
     await executor.close();
     rmSync(root, { recursive: true, force: true });

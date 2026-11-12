@@ -43,9 +43,8 @@ export class AgentTaskStore {
         ].includes(task.state)
       ) {
         task.state = "unknown";
-        delete task.reviewedAt;
         task.error =
-          "Runtime restarted; previous execution outcome requires verification before explicit resume.";
+          "Runtime restarted before execution completed.";
         delete task.interaction;
       }
       this.save(task);
@@ -72,14 +71,6 @@ export class AgentTaskStore {
 
   get(id: string): AgentTask | undefined {
     return this.tasks.get(id);
-  }
-  review(id: string): void {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error("Task not found");
-    if (task.reviewedAt) return;
-    const reviewedAt = new Date().toISOString();
-    this.save({ ...task, reviewedAt });
-    task.reviewedAt = reviewedAt;
   }
   list(): AgentTask[] {
     return [...this.tasks.values()];

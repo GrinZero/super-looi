@@ -96,8 +96,6 @@ function App() {
       ? store.voiceState().transcript
       : store.message();
 
-  const showingRecoveryNotice = () => store.recoveryNoticeVisible() && responseText() === store.message();
-
   const approvalLabel = () => {
     const details = store.interaction()?.details;
     if (typeof details?.title === "string") return details.title;
@@ -282,8 +280,7 @@ function App() {
               >
                 <ResponsePreview
                   text={responseText()}
-                  actionLabel={showingRecoveryNotice() ? t("reviewPendingTasks") : undefined}
-                  onOpen={() => showingRecoveryNotice() ? store.openSpace("tasks") : responseOpen.set(true)}
+                  onOpen={() => responseOpen.set(true)}
                 />
               </If>
 

@@ -111,7 +111,7 @@ export interface UiAction {event_id:string;ui_session_id:string;kind:"tap"|"gest
 export function utf8Tail(text:string,limit:number):string;
 export interface NativeShellOutput {taskId:string;callId:string;command:string;stream:"stdout"|"stderr"|"status";chunk:string}
 export interface NativeStep {step:number;phase:string;summary:string;taskId?:string;interaction?:{id:string;kind:"approval"|"question";details:Record<string,unknown>;expiresAt:string}}
-export interface NativeTaskSummary {id:string;prompt:string;state:string;updatedAt:string;reviewedAt?:string;needsReview:boolean}
+export interface NativeTaskSummary {id:string;prompt:string;state:string;updatedAt:string}
 export interface NativeObservation {traceId:string;spanId:string;parentSpanId?:string;name:string;type:"span"|"agent"|"generation"|"tool";startedAt:number;endedAt?:number;attributes:Record<string,unknown>}
 export interface NativeTask extends NativeTaskSummary {trace?:{traceId:string;spanId:string};observations?:NativeObservation[];homeActions:Array<{requestId:string;connectionId:string;command:Record<string,unknown>;simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;bodyActions?:Array<{requestId:string;command:{action:string;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number};simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;sessionId:string;createdAt:string;error?:string;runtimeExited?:boolean;steps:NativeStep[];result?:{answer:string;executions?:Array<{callId:string;stdout?:string;stderr?:string;command:string;exitCode:number|null;signal:string|null;timedOut:boolean;aborted:boolean}>;artifacts?:Array<{path:string;sha256:string;size:number}>}}
 export interface NativeTaskPage {total:number;offset:number;items:NativeTaskSummary[]}
@@ -212,10 +212,8 @@ export interface NativeRuntime {
  readBodyPower():Promise<BodyStatusSnapshot>;
  readonly uiSessionId:string;
  configuration():{baseUrl:string;model:string;hasKey:boolean};
- recoveryCount():number;
  taskPage(offset?:number):NativeTaskPage;
  taskDetails(id:string):NativeTask;
- reviewTask(id:string):void;
  newConversation(action:UiAction):void;
  configure(value:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
  run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{onShellOutput?:(event:NativeShellOutput)=>void;agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
