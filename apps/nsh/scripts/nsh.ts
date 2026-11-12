@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -9,6 +9,7 @@ import { buildRuntime } from "./build-runtime.js";
 import { isLangfuseRunning, pickBuildVariables } from "./build-env.mjs";
 import { prepareLinuxShell } from "./prepare-linux-shell.mjs";
 import { prepareSherpaKws } from "./prepare-sherpa-kws.mjs";
+import { prepareDevCli } from "./prepare-dev-cli.mjs";
 
 const app = resolve(import.meta.dirname, "..");
 const repo = resolve(app, "../..");
@@ -59,6 +60,7 @@ if (!binary) {
   if (!valid(binary)) throw new Error("NSH CLI version verification failed");
 }
 const [command = "check", ...args] = process.argv.slice(2);
+if ((command === "dev" || command === "run") && !args.includes("--help")) binary = prepareDevCli(binary, revision);
 const option = (name: string) => {
   const index = args.indexOf(name);
   return index < 0
@@ -82,7 +84,9 @@ if (command === "run" && androidDevice) {
   console.log(`Langfuse 上报：${enabled ? "已自动开启" : "未开启（服务不可用或未配置凭据）"}`);
 }
 // Generated business code must be fresh even for a clean checkout's direct run.
-if (command !== "--help" && command !== "--version") await buildRuntime({ release: command === "package" || command.startsWith("release-"), debugTelemetry: command === "run" });
+const runtimeBuild = command !== "--help" && command !== "--version"
+  ? await buildRuntime({ release: command === "package" || command.startsWith("release-"), debugTelemetry: command === "run" || command === "dev", development: command === "dev", simulator: target === "ios-simulator" || target === "ios" && !option("--device") })
+  : undefined;
 const buildVariables = pickBuildVariables(config);
 if (command === "build" || command === "package" || target === "android" || target === "ios" || target === "ios-simulator" || command.endsWith("-android") || command.endsWith("-ios"))
   await prepareSherpaKws(target === "android" || command.endsWith("-android") ? "android" : target === "ios" || target === "ios-simulator" || command.endsWith("-ios") ? "ios" : "all");
@@ -99,6 +103,13 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
     command !== "package" &&
     (command.endsWith("-ios") || target === "ios" || target === "ios-simulator"),
 });
+if (command === "dev") {
+  const runtime = resolve(app, "generated/looi-runtime.dev.js");
+  nativeEnvironment.NSH_DEV_RESOLVE_ALIAS = JSON.stringify({
+    "./generated/looi-runtime.js": runtime,
+    "../generated/looi-runtime.js": runtime,
+  });
+}
 if (isAndroid && option("--device")) {
   const requested = option("--device")!;
   const inventory = spawnSync("adb", ["devices"], {encoding:"utf8"}).stdout;
@@ -345,11 +356,28 @@ const result = scripted
             : 'await app.waitFor("Native bridge verified", {timeout:60000})\n',
       },
     )
-  : spawnSync(binary, hasCustomEntry ? [command, ...args] : [command, app, ...args], {
+  : command === "dev"
+    ? await new Promise<{ status: number | null; error?: Error }>(resolveExit => {
+      const child = spawn(binary, hasCustomEntry ? [command, ...args] : [command, app, ...args], {
+        cwd: app, env: nativeEnvironment, stdio: "inherit",
+      });
+      const interrupt = () => { child.kill("SIGINT"); };
+      const terminate = () => { child.kill("SIGTERM"); };
+      process.on("SIGINT", interrupt);
+      process.on("SIGTERM", terminate);
+      child.once("error", error => resolveExit({ status: null, error }));
+      child.once("close", (status, signal) => {
+        process.off("SIGINT", interrupt);
+        process.off("SIGTERM", terminate);
+        resolveExit({ status: status ?? (signal === "SIGINT" ? 130 : 1) });
+      });
+    })
+    : spawnSync(binary, hasCustomEntry ? [command, ...args] : [command, app, ...args], {
       cwd: app,
       env: nativeEnvironment,
       stdio: "inherit",
     });
+await runtimeBuild?.dispose();
 if (result.error) throw result.error;
 if (
   result.status === 0 && command === "package" && target === "ios" &&

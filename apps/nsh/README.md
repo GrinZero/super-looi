@@ -4,6 +4,10 @@
 
 应用图标使用 [`assets/brand/super-looi-app-icon.png`](../../assets/brand/super-looi-app-icon.png)；`nsh.json` 的 `icon` 字段供 NSH 打包时生成 iOS `AppIcon` asset catalog 和 Android launcher 图标。[iOS 模拟器桌面截图](../../docs/artifacts/app-icon/ios-home.png)展示安装后的图标。
 
+## 模拟器开发
+
+模拟器开发使用 `pnpm --filter @super-looi/nsh exec node --import tsx scripts/nsh.ts dev --target ios --release`。启动脚本为固定 NSH CLI 应用依赖监听补丁，首次编译后缓存；只有入口、已导入文件、主题和应用配置变化触发重建。业务源码由 esbuild 增量编译为独立的 `generated/looi-runtime.dev.js`；测试探针和普通 build/check/test 的生成物不会覆盖该文件。相同内容不会重复写入，压缩开发模式在业务产物变化后整页重载。
+
 ## 真机运行与打包
 
 根目录安装依赖并执行 `pnpm build` 后，使用连接的手机运行开发版本：

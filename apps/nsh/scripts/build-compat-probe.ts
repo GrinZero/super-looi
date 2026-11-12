@@ -1,16 +1,16 @@
 import { build } from "esbuild";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { nshNodeCompatPlugin } from "../../../packages/nsh-node-compat/src/bundler.js";
 import { nshCodemodePlugin } from "../../../packages/nsh-node-compat/src/codemode-bundler.js";
 import { nshPiCodingToolsPlugin } from "../../../packages/nsh-node-compat/src/pi-coding-bundler.js";
 import { nshPiSdkPlugin } from "../../../packages/nsh-node-compat/src/pi-sdk-bundler.js";
-import { buildRuntime } from "./build-runtime.js";
+import { writeGenerated } from "./write-generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-await buildRuntime();
 await mkdir(resolve(root, "generated"), { recursive: true });
-await build({
+const compat = await build({
+  write: false,
   stdin: {
     resolveDir: root,
     contents: `
@@ -47,7 +47,8 @@ await build({
   ],
   outfile: resolve(root, "generated/compat-probe.js"),
 });
-await writeFile(
+for (const output of compat.outputFiles) await writeGenerated(output.path, output.contents);
+await writeGenerated(
   resolve(root, "generated/compat-probe.d.ts"),
   `
 export function installNshNativeCompat(host: {request(request:string):string; begin(kind:string,request:string):string; wait(ticket:string):Promise<string>; close():void}): () => void;
@@ -55,9 +56,11 @@ export function verifyNativePackage(): Promise<void>;
 `,
 );
 
-await build({
+const linux = await build({
+  write: false,
   stdin:{resolveDir:root,contents:`export {installNshNativeCompat} from "../../packages/nsh-node-compat/src/native-host.ts"; export {utf8Tail} from "../../packages/looi-runtime/src/agent/shell-output.ts"; export {verifyLinuxShell} from "../../packages/nsh-node-compat/test/native-linux-shell.ts";`},
   tsconfig:resolve(root,"../../packages/nsh-node-compat/tsconfig.json"),bundle:true,platform:"browser",format:"esm",target:"es2022",minify:true,keepNames:true,
   plugins:[nshPiSdkPlugin(),nshCodemodePlugin(),nshPiCodingToolsPlugin(),nshNodeCompatPlugin()],outfile:resolve(root,"generated/linux-probe.js"),
 });
-await writeFile(resolve(root,"generated/linux-probe.d.ts"),`import type {NativeShellOutput} from "./looi-runtime.js"; export function installNshNativeCompat(host:{request(request:string):string;begin(kind:string,request:string):string;wait(ticket:string):Promise<string>;close():void}):()=>void; export function utf8Tail(text:string,limit:number):string; export function verifyLinuxShell(output:(event:NativeShellOutput)=>void,installPackages?:boolean):Promise<void>;`);
+for (const output of linux.outputFiles) await writeGenerated(output.path, output.contents);
+await writeGenerated(resolve(root,"generated/linux-probe.d.ts"),`import type {NativeShellOutput} from "./looi-runtime.js"; export function installNshNativeCompat(host:{request(request:string):string;begin(kind:string,request:string):string;wait(ticket:string):Promise<string>;close():void}):()=>void; export function utf8Tail(text:string,limit:number):string; export function verifyLinuxShell(output:(event:NativeShellOutput)=>void,installPackages?:boolean):Promise<void>;`);

@@ -1,18 +1,20 @@
-import { build } from "esbuild";
-import { mkdir, writeFile } from "node:fs/promises";
+import { build, context, type BuildOptions } from "esbuild";
+import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { nshNodeCompatPlugin } from "../../../packages/nsh-node-compat/src/bundler.js";
 import { nshCodemodePlugin } from "../../../packages/nsh-node-compat/src/codemode-bundler.js";
 import { nshPiCodingToolsPlugin } from "../../../packages/nsh-node-compat/src/pi-coding-bundler.js";
 import { nshPiSdkPlugin } from "../../../packages/nsh-node-compat/src/pi-sdk-bundler.js";
 import { loadRuntimeVariables } from "./build-env.mjs";
+import { writeGenerated } from "./write-generated.mjs";
 
 /** Separate from the test probe: no faux provider or acceptance fixtures ship. */
-export async function buildRuntime(options: { release?: boolean; debugTelemetry?: boolean } = {}) {
+export async function buildRuntime(options: { release?: boolean; debugTelemetry?: boolean; development?: boolean } = {}) {
   const root = resolve(import.meta.dirname, "..");
   const variables = loadRuntimeVariables(options);
   await mkdir(resolve(root, "generated"), { recursive: true });
-  await build({
+  const settings: BuildOptions = {
+    write: false,
     stdin: {
       resolveDir: root,
       contents: `
@@ -69,10 +71,21 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
       nshCodemodePlugin(),
       nshPiCodingToolsPlugin(),
       nshNodeCompatPlugin(),
+      {
+        name: "write-runtime-output",
+        setup(builder) {
+          builder.onEnd(async result => {
+            for (const output of result.outputFiles || []) await writeGenerated(output.path, output.contents);
+          });
+        },
+      },
     ],
-    outfile: resolve(root, "generated/looi-runtime.js"),
-  });
-  await writeFile(
+    outfile: resolve(root, options.development ? "generated/looi-runtime.dev.js" : "generated/looi-runtime.js"),
+  };
+  const compiler = options.development ? await context(settings) : undefined;
+  if (compiler) await compiler.rebuild();
+  else await build(settings);
+  await writeGenerated(
     resolve(root, "generated/looi-runtime.d.ts"),
     `
 export interface VoiceState {phase:"idle"|"standby"|"permission"|"connecting"|"listening"|"speaking"|"error";muted:boolean;wakeEnabled:boolean;transcript:string;userTranscript?:string;purpose?:"conversation"|"preview";activeVoiceId?:string;error:string}
@@ -232,4 +245,6 @@ export class RobotFaceController {
 export function openRuntime(host:{request(raw:string):string;begin(kind:string,raw:string):string;wait(ticket:string):Promise<string>;close():void},vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void}):Promise<NativeRuntime>;
 `,
   );
+  if (compiler) await compiler.watch();
+  return compiler;
 }
