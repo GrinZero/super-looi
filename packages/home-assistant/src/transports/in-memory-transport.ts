@@ -47,10 +47,10 @@ export class InMemoryHaTransportAdapter implements HaTransportAdapter {
     serviceData: Record<string, unknown>
   ): Promise<{ success: boolean; error?: string }> {
     if (!this.healthy) {
-      return { success: false, error: "Home Assistant gateway disconnected" };
+      return { success: false, error: "home_transport_disconnected" };
     }
     if (this.simulateTimeout) {
-      return { success: false, error: "Network timeout waiting for device readback" };
+      return { success: false, error: "home_service_call_timeout" };
     }
 
     const entityId = String(serviceData.entity_id || `${domain}.default`);

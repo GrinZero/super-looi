@@ -75,7 +75,7 @@ it("reports partial property writes and missing readbacks honestly, and never re
   test.setFailedWrite(false); test.failedReads.add(2);
   assert.equal((await gateway.executeCommand(command)).status, "unverified");
   test.setOnline(false);
-  assert.equal(await test.transport.fetchState(definitions[0].entity_id), null);
+  await assert.rejects(test.transport.fetchState(definitions[0].entity_id), /miot_request_failed/);
   assert.equal(test.transport.isHealthy(), false);
   const count = test.writes.length;
   test.setOnline(true); test.failedReads.clear();
@@ -147,7 +147,7 @@ it("keeps available devices during a partial spec failure and clears stale contr
   assert.equal(transport.getStatus().error, "miot_discovery_partial");
   assert.deepEqual(transport.getStatus().discoveryFailures, ["lamp1"]);
   offline = true;
-  await assert.rejects(transport.discover(), /^Error: miot_discovery_failed$/);
+  await assert.rejects(transport.discover(), /miot_request_failed/);
   assert.equal(transport.listEntities().length, 0);
   assert.equal((await transport.callService("light", "turn_on", { entity_id: definitions[0].entity_id })).success, false);
 });

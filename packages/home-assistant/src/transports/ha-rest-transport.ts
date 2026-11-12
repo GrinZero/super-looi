@@ -1,5 +1,6 @@
 import type { HomeStateSnapshot } from "@super-looi/contracts";
 import type { HaTransportAdapter } from "../types.js";
+import { HomeTransportError, transportErrorDetails } from "../transport-error.js";
 
 /** Real HA REST transport. Service acknowledgements are never device readbacks. */
 export class HomeAssistantRestTransport implements HaTransportAdapter {
@@ -42,7 +43,7 @@ export class HomeAssistantRestTransport implements HaTransportAdapter {
         signal: abort.signal,
         redirect: "error",
       });
-      if (!response.ok) throw new Error(`ha_http_${response.status}`);
+      if (!response.ok) throw new HomeTransportError(`ha_http_${response.status}`, { http_status: response.status, operation: path });
       const result: unknown = await response.json();
       this.healthy = true;
       this.verifiedAt = new Date().toISOString();
@@ -50,9 +51,10 @@ export class HomeAssistantRestTransport implements HaTransportAdapter {
       return result;
     } catch (error) {
       this.healthy = false;
-      // Never forward response bodies, URLs or fetch exceptions containing credentials.
-      this.error = error instanceof Error && /^ha_http_\d+$/.test(error.message) ? error.message : "ha_connection_failed";
-      throw new Error(this.error);
+      const diagnostics = transportErrorDetails(error, abort.signal.aborted ? "ha_request_timeout" : "ha_connection_failed", [this.options.token]);
+      this.error = String(diagnostics.code);
+      throw new HomeTransportError(this.error, { ...diagnostics, operation: path,
+        ...(abort.signal.aborted ? { timeout_ms: this.options.timeoutMs ?? 5000 } : {}) });
     } finally { clearTimeout(timer); }
   }
 
@@ -67,22 +69,23 @@ export class HomeAssistantRestTransport implements HaTransportAdapter {
   }
 
   async fetchState(entityId: string): Promise<HomeStateSnapshot | null> {
-    try {
       const result = await this.request(`states/${encodeURIComponent(entityId)}`);
       if (!isSnapshot(result) || result.entity_id !== entityId) {
         this.healthy = false;
         this.error = "ha_invalid_state";
-        return null;
+        throw new HomeTransportError(this.error, { operation: "states", entity_id: entityId });
       }
       return publicSnapshot(result);
-    } catch { return null; }
   }
 
   async callService(domain: string, service: string, serviceData: Record<string, unknown>) {
     try {
       await this.request(`services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`, serviceData);
       return { success: true };
-    } catch { return { success: false, error: this.error ?? "ha_connection_failed" }; }
+    } catch (error) {
+      const diagnostics = transportErrorDetails(error, "ha_connection_failed");
+      return { success: false, error: String(diagnostics.code), diagnostics };
+    }
   }
 }
 

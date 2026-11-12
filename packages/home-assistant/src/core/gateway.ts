@@ -1,11 +1,13 @@
 import { jsonValuesEqual, delay } from "./runtime-utils.js";
 import type { HaTransportAdapter } from "../types.js";
 import { InMemoryHaTransportAdapter } from "../transports/in-memory-transport.js";
+import { transportErrorDetails } from "../transport-error.js";
 import type {
   HomeEntityDefinition,
   HomeStateSnapshot,
   HomeControlCommand,
   ActionReceipt,
+  JsonObject,
 } from "@super-looi/contracts";
 
 export const FORBIDDEN_HIGH_RISK_DOMAINS = new Set([
@@ -143,16 +145,26 @@ export class HomeAssistantGateway implements HomeGateway {
     return this.transport.fetchState(entityId);
   }
 
-  public async getStates(): Promise<Array<HomeEntityDefinition & { snapshot: HomeStateSnapshot | null }>> {
+  public async getStates(): Promise<Array<HomeEntityDefinition & { snapshot: HomeStateSnapshot | null; read_error?: JsonObject }>> {
     const entities = await this.listEntities();
     if (!entities.length) return [];
     if (this.transport.listStates) {
       try {
         const states = new Map((await this.transport.listStates()).map((state) => [state.entity_id, state]));
-        return entities.map((entity) => ({ ...entity, snapshot: states.get(entity.entity_id) ?? null }));
-      } catch { return entities.map((entity) => ({ ...entity, snapshot: null })); }
+        return entities.map((entity) => {
+          const snapshot = states.get(entity.entity_id) ?? null;
+          const error = snapshot?.attributes.read_error;
+          return { ...entity, snapshot, ...(error && typeof error === "object" && !Array.isArray(error) ? { read_error: error } : {}) };
+        });
+      } catch (error) {
+        const read_error = transportErrorDetails(error, "home_state_read_failed");
+        return entities.map((entity) => ({ ...entity, snapshot: null, read_error }));
+      }
     }
-    return Promise.all(entities.map(async (entity) => ({ ...entity, snapshot: await this.getState(entity.entity_id) })));
+    return Promise.all(entities.map(async (entity) => {
+      try { return { ...entity, snapshot: await this.getState(entity.entity_id) }; }
+      catch (error) { return { ...entity, snapshot: null, read_error: transportErrorDetails(error, "home_state_read_failed") }; }
+    }));
   }
 
   /**
@@ -352,7 +364,18 @@ export class HomeAssistantGateway implements HomeGateway {
         status: "rejected", reason_code: "unsupported_home_command", readbacks: [] };
     }
     // State and requested attributes must both match, including on-to-on adjustments.
-    const current = await this.transport.fetchState(command.entity_id);
+    let current: HomeStateSnapshot | null = null;
+    let preReadError: JsonObject | undefined;
+    const fetchState = () => this.transport.fetchState(command.entity_id, Object.keys(targetData));
+    try { current = await fetchState(); }
+    catch (error) { preReadError = transportErrorDetails(error, "home_state_read_failed"); }
+    const failureReceipt = (error: JsonObject, stage: "write" | "readback", acknowledged: boolean): ActionReceipt => ({
+      schema_version: "0.2", receipt_id: receiptId, action_id: actionId, task_id: null,
+      receipt_seq: 1, executor_id: "home_assistant_gateway", recorded_at: new Date().toISOString(),
+      status: "unverified", reason_code: String(error.code), readbacks: [],
+      diagnostics: { stage, write_acknowledged: acknowledged, error,
+        ...(preReadError ? { before_write_error: preReadError } : {}) },
+    });
     const targetState =
       command.service === "turn_on"
         ? "on"
@@ -469,29 +492,96 @@ export class HomeAssistantGateway implements HomeGateway {
     }
 
     // 6. Execute command via transport
-    const callResult = await this.transport.callService(domain, command.service, {
+    let callResult;
+    try { callResult = await this.transport.callService(domain, command.service, {
       ...targetData,
       entity_id: command.entity_id,
-    });
+    }); } catch (error) {
+      return failureReceipt(transportErrorDetails(error, "home_service_call_failed"), "write", false);
+    }
 
     if (!callResult.success) {
-      return {
-        schema_version: "0.2",
-        receipt_id: receiptId,
-        action_id: actionId,
-        task_id: null,
-        receipt_seq: 1,
-        executor_id: "home_assistant_gateway",
-        recorded_at: nowIso,
-        status: "unverified",
-        reason_code: "readback_timeout",
-        readbacks: [],
-      };
+      return failureReceipt({ ...callResult.diagnostics, code: callResult.error ?? "home_service_call_failed" }, "write", false);
     }
 
     // 7. Verify readback state
-    if ((command.service === "press" || command.service === "send_message") && current?.attributes.has_status_criterion === false) {
-      const after = await this.transport.fetchState(command.entity_id);
+    const readback = (snapshot: HomeStateSnapshot, version: string) => ({
+      kind: "device_state" as const, evidence_ids: [`readback_${Date.now()}`],
+      observed_at: snapshot.last_updated, received_at: new Date().toISOString(), state_version: version,
+      value: { state: snapshot.state, attributes: snapshot.attributes },
+    });
+    const diagnostics: JsonObject = { write_acknowledged: true,
+      ...(callResult.diagnostics ? { write: callResult.diagnostics } : {}),
+      ...(preReadError ? { before_write_error: preReadError } : {}) };
+    try {
+      if ((command.service === "press" || command.service === "send_message") && current?.attributes.has_status_criterion === false) {
+        const after = await fetchState();
+        return {
+          schema_version: "0.2",
+          receipt_id: receiptId,
+          action_id: actionId,
+          task_id: null,
+          receipt_seq: 1,
+          executor_id: "home_assistant_gateway",
+          recorded_at: nowIso,
+          status: "unverified",
+          reason_code: "action_accepted_no_state_criterion",
+          diagnostics,
+          readbacks: after
+            ? [
+                {
+                  kind: "device_state",
+                  evidence_ids: [`readback_accepted_${Date.now()}`],
+                  observed_at: after.last_updated,
+                  received_at: nowIso,
+                  state_version: "accepted_without_state_criterion",
+                  value: { state: after.state, attributes: after.attributes },
+                },
+              ]
+            : [],
+        };
+      }
+      const deadline = Date.now() + Math.max(0, Math.min(command.timeout_ms ?? 2000, 5000));
+      let after = await fetchState();
+      const verified = (snapshot: HomeStateSnapshot | null): boolean => {
+        if (!snapshot || !matchesTarget(snapshot)) return false;
+        const age = Date.now() - Date.parse(snapshot.last_updated);
+        return age >= -5000 && age <= (definition.max_state_age_ms ?? 15000)
+          && (!current || snapshot.last_updated !== current.last_updated || snapshot.state !== current.state
+            || !jsonValuesEqual(snapshot.attributes, current.attributes));
+      };
+      while (!verified(after) && this.transport.isHealthy() && Date.now() < deadline) {
+        await delay(Math.min(200, deadline - Date.now()));
+        after = await fetchState();
+      }
+      if (after && verified(after)) {
+        return {
+          schema_version: "0.2",
+          receipt_id: receiptId,
+          action_id: actionId,
+          task_id: null,
+          receipt_seq: 1,
+          executor_id: "home_assistant_gateway",
+          recorded_at: nowIso,
+          status: "verified",
+          outcome: "applied",
+          diagnostics,
+          readbacks: [
+            {
+              kind: "device_state",
+              evidence_ids: [`readback_applied_${Date.now()}`],
+              observed_at: after.last_updated,
+              received_at: nowIso,
+              state_version: "verified_readback",
+              value: { state: after.state, attributes: after.attributes },
+            },
+          ],
+        };
+      }
+
+      const reason = after
+        ? (command.service === "press" && after.attributes.has_status_criterion === true ? "action_accepted_state_unverified" : "readback_mismatch")
+        : Date.now() >= deadline ? "readback_timeout" : "readback_unavailable";
       return {
         schema_version: "0.2",
         receipt_id: receiptId,
@@ -501,72 +591,15 @@ export class HomeAssistantGateway implements HomeGateway {
         executor_id: "home_assistant_gateway",
         recorded_at: nowIso,
         status: "unverified",
-        reason_code: "action_accepted_no_state_criterion",
-        readbacks: after
-          ? [
-              {
-                kind: "device_state",
-                evidence_ids: [`readback_accepted_${Date.now()}`],
-                observed_at: after.last_updated,
-                received_at: nowIso,
-                state_version: "accepted_without_state_criterion",
-                value: { state: after.state, attributes: after.attributes },
-              },
-            ]
-          : [],
+        reason_code: reason,
+        diagnostics: { ...diagnostics, stage: "readback", error: { code: reason }, target: { state: targetState ?? null, data: targetData as JsonObject } },
+        readbacks: after ? [readback(after, "unmatched_readback")] : [],
       };
+    } catch (error) {
+      const receipt = failureReceipt(transportErrorDetails(error, "home_state_read_failed"), "readback", true);
+      receipt.diagnostics = { ...diagnostics, ...receipt.diagnostics };
+      return receipt;
     }
-    const deadline = Date.now() + Math.max(0, Math.min(command.timeout_ms ?? 2000, 5000));
-    let after = await this.transport.fetchState(command.entity_id);
-    const verified = (snapshot: HomeStateSnapshot | null): boolean => {
-      if (!snapshot || !matchesTarget(snapshot)) return false;
-      const age = Date.now() - Date.parse(snapshot.last_updated);
-      return age >= -5000 && age <= (definition.max_state_age_ms ?? 15000)
-        && (!current || snapshot.last_updated !== current.last_updated || snapshot.state !== current.state
-          || !jsonValuesEqual(snapshot.attributes, current.attributes));
-    };
-    while (!verified(after) && this.transport.isHealthy() && Date.now() < deadline) {
-      await delay(Math.min(200, deadline - Date.now()));
-      after = await this.transport.fetchState(command.entity_id);
-    }
-    if (after && verified(after)) {
-      return {
-        schema_version: "0.2",
-        receipt_id: receiptId,
-        action_id: actionId,
-        task_id: null,
-        receipt_seq: 1,
-        executor_id: "home_assistant_gateway",
-        recorded_at: nowIso,
-        status: "verified",
-        outcome: "applied",
-        readbacks: [
-          {
-            kind: "device_state",
-            evidence_ids: [`readback_applied_${Date.now()}`],
-            observed_at: after.last_updated,
-            received_at: nowIso,
-            state_version: "verified_readback",
-            value: { state: after.state, attributes: after.attributes },
-          },
-        ],
-      };
-    }
-
-    return {
-      schema_version: "0.2",
-      receipt_id: receiptId,
-      action_id: actionId,
-      task_id: null,
-      receipt_seq: 1,
-      executor_id: "home_assistant_gateway",
-      recorded_at: nowIso,
-      status: "unverified",
-      reason_code: after
-        ? (command.service === "press" && after.attributes.has_status_criterion === true ? "action_accepted_state_unverified" : "readback_mismatch")
-        : "readback_timeout",
-      readbacks: [],
-    };
   }
 
   /**

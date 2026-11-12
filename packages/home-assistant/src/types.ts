@@ -1,11 +1,18 @@
-import type { HomeStateSnapshot } from "@super-looi/contracts";
+import type { HomeStateSnapshot, JsonObject } from "@super-looi/contracts";
+
+export interface HomeServiceResult {
+  success: boolean;
+  error?: string;
+  diagnostics?: JsonObject;
+}
 
 export interface HaTransportAdapter {
   /** Quantize supported numeric targets before sending and comparing the physical readback. */
   normalizeServiceData?(entityId: string, data: Record<string, unknown>): Record<string, unknown>;
   listStates?(): Promise<HomeStateSnapshot[]>;
-  callService(domain: string, service: string, serviceData: Record<string, unknown>): Promise<{ success: boolean; error?: string }>;
-  fetchState(entityId: string): Promise<HomeStateSnapshot | null>;
+  callService(domain: string, service: string, serviceData: Record<string, unknown>): Promise<HomeServiceResult>;
+  /** Null means the entity is absent. Transport/read failures throw HomeTransportError. */
+  fetchState(entityId: string, requiredAttributes?: readonly string[]): Promise<HomeStateSnapshot | null>;
   isHealthy(): boolean;
   getLastVerifiedAt(): string | null;
 }

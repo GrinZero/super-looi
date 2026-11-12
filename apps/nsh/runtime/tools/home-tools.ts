@@ -35,7 +35,7 @@ export function createHomeTools(host: HomeToolsHost): AgentTool<any>[] {
       name: "control_home_device",
       label: "控制家居设备",
       description:
-        "Control one device using the task's approval setting. Requires entity_id and connectionId from a recent list. Only a verified receipt confirms success; unknown must not be retried automatically. Simulation changes no real device.",
+        "Control one device using the task's approval setting. Requires entity_id and connectionId from a recent list. Only a verified receipt confirms success. For failures report diagnostics.stage and the actual error/return code; claim acceptance only when diagnostics.write_acknowledged is true. Unknown must not be retried automatically. Simulation changes no real device.",
       parameters: obj({
         entity_id: str(),
         connectionId: str(),

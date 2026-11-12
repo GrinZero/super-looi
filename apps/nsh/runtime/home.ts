@@ -12,6 +12,7 @@ import {
   DirectMiotTransportAdapter,
   executeHomeVoiceTool,
   HomeAssistantGateway,
+  homeControlInstruction,
   HomeAssistantRestTransport,
   InMemoryHaTransportAdapter,
   MiotHttpClient,
@@ -19,6 +20,7 @@ import {
   MiotOAuthClient,
   MiotSpecResolver,
   readHomeRegistry,
+  transportErrorDetails,
   type CredentialStore,
   type HaTransportAdapter,
   type HomeEntityMetadata,
@@ -67,6 +69,7 @@ export type HomeSourceStatus = {
   healthy: boolean;
   entityCount: number;
   error: string | null;
+  diagnostics?: JsonObject;
 };
 export interface HomeConfiguration {
   mode: HomeMode;
@@ -85,6 +88,7 @@ export interface HomeConnection {
   connectionId: string | null;
   lastVerifiedAt: string | null;
   error: string | null;
+  diagnostics?: JsonObject;
   entityCount: number;
   sources?: Record<HomeSourceId, HomeSourceStatus>;
 }
@@ -210,6 +214,7 @@ export class HomeRuntime {
   private connecting?: Promise<HomeConnection>;
   private oauth?: MiotOAuthClient;
   private lastError: string | null = null;
+  private connectionError?: JsonObject;
   private sourceStatuses: Record<HomeSourceId, HomeSourceStatus> = {
     direct_miot: { enabled: false, configured: false, healthy: false, entityCount: 0, error: null },
     external_ha: { enabled: false, configured: false, healthy: false, entityCount: 0, error: null },
@@ -329,6 +334,7 @@ export class HomeRuntime {
       connectionId: this.closed ? null : (owner?.id ?? null),
       lastVerifiedAt: owner?.transport.getLastVerifiedAt() ?? null,
       error: this.lastError,
+      ...(this.connectionError ? { diagnostics: this.connectionError } : {}),
       entityCount: this.entityCount,
       sources: {
         direct_miot: {
@@ -399,6 +405,7 @@ export class HomeRuntime {
     this.entityCount = 0;
     this.actions.clear();
     this.lastError = null;
+    this.connectionError = undefined;
     this.sourceStatuses = {
       direct_miot: { enabled: false, configured: false, healthy: false, entityCount: 0, error: null },
       external_ha: { enabled: false, configured: false, healthy: false, entityCount: 0, error: null },
@@ -737,7 +744,7 @@ export class HomeRuntime {
       return result;
     };
     return {
-      fetchState: (id) => run(() => transport.fetchState(id)),
+      fetchState: (id, requiredAttributes) => run(() => transport.fetchState(id, requiredAttributes)),
       callService: (domain, service, data) =>
         run(() => transport.callService(domain, service, data)),
       ...(transport.listStates
@@ -1021,18 +1028,17 @@ export class HomeRuntime {
           }
         } catch (err) {
           this.assertCurrent(generation);
-          const msg = err instanceof Error ? err.message : "";
-          const normErr = ["home_not_configured", "miot_auth_required"].includes(msg)
-            ? msg
-            : "home_connection_failed";
+          const diagnostics = transportErrorDetails(err, "home_connection_failed");
+          const normErr = String(diagnostics.code);
           this.sourceStatuses[src] = {
             enabled: true,
             configured: src === "simulation",
             healthy: false,
             entityCount: 0,
             error: normErr,
+            diagnostics,
           };
-          if (!this.lastError) this.lastError = normErr;
+          if (!this.lastError) { this.lastError = normErr; this.connectionError = diagnostics; }
         }
       };
 
@@ -1049,10 +1055,10 @@ export class HomeRuntime {
       }
 
       const compositeTransport: HaTransportAdapter = {
-        fetchState: async (entityId) => {
+        fetchState: async (entityId, requiredAttributes) => {
           const ownerSrc = entityOwnerMap.get(entityId);
           const t = ownerSrc ? subTransports.get(ownerSrc) : subTransports.values().next().value;
-          return t ? t.fetchState(entityId) : null;
+          return t ? t.fetchState(entityId, requiredAttributes) : null;
         },
         callService: async (domain, service, serviceData) => {
           const entityId = String(serviceData.entity_id ?? "");
@@ -1063,12 +1069,21 @@ export class HomeRuntime {
         },
         listStates: async () => {
           const out: HomeStateSnapshot[] = [];
-          for (const t of subTransports.values()) {
+          for (const [source, t] of subTransports) {
             if (t.listStates) {
               try {
-                out.push(...(await t.listStates()));
-              } catch {
-                /* partial source failure tolerated */
+                const states = await t.listStates();
+                this.assertCurrent(generation);
+                out.push(...states);
+                this.sourceStatuses[source] = { ...this.sourceStatuses[source], healthy: t.isHealthy(), error: null, diagnostics: undefined };
+              } catch (error) {
+                this.assertCurrent(generation);
+                const diagnostics = transportErrorDetails(error, "home_state_read_failed");
+                this.sourceStatuses[source] = { ...this.sourceStatuses[source], healthy: false, error: String(diagnostics.code), diagnostics };
+                const now = new Date().toISOString();
+                for (const entity of allDefinitions.filter(entity => entityOwnerMap.get(entity.entity_id) === source)) {
+                  out.push({ entity_id: entity.entity_id, state: "unavailable", attributes: { read_error: diagnostics }, last_changed: now, last_updated: now });
+                }
               }
             }
           }
@@ -1109,16 +1124,12 @@ export class HomeRuntime {
           | undefined,
       };
       this.entityCount = allDashboardEntities.length;
-      if (subTransports.size > 0) this.lastError = null;
+      if (subTransports.size > 0) { this.lastError = null; this.connectionError = undefined; }
       return this.connection();
     } catch (error) {
       this.assertCurrent(generation);
-      const message = error instanceof Error ? error.message : "";
-      this.lastError = ["home_not_configured", "miot_auth_required"].includes(
-        message,
-      )
-        ? message
-        : "home_connection_failed";
+      this.connectionError = transportErrorDetails(error, "home_connection_failed");
+      this.lastError = String(this.connectionError.code);
       this.owner = undefined;
       this.entityCount = 0;
       return this.connection();
@@ -1138,16 +1149,29 @@ export class HomeRuntime {
     }
     const states = await owner.uiGateway.getStates();
     this.assertCurrent(owner.generation);
+    const sourceErrors = new Map<HomeSourceId, JsonObject>();
+    const entitySources = new Map(owner.dashboardEntities.map(entity => [entity.entity_id, entity.source]));
     for (const s of states) {
-      if (s.snapshot) {
+      const source = entitySources.get(s.entity_id);
+      if (s.read_error && source) sourceErrors.set(source, s.read_error);
+      if (s.snapshot && !s.read_error) {
         owner.lastKnownSnapshots.set(s.entity_id, s.snapshot);
       }
     }
+    for (const source of new Set(entitySources.values())) {
+      const error = sourceErrors.get(source);
+      if (error) this.sourceStatuses[source] = { ...this.sourceStatuses[source], healthy: false, error: String(error.code), diagnostics: error };
+      else if (this.sourceStatuses[source].diagnostics) this.sourceStatuses[source] = { ...this.sourceStatuses[source], healthy: true, error: null, diagnostics: undefined };
+    }
     const snapshotMap = new Map(
-      states.map((s) => [
-        s.entity_id,
-        s.snapshot ?? owner.lastKnownSnapshots.get(s.entity_id) ?? null,
-      ]),
+      states.map((s) => {
+        const snapshot = s.read_error
+          ? owner.lastKnownSnapshots.get(s.entity_id) ?? s.snapshot
+          : s.snapshot ?? owner.lastKnownSnapshots.get(s.entity_id) ?? null;
+        return [s.entity_id, snapshot && s.read_error
+          ? { ...snapshot, attributes: { ...snapshot.attributes, read_error: s.read_error } }
+          : snapshot] as const;
+      }),
     );
     const rawRecords: RawHomeEntityRecord[] = owner.dashboardEntities.map((ent) => ({
       ...ent,
@@ -1157,7 +1181,7 @@ export class HomeRuntime {
     // These display records never become gateway entities or control bindings.
     rawRecords.push(...(this.dashboardSnapshot?.records.filter((record) => {
       const status = record.source && this.sourceStatuses[record.source];
-      return status && status.enabled && !status.healthy;
+      return status && status.enabled && !status.healthy && !snapshotMap.has(record.entity_id);
     }) ?? []));
     const cameraDeviceIds = this.sourceStatuses.direct_miot.enabled && !this.sourceStatuses.direct_miot.healthy
       ? this.dashboardSnapshot?.cameraDeviceIds ?? []
@@ -1282,11 +1306,10 @@ export class HomeRuntime {
             connectionId: owner.id,
             instruction: simulation
               ? "仅离线演示，未控制真实设备。"
-              : receipt.status === "verified"
-                ? "设备状态已回读确认。"
-                : "执行尚未确认成功，如实说明回执，不能声称已经完成。",
+              : homeControlInstruction(receipt),
           };
-        } catch {
+        } catch (error) {
+          const diagnostics = transportErrorDetails(error, "home_execution_failed");
           return {
             simulation,
             connectionId: owner.id,
@@ -1302,11 +1325,12 @@ export class HomeRuntime {
               reason_code:
                 this.closed || owner.generation !== this.generation
                   ? "connection_changed_requires_verification"
-                  : "home_execution_requires_verification",
+                  : String(diagnostics.code),
               readbacks: [],
+              diagnostics: { stage: "execution", error: diagnostics },
             },
             instruction:
-              "操作结果未知，需要核实真实设备；不得自动重试或声称已完成。",
+              "操作结果未知。依据 diagnostics.error 说明实际失败原因；不得自动重试或声称已完成。",
           };
         } finally {
           action.signal?.removeEventListener("abort", abort);

@@ -1,6 +1,7 @@
-import type { JsonObject } from "@super-looi/contracts";
+import type { ActionReceipt, JsonObject } from "@super-looi/contracts";
 import type { HomeVoiceToolDefinition } from "../types.js";
 import type { HomeGateway } from "./gateway.js";
+import { transportErrorDetails } from "../transport-error.js";
 
 export const HOME_VOICE_TOOLS: HomeVoiceToolDefinition[] = [
   { type: "function", name: "list_home_devices", description: "查询家中真实设备及当前状态。控制前先查找实际 entity_id；匹配多个设备时询问用户，不能猜测设备名或传感器读数。", parameters: {
@@ -14,6 +15,14 @@ export const HOME_VOICE_TOOLS: HomeVoiceToolDefinition[] = [
   } },
 ];
 
+export function homeControlInstruction(receipt: ActionReceipt): string {
+  if (receipt.status === "verified") return "设备状态已回读确认。";
+  const detail = "依据 reason_code 与 diagnostics.error 说明具体失败原因，保留服务错误码，不得改称其他错误。";
+  if (receipt.diagnostics?.stage === "write") return `指令写入未确认成功。${detail}不能声称指令已被设备受理。`;
+  if (receipt.diagnostics?.write_acknowledged === true) return `指令已受理，但实际效果尚未确认。${detail}不得声称操作已完成。`;
+  return `执行尚未确认成功。${detail}不得声称操作已完成。`;
+}
+
 export async function executeHomeVoiceTool(name: string, args: Record<string, unknown>, gateway: HomeGateway): Promise<JsonObject> {
   if (name === "list_home_devices") {
     const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
@@ -24,7 +33,10 @@ export async function executeHomeVoiceTool(name: string, args: Record<string, un
     const offset = typeof args.offset === "number" && Number.isInteger(args.offset) ? Math.max(0, args.offset) : 0;
     const page = entities.slice(offset, offset + 30);
     return { total: entities.length, next_offset: offset + page.length < entities.length ? offset + page.length : null,
-      devices: await Promise.all(page.map(async (entity) => ({ ...entity, snapshot: await gateway.getState(entity.entity_id) }))),
+      devices: await Promise.all(page.map(async (entity) => {
+        try { return { ...entity, snapshot: await gateway.getState(entity.entity_id) }; }
+        catch (error) { return { ...entity, snapshot: null, read_error: transportErrorDetails(error, "home_state_read_failed") }; }
+      })),
       instruction: "只根据实际回读回答。无设备表示尚未连接或未找到；多个匹配必须澄清，离线/未知值不可猜测。" } as unknown as JsonObject;
   }
   const data: JsonObject = {};
@@ -33,5 +45,5 @@ export async function executeHomeVoiceTool(name: string, args: Record<string, un
   const entityId = typeof args.entity_id === "string" ? args.entity_id : "";
   const receipt = await gateway.executeCommand({ entity_id: entityId, domain: entityId.split(".")[0],
     service: typeof args.service === "string" ? args.service : "", service_data: data });
-  return { receipt, instruction: receipt.status === "verified" ? "设备状态已回读确认。" : "尚未确认执行成功，如实说明回执原因，不可声称已经完成。" } as unknown as JsonObject;
+  return { receipt, instruction: homeControlInstruction(receipt) } as unknown as JsonObject;
 }

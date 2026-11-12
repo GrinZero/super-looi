@@ -553,7 +553,8 @@ export async function verifyHomeRuntime(): Promise<void> {
   });
   const failure = await failing.connect();
   check(
-    failure.error === "home_connection_failed" &&
+    failure.error === "ha_connection_failed" &&
+      JSON.stringify(failure.diagnostics).includes("must never escape") &&
       !JSON.stringify(failure).includes("SECRET") &&
       !failure.simulation,
     "raw network error leaked or simulation fallback occurred",

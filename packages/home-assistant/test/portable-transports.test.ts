@@ -59,7 +59,7 @@ it("aborts REST fetch and response-body stalls without relying on AbortSignal.ti
       return stalledBody ? Promise.resolve({ ok: true, json: wait } as Response) : wait();
     };
     const transport = new HomeAssistantRestTransport({ url: "https://ha.test", token: "private-token", timeoutMs: 15, fetch: stalled as typeof fetch });
-    await assert.rejects(transport.listStates(), /^Error: ha_connection_failed$/);
+    await assert.rejects(transport.listStates(), /^Error: ha_request_timeout$/);
     assert.equal(signal?.aborted, true);
     assert.equal(transport.getStatus().healthy, false);
     assert.equal(transport.getStatus().lastVerifiedAt, null);

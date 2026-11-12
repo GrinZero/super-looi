@@ -84,7 +84,7 @@ it("bounds OAuth exchange network stalls and fails closed on malformed token res
       }) as typeof fetch });
     const session = await client.beginAuthSession();
     client.tryInterceptCallbackUrl(`${redirectUri}?code=private-code&state=${session.state}`);
-    await assert.rejects(client.completeAuthWithCode("private-code"), stalled ? /miot_request_failed/ : /miot_invalid_token/);
+    await assert.rejects(client.completeAuthWithCode("private-code"), stalled ? /miot_request_timeout/ : /miot_invalid_token/);
     await assert.rejects(client.tokens.getAccessToken(), /miot_auth_required/);
   }
 });

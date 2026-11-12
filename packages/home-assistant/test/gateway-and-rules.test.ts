@@ -128,7 +128,7 @@ describe("Smart Home Gateway: Whitelist, Idempotency, Disambiguation & Sensor Tr
     assert.equal(r2.outcome, "applied");
     assert.equal(r2.readbacks[0].value.state, "on");
 
-    // 3. Readback timeout: Network delay or lost ack
+    // 3. The write did not return an acknowledgement; this is not a readback timeout.
     adapter.setSimulateTimeout(true);
     const r3 = await gateway.executeCommand({
       entity_id: "light.study_ceiling",
@@ -137,7 +137,8 @@ describe("Smart Home Gateway: Whitelist, Idempotency, Disambiguation & Sensor Tr
       service_data: {},
     });
     assert.equal(r3.status, "unverified");
-    assert.equal(r3.reason_code, "readback_timeout");
+    assert.equal(r3.reason_code, "home_service_call_timeout");
+    assert.equal(r3.diagnostics?.stage, "write");
   });
 
   it("handles batch scene execution and reports partial failure honestly", async () => {
