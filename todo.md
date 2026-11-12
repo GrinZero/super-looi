@@ -2,7 +2,7 @@
 
 ## 语音过早接话与重复收音
 
-- [ ] 补齐 iOS `AVAudioEngine.setVoiceProcessingEnabled` 与 Android AAudio 会话 ID／Java `AcousticEchoCanceler` 的绑定和释放，并在真机核对启用状态及外放效果。会话 `voice_89865b34-843e-4e76-9b7f-643718479f2b` 多轮用户转写包含助手整句，回声回灌为主要解释；系统 API、豆包官方 SDK 与复杂度取舍见 [回声消除与判停方案](docs/voice-duplex-aec-and-turn-taking.md)。
+- [ ] 在原生 `VoiceAudio` 选择并接入厂商无关的 AEC；优先比较 AEC3 / Sonora 与 LocalVQE 仅去回声模型，统一播放参考和采集时钟，在真机横屏核对外放与自然插话。用户提供的 SAMI 模型若继续使用，还需匹配的独立运行库及离线授权。协议与框架取舍见 [通用 Realtime 与独立 AEC 调研](docs/realtime-portability-and-aec-research.md)。
   - Android 三项核查：实际使用 AAudio，输入已请求 `VOICE_COMMUNICATION`、输出已请求语音通信用途；未分配／读取音频会话 ID，未创建 AEC 或读取 `getEnabled()`，状态回执也无 AEC 字段。真机核对实际 input preset、AEC 绑定与启用返回值、采播设备及系统效果链；自定义 AAudio 播放和 16k／24k 采样率差异本身不能证明参考失配。2026-11-12 核查时 ADB 无连接真机。
 - [ ] 修正实时语音上行的 20ms 节拍：当前处理后再等待 20ms、每轮最多发一帧，缺少耗时补偿，500ms 缓冲超限丢旧帧。
 - [ ] 在真机横屏复核句中停顿和外放插话，记录最后一帧人声到服务端判停的间隔，再决定是否调整停顿窗口；三次真实握手已发送 `end_smooth_window_ms=2500` 和 `enable_custom_vad=true`，现有观测不足以判断参数失效。

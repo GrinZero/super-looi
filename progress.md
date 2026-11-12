@@ -2148,3 +2148,26 @@
   - [x] 自定义队列经 `AAudioStream_write` 播放，采集经独立 AAudio 流读取；没有应用侧软件 AEC／参考输入。系统是否提供正确参考、设备是否自动做 AEC 仍需真机判断，不能仅凭采样率差异或自定义播放判定失配。
   - [x] 子 agent 独立复核三项结论与 NDK 会话语义；待确认项记入 todo.md。
 - [ ] Step 3：真机横屏读取实际 preset、音频会话／AEC 启用状态及效果链，测量外放回声；核查时 `adb devices -l` 无连接设备。
+
+## 通用 AEC 与 Realtime 框架调研（2026-11-12）
+
+- [x] Step 1：核验独立 AEC 模型／库的端侧可用性。
+  - [x] 用户提供 `aec.model` 为 100076 字节、SAMI 标识；找到独立 SAMICore C AEC 与纯离线运行库，区分 RNNAEC 神经路径、DSP 路径和单独离线授权，未执行模型推理。
+  - [x] 比较 AEC3 / Sonora、LocalVQE、DTLN-aec；核对现有 sherpa-onnx 单流降噪不能替代双流 AEC，列明移动构建与处理帧成本。
+- [x] Step 2：核验通用框架对 OpenAI Realtime 与豆包现役双工协议的真实支持。
+  - [x] LiveKit 中文社区插件已接现役 Seeduplex JSON，但工具结果回传、音频截断存在缺口；Pipecat 需自写服务，TEN 已有豆包 duplex 只对应 TTS。
+  - [x] 区分客户端音频处理、框架会话与传输，核对独立进程、手机工具 RPC 和 KWS 麦克风交接成本。
+- [x] Step 3：结合现有模块边界比较两条路线，完成独立复核与文档交付。
+  - [x] 合并研究为 `docs/realtime-portability-and-aec-research.md`，删除本轮中间草稿；建议优先比较独立 AEC3 与 LocalVQE，保留当前双协议调用。
+  - [x] 独立审查发现并修正 SAMI 算法标识与 LocalVQE compact 前端资产描述，明确用户模型兼容尚未验证。
+  - [x] 合并稿独立复审通过，文档格式检查通过，旧方案与 todo.md 已按厂商无关处理更新。
+
+## Android AEC 三项核查（2026-11-12）
+
+- [x] Step 1：追踪实际采播配置。
+  - [x] 使用 AAudio，输入请求 preset `7`（`VOICE_COMMUNICATION`）、输出请求 usage `2`（语音通信），Java 设置 `MODE_IN_COMMUNICATION`；输入 preset 未读回。
+- [x] Step 2：核对 AEC 控制和播放参考证据。
+  - [x] 未调用 AAudio `setSessionId/getSessionId`，没有 Java AEC 创建、启用／读回与释放逻辑；现有状态回执无 AEC 信息。NDK 默认会话 ID 为 `NONE`，尚未接入应用可控的 Java AudioEffect 路径。
+  - [x] 自定义队列经 `AAudioStream_write` 播放，采集经独立 AAudio 流读取；没有应用侧软件 AEC／参考输入。系统是否提供正确参考、设备是否自动做 AEC 仍需真机判断，不能仅凭采样率差异或自定义播放判定失配。
+  - [x] 子 agent 独立复核三项结论与 NDK 会话语义；待确认项记入 todo.md。
+- [ ] Step 3：真机横屏读取实际 preset、音频会话／AEC 启用状态及效果链，测量外放回声；核查时 `adb devices -l` 无连接设备。
