@@ -328,6 +328,7 @@ export class PiTaskRunner {
           taskId: task.id,
           sessionId: task.sessionId,
           workspaceRoot: task.workspaceRoot,
+          sessionsDirectory: host.sessionsDirectory,
           commandTimeoutMs: config.commandTimeoutMs ?? 300_000,
           artifacts,
           executions,

@@ -16,6 +16,7 @@ export interface WorkspaceToolsHost {
   taskId: string;
   sessionId: string;
   workspaceRoot: string;
+  sessionsDirectory: string;
   commandTimeoutMs: number;
   artifacts: WorkspaceArtifactTracker;
   executions: AgentCommandEvidence[];

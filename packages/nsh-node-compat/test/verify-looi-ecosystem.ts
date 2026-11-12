@@ -79,6 +79,24 @@ try {
   equal((await executor.run("What is the code?", { sessionId: "compact" })).answer, "ORCHID");
   console.log("PASS Pi App compaction: real summary generation, JSONL persistence and context restore after reopen");
 
+  const history = SessionManager.create(cwd, `${state}/sessions`, { id: "history_source" });
+  history.appendMessage({ role: "user", content: "NATIVE_HISTORY: tea without sugar", timestamp: Date.now() });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("sessions", { action: "search", query: "NATIVE_HISTORY" }), { stopReason: "toolUse" }),
+    ctx => {
+      const hit = JSON.stringify(resolveTranscript(ctx, undefined).messages.at(-1));
+      assert(hit.includes("history_source") && hit.includes("tea without sugar"), hit);
+      return fauxAssistantMessage(fauxToolCall("sessions", { action: "read", sessionId: "history_source" }), { stopReason: "toolUse" });
+    },
+    ctx => {
+      const text = JSON.stringify(resolveTranscript(ctx, undefined).messages.at(-1));
+      assert(text.includes("NATIVE_HISTORY: tea without sugar"), text);
+      return fauxAssistantMessage("Earlier tea order found");
+    },
+  ]);
+  equal((await executor.run("Look up the earlier order", { sessionId: "history_reader" })).answer, "Earlier tea order found");
+  console.log("PASS Pi App sessions: cross-session keyword search and original history reading through the task tool loop");
+
   const originalFetch = globalThis.fetch;
   let mcpCalls = 0, refreshCalls = 0;
   globalThis.fetch = (async (url: any, init: any) => {
