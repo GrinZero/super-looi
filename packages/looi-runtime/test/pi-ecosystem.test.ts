@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, resolveTranscript } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, resolveTranscript } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiAgentExecutor, type PiExecutorConfig } from "../src/agent/pi-executor.js";
 
@@ -136,6 +136,21 @@ test("standard extension commands complete without requiring a model response", 
   } finally { await f.close(); }
 });
 
+test("Pi codemode-only settings and standard tool selection remain authoritative", async () => {
+  for (const only of [false, true]) {
+    const f = fixture({ settings: { defaultTools: only ? ["read", "write", "codemode"] : ["read"], codemode: { mode: only ? "only" : "on" } } });
+    try {
+      f.faux.setResponses([ctx => {
+        const names = getCurrentTools(resolveTranscript(ctx, undefined).messages).map(tool => tool.name);
+        if (only) assert.deepEqual(names, ["codemode"]);
+        else { assert.ok(names.includes("read")); assert.ok(!names.includes("bash")); }
+        return fauxAssistantMessage("Selection respected");
+      }]);
+      await f.executor.run("Inspect tools");
+    } finally { await f.close(); }
+  }
+});
+
 test("cancellation waits for startup and never starts extensions after cancellation", async () => {
   let entered!: () => void, release!: () => void, effects = 0;
   const started = new Promise<void>(resolve => { entered = resolve; });
@@ -167,6 +182,26 @@ test("an unresponsive extension shutdown stays unknown and cannot hang task comp
     await assert.rejects(f.executor.run("Run", { taskId: "shutdown" }), /Pi session shutdown exceeded 15 ms/);
     assert.equal(f.executor.getTask("shutdown")?.state, "unknown");
     assert.equal(f.executor.getTask("shutdown")?.runtimeExited, false);
+  } finally { release(); await f.close(); }
+});
+
+test("cancellation during extension shutdown cannot return a completed task", async () => {
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const f = fixture({ resources: { extensionFactories: [(pi) => {
+    pi.on("session_shutdown", () => { entered(); return held; });
+  }] } });
+  try {
+    f.faux.setResponses([fauxAssistantMessage("Done")]);
+    const run = f.executor.run("Run", { taskId: "shutdown-cancel" });
+    const rejected = assert.rejects(run, /cancel/i);
+    await started;
+    const cancellation = f.executor.cancel("shutdown-cancel");
+    release();
+    assert.deepEqual(await cancellation, { state: "cancelled", runtimeExited: true, confirmed: true });
+    await rejected;
+    assert.equal(f.executor.getTask("shutdown-cancel")?.result?.finishReason, "cancelled");
   } finally { release(); await f.close(); }
 });
 

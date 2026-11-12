@@ -14,6 +14,6 @@ export {
   CodemodeSourceError,
   parseCodemodeSource,
 } from "@earendil-works/pi-codemode/source";
-import { unsupported } from "../bridge.js";
-export const loadQuickJSWasm = () =>
-  unsupported("WASM VM loading; use native CodemodeSandbox");
+// The official executor requests WASM before constructing its sandbox. The NSH
+// replacement uses the App's Rust QuickJS actor and does not consume WASM or a worker URL.
+export const loadQuickJSWasm = () => undefined;

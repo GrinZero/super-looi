@@ -70,6 +70,10 @@ export async function createPiSession(input: {
     ],
   });
   await resources.reload();
+  const settingsErrors = settingsManager.drainErrors();
+  if (settingsErrors.length) {
+    throw new Error(`Pi settings load failed: ${settingsErrors.map(item => `${item.scope} ${item.path ?? ""}: ${item.error.message}`).join("; ")}`);
+  }
   if (settingsManager.getDefaultTools() === undefined) {
     settingsManager.applyOverrides({ defaultTools: ["read", "bash", "edit", "write", "codemode", "tool_search"] });
   }

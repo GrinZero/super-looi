@@ -107,6 +107,14 @@ export function statSync(p: Path) {
 export function lstatSync(p: Path) {
   return new Stats(call("fs.lstat", { path: path(p) }));
 }
+export function utimesSync(p: Path, atime: Date | string | number, mtime: Date | string | number) {
+  const seconds = (value: Date | string | number) => {
+    const result = value instanceof Date ? value.getTime() / 1000 : Number(value);
+    if (!Number.isFinite(result)) throw new TypeError("ERR_INVALID_ARG_VALUE: invalid file timestamp");
+    return result;
+  };
+  return call<void>("fs.utimes", { path: path(p), atime: seconds(atime), mtime: seconds(mtime) });
+}
 export function existsSync(p: Path) {
   try {
     statSync(p);
@@ -290,6 +298,31 @@ export function watch(
 export const watchFile = (_p: Path, ..._args: unknown[]) =>
   unsupported("watchFile");
 export const unwatchFile = (_p: Path) => {};
+
+type FsCallback<T = void> = (error: Error | null, result?: T) => void;
+
+// The native bridge is synchronous; Node callbacks still run after the caller returns.
+function complete<T>(operation: () => T, callback: FsCallback<T>): void {
+  queueMicrotask(() => {
+    let result: T;
+    try { result = operation(); }
+    catch (error) { callback(error as Error); return; }
+    callback(null, result);
+  });
+}
+
+export const stat = (p: Path, callback: FsCallback<Stats>) => complete(() => statSync(p), callback);
+export const realpath = (p: Path, callback: FsCallback<string>) => complete(() => realpathSync(p), callback);
+export const utimes = (p: Path, atime: Date | string | number, mtime: Date | string | number, callback: FsCallback) =>
+  complete(() => utimesSync(p, atime, mtime), callback);
+export function mkdir(p: Path, options: Parameters<typeof mkdirSync>[1] | FsCallback, callback?: FsCallback): void {
+  const done = typeof options === "function" ? options : callback!;
+  complete(() => mkdirSync(p, typeof options === "function" ? undefined : options), done);
+}
+export function rmdir(p: Path, callback: FsCallback): void {
+  complete(() => rmdirSync(p), callback);
+}
+
 export default {
   constants,
   readFileSync,
@@ -297,6 +330,7 @@ export default {
   appendFileSync,
   statSync,
   lstatSync,
+  utimesSync,
   existsSync,
   accessSync,
   mkdirSync,
@@ -318,6 +352,11 @@ export default {
   watch,
   watchFile,
   unwatchFile,
+  stat,
+  realpath,
+  utimes,
+  mkdir,
+  rmdir,
 };
 
 export function mkdtempSync(prefix: string) {

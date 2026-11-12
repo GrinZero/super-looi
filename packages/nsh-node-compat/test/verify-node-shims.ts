@@ -17,6 +17,9 @@ equal(
   "hello 世界\nsecond\nthird\n",
 );
 assert(fs.statSync("/workspace/test").isDirectory());
+const modifiedAt = new Date("2026-11-12T05:00:00.005Z");
+fs.utimesSync("/workspace/test/hello.txt", modifiedAt, modifiedAt);
+equal(fs.statSync("/workspace/test/hello.txt").mtime.getTime(), modifiedAt.getTime());
 const fd = await open("/workspace/test/hello.txt");
 const buffer = Buffer.alloc(5);
 equal((await fd.read(buffer, 0, 5, 0)).bytesRead, 5);

@@ -36,6 +36,7 @@ const cases = process.argv.includes("--live")
         "pi-coding-agent",
         "pi-sdk",
         "looi-runtime",
+        "looi-ecosystem",
         "mobile-runtime",
         "home-runtime",
         "voice-runtime",
@@ -93,7 +94,7 @@ for (const name of cases) {
       plugins:
         name === "pi-coding-agent"
           ? [nshCodemodePlugin(), nshPiCodingToolsPlugin(), plugin]
-          : ["pi-sdk", "pi-sdk-live", "looi-runtime", "mobile-runtime"].includes(name)
+          : ["pi-sdk", "pi-sdk-live", "looi-runtime", "looi-ecosystem", "mobile-runtime"].includes(name)
             ? [
                 nshPiSdkPlugin(),
                 nshCodemodePlugin(),

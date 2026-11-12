@@ -11,6 +11,7 @@ export const stat = async (...args: Parameters<typeof fs.statSync>) =>
   fs.statSync(...args);
 export const lstat = async (...args: Parameters<typeof fs.lstatSync>) =>
   fs.lstatSync(...args);
+export const utimes = async (...args: Parameters<typeof fs.utimesSync>) => fs.utimesSync(...args);
 export const access = async (...args: Parameters<typeof fs.accessSync>) =>
   fs.accessSync(...args);
 export const mkdir = async (...args: Parameters<typeof fs.mkdirSync>) =>
@@ -73,6 +74,7 @@ export default {
   appendFile,
   stat,
   lstat,
+  utimes,
   access,
   mkdir,
   readdir,

@@ -9,7 +9,7 @@ export function nshPiSdkPlugin(): Plugin {
   );
   const exports = [
     [
-      "createAgentSession,createAgentSessionFromServices,createAgentSessionRuntime,createAgentSessionServices",
+      "createAgentSession,createAgentSessionFromServices,createAgentSessionRuntime,createAgentSessionServices,createReadTool,createWriteTool,createEditTool,createBashTool,createGrepTool,createFindTool,createLsTool",
       "core/sdk.js",
     ],
     ["AgentSession", "core/agent-session.js"],
@@ -17,11 +17,17 @@ export function nshPiSdkPlugin(): Plugin {
     ["SettingsManager", "core/settings-manager.js"],
     ["ModelRuntime", "core/model-runtime.js"],
     ["DefaultResourceLoader", "core/resource-loader.js"],
+    ["defineTool,isToolCallEventType,isBashToolResult,isEditToolResult,isFindToolResult,isGrepToolResult,isLsToolResult,isPowerShellToolResult,isReadToolResult,isWriteToolResult", "core/extensions/types.js"],
+    ["createCodemodeExtension", "extensions/codemode/index.js"],
+    ["createMcpExtension", "extensions/mcp/index.js"],
+    ["createToolSearchExtension", "extensions/tool-search/index.js"],
     ["loadSkills,loadSkillsFromDir,formatSkillsForPrompt", "core/skills.js"],
   ];
   return {
     name: "nsh-pi-sdk-1.5.0",
     setup(build) {
+      // Select Pi's official embedded-module loader; mobile extensions are precompiled.
+      build.initialOptions.define = { ...build.initialOptions.define, PI_BUNDLED_NODE: "true" };
       const shim = (name: string) =>
         fileURLToPath(
           new URL(
@@ -38,6 +44,16 @@ export function nshPiSdkPlugin(): Plugin {
       );
       build.onResolve({ filter: /^@earendil-works\/pi-codemode$/ }, () => ({
         path: shim("pi-codemode-native"),
+      }));
+      build.onResolve({ filter: /^\.\.\/\.\.\/config\.js$/ }, (args) =>
+        args.importer === join(root, "extensions/codemode/execute.js")
+          ? { path: join(root, "config.js"), namespace: "nsh-native-codemode-config" }
+          : undefined,
+      );
+      build.onLoad({ filter: /.*/, namespace: "nsh-native-codemode-config" }, (args) => ({
+        contents: `export * from ${JSON.stringify(args.path)}; export function getQuickJSWasmPath(){return "nsh-native:codemode";} export function getCodemodeWorkerSpecifier(){return undefined;}`,
+        loader: "js",
+        resolveDir: root,
       }));
       build.onResolve({ filter: /image-resize\.js$|photon\.js$/ }, (args) =>
         args.importer.startsWith(root)

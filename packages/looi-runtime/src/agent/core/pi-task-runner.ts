@@ -44,7 +44,7 @@ export async function awaitWithin(
       }),
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
@@ -72,9 +72,8 @@ export interface PiTaskRunnerHost {
 }
 
 /**
- * Disposable single-task execution unit (Disposable Task Object pattern).
- * Binds one official Pi `AgentSession` to App task records, shell handles and interaction UI.
- * step/tool budgets, Langfuse spans, and bounded stop grace period.
+ * Binds one official Pi AgentSession to App task records, shell handles,
+ * interaction UI, execution budgets and bounded shutdown.
  */
 export class PiTaskRunner {
   readonly promise: Promise<AgentRunResult>;
@@ -161,6 +160,8 @@ export class PiTaskRunner {
         session.dispose();
       }
       await session.settingsManager.flush();
+      const settingsErrors = session.settingsManager.drainErrors();
+      if (settingsErrors.length) throw new Error(settingsErrors.map(item => `${item.scope} ${item.path ?? ""}: ${item.error.message}`).join("; "));
     })().catch((error) => {
       this.shutdownFailure = `Pi session shutdown failed: ${error instanceof Error ? error.message : String(error)}`;
       throw error;
@@ -526,6 +527,7 @@ export class PiTaskRunner {
         task.runtimeExited = false;
         throw new Error(task.error);
       }
+      if (this.stopped) throw new Error(task.error ?? "Task cancelled during session shutdown");
 
       const recordedArtifacts = artifacts.list();
       const output: AgentRunResult = {
@@ -592,7 +594,7 @@ export class PiTaskRunner {
         ...(task.error ? { "langfuse.observation.status_message": task.error } : {}),
         ...(traceError ? { "langfuse.observation.level": "ERROR" } : {}),
       });
-      if (timer) clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       options.signal?.removeEventListener("abort", abort);
       this.session?.dispose();
       this.interactionGate.cancelPending();

@@ -1,4 +1,5 @@
 use crate::sandbox::Sandbox;
+use cap_fs_ext::{DirExt, SystemTimeSpec};
 use notify::Watcher;
 use serde_json::{Value, json};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -14,6 +15,7 @@ pub fn call(s: &Sandbox, op: &str, v: &Value) -> Result<Value, String> {
                 std::io::ErrorKind::NotFound => "ENOENT",
                 std::io::ErrorKind::PermissionDenied => "EACCES",
                 std::io::ErrorKind::AlreadyExists => "EEXIST",
+                std::io::ErrorKind::InvalidInput => "EINVAL",
                 _ => "EIO",
             }
         )
@@ -70,6 +72,22 @@ fn run(s: &Sandbox, op: &str, v: &Value) -> std::io::Result<Value> {
                 s.dir.metadata(path)?
             };
             json!({"size":m.len(), "directory":m.is_dir(), "file":m.is_file(), "symlink":m.is_symlink(), "mtimeMs":m.modified().ok().and_then(|t|t.into_std().duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis()).unwrap_or(0)})
+        }
+        "utimes" => {
+            let timestamp = |key: &str| -> std::io::Result<SystemTimeSpec> {
+                let invalid = |message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
+                let seconds = v[key].as_f64().ok_or_else(|| invalid(format!("invalid {key}")))?;
+                let duration = std::time::Duration::try_from_secs_f64(seconds.abs())
+                    .map_err(|e| invalid(e.to_string()))?;
+                let time = if seconds < 0.0 {
+                    std::time::UNIX_EPOCH.checked_sub(duration)
+                } else {
+                    std::time::UNIX_EPOCH.checked_add(duration)
+                }.ok_or_else(|| invalid(format!("{key} out of range")))?;
+                Ok(SystemTimeSpec::Absolute(cap_std::time::SystemTime::from_std(time)))
+            };
+            s.dir.set_times(path, Some(timestamp("atime")?), Some(timestamp("mtime")?))?;
+            Value::Null
         }
         "readdir" => {
             let mut entries = vec![];

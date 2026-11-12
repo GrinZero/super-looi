@@ -42,7 +42,7 @@ const executor = new PiAgentExecutor({
   stateDirectory: "/home/looi-runtime-test",
   workspaceRoot: "/workspace/looi-runtime-test",
   modelSpec: faux.getModel(),
-  streamFn: models.streamSimple.bind(models),
+  modelsRegistry: models, streamFn: models.streamSimple.bind(models),
   requireApprovalForAllWrites: true,
   approvalUiSessionId: "nsh_test",
   taskPersistence: storage.tasks,
@@ -52,7 +52,7 @@ let approvals = 0;
 let previousApproval: UserActionRef | undefined;
 faux.setResponses([
   fauxAssistantMessage(
-    fauxToolCall("write_file", { path: "proof.txt", content: "native LOOI\n" }),
+    fauxToolCall("write", { path: "proof.txt", content: "native LOOI\n" }),
     { stopReason: "toolUse" },
   ),
   (context: any) => {
@@ -132,7 +132,7 @@ try {
   equal(executor.getTask(result.taskId)?.state, "succeeded");
   faux.setResponses([
     fauxAssistantMessage(
-      fauxToolCall("write_file", { path: "auto.txt", content: "automatic\n" }),
+      fauxToolCall("write", { path: "auto.txt", content: "automatic\n" }),
       { stopReason: "toolUse" },
     ),
     fauxAssistantMessage(
@@ -176,7 +176,7 @@ const sessionMessages = SessionManager.open(sessionFile!).buildSessionContext().
 assert(sessionMessages.some(message => message.role === "toolResult"));
 const reopened = new PiAgentExecutor({
   stateDirectory: "/home/looi-runtime-test", workspaceRoot: "/workspace/looi-runtime-test",
-  modelSpec: faux.getModel(), streamFn: models.streamSimple.bind(models), taskPersistence: storage.tasks,
+  modelSpec: faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models), taskPersistence: storage.tasks,
 });
 try {
   faux.setResponses([context => {
@@ -210,7 +210,7 @@ const stubborn = new PiAgentExecutor({
   stateDirectory: "/home/looi-stop-test",
   workspaceRoot: "/workspace/looi-stop-test",
   modelSpec: stubbornFaux.getModel(),
-  streamFn: stubbornModels.streamSimple.bind(stubbornModels),
+  modelsRegistry: stubbornModels, streamFn: stubbornModels.streamSimple.bind(stubbornModels),
   stopGraceMs: 15,
   customTools: [
     {
@@ -259,7 +259,7 @@ cleanupFaux.setResponses([
   fauxAssistantMessage(fauxToolCall("bash",{command:"true"}),{stopReason:"toolUse"}),
   fauxAssistantMessage("Finished"),
 ]);
-const cleanupExecutor = new PiAgentExecutor({stateDirectory:"/home/cleanup-receipt-probe",workspaceRoot:"/workspace",modelSpec:cleanupFaux.getModel(),streamFn:cleanupModels.streamSimple.bind(cleanupModels)});
+const cleanupExecutor = new PiAgentExecutor({stateDirectory:"/home/cleanup-receipt-probe",workspaceRoot:"/workspace",modelSpec:cleanupFaux.getModel(),modelsRegistry:cleanupModels,streamFn:cleanupModels.streamSimple.bind(cleanupModels)});
 try {
   globalThis.__nsh_shell_wait = async request => {
     await shellWait(request);

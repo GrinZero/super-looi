@@ -97,7 +97,7 @@ export async function verifyLinuxShell(onOutput: (event: AgentShellOutput) => vo
     const faux = fauxProvider(), models = createModels(); models.setProvider(faux.provider);
     const scripts = ["apk add git python3 nodejs npm ripgrep", "npm install -g pnpm", "git --version && python3 -c 'print(123)' && node -v && pnpm -v && rg --version && printf artifact >> z-linux-hardlink"];
     faux.setResponses([...scripts.map(script=>fauxAssistantMessage(fauxToolCall("bash",{command:script}),{stopReason:"toolUse"})),fauxAssistantMessage("Packages ready")]);
-    const executor = new PiAgentExecutor({stateDirectory:"/home/agent/linux-probe",workspaceRoot:"/workspace",modelSpec:faux.getModel(),streamFn:models.streamSimple.bind(models),commandTimeoutMs:300_000,deadlineMs:600_000});
+    const executor = new PiAgentExecutor({stateDirectory:"/home/agent/linux-probe",workspaceRoot:"/workspace",modelSpec:faux.getModel(),modelsRegistry: models, streamFn: models.streamSimple.bind(models),commandTimeoutMs:300_000,deadlineMs:600_000});
     let approvals=0;
     try {
       const report = await executor.run("Install the requested Linux tools",{taskId:"package-probe",approvalMode:"local_auto",onShellOutput:onOutput,onStep(event) {
