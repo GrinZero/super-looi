@@ -2145,7 +2145,7 @@
   - [x] 11:01:26.280 收到「我想知道的是。」最终转写，11:01:26.299 开始响应；句意尚未完整即进入下一轮。
 - [x] Step 2：核对实际语音协议参数、采集节奏及手机原生回声消除配置。
   - [x] 三次真实握手均发送 `end_smooth_window_ms=2500` 与 `enable_custom_vad=true`；缺少最后一帧人声时间，不能由最终转写到响应的间隔判断窗口失效。
-  - [x] iOS 仅设置 `voiceChat`，未调用 `setVoiceProcessingEnabled`；Apple 明确说明此组合不会启用回声消除。会话未记录平台，不能将本次直接归因 iOS。
+  - [x] iOS 仅设置 `voiceChat`，未调用 `setVoiceProcessingEnabled`；Apple 明确说明此组合不会启用回声消除。会话日志未记录平台；用户随后确认本次现象发生于 iOS 模拟器。
   - [x] Android 已设 `VOICE_COMMUNICATION` 与 `MODE_IN_COMMUNICATION`，没有显式 AEC 绑定或实际启用状态；实际设备是否自动启用需测量。
   - [x] 上行每次最多发一个 20ms 帧，处理完成再等待 20ms，无耗时补偿；超过 500ms 缓冲丢最旧帧，属于需修正的节拍问题，尚无本次丢帧证据。
 - [x] Step 3：独立复核证据，记录根因、配置调整建议和未确认项。
@@ -2155,6 +2155,9 @@
   - [x] 核验 Seeduplex 回声处理、自动判停与主动控制能力：现役双工移动 SDK `0.0.15.0` 内置端侧 AEC，需要启用开关与 `aec.model`；直接 WebSocket 的公开参数未提供 AEC 开关。
   - [x] 对照 iOS 13+ 语音处理与 Android API 28+ AAudio 会话／Java AEC 互操作，明确沿用现有原生音频层的最小改法与 SDK 接管采播的集成成本。
   - [x] 方案整理到 `docs/voice-duplex-aec-and-turn-taking.md`，独立复核通过；区分云端动态判停、手机系统 AEC 和官方 SDK 软件 AEC，并说明各自集成成本。
+- [x] Step 5：根据用户补充核对 iOS 模拟器路由。
+  - [x] 当前启动 iPhone 16e／iOS 26.3；CoreSimulator 配置输入为 `BuiltInMicrophoneDevice`，输出跟随宿主默认设备；`system_profiler` 确认当前默认输出为 MacBook Pro Speakers。
+  - [x] 当前路由存在 Mac 外放被 Mac 麦克风录回的路径，结合助手整句出现在用户转写及未启用引擎语音处理，回灌仍为主要解释；当前路由不替代历史会话测量，Android 核查不能用于归因此次现象。
 
 ## Android AEC 三项核查（2026-11-12）
 
@@ -2188,3 +2191,16 @@
   - [x] 自定义队列经 `AAudioStream_write` 播放，采集经独立 AAudio 流读取；没有应用侧软件 AEC／参考输入。系统是否提供正确参考、设备是否自动做 AEC 仍需真机判断，不能仅凭采样率差异或自定义播放判定失配。
   - [x] 子 agent 独立复核三项结论与 NDK 会话语义；待确认项记入 todo.md。
 - [ ] Step 3：真机横屏读取实际 preset、音频会话／AEC 启用状态及效果链，测量外放回声；核查时 `adb devices -l` 无连接设备。
+
+## iOS 系统语音处理启用（2026-11-12）
+
+- [x] Step 1：在现有 iOS 原生音频模块启用语音处理。
+  - [x] 在连接音频图与读取采集格式之前调用 `setVoiceProcessingEnabled(true)`，读回启用状态。
+  - [x] 启动失败保留失败阶段、NSError domain／code 与具体原因；后续状态检查保留已有错误并报告引擎／前台状态，通知中断保留通知名称。
+  - [x] 修正模拟器输入 48k 单声道／输出 44.1k 双声道导致启动后 I/O 重配停机：mixer→output 显式使用输入节点的处理格式，24k 播放仍由 mixer 转换。
+- [x] Step 2：构建 iOS 目标，在用户指定的当前模拟器核对实际启动与启用状态。
+  - [x] iOS 原生宿主构建通过；最小真实采播探针确认启用读回通过、引擎持续运行、提示音队列排空并取得 25 个录音包。
+  - [x] KWS 待机／会话切换探针通过，包含准备取消、待机不上传 PCM、提示音、复用采集与返回 KWS；临时探针已移除。
+  - [x] 主应用已恢复；普通开发构建 20.1 MB 字节码触发已有的反复断线，使用压缩开发构建降至 4.7 MB，模拟器保持连接并显示正常语音界面。
+- [x] Step 3：独立 review，更新待办与验证记录，隔离提交本次修改。
+  - [x] 独立审查对照 Apple SDK 与官方 AVEchoTouch 样例，确认启用顺序、采播格式、节点生命周期与错误信息保留；格式检查通过。

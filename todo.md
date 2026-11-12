@@ -3,6 +3,7 @@
 ## 语音过早接话与重复收音
 
 - [ ] 在原生 `VoiceAudio` 选择并接入厂商无关的 AEC；优先比较 AEC3 / Sonora 与 LocalVQE 仅去回声模型，统一播放参考和采集时钟，在真机横屏核对外放与自然插话。用户提供的 SAMI 模型若继续使用，还需匹配的独立运行库及离线授权。协议与框架取舍见 [通用 Realtime 与独立 AEC 调研](docs/realtime-portability-and-aec-research.md)。
+  - iOS 已调用 `setVoiceProcessingEnabled(true)` 并读回启用状态，mixer 输出与输入 tap 共用处理格式；iPhone 16e／iOS 26.3 模拟器的真实采播与 KWS／会话切换探针通过。用户所报现象发生于该模拟器，当前使用 Mac 内置麦克风与扬声器；继续实测外放回声抑制与自然插话效果。
   - Android 三项核查：实际使用 AAudio，输入已请求 `VOICE_COMMUNICATION`、输出已请求语音通信用途；未分配／读取音频会话 ID，未创建 AEC 或读取 `getEnabled()`，状态回执也无 AEC 字段。真机核对实际 input preset、AEC 绑定与启用返回值、采播设备及系统效果链；自定义 AAudio 播放和 16k／24k 采样率差异本身不能证明参考失配。2026-11-12 核查时 ADB 无连接真机。
 - [ ] 修正实时语音上行的 20ms 节拍：当前处理后再等待 20ms、每轮最多发一帧，缺少耗时补偿，500ms 缓冲超限丢旧帧。
 - [ ] 在真机横屏复核句中停顿和外放插话，记录最后一帧人声到服务端判停的间隔，再决定是否调整停顿窗口；三次真实握手已发送 `end_smooth_window_ms=2500` 和 `enable_custom_vad=true`，现有观测不足以判断参数失效。

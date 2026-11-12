@@ -41,6 +41,18 @@ fn session() -> Result<Retained<AnyObject>, String> {
     unsafe { Ok(msg_send![class(c"AVAudioSession")?, sharedInstance]) }
 }
 
+fn audio_failure(stage: &str, error: Option<&AnyObject>) -> String {
+    let Some(error) = error else {
+        return format!("iOS audio {stage} failed: API returned NO without NSError");
+    };
+    unsafe {
+        let domain: Retained<NSString> = msg_send![error, domain];
+        let code: isize = msg_send![error, code];
+        let reason: Retained<NSString> = msg_send![error, localizedDescription];
+        format!("iOS audio {stage} failed: {domain} ({code}): {reason}")
+    }
+}
+
 fn application_active() -> bool {
     if MainThreadMarker::new().is_some() {
         return application_active_on_main();
@@ -169,18 +181,39 @@ impl Audio {
             let mut error: *mut AnyObject = ptr::null_mut();
             let configured: bool = msg_send![&audio.session, setCategory: &*category, mode: &*mode, options: if capture { 12usize } else { 0usize }, error: &mut error];
             if !configured {
-                return Err("Cannot configure the voice audio session".into());
+                return Err(audio_failure("set_category", error.as_ref()));
             }
+            error = ptr::null_mut();
             let active: bool = msg_send![&audio.session, setActive: true, error: &mut error];
             if !active {
-                return Err("Cannot activate the voice audio session".into());
+                return Err(audio_failure("activate_session", error.as_ref()));
+            }
+            if capture {
+                let input: Retained<AnyObject> = msg_send![&audio.engine, inputNode];
+                // This also enables processing on the output node. Configure it
+                // while stopped, before connecting nodes or reading their formats.
+                error = ptr::null_mut();
+                let enabled: bool =
+                    msg_send![&input, setVoiceProcessingEnabled: true, error: &mut error];
+                if !enabled {
+                    return Err(audio_failure("enable_voice_processing", error.as_ref()));
+                }
+                let enabled: bool = msg_send![&input, isVoiceProcessingEnabled];
+                if !enabled {
+                    return Err("iOS audio enable_voice_processing failed: isVoiceProcessingEnabled is false after a successful request".into());
+                }
+                audio.input = Some(input);
             }
             let _: () = msg_send![&audio.engine, attachNode: &*audio.player];
             let mixer: Retained<AnyObject> = msg_send![&audio.engine, mainMixerNode];
             let _: () = msg_send![&audio.engine, connect: &*audio.player, to: &*mixer, format: &*audio.format];
-            if capture {
-                let input: Retained<AnyObject> = msg_send![&audio.engine, inputNode];
-                let format: Retained<AnyObject> = msg_send![&input, outputFormatForBus: 0usize];
+            if let Some(input) = &audio.input {
+                let format: Retained<AnyObject> = msg_send![input, outputFormatForBus: 0usize];
+                // Voice-processing I/O requires matching client formats on both
+                // nodes; the mixer converts the 24 kHz playback into this format.
+                let output: Retained<AnyObject> = msg_send![&audio.engine, outputNode];
+                let _: () =
+                    msg_send![&audio.engine, connect: &*mixer, to: &*output, format: &*format];
                 let rate: f64 = msg_send![&format, sampleRate];
                 let channels: u32 = msg_send![&format, channelCount];
                 let common_format: usize = msg_send![&format, commonFormat];
@@ -226,14 +259,14 @@ impl Audio {
                         state.captured(&bytes);
                     }
                 });
-                let _: () = msg_send![&input, installTapOnBus: 0usize, bufferSize: 1024u32, format: &*format, block: &*tap];
-                audio.input = Some(input);
+                let _: () = msg_send![input, installTapOnBus: 0usize, bufferSize: 1024u32, format: &*format, block: &*tap];
                 audio.tap_installed = true;
             }
             let _: () = msg_send![&audio.engine, prepare];
+            error = ptr::null_mut();
             let started: bool = msg_send![&audio.engine, startAndReturnError: &mut error];
             if !started {
-                return Err("Native voice audio device unavailable".into());
+                return Err(audio_failure("start_engine", error.as_ref()));
             }
             let _: () = msg_send![&audio.player, play];
             audio.observe_interruptions()?;
@@ -302,9 +335,15 @@ impl Audio {
 
     pub fn refresh(&mut self) {
         let running: bool = unsafe { msg_send![&self.engine, isRunning] };
-        if !running || self.interrupted.load(Ordering::Acquire) || !application_active() {
+        let interrupted = self.interrupted.load(Ordering::Acquire);
+        let active = application_active();
+        if !running || interrupted || !active {
             if let Ok(mut state) = self.shared.lock() {
-                state.error = "Voice audio interrupted; restart after returning to the app".into();
+                if state.error.is_empty() {
+                    state.error = format!(
+                        "iOS audio refresh failed: engine_running={running}, interrupted={interrupted}, application_active={active}"
+                    );
+                }
             }
         }
     }
@@ -337,6 +376,7 @@ impl Audio {
                     .as_ref()
                     .ok_or("Native audio notification unavailable")?;
                 let shared = self.shared.clone();
+                let notification_name = name.to_string();
                 let interrupted = self.interrupted.clone();
                 let engine = self.engine.clone();
                 let player = self.player.clone();
@@ -349,7 +389,7 @@ impl Audio {
                         return;
                     }
                     if let Ok(mut state) = shared.lock() {
-                        state.error = "Voice audio interrupted; explicit restart required".into();
+                        state.error = format!("iOS audio interrupted: {notification_name}");
                         state.capture.clear();
                         state.partial.clear();
                         state.clear_playback();
