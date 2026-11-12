@@ -18,16 +18,16 @@ CLI 在 Linux 准备流程中下载并打入移动端安装包，首次使用不
 
 - [x] 固定 App 自有运行环境与账号边界，核对官方 Linux 发行包。
 - [x] 接通 iOS／Android 插件打包入口和 guest 的 CLI 挂载。
-- [ ] 由 Codex 插件为 Task Agent 提供专用 Cloud 工具；执行记录保留原始退出码和双流输出。
+- [ ] 由 Codex 插件为 Task Agent 提供通用 `codex(args,cwd)` 工具和 Pi 标准 Skill；执行记录保留原始退出码和双流输出。
 - [x] 在 iOS 模拟器的 App 中验证版本、Cloud 命令帮助和未登录回执。
 - [ ] 在 App 插件页完成官方登录、Cloud 列表及任务提交；Android 完整 APK 编译。
 - [ ] 完成独立 review、定向检查和文档更新。
 
 ## 登录与云端任务
 
-插件启动 App Linux 中的官方 `codex login`，将登录链接展示到插件页并打开系统浏览器。CLI 保存和刷新自身 `/root/.codex` 的凭据。Task Agent 的 `codex_cloud` 工具将结构化参数转换成 `cloud exec/list/status/diff` 调用，提交回执与云端完成状态分别呈现。
+插件启动 App Linux 中的官方 `codex login`，将登录链接展示到插件页并打开系统浏览器。CLI 保存和刷新自身 `/root/.codex` 的凭据。Task Agent 的 `codex` 工具直接接收 CLI 参数数组与工作目录，支持帮助发现及官方 CLI 的非交互命令，不设置四种业务 action 限制；提交回执与云端完成状态分别呈现。使用方式通过 Pi 标准 Skill 提供。
 
-第一轮验证先运行不需要登录的命令，再由 App 独立授权读取环境和提交测试任务。固定版本 CLI 支持唯一环境名称，可使用 `--env video2rig`，由 CLI 解析实际 ID。
+第一轮验证先运行不需要登录的命令，再由 App 独立授权并提交测试任务。固定版本 CLI 支持唯一环境名称，可以传入 `--env video2rig` 由 CLI 解析实际 ID；能否使用新版 Cloud 的环境需要真实提交验证。环境创建／发布在官方网页有入口，但固定版 CLI 没有对应子命令，Agent 自主管理环境需另行接通 App 可直接使用的接口，具体要求见插件方案。
 
 登录会话由插件拥有，不占用 Agent 的 Shell 期限。Cloud 非交互命令可返回受理、状态和代码差异；完整助手文字读取目前属于 CLI 的交互界面，需要单独验证其非交互出口。
 
