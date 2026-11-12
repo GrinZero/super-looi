@@ -1,4 +1,5 @@
 export type * from "./types.js";
+export * from "./transport-error.js";
 export * from "./core/gateway.js";
 export * from "./core/rules-engine.js";
 export * from "./core/voice-tools.js";

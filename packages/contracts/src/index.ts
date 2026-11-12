@@ -297,6 +297,8 @@ export interface ActionReceipt {
   status: ActionReceiptStatus;
   outcome?: "applied" | "noop" | "partial";
   reason_code?: string | null;
+  /** Executor diagnostics, including the failure stage and upstream error details. */
+  diagnostics?: JsonObject;
   readbacks: ReadbackEvidence[];
   motion?: MotionObservation | null;
 }
