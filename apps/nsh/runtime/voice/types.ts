@@ -96,6 +96,7 @@ export interface VoiceTaskBridge {
   ): Promise<VoiceTaskSubmissionResult>;
   inspect(taskId?: string): VoiceTaskStatusSnapshot | null;
   cancel(taskId?: string): Promise<{ cancelled: boolean; taskId?: string }>;
+  sendMessage?(message: string, behavior: "steer" | "followUp", taskId?: string): Promise<{ status: "queued" | "handled"; taskId: string }>;
 }
 
 export interface VoiceRuntimeOptions {

@@ -814,6 +814,7 @@ export class MobileRuntime {
   private createExecutorForSelection(
     selection: ActiveLlmSelection,
   ): PiAgentExecutor {
+    process.env.PI_CODING_AGENT_DIR = "/home/agent";
     const credential = this.credentialStore.readEnvelope().credentials[selection.providerId];
     if (credential?.type === "api_key" && credential.key) this.tracer.registerSecret(credential.key);
     const homeEnabled = this.home.configuration().mode !== "disabled";
@@ -821,6 +822,7 @@ export class MobileRuntime {
     return new PiAgentExecutor({
       tracer: this.tracer,
       modelsRegistry: this.modelsRegistry,
+      credentialStore: this.credentialStore,
       providerId: selection.providerId,
       model: selection.modelId,
       stateDirectory: "/home/agent",
@@ -929,6 +931,14 @@ export class MobileRuntime {
   respond(taskId: string, requestId: string, answer: AgentInteractionAnswer) {
     if (this.closed || !this.executor) throw new Error("@looi:runtimeRuntimeUnavailable");
     this.executor.respond(taskId, requestId, answer);
+  }
+
+  sendTaskMessage(taskId: string, message: string, behavior: "steer" | "followUp", action: UserActionRef): Promise<"queued" | "handled"> {
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId) throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
+    if (this.closed || !this.executor) throw new Error("@looi:runtimeRuntimeUnavailable");
+    if (taskId !== this.taskId) throw new Error("Task has no active Pi run");
+    return this.executor.sendMessage(taskId, message, behavior);
   }
 
   async cancel() {

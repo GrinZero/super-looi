@@ -39,6 +39,7 @@ export interface VoiceTaskCoordinatorOptions {
     traceContext?: TraceContext,
   ) => Promise<{ answer: string; taskId?: string }>;
   cancelRunningTask: () => Promise<boolean>;
+  sendRunningTaskMessage?: (taskId: string, message: string, behavior: "steer" | "followUp") => Promise<"queued" | "handled">;
   onNotice?: (notice: VoiceProactiveNotice) => void;
   onContextNote?: (note: string) => void;
 }
@@ -212,6 +213,14 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
       ...(candidate.answer !== undefined ? { answer: candidate.answer } : {}),
       ...(candidate.error !== undefined ? { error: candidate.error } : {}),
     };
+  }
+
+  async sendMessage(message: string, behavior: "steer" | "followUp", taskId?: string): Promise<{ status: "queued" | "handled"; taskId: string }> {
+    const record = this.matchTask(taskId);
+    if (!record || record !== this.currentTask || !record.runtimeTaskId) throw new Error("当前任务没有正在执行的 Pi 会话。");
+    if (!this.options.sendRunningTaskMessage) throw new Error("当前宿主未接入 Pi 消息队列。");
+    const status = await this.options.sendRunningTaskMessage(record.runtimeTaskId, message, behavior);
+    return { status, taskId: this.publicId(record) };
   }
 
   async cancel(taskId?: string): Promise<{ cancelled: boolean; taskId?: string }> {

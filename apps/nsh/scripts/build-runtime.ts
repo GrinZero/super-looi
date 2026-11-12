@@ -79,13 +79,14 @@ export interface VoiceState {phase:"idle"|"standby"|"permission"|"connecting"|"l
 export interface VoiceProactiveNotice {id:string;taskId?:string;traceContext?:TraceContext;spokenText:string;contextNote?:string}
 export type VoiceTaskSubmissionResult = {status:"completed";taskId:string;answer:string}|{status:"running_in_background";taskId:string;latestSummary:string}|{status:"waiting_user_confirmation";taskId:string;interactionKind:"approval"|"question";latestSummary:string}|{status:"busy";taskId:string;latestSummary:string}|{status:"failed";taskId?:string;error:string};
 export interface VoiceTaskStatusSnapshot {taskId:string;prompt:string;state:"running"|"waiting_user"|"completed"|"failed"|"cancelled";latestSummary:string;answer?:string;error?:string}
-export interface VoiceTaskBridge {submit(prompt:string,traceContext?:TraceContext):Promise<VoiceTaskSubmissionResult>;inspect(taskId?:string):VoiceTaskStatusSnapshot|null;cancel(taskId?:string):Promise<{cancelled:boolean;taskId?:string}>}
+export interface VoiceTaskBridge {submit(prompt:string,traceContext?:TraceContext):Promise<VoiceTaskSubmissionResult>;inspect(taskId?:string):VoiceTaskStatusSnapshot|null;cancel(taskId?:string):Promise<{cancelled:boolean;taskId?:string}>;sendMessage?(message:string,behavior:"steer"|"followUp",taskId?:string):Promise<{status:"queued"|"handled";taskId:string}>}
 export class VoiceTaskCoordinator implements VoiceTaskBridge {
- constructor(options:{defaultLanguage?:()=>"zh-CN"|"en-US";isExternalBusy?:()=>boolean;runTask:(prompt:string,hooks:{onStep:(event:NativeStep)=>void},traceContext?:TraceContext)=>Promise<{answer:string;taskId?:string}>;cancelRunningTask:()=>Promise<boolean>;onNotice?:(notice:VoiceProactiveNotice)=>void;onContextNote?:(note:string)=>void});
+ constructor(options:{defaultLanguage?:()=>"zh-CN"|"en-US";isExternalBusy?:()=>boolean;runTask:(prompt:string,hooks:{onStep:(event:NativeStep)=>void},traceContext?:TraceContext)=>Promise<{answer:string;taskId?:string}>;cancelRunningTask:()=>Promise<boolean>;sendRunningTaskMessage?:(taskId:string,message:string,behavior:"steer"|"followUp")=>Promise<"queued"|"handled">;onNotice?:(notice:VoiceProactiveNotice)=>void;onContextNote?:(note:string)=>void});
  readonly hasActiveTask:boolean;
  submit(prompt:string,traceContext?:TraceContext):Promise<VoiceTaskSubmissionResult>;
  inspect(taskId?:string):VoiceTaskStatusSnapshot|null;
  cancel(taskId?:string):Promise<{cancelled:boolean;taskId?:string}>;
+ sendMessage(message:string,behavior:"steer"|"followUp",taskId?:string):Promise<{status:"queued"|"handled";taskId:string}>;
  markExternallyCancelled():void;
 }
 export class VoiceRuntime {
@@ -204,6 +205,7 @@ export interface NativeRuntime {
  newConversation(action:UiAction):void;
  configure(value:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
  run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{onShellOutput?:(event:NativeShellOutput)=>void;agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
+ sendTaskMessage(taskId:string,message:string,behavior:"steer"|"followUp",action:UiAction):Promise<"queued"|"handled">;
  respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  voiceConversationId():string;

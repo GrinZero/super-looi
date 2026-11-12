@@ -181,6 +181,7 @@ export async function verifyAsyncVoiceTasks() {
   const audio = createMockAudio();
   const sockets: MockVoiceSocket[] = [];
   let cancelCalls = 0;
+  const queuedMessages: Array<{ taskId: string; message: string; behavior: string }> = [];
   let activeRun:
     | {
         prompt: string;
@@ -201,6 +202,10 @@ export async function verifyAsyncVoiceTasks() {
     cancelRunningTask: async () => {
       cancelCalls++;
       return true;
+    },
+    sendRunningTaskMessage: async (taskId, message, behavior) => {
+      queuedMessages.push({ taskId, message, behavior });
+      return "queued";
     },
     onNotice: (notice) => voice.enqueueNotice(notice),
     onContextNote: (note) => voice.setContextNote(note),
@@ -253,6 +258,25 @@ export async function verifyAsyncVoiceTasks() {
       promotedPayload.taskId === "vtask_1" &&
       promotedPayload.latestSummary === "starting",
     "long work did not immediately return its submission receipt",
+  );
+
+  for (const action of ["steer", "follow_up"]) {
+    s1.push({
+      type: "response.function_call_arguments.done",
+      call_id: `call_${action}`,
+      name: "manage_agent_task",
+      arguments: JSON.stringify({ action, task_id: "vtask_1", message: `要求 ${action}` }),
+    });
+    await wait(20);
+    const receipt = readDoubaoToolOutput(s1.writes, `call_${action}`);
+    check(receipt.status === "queued" && receipt.taskId === "rt_long_1", "Pi queue receipt was not returned to voice");
+  }
+  check(
+    JSON.stringify(queuedMessages) === JSON.stringify([
+      { taskId: "rt_long_1", message: "要求 steer", behavior: "steer" },
+      { taskId: "rt_long_1", message: "要求 follow_up", behavior: "followUp" },
+    ]),
+    "voice did not route supplemental messages to the active Pi task",
   );
 
   // Assistant acknowledges the request and starts speaking while work continues.

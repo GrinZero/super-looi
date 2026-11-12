@@ -916,6 +916,10 @@ export function createAppStore() {
       voiceTaskCoordinator = new VoiceTaskCoordinator({
         defaultLanguage: effectiveLocale,
         isExternalBusy: () => busy(),
+        sendRunningTaskMessage: (taskId, message, behavior) => {
+          if (!runtime) throw new Error("@looi:runtimeRuntimeUnavailable");
+          return runtime.sendTaskMessage(taskId, message, behavior, action());
+        },
         runTask: async (prompt, hooks, traceContext) => {
           if (!alive || !runtime || busy() || !prompt.trim()) {
             throw new Error("@looi:runtimeATaskIsRunningTryAgainLater");

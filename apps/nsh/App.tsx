@@ -98,7 +98,9 @@ function App() {
 
   const approvalLabel = () => {
     const details = store.interaction()?.details;
+    if (typeof details?.title === "string") return details.title;
     switch (details?.toolName) {
+      case "edit":
       case "write":
       case "write_file":
         return details.willOverwrite ? t("overwriteFile") : t("createFile");
@@ -378,6 +380,7 @@ function App() {
           <Text class="text-foreground text-base">
             {String(
               store.interaction()?.details.command ??
+                store.interaction()?.details.message ??
                 store.interaction()?.details.path ??
                 store.interaction()?.details.toolName ??
                 t("localAction"),
