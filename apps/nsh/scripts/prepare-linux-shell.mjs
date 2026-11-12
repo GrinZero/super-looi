@@ -88,15 +88,17 @@ export async function prepareLinuxShell(target, buildEnvironment = process.env) 
   }
   if (ios) {
     const ish = join(upstream, "deps/ish");
-    const lifetimePatch = join(app, "native/linux/ish-app-process-lifetime.patch");
-    const alreadyApplied = spawnSync("git", ["apply", "--reverse", "--check", lifetimePatch], { cwd: ish, stdio: "ignore" }).status === 0;
-    if (!alreadyApplied) run("git", ["apply", lifetimePatch], { cwd: ish });
+    for (const name of ["ish-app-process-lifetime.patch", "ish-arm64-halfword-lanes.patch"]) {
+      const patch = join(app, "native/linux", name);
+      const alreadyApplied = spawnSync("git", ["apply", "--reverse", "--check", patch], { cwd: ish, stdio: "ignore" }).status === 0;
+      if (!alreadyApplied) run("git", ["apply", patch], { cwd: ish });
+    }
     const env = { ...process.env, PATH: `${llvm}:/opt/homebrew/opt/lld/bin:${process.env.PATH}`, PKG_CONFIG_PATH: `${archive}/lib/pkgconfig` };
     run("git", ["submodule", "update", "--init", "deps/libapps"], { cwd: ish });
     if (!existsSync(join(ish, "build-ios/libish.a")) || !existsSync(join(ish, "build-ios-sim/libish.a")))
       run("bash", [join(upstream, "deps/build_ish.sh"), "release", "--all"], { env });
     for (const build of ["build-ios", "build-ios-sim"])
-      run("ninja", ["-C", build, "libish.a"], { cwd: ish, env });
+      run("ninja", ["-C", build, "libish.a", "libish_emu.a"], { cwd: ish, env });
     if (!existsSync(join(ish, "build-native/build.ninja")))
       run("meson", ["setup", "build-native", "--buildtype=release", "-Dlog=", "-Dkernel=ish", "-Dengine=asbestos", "-Dguest_arch=arm64"], { cwd: ish, env });
     run("ninja", ["-C", "build-native", "tools/fakefsify"], { cwd: ish, env });
