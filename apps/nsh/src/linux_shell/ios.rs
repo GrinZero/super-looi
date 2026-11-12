@@ -70,10 +70,13 @@ fn install_codex(root: &Path) -> Result<PathBuf, String> {
     };
     if installed.as_deref() != Some(version.as_str()) {
         std::fs::create_dir_all(&destination).map_err(failure)?;
-        let staging = destination.join("codex.installing");
-        std::fs::copy(source.join("codex"), &staging).map_err(failure)?;
-        std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o555)).map_err(failure)?;
-        std::fs::rename(staging, destination.join("codex")).map_err(failure)?;
+        for name in ["codex", "codex-code-mode-host"] {
+            let failure = |error: std::io::Error| format!("Codex executable {name} installation failed (stage=linux.codex.install): {error}");
+            let staging = destination.join(format!("{name}.installing"));
+            std::fs::copy(source.join(name), &staging).map_err(failure)?;
+            std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o555)).map_err(failure)?;
+            std::fs::rename(staging, destination.join(name)).map_err(failure)?;
+        }
         std::fs::write(destination.join("version"), version).map_err(failure)?;
     }
     Ok(destination)

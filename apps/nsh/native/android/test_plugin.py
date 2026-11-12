@@ -43,7 +43,7 @@ class AndroidPluginTest(unittest.TestCase):
             linux = root / "linux"
             linux_libraries = linux / "android/jniLibs/arm64-v8a"
             linux_libraries.mkdir(parents=True)
-            for library in ("libproot.so", "libproot-loader.so", "liblooi-codex.so"):
+            for library in ("libproot.so", "libproot-loader.so", "liblooi-codex.so", "liblooi-codex-code-mode-host.so"):
                 (linux_libraries / library).write_bytes(library.encode())
             (linux / "alpine-minirootfs.tar.gz").write_bytes(b"linux rootfs")
             dex = root / "plugin.dex"
@@ -87,13 +87,13 @@ class AndroidPluginTest(unittest.TestCase):
                 self.assertEqual(result.read("classes3.dex"), dex.read_bytes())
                 self.assertNotIn("classes4.dex", result.namelist())
                 marker = json.loads(result.read("assets/super-looi-native-plugin.json"))
-                self.assertEqual(len(marker["native_libs"]), 5)
+                self.assertEqual(len(marker["native_libs"]), 6)
                 for library in ("libonnxruntime.so", "libsherpa-onnx-c-api.so"):
                     name = "lib/arm64-v8a/" + library
                     self.assertEqual(result.getinfo(name).compress_type, zipfile.ZIP_STORED)
                     self.assertEqual(result.read(name), (libraries / library).read_bytes())
                 self.assertEqual(result.read("assets/alpine-minirootfs.tar.gz"), b"linux rootfs")
-                for library in ("libproot.so", "libproot-loader.so", "liblooi-codex.so"):
+                for library in ("libproot.so", "libproot-loader.so", "liblooi-codex.so", "liblooi-codex-code-mode-host.so"):
                     name = "lib/arm64-v8a/" + library
                     self.assertEqual(result.read(name), (linux_libraries / library).read_bytes())
             # Add a missing permission without dropping an unrelated permission,

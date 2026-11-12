@@ -92,6 +92,8 @@ pub fn run(
         .arg(format!("{}:/etc/resolv.conf", dns.display()))
         .arg("-b")
         .arg(format!("{}:/usr/local/bin/codex", host.libraries.join("liblooi-codex.so").display()))
+        .arg("-b")
+        .arg(format!("{}:/usr/local/bin/codex-code-mode-host", host.libraries.join("liblooi-codex-code-mode-host.so").display()))
         .arg("-w")
         .arg(&request.cwd)
         .args(["/bin/sh", "-c", &wrapper])

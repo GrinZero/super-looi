@@ -10,6 +10,7 @@ export const linuxLock = JSON.parse(readFileSync(join(app, "native/linux/sources
 export const linuxCache = join(homedir(), "Library/Caches/super-looi-linux");
 const codexDirectory = join(linuxCache, "codex", linuxLock.codex.version);
 export const codexBinary = join(codexDirectory, "package/vendor", linuxLock.codex.target, "bin/codex");
+export const codexCodeModeBinary = join(codexDirectory, "package/vendor", linuxLock.codex.target, "bin/codex-code-mode-host");
 const upstream = join(linuxCache, "openminis");
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -58,10 +59,11 @@ export async function prepareLinuxShell(target, buildEnvironment = process.env) 
   mkdirSync(codexDirectory, { recursive: true });
   const codexArchive = join(codexDirectory, "linux-arm64.tgz");
   await download(linuxLock.codex.url, codexArchive, linuxLock.codex.sha256);
-  if (!existsSync(codexBinary)) {
-    run("tar", ["-xzf", codexArchive, "-C", codexDirectory, `package/vendor/${linuxLock.codex.target}/bin/codex`]);
+  if (!existsSync(codexBinary) || !existsSync(codexCodeModeBinary)) {
+    run("tar", ["-xzf", codexArchive, "-C", codexDirectory, ...["codex", "codex-code-mode-host"].map(name => `package/vendor/${linuxLock.codex.target}/bin/${name}`)]);
   }
   chmodSync(codexBinary, 0o755);
+  chmodSync(codexCodeModeBinary, 0o755);
   if (android) {
     const destination = join(linuxCache, "android/jniLibs/arm64-v8a");
     mkdirSync(destination, { recursive: true });
@@ -85,6 +87,8 @@ export async function prepareLinuxShell(target, buildEnvironment = process.env) 
     checkElfAlignment(loader);
     copyFileSync(codexBinary, join(destination, "liblooi-codex.so"));
     checkElfAlignment(join(destination, "liblooi-codex.so"));
+    copyFileSync(codexCodeModeBinary, join(destination, "liblooi-codex-code-mode-host.so"));
+    checkElfAlignment(join(destination, "liblooi-codex-code-mode-host.so"));
   }
   if (ios) {
     const ish = join(upstream, "deps/ish");
