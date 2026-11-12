@@ -30,7 +30,7 @@ test("an unresponsive tool cannot turn a stop timeout into an exit receipt", asy
     stateDirectory: join(root, "state"),
     workspaceRoot: join(root, "workspace"),
     modelSpec: faux.getModel(),
-    streamFn: models.streamSimple.bind(models),
+    modelsRegistry: models, streamFn: models.streamSimple.bind(models),
     stopGraceMs: 15,
     customTools: [
       {

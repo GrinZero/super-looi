@@ -99,7 +99,9 @@ export function createToolApprovalPolicy(
       return {
         operation: "write",
         path: targetPath,
-        content: String(args.content ?? ""),
+        content: Array.isArray(args.edits)
+          ? args.edits.map((edit: { oldText: string; newText: string }) => `- ${edit.oldText}\n+ ${edit.newText}`).join("\n\n")
+          : String(args.content ?? ""),
         willOverwrite: fs.existsSync(resolved),
       };
     }
@@ -120,8 +122,12 @@ export function createToolApprovalPolicy(
       bash,
       write_file: write,
       write,
+      edit: write,
       read_file: read,
       read,
+      ls: read,
+      find: read,
+      grep: read,
       ...config.toolApprovalRules,
     }),
   );

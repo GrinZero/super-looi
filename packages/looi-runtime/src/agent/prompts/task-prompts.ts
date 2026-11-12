@@ -55,7 +55,8 @@ export function buildAgentTurnPrompts(
       : "") +
     "\n" +
     conversationLanguageInstructions(defaultLanguage) +
-    turnLanguage;
+    turnLanguage +
+    (input.mode === "voice" ? "\nKeep the final answer brief and natural for speech." : "");
 
   const modePrefix =
     input.mode === "voice"

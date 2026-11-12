@@ -84,7 +84,7 @@ test("repeated tools retain separate calls, actual arguments, errors and generat
   ]);
   const executor = new PiAgentExecutor({
     tracer, stateDirectory: directory, taskPersistence: storage.tasks,
-    workspaceRoot: join(directory, "work"), modelSpec: faux.getModel(), streamFn: models.streamSimple.bind(models),
+    workspaceRoot: join(directory, "work"), modelSpec: faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models),
     customTools: [{ name: "ping", label: "ping", description: "ping", parameters: { type: "object", properties: { value: { type: "string" } } }, execute: async (_id, args) => {
       if (args.value === "second") throw new Error("second call failed");
       return { content: [{ type: "text", text: `pong ${args.value}` }], details: {} };

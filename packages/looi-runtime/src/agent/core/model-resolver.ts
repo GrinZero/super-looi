@@ -25,9 +25,10 @@ export interface ModelStreamConfig {
 export function resolvePiModelAndStream(config: ModelStreamConfig): {
   model: Model<Api>;
   streamFn: StreamFn;
+  models?: Models;
 } {
   if (config.streamFn && config.modelSpec) {
-    return { model: config.modelSpec, streamFn: config.streamFn };
+    return { model: config.modelSpec, streamFn: config.streamFn, models: config.modelsRegistry };
   }
   if (config.streamFn) {
     const fallbackModel: Model<"openai-completions"> = {
@@ -61,6 +62,7 @@ export function resolvePiModelAndStream(config: ModelStreamConfig): {
     return {
       model: found,
       streamFn: config.modelsRegistry.streamSimple.bind(config.modelsRegistry),
+      models: config.modelsRegistry,
     };
   }
 
@@ -111,5 +113,6 @@ export function resolvePiModelAndStream(config: ModelStreamConfig): {
   return {
     model: modelSpec,
     streamFn: models.streamSimple.bind(models),
+    models,
   };
 }

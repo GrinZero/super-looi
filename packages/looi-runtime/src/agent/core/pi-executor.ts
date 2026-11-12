@@ -22,9 +22,10 @@ import {
   type TaskPersistence,
 } from "../memory/index.js";
 import { PiTaskRunner, awaitWithin } from "./pi-task-runner.js";
+import type { PiSessionConfig } from "./pi-session.js";
 import type { LangfuseTracer } from "../../telemetry/langfuse.js";
 
-export interface PiExecutorConfig extends ToolApprovalConfig {
+export interface PiExecutorConfig extends ToolApprovalConfig, PiSessionConfig {
   tracer?: LangfuseTracer;
   taskPersistence?: TaskPersistence;
   stateDirectory?: string;
@@ -85,6 +86,13 @@ export class PiAgentExecutor implements AgentExecutor {
 
   listTasks(): AgentTask[] {
     return structuredClone(this.store.list());
+  }
+
+  sendMessage(taskId: string, message: string, behavior: "steer" | "followUp" = "followUp"): Promise<"queued" | "handled"> {
+    const runner = this.runners.get(taskId);
+    if (!runner) return Promise.reject(new AgentExecutionError("Task has no active Pi run", taskId));
+    if (!message.trim()) return Promise.reject(new AgentExecutionError("message is required", taskId));
+    return runner.sendMessage(message, behavior);
   }
 
   run(prompt: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {

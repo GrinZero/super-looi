@@ -249,7 +249,7 @@ test("voice tool context connects agent, generation and tool observations", asyn
   ]);
   const executor = new PiAgentExecutor({
     tracer, stateDirectory: join(root, "state"), workspaceRoot: join(root, "workspace"),
-    modelSpec: faux.getModel(), streamFn: models.streamSimple.bind(models),
+    modelSpec: faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models),
     customTools: [{ name: "ping", label: "ping", description: "ping", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [{ type: "text", text: "pong" }], details: {} }) }],
   });
   try {

@@ -20,7 +20,7 @@ for (const outcome of ["failed", "cancelled"] as const) {
     const held = new Promise<void>(resolve => { release = resolve; });
     const make = () => new PiAgentExecutor({
       stateDirectory: join(root, "state"), workspaceRoot,
-      modelSpec: faux.getModel(), streamFn: models.streamSimple.bind(models),
+      modelSpec: faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models),
       customTools: [{
         name: "checkpoint", label: "Checkpoint", description: "Wait for the test to inspect saved messages",
         parameters: { type: "object", properties: {} },
@@ -95,7 +95,7 @@ test("legacy JSON is ignored and explicit resume requires a JSONL session", asyn
   const faux = fauxProvider(), models = createModels();
   models.setProvider(faux.provider);
   const executor = new PiAgentExecutor({
-    stateDirectory, workspaceRoot, modelSpec: faux.getModel(), streamFn: models.streamSimple.bind(models),
+    stateDirectory, workspaceRoot, modelSpec: faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models),
   });
   try {
     faux.setResponses([context => {

@@ -22,7 +22,7 @@ test("additional tool rules drive the existing approval interaction before execu
     let executedWhenAsked: boolean | undefined;
     const executor = new PiAgentExecutor({
       stateDirectory: join(root, "state"), workspaceRoot: join(root, "workspace"),
-      modelSpec: faux.getModel(), streamFn: models.streamSimple.bind(models),
+      modelSpec: faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models),
       additionalTools: [{
         name: "publish", label: "Publish", description: "Publish a draft",
         parameters: { type: "object", properties: { target: { type: "string" } } },

@@ -113,6 +113,7 @@ export interface AgentStopResult {
 
 export interface AgentExecutor {
   run(prompt: string, options?: AgentRunOptions): Promise<AgentRunResult>;
+  sendMessage(taskId: string, message: string, behavior?: "steer" | "followUp"): Promise<"queued" | "handled">;
   getTask(id: string): AgentTask | undefined;
   listTasks(): AgentTask[];
   respond(

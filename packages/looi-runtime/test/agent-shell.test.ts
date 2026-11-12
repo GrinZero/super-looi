@@ -17,7 +17,7 @@ function fixture(command: string, config: { commandTimeoutMs?: number } = {}) {
   ]);
   const executor = new PiAgentExecutor({
     stateDirectory:join(root,"state"), workspaceRoot:join(root,"workspace"),
-    modelSpec:faux.getModel(), streamFn:models.streamSimple.bind(models), ...config,
+    modelSpec:faux.getModel(), modelsRegistry: models, streamFn: models.streamSimple.bind(models), ...config,
   });
   return {executor, async close() { await executor.close(); rmSync(root,{recursive:true,force:true}); }};
 }
@@ -67,6 +67,28 @@ test("command timeout and explicit exit 124 keep distinct receipts", async () =>
       else assert.equal(result.executions?.[0].exitCode,124);
     } finally { await f.close(); }
   }
+});
+
+test("signal termination reaches Pi as the corresponding shell exit status", async () => {
+  const root = mkdtempSync(join(tmpdir(), "looi-shell-signal-"));
+  const faux = fauxProvider(), models = createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("bash", { command: "kill -KILL $$" }), { stopReason: "toolUse" }),
+    context => {
+      assert.match(JSON.stringify(context), /137/);
+      return fauxAssistantMessage("Command killed");
+    },
+  ]);
+  const executor = new PiAgentExecutor({ stateDirectory: join(root, "state"), workspaceRoot: join(root, "work"),
+    modelsRegistry: models, providerId: faux.getModel().provider, model: faux.getModel().id,
+  });
+  try {
+    const result = await executor.run("Kill the shell", { approvalMode: "yolo" });
+    assert.equal(result.executions?.[0].signal, "SIGKILL");
+    assert.equal(result.executions?.[0].exitCode, null);
+    assert.equal(result.executions?.[0].timedOut, false);
+  } finally { await executor.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("local_auto requests approval for guest package and global npm changes", async () => {

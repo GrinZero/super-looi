@@ -21,7 +21,7 @@ test("conversation history survives new task IDs and executor restart without cr
       stateDirectory: join(root, "state"),
       workspaceRoot: join(root, "work"),
       modelSpec: faux.getModel(),
-      streamFn: models.streamSimple.bind(models),
+      modelsRegistry: models, streamFn: models.streamSimple.bind(models),
     });
   let executor = make();
   try {
@@ -118,7 +118,7 @@ test("conversation admission rejects concurrent turns and unresolved crash outco
     stateDirectory: join(root, "state"),
     workspaceRoot: join(root, "work"),
     modelSpec: faux.getModel(),
-    streamFn: models.streamSimple.bind(models),
+    modelsRegistry: models, streamFn: models.streamSimple.bind(models),
   };
   const executor = new PiAgentExecutor(config);
   try {

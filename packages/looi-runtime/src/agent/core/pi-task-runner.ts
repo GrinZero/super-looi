@@ -1,12 +1,8 @@
 import fs from "node:fs";
-import {
-  Agent,
-  type AgentMessage,
-  type AgentTool,
-  type BeforeToolCallResult,
-} from "@earendil-works/pi-agent-core";
-import { contentText } from "@earendil-works/pi-ai";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import path from "node:path";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { contentText, type AssistantMessage } from "@earendil-works/pi-ai";
+import { SessionManager, type AgentSession, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import {
   AgentExecutionError,
   type AgentCommandEvidence,
@@ -27,13 +23,10 @@ import {
   WorkspaceArtifactTracker,
   createWorkspaceCodingTools,
 } from "../tools/index.js";
-import {
-  resolvePiModelAndStream,
-  type ModelStreamConfig,
-} from "./model-resolver.js";
+import { createPiSession, type PiSessionConfig } from "./pi-session.js";
+import { createPiExtensionUi } from "./pi-extension-ui.js";
 import { createOpenAIWebSearch, hasOpenAIWebSearch } from "./openai-web-search.js";
 import type { LangfuseTracer, Observation, TraceContext } from "../../telemetry/langfuse.js";
-import { wrapStreamFnWithLangfuse } from "../../telemetry/llm-observer.js";
 
 export async function awaitWithin(
   promise: Promise<unknown>,
@@ -55,7 +48,8 @@ export async function awaitWithin(
   }
 }
 
-export interface PiTaskRunnerConfig extends ModelStreamConfig {
+export interface PiTaskRunnerConfig extends PiSessionConfig {
+  systemPrompt?: string;
   tracer?: LangfuseTracer;
   deadlineMs?: number;
   maxSteps?: number;
@@ -79,12 +73,19 @@ export interface PiTaskRunnerHost {
 
 /**
  * Disposable single-task execution unit (Disposable Task Object pattern).
- * Owns one `Agent` instance, its shell process handles, interaction gate,
+ * Binds one official Pi `AgentSession` to App task records, shell handles and interaction UI.
  * step/tool budgets, Langfuse spans, and bounded stop grace period.
  */
 export class PiTaskRunner {
   readonly promise: Promise<AgentRunResult>;
-  private agent?: Agent;
+  private session?: AgentSession;
+  private resolveSession!: (session: AgentSession | undefined) => void;
+  private readonly sessionReady = new Promise<AgentSession | undefined>((resolve) => { this.resolveSession = resolve; });
+  private resolveStartup!: (session: AgentSession | undefined) => void;
+  private readonly startupDone = new Promise<AgentSession | undefined>((resolve) => { this.resolveStartup = resolve; });
+  private extensionsStarted = false;
+  private shutdownPromise?: Promise<void>;
+  private shutdownFailure?: string;
   private stopPromise?: Promise<AgentStopResult>;
   private stopped = false;
   private readonly pendingShell = new Set<string>();
@@ -114,33 +115,57 @@ export class PiTaskRunner {
     this.interactionGate.respond(requestId, answer);
   }
 
+  async sendMessage(message: string, behavior: "steer" | "followUp"): Promise<"queued" | "handled"> {
+    const session = await this.sessionReady;
+    if (!session || this.stopped || !session.isStreaming) {
+      throw new AgentExecutionError(this.task.error ?? "Task has no active Pi run", this.task.id);
+    }
+    return behavior === "steer" ? session.steer(message) : session.followUp(message);
+  }
+
   cancel(): Promise<AgentStopResult> {
     if (this.stopPromise) return this.stopPromise;
 
     this.stopped = true;
     this.interactionGate.cancelPending();
     for (const kill of this.killShells) kill();
-    this.agent?.abort();
     this.task.state = "cancelling";
     this.host.updateTask(this.task);
 
     this.stopPromise = (async () => {
       const graceMs = this.host.config.stopGraceMs ?? 3000;
-      const agentExited = this.agent
-        ? await awaitWithin(this.agent.waitForIdle(), graceMs)
-        : true;
+      const agentExited = await awaitWithin(this.stopRuntime(), graceMs);
       const runtimeExited = agentExited && this.pendingShell.size === 0;
       const confirmed = runtimeExited;
       this.task.runtimeExited = runtimeExited;
       this.task.state = confirmed ? "cancelled" : "unknown";
       if (!confirmed) {
-        this.task.error =
-          "Runtime stop requested; local execution exit or external effect requires verification";
+        this.task.error ??= this.shutdownFailure ??
+          `Pi runtime stop exceeded ${graceMs} ms; startup, extension shutdown or local execution exit is unconfirmed`;
       }
       this.host.updateTask(this.task);
       return { state: this.task.state, runtimeExited, confirmed };
     })();
     return this.stopPromise;
+  }
+
+  private async stopRuntime(): Promise<void> {
+    const session = await this.startupDone;
+    if (!session) return;
+    await session.abort();
+    this.shutdownPromise ??= (async () => {
+      try {
+        if (this.extensionsStarted) await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+        if (this.shutdownFailure) throw new Error(this.shutdownFailure);
+      } finally {
+        session.dispose();
+      }
+      await session.settingsManager.flush();
+    })().catch((error) => {
+      this.shutdownFailure = `Pi session shutdown failed: ${error instanceof Error ? error.message : String(error)}`;
+      throw error;
+    });
+    await this.shutdownPromise;
   }
 
   private emit(event: Omit<AgentStepEvent, "taskId" | "sessionId">): void {
@@ -166,10 +191,7 @@ export class PiTaskRunner {
     const key = (
       this.host.config.apiKey ?? process.env.LLM_API_KEY
     )?.trim();
-    return (key ? message.replaceAll(key, "[redacted]") : message).slice(
-      0,
-      500,
-    );
+    return key ? message.replaceAll(key, "[redacted]") : message;
   }
 
   private async waitForInteraction(kind: "approval" | "question", details: Record<string, unknown>, signal?: AbortSignal): Promise<AgentInteractionAnswer> {
@@ -217,6 +239,10 @@ export class PiTaskRunner {
     let traceError = false;
     let toolCallsCount = 0;
     let step = 0;
+    let lastAssistant: AssistantMessage | undefined;
+    let promptHandled = false;
+    const commandOutput: string[] = [];
+    const extensionErrors: string[] = [];
     const executions: AgentCommandEvidence[] = [];
     const artifacts = new WorkspaceArtifactTracker(task.workspaceRoot, start);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -226,6 +252,10 @@ export class PiTaskRunner {
     };
     options.signal?.addEventListener("abort", abort, { once: true });
     if (options.signal?.aborted) abort();
+    timer = setTimeout(() => {
+      task.error = "Task deadline exceeded";
+      abort();
+    }, config.deadlineMs ?? 180_000);
 
     try {
       if (this.stopped) {
@@ -239,12 +269,9 @@ export class PiTaskRunner {
       if (options.resume && !sessionFile) {
         throw new Error("Persisted session transcript was not found");
       }
-      const session = sessionFile
+      const manager = sessionFile
         ? SessionManager.open(sessionFile)
         : SessionManager.create(task.workspaceRoot, host.sessionsDirectory, { id: task.sessionId });
-      const restoredMessages = session.buildSessionContext().messages;
-
-      const { model, streamFn } = resolvePiModelAndStream(config);
       const startTool = (callId: string, toolName: string, args: unknown) => {
         if (this.stopped) return;
         if (trace && config.tracer) {
@@ -319,110 +346,129 @@ export class PiTaskRunner {
           additionalTools: config.additionalTools,
         });
 
-      const { systemPrompt, userPrompt } = buildAgentTurnPrompts({
-        prompt,
-        mode: options.mode,
-        defaultLanguage: options.defaultLanguage,
-        restoredMessages,
-        webSearchEnabled: hasOpenAIWebSearch(model),
-      });
-      config.tracer?.start("agent.context", "span", trace?.context, {
-        "langfuse.observation.input": {
-          sessionId: task.sessionId,
-          history: (restoredMessages ?? []).filter(message => message.role !== "system"),
-          systemPrompt, userPrompt,
-        },
-      }).end({ "langfuse.observation.output": { historyMessages: (restoredMessages ?? []).filter(message => message.role !== "system").length } });
-
-      const agent = new Agent({
-        initialState: {
-          systemPrompt,
-          model,
-          tools,
-          // Session history contains its old system message; use this run’s language policy.
-          ...(restoredMessages
-            ? {
-                messages: restoredMessages.filter(
-                  (message) => message.role !== "system",
-                ),
-              }
-            : {}),
-        },
-        sessionId: task.sessionId,
-        onPayload: webSearch.onPayload,
-        onProviderStreamEvent: webSearch.onProviderStreamEvent,
-        toolExecution: "sequential",
-        streamFn: config.tracer?.enabled
-          ? wrapStreamFnWithLangfuse(streamFn, {
-              tracer: config.tracer,
-              getTraceContext: () => trace?.context,
-              onGeneration: (context) => { this.generationContext = context; },
-            })
-          : streamFn,
-        beforeToolCall: async (
-          { toolCall, args },
-          signal,
-        ): Promise<BeforeToolCallResult | undefined> => {
-          if (host.isExecutorClosed() || this.stopped || signal?.aborted) {
-            return {
-              block: true,
-              reason:
-                "Task was stopped; no further tool execution is permitted.",
-            };
+      const extension: ExtensionFactory = (pi) => {
+        pi.on("before_agent_start", (event, ctx) => {
+          this.resolveSession(this.session);
+          const { systemPrompt } = buildAgentTurnPrompts({
+            baseSystemPrompt: event.systemPrompt + (config.systemPrompt ? `\n${config.systemPrompt}` : ""),
+            prompt: event.messageType === "user" ? event.prompt : prompt,
+            mode: options.mode,
+            defaultLanguage: options.defaultLanguage,
+            restoredMessages: manager.buildSessionContext().messages,
+            webSearchEnabled: ctx.model ? hasOpenAIWebSearch(ctx.model) : false,
+          });
+          return { systemPrompt };
+        });
+        pi.on("before_provider_request", (event, ctx) =>
+          ctx.model ? webSearch.onPayload(event.payload, ctx.model) : undefined,
+        );
+        pi.on("provider_stream_event", (event, ctx) => {
+          if (ctx.model) return webSearch.onProviderStreamEvent(event.data, ctx.model);
+        });
+        pi.on("message_end", (event) => {
+          if (event.message.role === "assistant") webSearch.decorateMessage(event.message);
+        });
+        pi.on("tool_call", async (event, ctx) => {
+          if (host.isExecutorClosed() || this.stopped) {
+            return { block: true, reason: "Task was stopped; no further tool execution is permitted." };
           }
           const details = host.approvalPolicy({
-            callId: toolCall.id,
-            toolName: toolCall.name,
-            arguments: (args ?? {}) as Record<string, unknown>,
+            callId: event.toolCallId,
+            toolName: event.toolName,
+            arguments: event.input,
             sessionId: task.sessionId,
             workspaceRoot: task.workspaceRoot,
             approvalMode: options.approvalMode ?? "ask",
           });
           if (details) {
-            const decision = await this.waitForInteraction(
-              "approval",
-              details,
-              signal,
-            );
-            if (
-              !("outcome" in decision) ||
-              decision.outcome !== "allowed-once"
-            ) {
-              return {
-                block: true,
-                reason:
-                  "User rejected approval request. Do not retry or use alternative methods; state clearly that the operation was rejected.",
-              };
+            const decision = await this.waitForInteraction("approval", details);
+            if (!("outcome" in decision) || decision.outcome !== "allowed-once") {
+              return { block: true, reason: "User rejected approval request. Do not retry or use alternative methods; state clearly that the operation was rejected." };
             }
           }
-          if (
-            config.customTools &&
-            /bash|pwsh|run_code|terminal/.test(toolCall.name)
-          ) {
-            this.pendingShell.add(toolCall.id);
+          if (config.customTools && /bash|pwsh|run_code|terminal/.test(event.toolName)) {
+            this.pendingShell.add(event.toolCallId);
           }
-          return undefined;
-        },
-        afterToolCall: async ({ toolCall }) => {
-          if (config.customTools) {
-            this.pendingShell.delete(toolCall.id);
+        });
+        pi.on("tool_result", (event) => {
+          if (config.customTools) this.pendingShell.delete(event.toolCallId);
+          if (["read", "write", "edit"].includes(event.toolName) && !event.isError && typeof event.input.path === "string") {
+            artifacts.record(path.resolve(task.workspaceRoot, event.input.path));
           }
-          return undefined;
+        });
+        pi.on("context_with_system", (event) => {
+          config.tracer?.start("agent.context", "span", trace?.context, {
+            "langfuse.observation.input": {
+              sessionId: task.sessionId,
+              history: event.messages.filter(message => message.role !== "system"),
+              systemPrompt: event.messages.find(message => message.role === "system"),
+            },
+          }).end({ "langfuse.observation.output": { historyMessages: event.messages.filter(message => message.role !== "system").length } });
+        });
+      };
+      const session = await createPiSession({
+        config,
+        workspaceRoot: task.workspaceRoot,
+        stateDirectory: path.dirname(host.sessionsDirectory),
+        sessionManager: manager,
+        extension,
+        tools,
+        tracer: config.tracer,
+        getTraceContext: () => trace?.context,
+        onGeneration: (context) => { this.generationContext = context; },
+      });
+      this.session = session;
+      if (this.stopped) {
+        this.resolveStartup(session);
+        throw new Error("Task stopped during Pi session startup");
+      }
+      this.extensionsStarted = true;
+      await session.bindExtensions({
+        mode: "rpc",
+        uiContext: createPiExtensionUi(session, {
+          interact: (kind, details, signal) => this.waitForInteraction(kind, details, signal),
+          notify: (message, level) => {
+            commandOutput.push(message);
+            if (level === "error") extensionErrors.push(message);
+            this.emit({ step, phase: "thinking", summary: message });
+            config.tracer?.start("agent.extension.notice", "span", trace?.context, {
+              "langfuse.observation.output": message,
+              "langfuse.observation.level": level === "error" ? "ERROR" : level === "warning" ? "WARNING" : "DEFAULT",
+            }).end();
+          },
+        }),
+        onError: (error) => {
+          const reason = `Pi extension ${error.extensionPath} (${error.event}): ${error.error}`;
+          extensionErrors.push(reason);
+          if (error.event === "session_shutdown") this.shutdownFailure = reason;
+          this.emit({ step, phase: "error", summary: reason });
+          config.tracer?.start("agent.extension.error", "span", trace?.context, {
+            "langfuse.observation.level": "ERROR",
+            "langfuse.observation.status_message": reason,
+          }).end();
         },
       });
+      this.resolveStartup(session);
 
-      this.agent = agent;
-
-      agent.subscribe((event) => {
-        if (event.type === "message_end") {
-          if (event.message.role === "assistant") webSearch.decorateMessage(event.message);
-          const message = event.message;
-          if (message.role === "system" || message.role === "user" ||
-              message.role === "assistant" || message.role === "toolResult") {
-            session.appendMessage(message);
-          }
-        }
+      session.subscribe((event) => {
+        if (event.type === "message_end" && event.message.role === "assistant") lastAssistant = event.message;
         if (this.stopped) return;
+        if (event.type === "compaction_start" || event.type === "compaction_end" ||
+            event.type === "auto_retry_start" || event.type === "auto_retry_end" || event.type === "queue_update") {
+          config.tracer?.start(`agent.pi.${event.type}`, "span", trace?.context, {
+            "langfuse.observation.output": event,
+            ...("errorMessage" in event && event.errorMessage ? {
+              "langfuse.observation.status_message": event.errorMessage,
+              "langfuse.observation.level": "ERROR",
+            } : {}),
+          }).end();
+          const summary = event.type === "compaction_start" ? "正在整理会话上下文"
+            : event.type === "compaction_end" ? event.errorMessage ?? "会话上下文已整理"
+            : event.type === "auto_retry_start" ? `模型请求重试 ${event.attempt}/${event.maxAttempts}：${event.errorMessage}`
+            : event.type === "auto_retry_end" ? event.finalError ?? "模型请求已恢复"
+            : `待处理消息：${event.steering.length + event.followUp.length}`;
+          this.emit({ step, phase: "thinking", summary });
+        }
         if (event.type === "turn_start") {
           step++;
           if (step > (config.maxSteps ?? 12)) {
@@ -442,35 +488,25 @@ export class PiTaskRunner {
         }
       });
 
-      timer = setTimeout(() => {
-        task.error = "Task deadline exceeded";
-        abort();
-      }, config.deadlineMs ?? 180_000);
-
       if (this.stopped) {
         throw new Error("Task stopped before prompt execution");
       }
       task.state = "running";
       host.updateTask(task);
 
-      const systemMessage = agent.state.messages[0];
-      if (systemMessage?.role === "system") session.appendMessage(systemMessage);
-      await agent.prompt(userPrompt);
+      await session.prompt(prompt, { preflightResult: disposition => { promptHandled = disposition === "handled"; } });
+      await session.waitForIdle();
 
       if (this.stopped) throw new Error(task.error ?? "Task cancelled");
       if (this.pendingShell.size > 0) {
         throw new Error("Local execution exit is unconfirmed");
       }
 
-      const assistantMessages = agent.state.messages.filter(
-        (msg): msg is Extract<AgentMessage, { role: "assistant" }> =>
-          msg.role === "assistant",
-      );
-      const lastAssistant = assistantMessages.at(-1);
-      const stopReason = lastAssistant?.stopReason ?? "error";
+      if (promptHandled && extensionErrors.length) throw new Error(extensionErrors.join("\n"));
+      const stopReason = lastAssistant?.stopReason ?? (promptHandled ? "stop" : "error");
       const finalResponse = lastAssistant
         ? contentText(lastAssistant.content).trim()
-        : "";
+        : promptHandled ? commandOutput.join("\n") || `Pi command completed: ${prompt.split(/\s/, 1)[0]}` : "";
       tracedAnswer = finalResponse;
 
       if (
@@ -483,6 +519,14 @@ export class PiTaskRunner {
         throw new Error(`Pi agent did not complete successfully (${reason})`);
       }
 
+      const shutdownGraceMs = config.stopGraceMs ?? 3000;
+      if (!await awaitWithin(this.stopRuntime(), shutdownGraceMs)) {
+        task.error = this.shutdownFailure ?? `Pi session shutdown exceeded ${shutdownGraceMs} ms`;
+        task.state = "unknown";
+        task.runtimeExited = false;
+        throw new Error(task.error);
+      }
+
       const recordedArtifacts = artifacts.list();
       const output: AgentRunResult = {
         taskId: task.id,
@@ -491,7 +535,7 @@ export class PiTaskRunner {
         steps: [...task.steps],
         toolCallsCount,
         durationMs: Date.now() - start,
-        finishReason: "completed",
+        finishReason: promptHandled ? "handled" : "completed",
         runtimeExited: true,
         ...(executions.length > 0 ? { executions } : {}),
         ...(recordedArtifacts.length > 0 ? { artifacts: recordedArtifacts } : {}),
@@ -506,15 +550,19 @@ export class PiTaskRunner {
       host.updateTask(task);
       return output;
     } catch (error) {
+      this.resolveStartup(this.session);
       traceError = true;
       const message = this.sanitize(
         error instanceof Error ? error.message : "Pi agent execution failed",
       );
       if (this.stopPromise) {
         await this.stopPromise;
-      } else {
-        task.runtimeExited = this.pendingShell.size === 0;
+      } else if (task.state !== "unknown") {
+        const graceMs = config.stopGraceMs ?? 3000;
+        const exited = await awaitWithin(this.stopRuntime(), graceMs);
+        task.runtimeExited = exited && this.pendingShell.size === 0;
         task.state = task.runtimeExited ? "failed" : "unknown";
+        if (!exited) task.error ??= `${message}\n${this.shutdownFailure ?? `Pi session shutdown exceeded ${graceMs} ms`}`;
       }
       task.error ??= message;
       task.result = {
@@ -532,6 +580,8 @@ export class PiTaskRunner {
       this.emit({ step, phase: "error", summary: task.error });
       throw new AgentExecutionError(task.error, task.id);
     } finally {
+      this.resolveSession(undefined);
+      this.resolveStartup(this.session);
       for (const span of toolTraces.values()) {
         span.end({ "langfuse.observation.level": "ERROR" });
       }
@@ -544,6 +594,7 @@ export class PiTaskRunner {
       });
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener("abort", abort);
+      this.session?.dispose();
       this.interactionGate.cancelPending();
       delete task.interaction;
       host.updateTask(task);

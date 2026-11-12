@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses";
-import type { Model } from "@earendil-works/pi-ai";
+import { createModels, createProvider, type Model } from "@earendil-works/pi-ai";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { PiAgentExecutor } from "../src/agent/pi-executor.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createLangfuseTracer, type TraceObservation } from "../src/telemetry/langfuse.js";
@@ -54,7 +55,7 @@ test("official OpenAI enables hosted search alongside local tools, records calls
   const tracer = createLangfuseTracer({ onObservation: node => observations.set(node.spanId, node) });
   const executor = new PiAgentExecutor({
     tracer,
-    stateDirectory: root, workspaceRoot: join(root, "work"), modelSpec: model,
+    stateDirectory: root, workspaceRoot: join(root, "work"), apiKey: "sk-test", modelSpec: model,
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
       fetch: async (_url, init) => {
@@ -106,7 +107,7 @@ test("provider-rendered Markdown citations stay clickable without duplicate sour
     annotations: [{ type: "url_citation", start_index: Array.from(introduction).length, end_index: Array.from(introduction + citation).length, title: "GRIN: Zero-Shot Metric Depth", url }],
   };
   const executor = new PiAgentExecutor({
-    stateDirectory: root, modelSpec: model,
+    stateDirectory: root, apiKey: "sk-test", modelSpec: model,
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
       fetch: async () => new Response(responseBody(true, false, undefined, output), { headers: { "content-type": "text/event-stream" } }),
@@ -124,7 +125,7 @@ test("provider-rendered Markdown citations stay clickable without duplicate sour
 test("official OpenAI refusal text remains intact when there are no citations", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-search-refusal-"));
   const executor = new PiAgentExecutor({
-    stateDirectory: root, modelSpec: model,
+    stateDirectory: root, apiKey: "sk-test", modelSpec: model,
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
       fetch: async () => new Response(responseBody(false, false, "无法协助此请求。"), { headers: { "content-type": "text/event-stream" } }),
@@ -142,8 +143,15 @@ test("official OpenAI refusal text remains intact when there are no citations", 
 test("OpenAI-compatible third-party endpoints receive no hosted search declaration or prompt", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-search-custom-"));
   let request: Record<string, any> | undefined;
+  const models = createModels();
+  models.setProvider(createProvider({
+    id: "custom", models: [{ ...model, provider: "custom", baseUrl: "https://gateway.example/v1" }],
+    auth: { apiKey: { name: "Test", resolve: async () => ({ auth: { apiKey: "sk-test" } }) } },
+    api: openAIResponsesApi(),
+  }));
   const executor = new PiAgentExecutor({
-    stateDirectory: root, modelSpec: { ...model, provider: "custom", baseUrl: "https://gateway.example/v1" },
+    modelsRegistry: models,
+    stateDirectory: root, apiKey: "sk-test", modelSpec: { ...model, provider: "custom", baseUrl: "https://gateway.example/v1" },
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
       fetch: async (_url, init) => {
@@ -164,22 +172,24 @@ test("OpenAI-compatible third-party endpoints receive no hosted search declarati
   }
 });
 
-test("hosted search failures propagate without a second request that drops search", async () => {
+test("hosted search stays enabled through Pi retries and preserves the final error", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-search-error-"));
   let requests = 0;
   const executor = new PiAgentExecutor({
-    stateDirectory: root, modelSpec: model,
+    settings: { retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 } },
+    stateDirectory: root, apiKey: "sk-test", modelSpec: model,
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
-      fetch: async () => {
+      fetch: async (_url, init) => {
         requests++;
+        assert.ok(JSON.parse(String(init?.body)).tools.some((tool: { type: string }) => tool.type === "web_search"));
         return new Response(responseBody(true, true), { headers: { "content-type": "text/event-stream" } });
       },
     }),
   });
   try {
     await assert.rejects(executor.run("搜索 GRIN ZERO"), /Search service unavailable/);
-    assert.equal(requests, 1);
+    assert.equal(requests, 2);
     assert.equal(executor.listTasks()[0].state, "failed");
   } finally {
     await executor.close();
