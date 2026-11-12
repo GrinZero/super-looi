@@ -10,11 +10,16 @@ export class VoiceConversationWindow {
     private readonly now: () => number = Date.now,
   ) {}
 
-  begin(): string {
+  current(): string {
     this.touch();
     this.context ??= { id: `voice_${randomUUID()}`, lastActivityAt: this.now() };
-    this.running = true;
     return this.context.id;
+  }
+
+  begin(): string {
+    const id = this.current();
+    this.running = true;
+    return id;
   }
 
   touch(): void {

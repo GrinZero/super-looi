@@ -3,10 +3,14 @@ import {
   replyTextLanguage,
   type ConversationLanguage,
 } from "../../../../packages/looi-runtime/src/agent/conversation-language.js";
-import { observeVoiceSocket } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
-import type {
-  LangfuseTracer,
-  TraceContext,
+import {
+  observeVoiceSocket,
+  type VoiceConversationMessage,
+} from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
+import {
+  NOOP_TRACER,
+  type LangfuseTracer,
+  type TraceContext,
 } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import { VoiceAudioPipeline } from "./audio-pipeline.js";
 import { voiceInstructions } from "./prompts.js";
@@ -36,6 +40,9 @@ export interface LiveVoiceSessionOptions {
   previewText?: string;
   initialLanguage: ConversationLanguage;
   initialContextNote?: string;
+  sessionId?: string;
+  history?: VoiceConversationMessage[];
+  onConversation?: (messages: VoiceConversationMessage[]) => void;
   fromWakeWord: boolean;
   protocol: RealtimeProtocolAdapter;
   audio: VoiceAudioPort;
@@ -207,15 +214,14 @@ export class LiveVoiceSession {
         void rawSocket.close().catch(() => {});
         return;
       }
-      const socket = this.options.tracer?.enabled
-        ? observeVoiceSocket(rawSocket, {
-            tracer: this.options.tracer,
-            protocol: this.options.protocol,
-            sessionId: randomUUID(),
-            fromWakeWord: this.options.fromWakeWord,
-            connectStartedAt,
-          })
-        : rawSocket;
+      const socket = observeVoiceSocket(rawSocket, {
+        tracer: this.options.tracer ?? NOOP_TRACER,
+        protocol: this.options.protocol,
+        sessionId: this.options.sessionId ?? randomUUID(),
+        fromWakeWord: this.options.fromWakeWord,
+        connectStartedAt,
+        onConversation: this.options.onConversation,
+      });
       this.socket = socket;
       const handshakeMessages = this.options.protocol.createHandshakeMessages(
         this.purpose === "preview" ? [] : this.tools.schemas,
@@ -367,7 +373,10 @@ export class LiveVoiceSession {
 
   private renderInstructions(): string {
     const base = voiceInstructions(this.conversationLanguage, this.continuingLanguage);
-    return this.contextNote ? `${base}\n\n${this.contextNote}` : base;
+    const history = this.options.history?.length
+      ? `[Previous Voice Conversation]\n以下是重连前可见的语音对话，按发生顺序排列。回答历史追问时同时参考这些对话与任务回执，保留日期、时间和数字原文。\n${JSON.stringify(this.options.history)}`
+      : "";
+    return [base, history, this.contextNote].filter(Boolean).join("\n\n");
   }
 
   private canDispatchNotice(): boolean {

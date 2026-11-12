@@ -3,6 +3,8 @@ import {
   type VoiceConfigurationSnapshot,
 } from "./credentials.js";
 import { LiveVoiceSession } from "./live-session.js";
+import { VoiceConversationWindow } from "./conversation-window.js";
+import type { VoiceConversationMessage } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 import {
   createVoiceProtocol,
   type RealtimeProtocolAdapter,
@@ -27,6 +29,8 @@ export class VoiceRuntime {
   private state: VoiceState;
   private session?: LiveVoiceSession;
   private latestContextNote = "";
+  private readonly conversationWindow = new VoiceConversationWindow();
+  private conversation?: { id: string; messages: VoiceConversationMessage[] };
   private readonly pendingNotices: VoiceProactiveNotice[] = [];
   private standbyTimer?: ReturnType<typeof setTimeout>;
   private cueStopTimer?: ReturnType<typeof setTimeout>;
@@ -249,12 +253,27 @@ export class VoiceRuntime {
       }
     }
 
+    const conversationId = this.options.conversationId?.() ?? this.conversationWindow.current();
+    if (this.conversation?.id !== conversationId) {
+      if (this.conversation) this.latestContextNote = "";
+      this.conversation = { id: conversationId, messages: [] };
+    }
+    const history = [...this.conversation.messages];
     const session = new LiveVoiceSession({
       apiKey,
       voiceId: selectedVoiceId,
       purpose: "conversation",
       initialLanguage,
       initialContextNote: this.latestContextNote,
+      sessionId: conversationId,
+      history,
+      onConversation: (messages) => {
+        if (this.conversation?.id !== conversationId) return;
+        const retained = [...history, ...messages].slice(-80);
+        let chars = retained.reduce((total, message) => total + message.content.length, 0);
+        while (chars > 24_000 && retained.length > 1) chars -= retained.shift()!.content.length;
+        this.conversation.messages = retained;
+      },
       fromWakeWord: options.fromWakeWord === true,
       protocol: this.protocol,
       audio: this.options.audio,
@@ -262,7 +281,10 @@ export class VoiceRuntime {
       tracer: this.options.tracer,
       requestTask: this.options.requestTask,
       taskBridge: this.options.taskBridge,
-      onConversationActivity: this.options.onConversationActivity,
+      onConversationActivity: () => {
+        this.conversationWindow.touch();
+        this.options.onConversationActivity?.();
+      },
       controlBody: this.options.controlBody,
       onStatePatch: (patch) => {
         if (this.session === session) this.publish(patch);

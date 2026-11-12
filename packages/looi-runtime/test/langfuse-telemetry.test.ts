@@ -273,3 +273,77 @@ test("voice tool context connects agent, generation and tool observations", asyn
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Doubao initial context and audio-only proactive speech keep their text", async () => {
+  const { tracer, spans, attrs } = fixture();
+  const events: string[] = [];
+  const socket = observeVoiceSocket({ read: async () => events.shift() ?? null, write: async () => {}, close: async () => {} }, {
+    tracer, protocol: createDoubaoDuplexV3Protocol(), sessionId: "proactive-text", fromWakeWord: false,
+  });
+  const initial = { type: "session.create", session: { instructions: "此前问过位置。", tools: [{ name: "run_agent_task" }] } };
+  await socket.write(JSON.stringify(initial));
+  await socket.write(JSON.stringify({ type: "speech_text_buffer.commit", text: "现在是 11 月 11 日。" }));
+  events.push(...[
+    { type: "response.created", response_id: "tts" },
+    { type: "response.output_audio.delta", response_id: "tts", delta: "AAAA" },
+    { type: "response.done", response_id: "tts" },
+  ].map(JSON.stringify));
+  while (events.length) await socket.read();
+  // Some responses also return a text transcript; the submitted text must not be appended twice.
+  await socket.write(JSON.stringify({ type: "speech_text_buffer.commit", text: "第二次播报。" }));
+  events.push(...[
+    { type: "response.created", response_id: "tts-2" },
+    { type: "response.output_text.delta", response_id: "tts-2", delta: "第二次" },
+    { type: "response.output_text.delta", response_id: "tts-2", delta: "播报。" },
+    { type: "response.done", response_id: "tts-2" },
+  ].map(JSON.stringify));
+  while (events.length) await socket.read();
+  socket.finalizeSession();
+  await tracer.shutdown();
+  const context = spans().find((span: any) => span.name === "realtime.context");
+  assert.deepEqual(JSON.parse(attrs(context)["langfuse.observation.input"].stringValue), initial);
+  const responses = spans().filter((span: any) => span.name === "realtime.response");
+  assert.deepEqual(responses.map((span: any) => JSON.parse(attrs(span)["langfuse.observation.output"].stringValue)), [
+    [{ role: "assistant", content: "现在是 11 月 11 日。" }],
+    [{ role: "assistant", content: "第二次播报。" }],
+  ]);
+  const root = spans().find((span: any) => span.name === "voice.session");
+  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.input"].stringValue), [{ role: "assistant", content: "现在是 11 月 11 日。" }]);
+});
+
+test("failed outgoing speech is not collected as a successful assistant transcript", async () => {
+  const { tracer, spans, attrs } = fixture();
+  const socket = observeVoiceSocket({ read: async () => null, write: async () => { throw new Error("send failed"); }, close: async () => {} }, {
+    tracer, protocol: createDoubaoDuplexV3Protocol(), sessionId: "failed-speech", fromWakeWord: false,
+  });
+  await assert.rejects(socket.write(JSON.stringify({ type: "speech_text_buffer.commit", text: "没有发出去的播报。" })), /send failed/);
+  socket.finalizeSession();
+  await tracer.shutdown();
+  assert.equal(spans().filter((span: any) => span.name === "realtime.response").length, 0);
+  const root = spans().find((span: any) => span.name === "voice.session");
+  assert.deepEqual(JSON.parse(attrs(root)["langfuse.observation.metadata.assistantTranscripts"].stringValue), []);
+});
+
+test("TTS error or cancellation before audio does not invent a spoken history entry", async () => {
+  for (const event of [{ type: "error", error: { message: "TTS failed" } }, { type: "response.canceled", response_id: "tts" }]) {
+    for (const enabled of [true, false]) {
+      const { tracer, spans, attrs } = fixture();
+      let history: unknown = [];
+      const events = [JSON.stringify(event)];
+      const socket = observeVoiceSocket({ read: async () => events.shift() ?? null, write: async () => {}, close: async () => {} }, {
+        tracer: enabled ? tracer : NOOP_TRACER, protocol: createDoubaoDuplexV3Protocol(), sessionId: "tts-failed", fromWakeWord: false,
+        onConversation: (messages) => { history = messages; },
+      });
+      await socket.write(JSON.stringify({ type: "speech_text_buffer.commit", text: "尚未发声的内容。" }));
+      await socket.read();
+      socket.finalizeSession();
+      await tracer.shutdown();
+      assert.deepEqual(history, []);
+      if (enabled) {
+        const response = spans().find((span: any) => span.name === "realtime.response");
+        assert.deepEqual(JSON.parse(attrs(response)["langfuse.observation.output"].stringValue), []);
+        assert.equal(attrs(response)["langfuse.observation.metadata.requestedSpeech"].stringValue, "尚未发声的内容。");
+      }
+    }
+  }
+});

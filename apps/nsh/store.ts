@@ -978,7 +978,12 @@ export function createAppStore() {
         onNotice: (notice) => {
           if (!alive) return;
           const task = notice.taskId ? opened.taskDetails(notice.taskId) : undefined;
-          const traceContext = task?.trace ? { traceId: task.trace.traceId, parentSpanId: task.trace.spanId, traceName: "agent.run", sessionId: task.sessionId } : undefined;
+          const traceContext = task?.trace ? {
+            traceId: task.trace.traceId,
+            parentSpanId: task.trace.spanId,
+            traceName: notice.traceContext?.traceName ?? "agent.run",
+            sessionId: notice.traceContext?.sessionId ?? task.sessionId,
+          } : notice.traceContext;
           if (traceContext) opened.tracer.start("voice.notice", "span", traceContext, {
             "langfuse.observation.input": notice,
           }).end({ "langfuse.observation.output": { status: "queued" } });
@@ -990,6 +995,7 @@ export function createAppStore() {
       });
       voice = new VoiceRuntime({
         vault,
+        conversationId: () => opened.voiceConversationId(),
         defaultLanguage: effectiveLocale,
         tracer: opened.tracer,
         audio: new VoiceAudio(),

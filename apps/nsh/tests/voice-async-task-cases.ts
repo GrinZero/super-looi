@@ -8,7 +8,8 @@ import {
   type VoiceSocket,
   type VoiceTaskRunHooks,
 } from "../runtime/voice.js";
-import { createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+import { createDoubaoDuplexV3Protocol, createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+import { createLangfuseTracer, type TraceObservation } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -107,11 +108,13 @@ function createMockAudio() {
 }
 
 export async function verifyAsyncVoiceTasks() {
+  await verifyReconnectedVoiceHistory();
   // Warm context follows user activity, not a disposable voice connection.
   let now = 0;
   const minute = 60_000;
   const window = new VoiceConversationWindow(15 * minute, () => now);
   const firstContext = window.begin();
+  check(window.current() === firstContext, "voice connection and task used different conversation identities");
   window.finish();
   now = 14 * minute;
   window.touch();
@@ -923,4 +926,91 @@ export async function verifyAsyncVoiceTasks() {
     Date.now = originalDateNow;
     globalThis.setTimeout = originalSetTimeout;
   }
+}
+
+async function verifyReconnectedVoiceHistory() {
+  for (const protocol of [createDoubaoDuplexV3Protocol(), createOpenAiRealtimeProtocol()]) {
+    for (const telemetry of [false, true]) {
+      let now = 0;
+      const window = new VoiceConversationWindow(15 * 60_000, () => now);
+      const observations: TraceObservation[] = [];
+      const tracer = telemetry ? createLangfuseTracer({ onObservation: (item) => observations.push(item) }) : undefined;
+      const sockets: MockVoiceSocket[] = [];
+      const audio = createMockAudio();
+      const voice = new VoiceRuntime({
+        protocol, tracer,
+        conversationId: () => window.current(),
+        onConversationActivity: () => window.touch(),
+        vault: { get: () => JSON.stringify({ apiKey: "test", apiKeys: { openai: "test" }, wakeEnabled: false }), set: () => {}, remove: () => {} },
+        audio: audio.port,
+        connect: async () => { const socket = new MockVoiceSocket(); sockets.push(socket); return socket; },
+        onState: () => {},
+      });
+      try {
+        await voice.start();
+        const firstId = window.current();
+        const first = sockets[0];
+        first.push({ type: protocol.providerId === "doubao" ? "session.created" : "session.updated" });
+        await wait(10);
+        for (const [index, question] of ["现在几点了？", "你知道我在哪里吗？你怎么给这个时间？"].entries()) {
+          first.push({ type: "input_audio_buffer.speech_started" });
+          first.push({ type: "conversation.item.input_audio_transcription.completed", text: question, transcript: question });
+          first.push({ type: "response.created", response_id: `r-${index}`, response: { id: `r-${index}` } });
+          first.push({ type: "response.output_text.done", response_id: `r-${index}`, text: index ? "还不知道你的所在城市。" : "我帮你查一下。" });
+          first.push({ type: "response.done", response_id: `r-${index}`, response: { id: `r-${index}` } });
+          await wait(10);
+        }
+        const receipt = "[Background Task Receipt]\nRequest: 查询当前时间\nOutcome: 2026 年 11 月 11 日晚上 7 点 03 分（UTC−7）。";
+        voice.setContextNote(receipt);
+        voice.enqueueNotice({ id: "time-result", spokenText: "2026 年 11 月 11 日晚上 7 点 03 分（UTC−7）。", contextNote: receipt });
+        await wait(10);
+        first.push({ type: "response.created", response_id: "notice", response: { id: "notice" } });
+        first.push({ type: "response.output_audio.delta", response_id: "notice", delta: Buffer.alloc(960).toString("base64") });
+        if (protocol.providerId === "openai") {
+          first.push({ type: "response.output_text.done", response_id: "notice", text: "2026 年 11 月 11 日晚上 7 点 03 分（UTC−7）。" });
+        }
+        first.push({ type: "response.done", response_id: "notice", response: { id: "notice" } });
+        await wait(10);
+        voice.endSession();
+        now += 2_000;
+        await voice.start();
+        const second = sockets[1];
+        const instructions = second.writes[0]?.session?.instructions ?? "";
+        for (const expected of ["现在几点了？", "你知道我在哪里吗？你怎么给这个时间？", "还不知道你的所在城市。", "2026 年 11 月 11 日晚上 7 点 03 分（UTC−7）。"]) {
+          check(instructions.includes(expected), `${protocol.providerId} reconnect lost ${expected} (telemetry=${telemetry})`);
+        }
+        check(window.current() === firstId, "reconnection changed the logical conversation");
+        voice.endSession();
+        if (tracer) {
+          const roots = observations.filter((item) => item.name === "voice.session" && item.endedAt !== undefined);
+          check(roots.length === 2 && roots.every((item) => item.attributes["session.id"] === firstId), "Langfuse split a warm voice conversation");
+          check(roots[0].traceId !== roots[1].traceId, "separate connections reused a trace ID");
+          const contexts = observations.filter((item) => item.name === "realtime.context" && item.endedAt !== undefined);
+          check(contexts.some((item) => JSON.stringify(item.attributes["langfuse.observation.input"]).includes("你知道我在哪里吗？")), "reconnection prompt missing from trace");
+          const outputs = observations.filter((item) => item.name === "realtime.response" && item.endedAt !== undefined)
+            .map((item) => JSON.stringify(item.attributes["langfuse.observation.output"]));
+          check(outputs.some((output) => output.includes("2026 年 11 月 11 日")), "proactive speech missing from response trace");
+        }
+        now += 16 * 60_000;
+        await voice.start();
+        check(window.current() !== firstId, "idle conversation did not expire");
+        const fresh = sockets[2].writes[0]?.session?.instructions ?? "";
+        check(!fresh.includes("你知道我在哪里吗？") && !fresh.includes("[Background Task Receipt]"), "expired conversation kept old history or receipt");
+      } finally {
+        voice.close();
+        await tracer?.shutdown();
+      }
+    }
+  }
+
+  const origin = { traceId: "a".repeat(32), parentSpanId: "b".repeat(16), traceName: "voice.session", sessionId: "voice-shared" };
+  let noticeContext: unknown;
+  const coordinator = new VoiceTaskCoordinator({
+    runTask: async () => ({ answer: "完成", taskId: "task-result" }),
+    cancelRunningTask: async () => true,
+    onNotice: (notice) => { noticeContext = notice.traceContext; },
+  });
+  await coordinator.submit("测试任务", origin);
+  await wait(10);
+  check(noticeContext === origin, "background completion notice lost its originating voice trace context");
 }

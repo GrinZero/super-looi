@@ -854,6 +854,14 @@ export class MobileRuntime {
     });
   }
 
+  touchVoiceConversation(): void {
+    this.voiceConversation.touch();
+  }
+
+  voiceConversationId(): string {
+    return this.voiceConversation.current();
+  }
+
   async run(
     prompt: string,
     action: UserActionRef,
@@ -866,10 +874,6 @@ export class MobileRuntime {
       this.loginPending ||
       Boolean(this.llmOAuthAbort)
     )
-  touchVoiceConversation(): void {
-    this.voiceConversation.touch();
-  }
-
       throw new Error("@looi:runtimeATaskOrSigninIsActiveStopIt");
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId)
@@ -877,6 +881,9 @@ export class MobileRuntime {
     const text = prompt.trim();
     if (!text) throw new Error("@looi:runtimeEnterAMessage");
     this.busy = true;
+    const sessionId = options.mode === "voice"
+      ? this.voiceConversation.begin()
+      : this.conversationId;
     try {
       if (!this.executor) throw new Error("@looi:runtimeConfigureAChatModelInConnectionsFirst");
       if (
@@ -889,9 +896,6 @@ export class MobileRuntime {
           "@looi:runtimeThisConversationHasUnverifiedActionsReviewTaskHistory",
         );
       if (!this.conversationPersisted && this.vault.get("model")) {
-    const sessionId = options.mode === "voice"
-      ? this.voiceConversation.begin()
-      : this.conversationId;
         this.credentialStore.updateEnvelope((draft) => {
           draft.conversationId = this.conversationId;
           return draft;
@@ -916,6 +920,7 @@ export class MobileRuntime {
           result.runtimeExited && !this.hasUnknownHome(result.taskId),
       };
     } finally {
+      if (options.mode === "voice") this.voiceConversation.finish();
       this.busy = false;
       this.taskId = undefined;
     }
@@ -928,7 +933,6 @@ export class MobileRuntime {
 
   async cancel() {
     this.cancelMiotLogin();
-      if (options.mode === "voice") this.voiceConversation.finish();
     this.cancelProviderOAuth();
     this.home.suspend();
     void this.body.stop("user_stop");

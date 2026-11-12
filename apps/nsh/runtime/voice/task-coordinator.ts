@@ -45,6 +45,7 @@ export interface VoiceTaskCoordinatorOptions {
 
 interface ManagedTaskRecord {
   localId: string;
+  traceContext?: TraceContext;
   runtimeTaskId?: string;
   prompt: string;
   state: "running" | "waiting_user" | "completed" | "failed" | "cancelled";
@@ -133,6 +134,7 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
 
     const record: ManagedTaskRecord = {
       localId: `vtask_${++this.sequence}`,
+      traceContext,
       prompt: trimmed,
       state: "running",
       latestSummary: "starting",
@@ -292,6 +294,7 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     const taskId = this.publicId(record);
     this.options.onNotice?.({
       id: `${taskId}:interaction:${interactionId}`,
+      traceContext: record.traceContext,
       taskId: record.runtimeTaskId,
       spokenText,
       contextNote: formatContextReceipt(record, taskId),
@@ -309,6 +312,7 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
     const spokenText = plain || (language === "en-US" ? "That's done." : "刚才的事情处理好了。");
     this.options.onNotice?.({
       id: `${taskId}:completed`,
+      traceContext: record.traceContext,
       taskId: record.runtimeTaskId,
       spokenText,
       contextNote: receipt,
@@ -327,6 +331,7 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
         : "刚才的事情没能做完，你可以问我具体情况。";
     this.options.onNotice?.({
       id: `${taskId}:failed`,
+      traceContext: record.traceContext,
       taskId: record.runtimeTaskId,
       spokenText,
       contextNote: receipt,

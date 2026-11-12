@@ -6,6 +6,10 @@ interface Socket {
   write(value: string): Promise<void>;
   close(): Promise<void>;
 }
+export interface VoiceConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
 export interface ObservedVoiceSocket extends Socket {
   finalizeSession(reason?: string): void;
   getToolTraceContext(callId: string): TraceContext | undefined;
@@ -20,6 +24,8 @@ export function observeVoiceSocket(socket: Socket, options: {
   sessionId: string;
   fromWakeWord: boolean;
   connectStartedAt?: number;
+  /** Completed transcripts, in turn order, also collected when export is disabled. */
+  onConversation?: (messages: VoiceConversationMessage[]) => void;
 }): ObservedVoiceSocket {
   const { tracer, protocol } = options;
   const started = options.connectStartedAt ?? Date.now();
@@ -30,11 +36,15 @@ export function observeVoiceSocket(socket: Socket, options: {
   let turn: Turn | undefined;
   const pendingTurns: Turn[] = [];
   let response: Observation | undefined, responseStarted = 0, responseOrder = 0, responseTurnOrder = 0, firstAudio = 0, responseFrames = 0, responseBytes = 0, responseText = "";
+  let committedSpeech = "";
   let nextResponseContext: TraceContext | undefined;
   let sessionError: string | undefined;
   let cancelRequest: { eventId?: string; observation: Observation } | undefined;
   const transcripts: string[] = [], assistantTranscripts: string[] = [];
   const conversation: Array<{ role: "user" | "assistant"; content: string; order: number }> = [];
+  const publishConversation = () => options.onConversation?.(
+    [...conversation].sort((left, right) => left.order - right.order).map(({ role, content }) => ({ role, content })),
+  );
   let eventOrder = 0;
   let latestTurnOrder = 0;
   const completedTurns = new Set<number>();
@@ -60,6 +70,7 @@ export function observeVoiceSocket(socket: Socket, options: {
     });
     completedTurns.add(target.order);
     flushResponses();
+    publishConversation();
     turns++;
   };
   const parkTurn = (itemId?: string) => {
@@ -83,6 +94,7 @@ export function observeVoiceSocket(socket: Socket, options: {
       conversation.push({ role: "user", content: transcript, order });
       completedTurns.add(order);
       flushResponses();
+      publishConversation();
     }
   };
   const ensureResponse = () => {
@@ -98,16 +110,18 @@ export function observeVoiceSocket(socket: Socket, options: {
       responseTurnOrder = latestTurnOrder;
       firstAudio = responseFrames = responseBytes = 0;
       responseText = "";
+      committedSpeech = "";
     }
   };
   const finishResponse = (cancelled = false, statusCode?: string, error?: string) => {
     if (!response) return;
     const observation = response, order = responseOrder, turnOrder = responseTurnOrder;
-    const output = responseText;
+    const output = responseText || (responseFrames > 0 ? committedSpeech : "");
+    const requestedSpeech = committedSpeech;
     const finishedAt = Date.now(), completedAt = firstAudio, startedAt = responseStarted, frames = responseFrames, outputBytes = responseBytes;
-    if (responseText) {
-      assistantTranscripts.push(responseText);
-      conversation.push({ role: "assistant", content: responseText, order: responseOrder });
+    if (output) {
+      assistantTranscripts.push(output);
+      conversation.push({ role: "assistant", content: output, order: responseOrder });
     }
     pendingResponses.push({ turnOrder, end: () => {
       const input = conversation.filter((message) => message.order < order).sort((left, right) => left.order - right.order)
@@ -115,6 +129,7 @@ export function observeVoiceSocket(socket: Socket, options: {
       observation.end({
         "langfuse.observation.input": input,
         "langfuse.observation.output": output ? [{ role: "assistant", content: output }] : [],
+        ...(requestedSpeech ? { "langfuse.observation.metadata.requestedSpeech": requestedSpeech } : {}),
         ...(completedAt ? { "langfuse.observation.completion_start_time": completedAt, "langfuse.observation.metadata.ttfaMs": completedAt - startedAt } : {}),
         "langfuse.observation.metadata.outputFrames": frames,
         "langfuse.observation.metadata.outputBytes": outputBytes,
@@ -126,6 +141,7 @@ export function observeVoiceSocket(socket: Socket, options: {
     } });
     flushResponses();
     response = undefined;
+    publishConversation();
   };
   const finalizeSession = (reason = "close") => {
     if (closed) return;
@@ -166,7 +182,7 @@ export function observeVoiceSocket(socket: Socket, options: {
     setResponseTraceContext: (context) => { nextResponseContext = context; },
     async read() {
       const raw = await socket.read();
-      if (typeof raw !== "string" || closed || !tracer.enabled) return raw;
+      if (typeof raw !== "string" || closed) return raw;
       let event: Record<string, unknown>;
       try { event = JSON.parse(raw); } catch { return raw; }
       const normalized = protocol.parseServerEvent(event);
@@ -241,15 +257,20 @@ export function observeVoiceSocket(socket: Socket, options: {
       return raw;
     },
     async write(value) {
-      if (!closed && tracer.enabled) {
+      await socket.write(value);
+      if (!closed) {
         try {
           const event = JSON.parse(value);
           if (event.type === "response.cancel") {
             cancelRequest?.observation.end({ "langfuse.observation.output": { status: "superseded" } });
             cancelRequest = { eventId: event.event_id, observation: tracer.start("realtime.cancel", "span", response?.context ?? root.context, { "langfuse.observation.input": event }) };
           }
-          if (event.type === "session.update") {
+          if (event.type === "session.create" || event.type === "session.update") {
             tracer.start("realtime.context", "span", root.context, { "langfuse.observation.input": event }).end();
+          }
+          if (event.type === "speech_text_buffer.commit" && typeof event.text === "string" && event.text.trim()) {
+            ensureResponse();
+            committedSpeech = event.text;
           }
           if (event.type === "input_audio_buffer.append" && typeof event.audio === "string") {
             if (turn) {
@@ -264,7 +285,6 @@ export function observeVoiceSocket(socket: Socket, options: {
           }
         } catch { /* Socket owns malformed frame errors. */ }
       }
-      await socket.write(value);
     },
     async close() { finalizeSession(); await socket.close(); },
   };
