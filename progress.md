@@ -2134,3 +2134,7 @@
 - [x] Step 3：独立复核证据，记录根因、配置调整建议和未确认项。
   - [x] 子 agent 独立复核 ASR 归属、时间线和双端 AEC；保留回声为主要解释，不将参数已发送等同于服务端已生效。
   - [x] 修正项记入 todo.md；本轮仅诊断，未修改业务代码与语音参数。
+- [x] Step 4：核验豆包 API 与设备端解决方案。
+  - [x] 核验 Seeduplex 回声处理、自动判停与主动控制能力：现役双工移动 SDK `0.0.15.0` 内置端侧 AEC，需要启用开关与 `aec.model`；直接 WebSocket 的公开参数未提供 AEC 开关。
+  - [x] 对照 iOS 13+ 语音处理与 Android API 28+ AAudio 会话／Java AEC 互操作，明确沿用现有原生音频层的最小改法与 SDK 接管采播的集成成本。
+  - [x] 方案整理到 `docs/voice-duplex-aec-and-turn-taking.md`，独立复核通过；区分云端动态判停、手机系统 AEC 和官方 SDK 软件 AEC，并说明各自集成成本。
