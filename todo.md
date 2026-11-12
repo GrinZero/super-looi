@@ -7,7 +7,9 @@
 ## Codex Cloud 插件
 
 - [ ] 在 App 内通过 `codex_exec` 委派创建／配置环境，再通过 `codex_cloud` 在该环境启动任务，核对真实受理回执；按实际执行结果处理缺少的能力或访问条件，不将单独实现环境管理 API 作为前置条件。
-- [ ] 修复 iOS 26.3 模拟器 Safari 登录页的中文缺字方框并完成 App 自有账号登录。苹方简体已下载，CoreText 能取得实际中文字形；WebKit 页面仍缺字。网络已恢复：Safari QUIC 原命中 UDP→DIRECT，现仅对 CoreSimulator WebKit UDP/443 阻止直连，实际 `auth.openai.com` 连接走 HTTPS 美国代理；App CLI 使用模拟器构建专用代理变量。
+- [ ] 确认 video2rig 所属账号／工作区，完成 Cloud 受理验证。App 自有账号已正常登录；Task Agent 实测 EXEC 自然语言与同一会话继续成功，Cloud 返回当前工作区无环境并准确记录 not_submitted。登录故障与证据见 [Codex Linux 登录修复](docs/codex-linux-login-diagnosis.md)。
+- [ ] 修复 Codex EXEC 的实际命令创建失败：官方 Code Mode companion 已随包补齐，`pwd` 调用返回 `Failed to create unified exec process: Invalid argument (os error 22)`。固定 iSH 未实现 PR_SET_PDEATHSIG，而 Codex Linux spawn setup 会调用该接口；需补齐实际语义并验证进程退出行为。
+- [ ] 定位 iSH 中 vendored OpenSSL 的记录解密错误：reqwest 0.12.28／native-tls 0.2.14 返回 `0A000119 decryption failed or bad record mac`，X509VerifyResult=ok；同一进程的 rustls 路径成功。Codex 当前已固定使用验证通过的 rustls 路径。
 - [ ] 补齐固定 NSH 版本的 Android 打包 runtime 后完成 APK 编译；本轮命令报告 `/private/tmp/super-looi-nsh-v040/target/android/debug` 不存在，Android 插件打包回归已通过。
 
 ## 语音过早接话与重复收音

@@ -48,13 +48,28 @@
   - [x] 每轮贡献工具和标准 Skill，继承现有运行配置与 trace
   - [x] 新增横屏插件页，接通账号、默认环境／分支与执行详情；模拟器实际显示 CLI 0.167.2 并打开官方登录页
 - [ ] Step 3：实际验证与交付
-  - [x] 插件 10 项、构建环境 4 项与 runtime 105 项通过；NSH 类型检查与完整构建已通过，核心提交 `d5d3a08`
-  - [x] 安装不受开发热重载影响的独立模拟器包；CLI 已接入模拟器代理配置，Safari 登录请求实际走代理
+  - [x] 插件 11 项、构建环境 4 项与 runtime 105 项通过；NSH 类型检查与完整构建已通过，核心提交 `d5d3a08`
+  - [x] 使用 NshDev 开发包验证；CLI 已接入模拟器代理配置，Safari 登录请求实际走代理
   - [x] 定位 Safari QUIC 命中 UDP 直连规则；仅对 CoreSimulator WebKit 的 UDP/443 拒绝直连，实际 auth 请求已改为 HTTPS 美国代理；真机打包排除模拟器代理并通过独立复核
-  - [ ] 模拟器 Safari 中文字体修复；苹方简体已下载，CoreText 字形探针通过，官方登录页仍显示缺字方框
-  - [ ] 定位实际登录失败，验证同一登录态下两工具的执行结果
+  - [x] 模拟器 Safari 单独设置 English 后，开发包打开可读的官方登录表单；中文字体本身仍有 WebKit 缺字问题
+  - [x] 首次账号目录改用官方默认 HOME 初始化；提交 `6883d7e`，独立复核通过
+  - [x] 采样确认登录等待超过 60 秒触发 iSH poll 空闲强退，并在退出清理时重入 poll 锁；独立复核确认根因
+  - [x] 仓库补丁仅跳过 App owner 的通用空闲强退；两份 iOS 静态库已增量重编译，Cargo 监听实际链接库
+  - [x] NshDev 实测 Codex 登录等待 70 秒仍存活，随后取消成功；另一次登录按 4 秒期限返回 timed_out，回收后 1455 端口关闭；独立 review PASS
+  - [x] 清理失败立即结束过期授权挑战，错误码 ERR_SHELL_CLEANUP 沿原链路保留；11 项插件回归通过
+  - [x] 生命周期修复隔离提交 `78d6522`；重新授权已到达 CLI 本地回调，实际失败进入 `oauth/token` 请求发送阶段
+  - [x] Linux curl 实测代理隧道、TLS 证书校验及服务端 HTTP 405 响应；CLI 指定系统证书后触发 P-521 provider 断言，临时网络探针已撤下
+  - [x] Step 3.1：以固定版本 TLS 依赖在 App Linux 中复现并打印底层错误链
+    - [x] 独立复核证书 override 会切换 rustls，P-521 断言先于 CA 读取，分开定位两条失败路径
+    - [x] 原生 TLS 回执包含 X509VerifyResult=ok 及 0A000119 bad record mac；rustls 静态列表在半字通道复制时被破坏
+    - [x] 修正 iSH LD1/ST1 halfword 通道解码两处 size 位选择；同一汇编回归从退出码 3 变为 0，13 项算法完整复制，P521 查询成功
+    - [x] rustls HTTPS 实测返回 405；官方 CLI 使用 Alpine 证书文件后成功获取设备验证码；11 项插件回归与独立 review 通过，提交 `d8aeb31`
+  - [x] 正常浏览器登录完成，插件显示已登录；Task Agent 调用 EXEC 返回 NSH_CODEX_OK，同一会话继续返回 NSH_CODEX_RESUME_OK；开发包重载后仍可读取登录态
+  - [x] Task Agent 实际调用 Cloud，CLI 返回当前工作区无环境，工具准确记录 not_submitted，没有创建云任务
+  - [x] 随包补齐官方 codex-code-mode-host，iOS 组件 marker 升级与登录态保留实测通过，Android 打包回归、16 KB 对齐及独立 review 通过
+  - [ ] 修复 EXEC 命令创建的 EINVAL(22)，完成真实 Shell 命令与 Cloud 受理验证；Cloud 待确认 video2rig 所属账号／工作区
   - [x] 独立 review、更新架构与待办，隔离提交实现
-  - [ ] 并行语音修改完成后重跑完整 App 检查；本轮 NSH check 报告 VoiceSpaceView 缺少豆包定义及 selectProvider 类型，runtime tsc 报告播放回执字段，Codex 范围无报错
+  - [x] 完整 NSH check 与 Node 兼容包构建通过
 
 ### Codex CLI 随 App Linux 内置（2026-11-12）
 
