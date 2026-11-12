@@ -2138,3 +2138,13 @@
   - [x] 核验 Seeduplex 回声处理、自动判停与主动控制能力：现役双工移动 SDK `0.0.15.0` 内置端侧 AEC，需要启用开关与 `aec.model`；直接 WebSocket 的公开参数未提供 AEC 开关。
   - [x] 对照 iOS 13+ 语音处理与 Android API 28+ AAudio 会话／Java AEC 互操作，明确沿用现有原生音频层的最小改法与 SDK 接管采播的集成成本。
   - [x] 方案整理到 `docs/voice-duplex-aec-and-turn-taking.md`，独立复核通过；区分云端动态判停、手机系统 AEC 和官方 SDK 软件 AEC，并说明各自集成成本。
+
+## Android AEC 三项核查（2026-11-12）
+
+- [x] Step 1：追踪实际采播配置。
+  - [x] 使用 AAudio，输入请求 preset `7`（`VOICE_COMMUNICATION`）、输出请求 usage `2`（语音通信），Java 设置 `MODE_IN_COMMUNICATION`；输入 preset 未读回。
+- [x] Step 2：核对 AEC 控制和播放参考证据。
+  - [x] 未调用 AAudio `setSessionId/getSessionId`，没有 Java AEC 创建、启用／读回与释放逻辑；现有状态回执无 AEC 信息。NDK 默认会话 ID 为 `NONE`，尚未接入应用可控的 Java AudioEffect 路径。
+  - [x] 自定义队列经 `AAudioStream_write` 播放，采集经独立 AAudio 流读取；没有应用侧软件 AEC／参考输入。系统是否提供正确参考、设备是否自动做 AEC 仍需真机判断，不能仅凭采样率差异或自定义播放判定失配。
+  - [x] 子 agent 独立复核三项结论与 NDK 会话语义；待确认项记入 todo.md。
+- [ ] Step 3：真机横屏读取实际 preset、音频会话／AEC 启用状态及效果链，测量外放回声；核查时 `adb devices -l` 无连接设备。
