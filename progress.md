@@ -67,7 +67,12 @@
   - [x] 正常浏览器登录完成，插件显示已登录；Task Agent 调用 EXEC 返回 NSH_CODEX_OK，同一会话继续返回 NSH_CODEX_RESUME_OK；开发包重载后仍可读取登录态
   - [x] Task Agent 实际调用 Cloud，CLI 返回当前工作区无环境，工具准确记录 not_submitted，没有创建云任务
   - [x] 随包补齐官方 codex-code-mode-host，iOS 组件 marker 升级与登录态保留实测通过，Android 打包回归、16 KB 对齐及独立 review 通过
-  - [ ] 修复 EXEC 命令创建的 EINVAL(22)，完成真实 Shell 命令与 Cloud 受理验证；Cloud 待确认 video2rig 所属账号／工作区
+  - [ ] 修复 EXEC 命令创建的 EINVAL(22)，完成真实 Shell 命令与 Cloud 受理验证
+    - [x] Linux guest 回归确认 PR_SET_PDEATHSIG 缺失；实现设置、fork／exec、凭据变化与父线程退出通知，四组 native 测试及独立 review 通过
+    - [x] 真实 Shell 推进后发现 getppid 返回父线程 TID，触发 Codex 的父进程比较并自发 SIGTERM；改为父 TGID，补齐 worker fork 断言，独立 review 通过
+    - [x] 最终 NshDev 的四组进程回归全部通过；使用 App Linux 隔离边界的 CLI 实际执行 pwd，输出 /workspace、命令退出码 0；默认 workspace-write 仍缺 bubblewrap
+    - [x] 网页与 App 请求对照确认同账号 video2rig 来自新版 /api/codex-cloud/v1/environment-configs；App 自有 CLI 登录态请求新版接口也实际返回 video2rig，旧 wham 接口为 HTTP 200 空数组
+    - [ ] 处理默认命令 sandbox 策略，并让现有 Cloud 封装支持新版环境提交协议
   - [x] 独立 review、更新架构与待办，隔离提交实现
   - [x] 完整 NSH check 与 Node 兼容包构建通过
 

@@ -7,8 +7,8 @@
 ## Codex Cloud 插件
 
 - [ ] 在 App 内通过 `codex_exec` 委派创建／配置环境，再通过 `codex_cloud` 在该环境启动任务，核对真实受理回执；按实际执行结果处理缺少的能力或访问条件，不将单独实现环境管理 API 作为前置条件。
-- [ ] 确认 video2rig 所属账号／工作区，完成 Cloud 受理验证。App 自有账号已正常登录；Task Agent 实测 EXEC 自然语言与同一会话继续成功，Cloud 返回当前工作区无环境并准确记录 not_submitted。登录故障与证据见 [Codex Linux 登录修复](docs/codex-linux-login-diagnosis.md)。
-- [ ] 修复 Codex EXEC 的实际命令创建失败：官方 Code Mode companion 已随包补齐，`pwd` 调用返回 `Failed to create unified exec process: Invalid argument (os error 22)`。固定 iSH 未实现 PR_SET_PDEATHSIG，而 Codex Linux spawn setup 会调用该接口；需补齐实际语义并验证进程退出行为。
+- [ ] 让 Cloud 封装支持新版环境提交：同账号的旧 wham 环境接口返回 HTTP 200 空数组；App 自有 CLI 登录态请求新版 /api/codex-cloud/v1/environment-configs 已实际返回 video2rig，provider=caas、状态 ready。继续核对新版提交协议与真实任务受理。证据见 [Codex Linux 登录修复](docs/codex-linux-login-diagnosis.md)。
+- [ ] 处理 Codex EXEC 默认 sandbox 策略：App Linux 的 PR_SET_PDEATHSIG／getppid 修复及四组回归已通过，CLI 在 App Linux 隔离边界内实际执行 pwd 成功；默认 workspace-write 依赖当前 guest 未提供的 bubblewrap。
 - [ ] 定位 iSH 中 vendored OpenSSL 的记录解密错误：reqwest 0.12.28／native-tls 0.2.14 返回 `0A000119 decryption failed or bad record mac`，X509VerifyResult=ok；同一进程的 rustls 路径成功。Codex 当前已固定使用验证通过的 rustls 路径。
 - [ ] 补齐固定 NSH 版本的 Android 打包 runtime 后完成 APK 编译；本轮命令报告 `/private/tmp/super-looi-nsh-v040/target/android/debug` 不存在，Android 插件打包回归已通过。
 

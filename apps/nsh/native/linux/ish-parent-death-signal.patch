@@ -1,0 +1,185 @@
+diff --git a/kernel/exec.c b/kernel/exec.c
+index 26fd3173..f1b985e4 100644
+--- a/kernel/exec.c
++++ b/kernel/exec.c
+@@ -696,6 +696,13 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp)
+     if (err < 0)
+         return err;
+
++    // Linux clears PDEATHSIG on credential changes and secure execs.
++    uid_t_ exec_euid = stat.mode & S_ISUID ? stat.uid : current->euid;
++    uid_t_ exec_egid = stat.mode & S_ISGID ? stat.gid : current->egid;
++    if (exec_euid != current->euid || exec_egid != current->egid ||
++            exec_euid != current->uid || exec_egid != current->gid)
++        current->parent_death_signal = 0;
++
+     // setuid/setgid
+     if (stat.mode & S_ISUID) {
+         current->suid = current->euid;
+diff --git a/kernel/exit.c b/kernel/exit.c
+index fa51fc2f..c08c0555 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -45,6 +45,26 @@ static bool exit_tgroup(struct task *task) {
+
+ void (*exit_hook)(struct task *task, int code) = NULL;
+
++// pids_lock keeps the thread list and recipient alive until send_signal.
++static void send_parent_death_signal(struct task *child, int signal, struct siginfo_ info) {
++    struct task *recipient = NULL, *thread;
++    list_for_each_entry(&child->group->threads, thread, group_links) {
++        if (thread->exiting || thread->zombie || thread->sighand == NULL)
++            continue;
++        if (recipient == NULL)
++            recipient = thread;
++        lock(&thread->sighand->lock);
++        bool blocked = sigset_has(thread->blocked, signal);
++        unlock(&thread->sighand->lock);
++        if (!blocked) {
++            recipient = thread;
++            break;
++        }
++    }
++    if (recipient != NULL)
++        send_signal(recipient, signal, info);
++}
++
+ static struct task *find_new_parent(struct task *task) {
+     struct task *new_parent;
+     list_for_each_entry(&task->group->threads, new_parent, group_links) {
+@@ -178,6 +198,22 @@ noreturn void do_exit(int status) {
+         child->parent = new_parent;
+         list_remove(&child->siblings);
+         list_add(&new_parent->children, &child->siblings);
++        // iSH links cloned threads to their creating thread. Linux gives
++        // them the process's external parent: notify each registration when
++        // that external parent exits, never on an internal thread exit.
++        if (child->group != current->group) {
++            struct siginfo_ info = {
++                .code = SI_USER_,
++                .kill.pid = current->tgid,
++                .kill.uid = current->uid,
++            };
++            struct task *thread;
++            list_for_each_entry(&child->group->threads, thread, group_links) {
++                int signal = thread->parent_death_signal;
++                if (signal)
++                    send_parent_death_signal(child, signal, info);
++            }
++        }
+     }
+
+     if (exit_tgroup(current)) {
+diff --git a/kernel/getset.c b/kernel/getset.c
+index 8edf84fd..299bbc94 100644
+--- a/kernel/getset.c
++++ b/kernel/getset.c
+@@ -15,7 +15,7 @@ pid_t_ sys_getppid() {
+     pid_t_ ppid;
+     lock(&pids_lock);
+     if (current->parent != NULL)
+-        ppid = current->parent->pid;
++        ppid = current->parent->tgid; // parent process ID, even when a worker thread forked
+     else
+         ppid = 0;
+     unlock(&pids_lock);
+@@ -48,6 +48,8 @@ int_t sys_setuid(uid_t_ uid) {
+         if (uid != current->uid && uid != current->suid)
+             return _EPERM;
+     }
++    if (current->euid != uid)
++        current->parent_death_signal = 0;
+     current->euid = uid;
+     return 0;
+ }
+@@ -65,8 +67,11 @@ dword_t sys_setresuid(uid_t_ ruid, uid_t_ euid, uid_t_ suid) {
+
+     if (ruid != (uid_t) -1)
+         current->uid = ruid;
+-    if (euid != (uid_t) -1)
++    if (euid != (uid_t) -1) {
++        if (current->euid != euid)
++            current->parent_death_signal = 0;
+         current->euid = euid;
++    }
+     if (suid != (uid_t) -1)
+         current->suid = suid;
+     return 0;
+@@ -113,6 +118,8 @@ int_t sys_setgid(uid_t_ gid) {
+         if (gid != current->gid && gid != current->sgid)
+             return _EPERM;
+     }
++    if (current->egid != gid)
++        current->parent_death_signal = 0;
+     current->egid = gid;
+     return 0;
+ }
+@@ -130,8 +137,11 @@ dword_t sys_setresgid(uid_t_ rgid, uid_t_ egid, uid_t_ sgid) {
+
+     if (rgid != (uid_t) -1)
+         current->gid = rgid;
+-    if (egid != (uid_t) -1)
++    if (egid != (uid_t) -1) {
++        if (current->egid != egid)
++            current->parent_death_signal = 0;
+         current->egid = egid;
++    }
+     if (sgid != (uid_t) -1)
+         current->sgid = sgid;
+     return 0;
+diff --git a/kernel/misc.c b/kernel/misc.c
+index b717275d..70ed338c 100644
+--- a/kernel/misc.c
++++ b/kernel/misc.c
+@@ -1,6 +1,8 @@
+ #include <string.h>
+ #include "kernel/calls.h"
+
++#define PRCTL_SET_PDEATHSIG_ 1
++#define PRCTL_GET_PDEATHSIG_ 2
+ #define PRCTL_GET_DUMPABLE_ 3
+ #define PRCTL_SET_DUMPABLE_ 4
+ #define PRCTL_SET_KEEPCAPS_ 8
+@@ -8,6 +10,17 @@
+
+ int_t sys_prctl(dword_t option, addr_t arg2, addr_t UNUSED(arg3), addr_t UNUSED(arg4), addr_t UNUSED(arg5)) {
+     switch (option) {
++        case PRCTL_SET_PDEATHSIG_:
++            STRACE("prctl(PR_SET_PDEATHSIG, %lu)", (unsigned long) arg2);
++            if (arg2 > NUM_SIGS)
++                return _EINVAL;
++            current->parent_death_signal = arg2;
++            return 0;
++        case PRCTL_GET_PDEATHSIG_: {
++            int_t signal = current->parent_death_signal;
++            STRACE("prctl(PR_GET_PDEATHSIG, %#lx)", (unsigned long) arg2);
++            return user_put(arg2, signal) ? _EFAULT : 0;
++        }
+         // Nothing dumps core here, but sftp-server, sshd and other hardened
+         // programs set this at startup and exit when it fails.
+         case PRCTL_GET_DUMPABLE_:
+diff --git a/kernel/task.c b/kernel/task.c
+index b0a096d2..6b21d066 100644
+--- a/kernel/task.c
++++ b/kernel/task.c
+@@ -70,6 +70,8 @@ struct task *task_create_(struct task *parent) {
+     *task = (struct task) {};
+     if (parent != NULL)
+         *task = *parent;
++    // Linux does not inherit PR_SET_PDEATHSIG across fork/clone.
++    task->parent_death_signal = 0;
+     task->pid = pid->id;
+     pid->task = task;
+
+diff --git a/kernel/task.h b/kernel/task.h
+index a6ecca2d..bb9d0b5d 100644
+--- a/kernel/task.h
++++ b/kernel/task.h
+@@ -33,6 +33,7 @@ struct task {
+     char comm[16] __strncpy_safe; // locked by general_lock
+     bool did_exec; // for that one annoying setsid edge case
+     bool undumpable; // prctl(PR_SET_DUMPABLE, 0); inherited by fork, cleared by exec
++    _Atomic int parent_death_signal; // set by this task; read by its parent during exit
+
+     struct fdtable *files;
+     struct fs_info *fs;

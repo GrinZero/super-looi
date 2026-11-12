@@ -28,6 +28,18 @@ Codex runner 为登录、EXEC 和 Cloud 统一设置 `SSL_CERT_FILE=/etc/ssl/cer
 
 修复后的原版 CLI 成功获取设备验证码；正常浏览器流程随后显示 `Signed in to Codex`，插件读取到“已登录”。Task Agent 的纯文本回复验证返回 `NSH_CODEX_OK`，使用同一会话 ID 续聊返回 `NSH_CODEX_RESUME_OK`。
 
-实际 `pwd` 命令的进程创建仍返回 `Failed to create unified exec process: Invalid argument (os error 22)`，该命令执行缺口单独记录在 `todo.md`。Cloud 实测返回当前工作区没有环境，工具记录为 `not_submitted`，未生成云端任务 ID。
+## Linux 命令启动兼容性
+
+实际 `pwd` 首先在进程创建时返回 `Invalid argument (os error 22)`。官方 Codex 在 pre-exec 中调用 `prctl(PR_SET_PDEATHSIG, SIGTERM)`，固定 iSH 尚未实现该选项。补丁在 task、prctl、fork／exec 与退出路径补齐注册、读取、重置及父线程退出通知；子进程各线程的注册与未屏蔽信号的存活接收线程均被考虑。执行后的身份变化和 secureexec 清除注册。[Codex 启动实现](https://github.com/openai/codex/blob/rust-v0.167.2/codex-rs/utils/pty/src/process_group.rs)、[Linux 退出实现](https://github.com/torvalds/linux/blob/v6.12/kernel/exit.c)、[凭据判断](https://github.com/torvalds/linux/blob/v6.12/security/commoncap.c)。
+
+推进后出现退出码 143：iSH 的 `getppid()` 返回创建线程 TID，Codex 与创建前捕获的进程 TGID 比较后主动发送 SIGTERM。修正为父 TGID 后通过 worker fork 回归。在 NshDev App Linux 内，`parent-death-signal.c` 的四组回归全部通过，包括父线程退出、worker 注册与接收、leader 先退出、fork／exec 与凭据变化。
+
+CLI 的 `workspace-write` 策略仍需要 guest 内的 bubblewrap，当前包没有该工具。使用 App Linux 自身隔离边界验证时，原版 CLI 实际执行 `pwd`，输出 `/workspace`、命令退出码 0；默认策略的处理仍记录在 `todo.md`。
+
+## 新旧 Cloud 环境接口
+
+CLI `codex cloud` 查询 `/backend-api/wham/environments`。App 自有 CLI 登录态请求该接口收到 HTTP 200 和空数组；是否附带 `ChatGPT-Account-Id` 均相同。网页中的 `video2rig` 则来自 `/api/codex-cloud/v1/environment-configs`，属于新版环境配置，provider 为 `caas`、状态 `ready`。
+
+使用同一 App Linux 登录态访问新版环境选择接口（`scope=user&limit=100&omitDraft=true&view=picker`）收到 HTTP 200，能读到 `Default environment` 与 `video2rig`；工作区 scope 只返回默认环境。因此空的旧接口不能解释为该账号没有环境。Cloud 工具原实测仍为 `not_submitted`，未生成云端任务 ID；需让现有封装支持新版环境及提交协议。
 
 客户端、浏览器授权产生的 CLI 凭据及执行进程均属于 App。开发机承担构建、安装和调试；模拟器代理是该验证环境的网络配置。

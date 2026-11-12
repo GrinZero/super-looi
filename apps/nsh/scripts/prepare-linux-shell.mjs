@@ -92,7 +92,7 @@ export async function prepareLinuxShell(target, buildEnvironment = process.env) 
   }
   if (ios) {
     const ish = join(upstream, "deps/ish");
-    for (const name of ["ish-app-process-lifetime.patch", "ish-arm64-halfword-lanes.patch"]) {
+    for (const name of ["ish-app-process-lifetime.patch", "ish-arm64-halfword-lanes.patch", "ish-parent-death-signal.patch"]) {
       const patch = join(app, "native/linux", name);
       const alreadyApplied = spawnSync("git", ["apply", "--reverse", "--check", patch], { cwd: ish, stdio: "ignore" }).status === 0;
       if (!alreadyApplied) run("git", ["apply", patch], { cwd: ish });
