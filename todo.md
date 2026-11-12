@@ -1,5 +1,11 @@
 # 当前待办
 
+## 语音过早接话与重复收音
+
+- [ ] 补齐 iOS `AVAudioEngine` 的语音处理启用；当前仅设 `voiceChat`，未调用 `setVoiceProcessingEnabled`。Android 已设通信预设，需在实际运行设备核对 AEC（回声消除）是否生效。会话 `voice_89865b34-843e-4e76-9b7f-643718479f2b` 多轮用户转写包含助手整句，回声回灌为主要解释。
+- [ ] 修正实时语音上行的 20ms 节拍：当前处理后再等待 20ms、每轮最多发一帧，缺少耗时补偿，500ms 缓冲超限丢旧帧。
+- [ ] 在真机横屏复核句中停顿和外放插话，记录最后一帧人声到服务端判停的间隔，再决定是否调整停顿窗口；三次真实握手已发送 `end_smooth_window_ms=2500` 和 `enable_custom_vad=true`，现有观测不足以判断参数失效。
+
 ## Node 兼容包导出检查
 
 - [ ] 修复 `packages/nsh-node-compat/scripts/check-exports.ts` 在 Node 中直接加载 `dist/shims/crypto.js` 的方式；当前因原生专用导入 `__nsh_native/crypto` 无法解析而失败。
