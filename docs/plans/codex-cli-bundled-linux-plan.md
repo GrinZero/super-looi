@@ -2,9 +2,9 @@
 
 ## 运行路径
 
-用户 → Voice Agent → Task Agent → App 内 Alpine `/usr/local/bin/codex` → Codex Cloud。
+用户 → Voice Agent → Task Agent → App 内 Alpine 的普通 Codex 会话 → Codex 服务与目标云环境。
 
-App 内的 Codex CLI 自行完成登录、令牌刷新、任务提交和查询。开发机承担构建与安装。用户选择先接入现有 `video2rig` 环境。插件、授权与 Task Agent 工具的设计见 [插件系统与 Codex Cloud 工具方案](plugin-system-and-codex-cloud-plan.md)。
+App 内的 Codex CLI 自行完成登录、令牌刷新、任务规划与执行。Task Agent 用自然语言委派目标，创建云环境、提交和查询等步骤由 Codex 自行组织。开发机承担构建与安装。用户选择先使用现有 `video2rig` 环境。插件、授权与任务委派的设计见 [插件系统与 Codex Cloud 工具方案](plugin-system-and-codex-cloud-plan.md)。
 
 ## 发行包与升级
 
@@ -18,22 +18,23 @@ CLI 在 Linux 准备流程中下载并打入移动端安装包，首次使用不
 
 - [x] 固定 App 自有运行环境与账号边界，核对官方 Linux 发行包。
 - [x] 接通 iOS／Android 插件打包入口和 guest 的 CLI 挂载。
-- [ ] 由 Codex 插件为 Task Agent 提供通用 `codex(args,cwd)` 工具和 Pi 标准 Skill；执行记录保留原始退出码和双流输出。
+- [ ] 由 Codex 插件为 Task Agent 提供 `codex(prompt,sessionId?,cwd?)` 委派工具和 Pi 标准 Skill；执行记录保留会话、JSONL 事件、原始退出码和双流输出。
 - [x] 在 iOS 模拟器的 App 中验证版本、Cloud 命令帮助和未登录回执。
 - [ ] 在 App 插件页完成官方登录、Cloud 列表及任务提交；Android 完整 APK 编译。
 - [ ] 完成独立 review、定向检查和文档更新。
 
 ## 登录与云端任务
 
-插件启动 App Linux 中的官方 `codex login`，将登录链接展示到插件页并打开系统浏览器。CLI 保存和刷新自身 `/root/.codex` 的凭据。Task Agent 的 `codex` 工具直接接收 CLI 参数数组与工作目录，支持帮助发现及官方 CLI 的非交互命令，不设置四种业务 action 限制；提交回执与云端完成状态分别呈现。使用方式通过 Pi 标准 Skill 提供。
+插件启动 App Linux 中的官方 `codex login`，将登录链接展示到插件页并打开系统浏览器。CLI 保存和刷新自身 `/root/.codex` 的凭据。Task Agent 的 `codex` 工具接收自然语言任务、可选会话 ID 与工作目录，启动普通 `codex exec --json`，由 Codex 自行规划与使用工具。进度和完整回答交回 Task Agent，后续可按会话 ID 继续。使用方式通过 Pi 标准 Skill 提供。
 
-第一轮验证先运行不需要登录的命令，再由 App 独立授权并提交测试任务。固定版本 CLI 支持唯一环境名称，可以传入 `--env video2rig` 由 CLI 解析实际 ID；能否使用新版 Cloud 的环境需要真实提交验证。环境创建／发布在官方网页有入口，但固定版 CLI 没有对应子命令，Agent 自主管理环境需另行接通 App 可直接使用的接口，具体要求见插件方案。
+第一轮验证先运行不需要登录的命令，再由 App 独立授权，执行普通 Codex 任务并继续同一会话。环境管理以自然语言任务验证，例如要求创建／配置环境，再要求使用该环境处理任务；不将 App 自行实现环境管理 API 作为前置条件。
 
-登录会话由插件拥有，不占用 Agent 的 Shell 期限。Cloud 非交互命令可返回受理、状态和代码差异；完整助手文字读取目前属于 CLI 的交互界面，需要单独验证其非交互出口。
+登录会话由插件拥有，不占用 Agent 的 Shell 期限。执行会话使用官方 JSONL 事件取得进度、会话 ID 和完整回答；本轮 Codex 回答与它提交的远端任务是否完成分别表达。当前使用原生 CLI 接口；外部 A2A Agent 的接入取舍见插件方案第 5.5 节。
 
 ## 来源
 
 - [官方 CLI 命令](https://learn.chatgpt.com/docs/developer-commands?surface=cli)：Cloud 提交、列表与认证说明。
+- [官方非交互任务](https://learn.chatgpt.com/docs/non-interactive-mode)：自然语言任务、JSONL 事件和会话继续。
 - [官方登录说明](https://learn.chatgpt.com/docs/auth)：设备码授权。
 - [官方 Cloud 客户端](https://github.com/openai/codex/blob/6bfdc75f0d9e6fae313234f694839866d7c63c39/codex-rs/cloud-tasks-client/src/http.rs)：提交、状态、消息和差异读取。
 - [官方 npm 平台映射](https://github.com/openai/codex/blob/6bfdc75f0d9e6fae313234f694839866d7c63c39/codex-cli/bin/codex.js)：Linux ARM64 musl 目标。

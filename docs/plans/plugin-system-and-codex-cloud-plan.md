@@ -2,23 +2,23 @@
 
 ## 1. 用户操作与调用关系
 
-用户在「插件 → Codex」完成官方 Codex 登录，随后向 LOOI 描述任务。Codex 插件向 Task Agent 提供 `codex` 命令工具和使用说明；Agent 可以读取帮助、组合参数并执行内置 CLI 支持的非交互命令。插件集中管理账号、进程、配置和执行记录。
+用户在「插件 → Codex」完成官方 Codex 登录，随后向 LOOI 描述任务。Codex 插件向 Task Agent 提供自然语言 `codex` 委派工具和使用说明；Task Agent 描述目标，普通 Codex 自行规划并使用工具执行。插件集中管理账号、进程、配置和执行记录。
 
 ```mermaid
 flowchart LR
   U[插件页面] --> H[PluginHost]
   P[Codex 插件] --> S[Pi Skill 使用说明]
   S --> A[Task Agent]
-  A --> T[codex 命令工具]
+  A --> T[codex 自然语言委派工具]
   T --> H
   H --> P
   P --> L[App Linux 内的 Codex CLI]
-  L --> C[Codex Cloud]
+  L --> C[Codex 服务与目标云环境]
 ```
 
 登录和工具执行进入同一个 Codex 插件，使用同一份 `CODEX_HOME=/root/.codex`。CLI 随 App 的 Linux 运行环境打包。账号、进程、配置和凭据均属于 App；开发机仅负责构建、安装与调试。
 
-工具公开 CLI 参数，不以提交／列表／状态／差异四种业务操作作为能力上限。Cloud 环境创建与发布需要另外核实其实际接口；CLI 命令开放与 Cloud 全部功能覆盖是两个独立验收项，见第 5 节。
+插件通过普通 Codex 会话承接任务，能力随 Codex 及其可用工具扩展。环境创建等目标直接交给 Codex，工具接口不枚举业务操作。
 
 ## 2. 正常登录与登录态复用
 
@@ -27,7 +27,7 @@ flowchart LR
 1. 用户点击插件页的「登录 Codex」。
 2. 插件在 Linux 中启动 `codex login`，接收该进程产生的登录链接，并以 `AuthChallenge` 事件交给界面。
 3. App 打开系统浏览器；官方 CLI 负责 OAuth 回调、换取令牌及保存凭据。
-4. CLI 成功退出后，插件显示已登录。后续 `codex cloud ...` 进程使用相同的 `CODEX_HOME` 和凭据存储配置。
+4. CLI 成功退出后，插件显示已登录。后续 `codex exec ...` 进程使用相同的 `CODEX_HOME` 和凭据存储配置。
 5. 令牌刷新由官方 CLI 管理；用户退出账号时执行 `codex logout`。
 
 配置采用官方 `cli_auth_credentials_store="file"`，凭据存入 App 私有 Linux guest 的 `/root/.codex/auth.json`。插件页面和模型输入使用账号状态、登录链接、进程结果，不传递 token。这里复用的是 Codex 插件自己完成的登录态；现有模型 API 页的 ChatGPT 授权继续使用自己的流程。
@@ -38,10 +38,10 @@ flowchart LR
 
 | 方式 | 调用方获得什么 | 复杂度 | 选择 |
 | --- | --- | --- | --- |
-| 官方 CLI 子命令适配 | 正常登录、Cloud 命令、原始进程回执 | 固定版本的登录链接和命令输出解析；复用现有进程管道 | 首版采用，与最终执行路径一致 |
-| 官方 app-server JSON-RPC | 结构化账号请求和登录事件 | 需要双向 stdin 管道或额外本地传输；现有 Shell 仅有输出管道 | 等实际需要其会话 API 时引入，插件公开接口保持稳定 |
+| 官方 CLI 子命令适配 | 正常登录、自然语言任务、JSONL 执行事件 | 登录链接解析与 JSONL 事件适配；复用现有进程管道 | 首版采用，与最终执行路径一致 |
+| 官方 app-server JSON-RPC | 结构化账号请求和登录事件 | 需要双向 stdin 管道或额外本地传输；现有 Shell 仅有输出管道 | 执行中交互需要双向会话时引入，保留任务委派接口 |
 
-CLI 版本固定为 `0.167.2`。登录链接和已知 Cloud 回执的文本解析集中在 Codex 适配器中；原始输出始终保留。界面与插件宿主不解析终端文本。
+CLI 版本固定为 `0.167.2`。登录链接解析和任务 JSONL 事件适配集中在 Codex 适配器中；原始输出始终保留。界面与插件宿主不解析终端文本。
 
 ## 3. 插件的公共契约
 
@@ -75,7 +75,7 @@ interface PluginAuth {
 
 `AgentTool` 直接复用现有 Pi 工具类型。`PluginContext` 只提供已有能力的入口：Linux 进程执行、插件配置存储、本地 trace 和状态／授权事件发布。浏览器操作由界面响应 `AuthChallenge` 事件执行。
 
-使用说明采用 Pi 标准 `SKILL.md`，随插件发布，`PluginDefinition.resources.additionalSkillPaths` 声明其路径；宿主按启用状态聚合后交给 Pi 的 `DefaultResourceLoader`。Skill 解释命令发现、默认环境／分支、回执含义和真实能力缺口；工具负责执行。沿用 [Pi SDK 生态接入方案](pi-ecosystem-runtime-plan.md) 的加载方式，`PluginHost` 只管理 App 账号、启停和资源贡献，不新增技能协议或技能加载器。
+使用说明采用 Pi 标准 `SKILL.md`，随插件发布，`PluginDefinition.resources.additionalSkillPaths` 声明其路径；宿主按启用状态聚合后交给 Pi 的 `DefaultResourceLoader`。Skill 解释任务委派、默认环境／分支、会话继续和回执含义；工具负责执行。沿用 [Pi SDK 生态接入方案](pi-ecosystem-runtime-plan.md) 的加载方式，`PluginHost` 只管理 App 账号、启停和资源贡献，不新增技能协议或技能加载器。
 
 `begin()` 在登录进程受理后返回会话 ID，授权是否结束通过事件通知；页面不需要等待整个登录过程才能显示内容。事件按插件 ID 和会话／调用 ID 关联：
 
@@ -114,8 +114,8 @@ interface PluginSnapshot {
 | 新增部分 | 具体用途 | 成本 |
 | --- | --- | --- |
 | 插件定义与 `PluginHost` | 将页面、账号操作和工具注册指向同一实例，统一启停 | 一份静态目录、实例表与少量生命周期代码 |
-| Codex 适配器 | 集中处理 CLI 版本、登录流程、参数执行、进程记录与已知回执提取 | 保留通用执行契约；仅已知回执解析需要跟随 CLI 变更 |
-| Codex Skill | 告诉 Agent 如何发现和组合 CLI 能力，解释环境管理入口 | 一份随 CLI 版本维护的标准说明；复用 Pi 加载机制 |
+| Codex 适配器 | 集中处理 CLI 版本、登录流程、会话执行、进程记录与事件适配 | 保留任务委派契约；事件适配跟随官方 CLI 版本 |
+| Codex Skill | 告诉 Task Agent 如何委派任务、提供上下文并继续 Codex 会话 | 一份随 CLI 版本维护的标准说明；复用 Pi 加载机制 |
 | 插件页及 Codex 配置面板 | 展示账号状态、登录／取消／退出、默认环境与分支 | 增加一个管理空间，复用现有控件和主题 |
 
 首版沿用 monorepo、SQLite、Pi 工具和 Linux 执行接口；插件定义随 App 发布。引入这些边界的收益是新增插件可以独立提供账号和工具能力，调用方保持一致。
@@ -129,7 +129,7 @@ interface PluginSnapshot {
 | 开始登录 | 创建插件自己的 `AuthSession`，持有 CLI 子进程和结果监听 | 官方 CLI 完成授权及落盘 |
 | 离开插件页面 | 界面解除订阅，插件实例继续持有登录会话 | 返回页面可以继续显示同一次登录 |
 | 用户取消登录 | 中止该登录进程，等待实际退出后执行同一目录下的 `login status` | 根据 CLI 实际落盘结果更新账号状态 |
-| 启用插件 | 为后续 Task Agent 轮次提供工具与 Skill | 帮助等本地命令无需登录；服务命令使用当前 CLI 登录态 |
+| 启用插件 | 为后续 Task Agent 轮次提供工具与 Skill | Codex 执行任务时使用当前 CLI 登录态 |
 | 停用插件 | 后续轮次不再贡献其工具与 Skill；取消插件持有的本地调用并等待退出 | 已提交的 Cloud 任务保持云端状态 |
 | 退出账号 | 先结束并等待正在进行的登录，再由 CLI 执行 `logout` | 启用设置与环境配置保留；旧登录进程已无法再次写入凭据 |
 | App 关闭 | `stop("app_shutdown")`，结束本地进程，完成 trace 后释放存储与 Shell | 已提交的 Cloud 任务可以稍后按 ID 查询 |
@@ -141,97 +141,101 @@ interface PluginSnapshot {
 
 停用影响插件贡献和插件持有的进程。Linux 中已经安装的 CLI 与文件继续存在；停用设置不承担撤销整个 Linux Shell 执行权限的职责。退出账号由官方 `logout` 处理。
 
-## 5. Task Agent 的 Codex 入口与能力覆盖
+## 5. Task Agent 向 Codex 委派任务
 
-### 5.1 接口选择
+### 5.1 输入与职责
 
-代表性任务包括：提交代码任务、查询状态、将结果应用到本地仓库、读取新增子命令帮助、创建并发布一个新的 Cloud 环境。用这些任务比较三种入口：
+Task Agent 将自然语言目标交给普通 Codex，由 Codex 自行规划并使用其工具完成。创建环境、准备依赖、提交云端任务或继续处理结果，都可以作为任务描述；不需要为每个目标设计对应 action。
 
-| 入口 | 调用示例 | 收益与成本 | 选择 |
-| --- | --- | --- | --- |
-| 固定业务 action | `{action:"submit", ...}` | 常见操作参数简短；每加入命令或选项都要修改 schema、映射与说明，已经遗漏 `cloud apply` | 移除 |
-| 现有 `bash` + Codex Skill | `codex cloud apply <id>` | 复用全部 Shell 能力；Agent 负责 Shell 引号，插件无法直接持有这次工具进程，记录是普通 Shell 回执 | 保持现有 Shell 可用，不以此实现专用入口 |
-| 结构化 CLI 工具 + Codex Skill | `{args:["cloud","apply","<id>"],cwd:"/workspace/repo"}` | 直接表达官方 argv；插件持有进程、关联账号和回执；成本是一层复用 Linux 进程接口的适配 | 采用 |
-
-专用工具的价值是处理账号、进程与执行记录的关联，以及给出无需 Shell 引号的参数接口。官方命令语法仍由 CLI 定义，适配器不维护业务操作白名单。CLI 新增非交互命令后，更新内置二进制及 Skill 即可使用，无需扩展工具参数枚举。
-
-### 5.2 输入与发现
-
-工具名为 `codex`，可执行文件固定为 App Linux 内的 `/usr/local/bin/codex`：
+工具名为 `codex`：
 
 ```ts
-interface CodexCommandInput {
-  args: string[];
-  cwd?: string; // guest 中的工作目录，默认当前任务工作区
+interface CodexTaskInput {
+  prompt: string;
+  sessionId?: string; // 指定 Codex 会话，继续该会话；不传则新建
+  cwd?: string;       // guest 工作目录，默认当前任务工作区
 }
 ```
 
-`args` 通过现有 `spawn(file,args)` 接口交给执行层；NSH 兼容层已有逐参数引用后调用 Linux Shell 的实现，Agent 无需构造 Shell 命令。适配器不隐式插入 Cloud 环境或分支参数。插件配置提供默认环境与分支，Skill 指导 Agent 在需要时显式带上参数。账号状态只影响需要登录的操作；`--version`、`--help` 等命令在未登录时也能执行。
-
-每轮任务生成工具说明时带上 CLI 版本、账号状态摘要、默认环境／分支和 Skill 路径，使 Agent 能取得实际配置值；不增加一套独立配置查询协议。
-
-使用路径：
+代表性调用：
 
 ```json
-{"args":["--help"]}
-{"args":["cloud","--help"]}
-{"args":["cloud","exec","--help"]}
-{"args":["cloud","exec","--env","video2rig","--branch","main","定位导入视频时报错的原因，修复后运行相关测试。"]}
-{"args":["cloud","list","--json"]}
-{"args":["cloud","apply","<task-id>"],"cwd":"/workspace/repo"}
+{"prompt":"为这个仓库创建并配置一个 Codex Cloud 环境，完成后告诉我环境名称和结果。"}
+{"prompt":"在 video2rig 环境定位视频导入失败的原因，修复后运行相关测试。"}
+{"sessionId":"<上次返回的 Codex 会话 ID>","prompt":"继续处理刚才失败的测试，并告诉我最终结果。"}
 ```
 
-这些是用法示例，不构成可执行命令清单。`cloud apply` 等命令仍需工作目录内有 Git 仓库及相应依赖，直接保留 CLI 报告的实际失败。
+插件负责账号、进程、会话标识和回执；Codex 负责执行任务的规划与工具选择。Task Agent 可以补充上下文、接收结果并继续追问。Codex 使用 App Linux 的工具、文件、登录与网络能力。
 
-现有 Linux 进程桥接没有可写 stdin 或 PTY（伪终端）。该工具承载非交互命令；无子命令的 `codex` 或 `codex cloud` 交互界面需要另行实现终端输入。登录由插件的 `AuthSession` 承载，不占用 Agent 工具会话；不能因参数开放就宣称 TUI（终端交互界面）也已接通。
+接口取舍：
 
-账号命令共享 Codex 适配器内的账号协调实例：页面的 `auth.begin()` 用默认参数开始登录，工具的 `login ...` 将原始参数交给同一个登录入口，并返回 `authSessionId`、`process.state:"running"` 及空退出码；授权链接和最终进程结果继续通过该会话的事件发布。Agent 任务结束不销毁这个登录会话。`login status` 及帮助命令按普通只读命令执行；`logout` 先结束并等待正在进行的登录，再执行真实退出命令。登录会话的取消、离开页面、停用和 App 关闭均沿用第 4 节，工具不能另起页面无法管理的登录进程。
+| 入口 | 调用方需要知道什么 | 收益与成本 | 选择 |
+| --- | --- | --- | --- |
+| 固定 Cloud action | 提交、查询等操作及参数 | 每增加操作都要修改工具 schema 和命令映射 | 移除 |
+| 原始 CLI argv | 官方子命令及参数组合 | 适合精确命令，但 Task Agent 仍需自行组织处理步骤 | 精确命令可使用已有 Shell |
+| 自然语言委派 | 目标、必要上下文及可选会话 ID | 复用 Codex 自身的规划与执行能力；插件适配会话和事件 | 主要入口 |
 
-### 5.3 输出与命令语义
+这一层复用官方 Codex 执行循环，不新增 Agent 框架或另一套业务操作路由。Pi Skill 说明如何委派、传递上下文、继续会话和读取结果；工具说明提供实际账号状态、默认环境／分支与 CLI 版本。
 
-通用输出保留实际进程结果；对于识别到的官方回执，附加结构化信息供界面和 Agent 使用：
+### 5.2 CLI 执行与会话继续
+
+首版使用 App Linux 内的官方 `codex exec --json`。任务描述作为单个参数传入现有 `spawn(file,args)` 接口，不需要可写 stdin 或终端输入。管理类任务可在没有本地 Git 仓库的工作目录运行，使用官方 `--skip-git-repo-check`；不为此新建占位仓库。
+
+- 新建：`codex exec --json --skip-git-repo-check <prompt>`。
+- 继续：`codex exec --json --skip-git-repo-check resume <sessionId> <prompt>`。
+- CLI 配置与登录继续使用同一 `CODEX_HOME=/root/.codex`；会话文件由官方 CLI 保存，不启用 ephemeral（临时会话）模式。
+- 明确传入返回的会话 ID，避免用 `--last` 选中其他任务的会话。App 现有任务记录保存 Task Agent 调用与 Codex 会话的关联。
+
+执行配置由当前任务上下文传入，覆盖 CLI 默认只读配置：只读任务使用 `read-only`，允许工作区修改的任务使用 `workspace-write`，已允许完整 guest 操作的任务使用 `danger-full-access`；网络配置沿用该任务实际允许的范围。App 的 `ask` 模式仍走已有工具授权入口，`codex` 委派注册到相同规则；`yolo` 模式沿用既有直接执行行为。非交互 `exec` 设置 `approval_policy="never"`，在外层已授予的范围执行，不额外建立插件审批流程。需要执行中逐项交互时接入下述 app-server；实现时在模拟器实际验证命令执行、文件写入和网络请求，底层执行失败保留真实原因。
+
+官方 JSONL（逐行 JSON）事件用于输出适配：`thread.started` 提供会话 ID，`item.*` 提供消息与执行进度，`turn.completed`／`turn.failed` 提供轮次结束信息。完整回答来自 `agent_message`；不再用 `cloud list/status` 的改动统计代替 Codex 回答。
+
+当实际交互需要双向输入、执行中追问或结构化用户提问时，使用同一内置 CLI 的 `app-server` 接口承载持续会话。它需要补齐现有 Shell 的双向传输；不因此增加开发机服务。
+
+### 5.3 输出与生命周期
 
 ```ts
-interface CodexCommandResult {
-  pluginId: "codex";
-  args: string[];
-  cwd: string;
-  authSessionId?: string;
-  process: {
-    state: "running" | "exited" | "start_failed" | "cancelled" | "timed_out" | "stop_unconfirmed";
+interface CodexTaskResult {
+  sessionId?: string;
+  outcome: "completed" | "failed" | "cancelled" | "timed_out" | "stop_unconfirmed";
+  answer?: string;
+  execution: {
     exitCode: number | null;
     signal?: string;
     stdout: string;
     stderr: string;
-    outputFiles?: { stdout?: string; stderr?: string };
-  };
-  cloud?: {
-    submission?: "accepted" | "unconfirmed";
-    task?: { id: string; url?: string; providerStatus?: string };
+    outputFiles?: { events?: string; stderr?: string };
   };
   failure?: { stage: string; code?: string | number; reason: string };
 }
 ```
 
-`process.state:"running"` 用于转交插件管理的登录会话；`exitCode` 为 `null`，最终输出沿相同 `authSessionId` 归档。`process.state:"exited"` 只描述进程退出，不等同于业务成功。`cloud` 是对已知输出的补充，不是执行命令的前提。未接入结构化解析的子命令照常执行并返回真实退出码、双流输出；新命令不会因为适配器不认识而失去可用性。工具消息的错误标记按已识别的子命令语义设置，其他命令按实际退出码生成错误标记并保留原文。现有执行层返回清理未确认时，保留 `stop_unconfirmed` 及底层原因，不能改写成已取消。
+执行进度沿用插件输出事件和现有 trace。回答返回 Task Agent，完整事件流与大输出保存在任务可读取的文件中；保留真实阶段、CLI 退出码及服务错误，失败轮次不因进程退出而标记完成。
 
-固定版 `cloud status` 成功读取到 `pending`、`applied` 或 `error` 时也返回退出码 1，只有 `ready` 返回 0。适配器必须保留真实退出码，同时区分“查询读到了任务错误状态”和“查询请求失败”。`cloud list --json` 返回任务列表与分页游标；`cloud diff` 返回补丁；当前非交互命令没有助手完整文字出口，列表中的 `summary` 是改动统计。
+工具调用期间由插件持有 Codex 子进程，Task Agent 取消、插件停用或 App 关闭时停止该本地调用并等待实际结果。已结束的 Codex 会话保留，可按 ID 再次继续；本地取消不代表 Codex 已提交的远端任务停止。登录会话仍由插件页的 `AuthSession` 管理，与执行会话分别持有资源。
 
-输出沿用现有 trace。超过工具消息容量的帮助、JSON 或补丁保存到任务可读取的文件，`outputFiles` 返回路径，消息注明截取范围；Agent 可以用文件工具继续读取全文。不能只返回最后 4 KiB 导致命令帮助或差异内容丢失。
+Codex 本轮结束与远端 Cloud 任务完成分别表达。例如 Codex 回答“已提交，任务仍在运行”时，工具可以结束本轮委派，Task Agent 之后继续同一会话询问结果。插件不另建 Cloud 操作状态机。
 
-已受理的 Cloud task ID 和链接进入现有会话与任务记录；进程退出不代表云端任务完成。提交开始后若未收到受理回执便中断，返回 `cloud.submission:"unconfirmed"`，以及实际可判定的 `cloud.task`；拿不到 ID 时省略 `task`，`failure` 仍保留 `cloud.submit` 阶段及原因，不自动重提。固定版 CLI 没有 Cloud 取消或追问子命令，本地进程取消不产生“云端任务已取消”的结论。
+### 5.4 环境创建作为委派场景
 
-### 5.4 环境创建与发布
+“创建并配置一个新的云环境”直接作为普通 Codex 的任务描述。插件保留 Codex 自身可用的工具与能力，由它选择执行路径；不将存在专门的 `cloud env create` 子命令或 App 自行实现环境管理 API 作为前置条件。
 
-当前官方文档支持在网页或桌面端选择 **Create environment**，配置仓库、完成初始化，再 **Publish**；也可以从 **Settings → Codex Cloud → Environments** 进入。固定版 CLI 的 Cloud 子命令只有 `exec/status/list/apply/diff`，没有创建环境、发布或独立的非交互环境列表命令。`codex cloud` 的交互选择界面也不能作为已有非交互入口。
+验证使用实际任务：同一 App 账号登录后，要求 Codex 创建／配置环境并报告结果，再继续会话要求使用该环境执行任务。执行中实际缺少的能力、依赖或访问条件按原始回执处理。环境操作的实现由 Codex 的实际执行路径确定，不在插件宿主中逐项重做。
 
-因此，创建环境需要接通 Cloud 的实际管理入口。通用 argv 修复工具层的裁剪，无法补出服务端操作：
+### 5.5 A2A 协议适用性
 
-- 官方网页是已核实的环境管理入口。插件详情应提供环境管理入口；它属于用户交互流程，不计作 Task Agent 已具备自主创建环境的能力。网页会话与 CLI 凭据分别由官方登录流程建立，不能假设 `auth.json` 会自动变成网页登录 Cookie。
-- Agent 自主创建／编辑／发布环境，需要验证 App 能直接调用的服务接口，或建立 App 自有的网页操作能力。找到实际入口后，由 Codex 插件贡献相应的 Pi 工具与 Skill；现有工具数组已支持多个工具，无需另建操作路由或让 `codex` 假装存在 `cloud env create`。
-- 核对程序化入口时，要走通创建 → 配置 → 发布 → CLI 可选用 → 提交任务。当前网页区分 Codex Cloud 与 Legacy（旧版），CLI 按名称解析成功的实现，不能证明它一定能使用新版网页创建的环境；必须以同一账号的实际提交结果确定兼容性。
+Task Agent 委派给 Codex 已属于 Agent 间协作。标准 A2A（Agent2Agent）进一步约定 Agent Card（能力描述）、消息、任务、上下文、产物和状态更新，适合接入不同团队或框架提供的 Agent 服务。它提供通信与任务语义，具体执行仍由被调用的 Agent 完成。
 
-接入成本的比较：官方程序化管理接口若可用，适配服务请求与回执即可；使用未文档化端点需要持续跟随服务协议；网页自动化需要 App 内的页面控制、网页会话及交互处理。目前尚未核实可直接用于该 App 的公开 Cloud 环境管理 API，不能把本项目的 CLI 工具写成完整 Cloud 管理 API。环境管理缺口进入实施 Step 1，不通过固定 `video2rig` 配置将其隐藏。
+对本项目比较两种接入：
+
+| 接入 | 具体用途 | 新增成本 | 取舍 |
+| --- | --- | --- | --- |
+| Codex 原生 `exec`／`app-server` | 调用 App 内已打包的 Codex，取得回答、会话与进度 | CLI 进程和事件适配；app-server 还需双向传输 | 当前 Codex 插件使用 |
+| A2A 客户端与 Agent 服务 | 发现并调用原生支持 A2A 的不同执行 Agent | Agent Card、任务／上下文关联、协议传输与状态映射 | 出现此类实际插件时接入 |
+
+已核实的 Codex 官方嵌入接口是 `exec`、SDK 和 `app-server`；未找到官方原生 A2A 端点说明。若现在让本地 Codex 对外说 A2A，需要在 App 内另做协议适配端点，将 A2A Task／Context 映射到 Codex 轮次／会话，并处理任务查询、流式输出及取消。此时还需要原生 Codex 接入，A2A 层增加的成本暂时无法换来其他实际调用方的互通收益。
+
+因此，当前保持自然语言任务委派与原生 Codex 会话；后续接入原生 A2A Agent 时，通过现有插件工具贡献接入标准客户端。A2A 的 `contextId`／`taskId` 与 Codex 会话、App 任务 ID 分别保存关联，不混用标识。App 自有的适配与客户端均在 App 内运行，直接连接目标 Agent，不依赖 Mac 服务。
 
 ## 6. 页面、持久化与执行记录
 
@@ -247,23 +251,23 @@ interface CodexCommandResult {
 
 - `apps/nsh/runtime/plugins/contracts.ts`：插件定义、快照、授权事件与宿主能力契约。
 - `apps/nsh/runtime/plugins/host.ts`：实例、启用设置、订阅和工具贡献。
-- `apps/nsh/runtime/plugins/codex/`：CLI 进程、官方登录、通用命令工具、已知回执和标准 Skill。
+- `apps/nsh/runtime/plugins/codex/`：CLI 进程、官方登录、任务委派、JSONL 事件适配和标准 Skill。
 - `apps/nsh/ui/PluginsSpaceView.tsx`：目录与详情，复用现有管理壳和控件。
 - `apps/nsh/runtime/application.ts`：持有宿主，向界面及每轮 Agent 提供插件能力。
 - `packages/looi-runtime/src/agent/core/`：通过 Pi 标准入口接收每轮插件工具与资源贡献。
 
 实施顺序：
 
-- [ ] Step 1：在 iOS 模拟器完成官方登录及真实 Cloud 接口验证。
-  - [ ] 同一 `CODEX_HOME` 下的 `cloud list` 可用；保留已有设备码请求发送失败的底层诊断。
-  - [ ] 核实 App 自有的环境管理程序化入口及其认证方式；独立记录网页管理与 Agent 自主管理各自能完成的操作。
-  - [ ] 走通新环境创建／发布后供 CLI 提交的链路，核对新版 Cloud 与 CLI 的兼容性。
-- [ ] Step 2：落地插件契约与宿主，通过 Pi 接入工具、Skill 和启停行为。
-- [ ] Step 3：实现通用 `codex(args,cwd)`、完整输出读取、已知回执及本地任务关联；使用 `--help` 和 `cloud apply --help` 验证工具没有四操作限制。
-- [ ] Step 4：实现横屏插件页，接通登录状态、默认环境／分支、环境管理入口及执行详情；程序化环境管理按 Step 1 核实的接口接入。
-- [ ] Step 5：在模拟器完成登录 → 帮助发现 → 环境管理 → 提交 → 查询 → 差异／结果读取，以及重启复用登录态；独立 review 后交付。
+- [ ] Step 1：在 iOS 模拟器完成官方登录与普通 Codex 的真实执行。
+  - [ ] 同一 `CODEX_HOME` 下运行 `codex exec --json`，取得实际回答和会话 ID，保留已有登录请求失败的底层诊断。
+  - [ ] 使用会话 ID 继续任务，读取进度、完整回答和原始失败回执。
+  - [ ] 以自然语言要求创建／配置 Cloud 环境，再委派使用该环境执行的任务。
+- [ ] Step 2：落地插件契约与宿主，通过 Pi 接入委派工具、Skill 和启停行为。
+- [ ] Step 3：实现 `codex(prompt,sessionId?,cwd?)`、JSONL 事件适配、完整输出读取及本地任务关联。
+- [ ] Step 4：实现横屏插件页，接通登录状态、默认环境／分支及执行详情。
+- [ ] Step 5：在模拟器完成登录 → 委派 → 继续会话 → 结果读取，以及重启复用登录态；独立 review 后交付。
 
-验收围绕实际行为：同一登录态用于 Cloud 命令；未登录时可读取帮助；CLI 支持的非交互参数可直接执行；大输出能继续读取；环境管理有真实入口并明确 Agent 能完成的操作；界面离开后授权会话继续；取消后旧回调不覆盖新会话；启停影响后续插件贡献；受理与完成分开呈现；真实失败可定位。
+验收围绕实际行为：同一登录态用于普通 Codex 任务；自然语言目标能进入真实执行；显式会话 ID 可继续任务；进度和完整回答可读取；界面离开后授权会话继续；取消后旧回调不覆盖新会话；启停影响后续插件贡献；Codex 本轮结束与远端任务完成分别呈现；真实失败可定位。
 
 ## 8. 来源
 
@@ -272,6 +276,8 @@ interface CodexCommandResult {
 - [CLI 命令参考](https://learn.chatgpt.com/docs/cli/reference)：CLI 命令发现、Cloud 子命令及列表输出。
 - [Cloud 环境](https://learn.chatgpt.com/docs/environments/cloud-environments)：创建、配置、发布与新版／Legacy 的区分。
 - [固定版 Cloud 命令实现](https://github.com/openai/codex/blob/rust-v0.167.2/codex-rs/cloud-tasks/src/lib.rs)：唯一环境名解析、状态及差异输出。
+- [非交互任务与 JSONL 事件](https://learn.chatgpt.com/docs/non-interactive-mode)：自然语言输入、会话继续与完整回答。
+- [A2A 概览](https://a2a-protocol.org/latest/topics/what-is-a2a/)及[任务生命周期](https://a2a-protocol.org/latest/topics/life-of-a-task/)：跨 Agent 通信、上下文和任务语义。
 - [固定版 Cloud 子命令定义](https://github.com/openai/codex/blob/rust-v0.167.2/codex-rs/cloud-tasks/src/cli.rs)：CLI 实际具有的 Cloud 操作。
 - [固定版 app-server 环境类型](https://github.com/openai/codex/blob/rust-v0.167.2/codex-rs/app-server-protocol/src/protocol/v2/environment.rs)：执行服务连接与状态接口，不能当作 Cloud 创建／发布接口。
 - [CLI 内置 Linux 方案](codex-cli-bundled-linux-plan.md)：发行包、安装与现有 guest 的升级方式。
