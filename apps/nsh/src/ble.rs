@@ -446,6 +446,9 @@ impl LooiBle {
 
 impl Drop for LooiBle {
     fn drop(&mut self) {
+        #[cfg(target_os = "ios")]
+        ios::release(&self.shared);
+        #[cfg(not(target_os = "ios"))]
         self.disconnect();
     }
 }

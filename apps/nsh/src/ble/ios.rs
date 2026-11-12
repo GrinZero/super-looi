@@ -13,6 +13,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     ptr, slice,
+    sync::Arc,
 };
 
 #[link(name = "CoreBluetooth", kind = "framework")]
@@ -638,6 +639,15 @@ fn emergency_stop_on_main() {
 }
 
 fn ensure_manager(mtm: MainThreadMarker, shared: &SharedBle) -> Result<(), String> {
+    let previous = BLE_MANAGER.with(|slot| {
+        slot.borrow().as_ref().and_then(|mgr| {
+            let owner = &mgr.delegate.ivars().shared;
+            (!Arc::ptr_eq(owner, shared)).then(|| owner.clone())
+        })
+    });
+    if let Some(previous) = previous {
+        release_on_main(&previous);
+    }
     let mut created = false;
     BLE_MANAGER.with(|slot| {
         if slot.borrow().is_some() {
@@ -819,6 +829,35 @@ pub(super) fn disconnect() {
                 cancel_active_peripheral(mgr);
             }
         });
+    });
+}
+
+/// Engine teardown can run while UIKit's main thread joins the JS thread.
+/// Queue cleanup without waiting, and retain the owner until it runs.
+pub(super) fn release(shared: &SharedBle) {
+    let shared = shared.clone();
+    DispatchQueue::main().exec_async(move || release_on_main(&shared));
+}
+
+fn release_on_main(shared: &SharedBle) {
+    let owns_manager = BLE_MANAGER.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|mgr| Arc::ptr_eq(&mgr.delegate.ivars().shared, shared))
+    });
+    if !owns_manager {
+        return;
+    }
+    disconnect();
+    BLE_MANAGER.with(|slot| {
+        if let Some(mgr) = slot.borrow_mut().take() {
+            unsafe {
+                let _: () = msg_send![&mgr.central, setDelegate: ptr::null::<AnyObject>()];
+                for peripheral in mgr.discovered.values() {
+                    let _: () = msg_send![&**peripheral, setDelegate: ptr::null::<AnyObject>()];
+                }
+            }
+        }
     });
 }
 
