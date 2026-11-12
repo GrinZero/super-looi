@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { nshNodeCompatPlugin } from "../../../packages/nsh-node-compat/src/bundler.js";
 import { nshCodemodePlugin } from "../../../packages/nsh-node-compat/src/codemode-bundler.js";
+import { nshPiCodingToolsPlugin } from "../../../packages/nsh-node-compat/src/pi-coding-bundler.js";
 import { nshPiSdkPlugin } from "../../../packages/nsh-node-compat/src/pi-sdk-bundler.js";
 import { loadRuntimeVariables } from "./build-env.mjs";
 
@@ -66,6 +67,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
       },
       nshPiSdkPlugin(),
       nshCodemodePlugin(),
+      nshPiCodingToolsPlugin(),
       nshNodeCompatPlugin(),
     ],
     outfile: resolve(root, "generated/looi-runtime.js"),

@@ -1,5 +1,6 @@
 import { AcceptanceRunner } from "../../looi-runtime/src/acceptance/runner.js";
 import { PiAgentExecutor } from "../../looi-runtime/src/agent/pi-executor.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { SqliteRuntimeStore } from "../../looi-runtime/src/storage/sqlite.js";
 import { createLangfuseTracer } from "../../looi-runtime/src/telemetry/langfuse.js";
 import {
@@ -166,6 +167,30 @@ equal(
   storage.tasks.load().find((task) => task.id === taskId)?.state,
   "succeeded",
 );
+const sessionId = executor.getTask(taskId)!.sessionId;
+const sessionFile = SessionManager.findById(
+  "/workspace/looi-runtime-test", sessionId, "/home/looi-runtime-test/sessions",
+);
+assert(sessionFile?.endsWith(`_${sessionId}.jsonl`), "runtime writes a Pi JSONL session");
+const sessionMessages = SessionManager.open(sessionFile!).buildSessionContext().messages;
+assert(sessionMessages.some(message => message.role === "toolResult"));
+const reopened = new PiAgentExecutor({
+  stateDirectory: "/home/looi-runtime-test", workspaceRoot: "/workspace/looi-runtime-test",
+  modelSpec: faux.getModel(), streamFn: models.streamSimple.bind(models), taskPersistence: storage.tasks,
+});
+try {
+  faux.setResponses([context => {
+    const history = resolveTranscript(context, undefined).messages;
+    assert(history.some(message => message.role === "toolResult"));
+    assert(JSON.stringify(history).includes("proof.txt"));
+    return fauxAssistantMessage("Recovered JSONL conversation");
+  }]);
+  const followUp = await reopened.run("Continue the previous task", { sessionId });
+  equal(followUp.answer, "Recovered JSONL conversation");
+  equal(SessionManager.findById("/workspace/looi-runtime-test", sessionId, "/home/looi-runtime-test/sessions"), sessionFile);
+} finally {
+  await reopened.close();
+}
 storage.close();
 // A non-cooperative async tool must not turn a stop deadline into a false exit.
 const stubbornFaux = fauxProvider(),

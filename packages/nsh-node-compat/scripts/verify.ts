@@ -93,7 +93,7 @@ for (const name of cases) {
       plugins:
         name === "pi-coding-agent"
           ? [nshCodemodePlugin(), nshPiCodingToolsPlugin(), plugin]
-          : name === "pi-sdk" || name === "pi-sdk-live"
+          : ["pi-sdk", "pi-sdk-live", "looi-runtime", "mobile-runtime"].includes(name)
             ? [
                 nshPiSdkPlugin(),
                 nshCodemodePlugin(),

@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses";
 import type { Model } from "@earendil-works/pi-ai";
 import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createLangfuseTracer, type TraceObservation } from "../src/telemetry/langfuse.js";
 
 const model: Model<"openai-responses"> = {
@@ -72,7 +73,8 @@ test("official OpenAI enables hosted search alongside local tools, records calls
     assert.deepEqual(result.steps.filter((step) => step.toolName === "web_search").map((step) => step.phase), ["tool_start", "tool_end"]);
     assert.equal(result.answer, `${prefix}[GRIN \\[ZERO\\]](<https://example.com/grin>) [项目介绍](<https://example.com/about>)`);
     assert.equal(executor.getTask(result.taskId)?.state, "succeeded");
-    const session = JSON.parse(readFileSync(join(root, "sessions/search_chat.json"), "utf8"));
+    const sessionFile = SessionManager.findById(join(root, "work"), "search_chat", join(root, "sessions"))!;
+    const session = SessionManager.open(sessionFile).buildSessionContext().messages;
     assert.ok(JSON.stringify(session).includes("https://example.com/grin"));
     const followUp = await executor.run("谢谢", { sessionId: "search_chat" });
     assert.equal(followUp.toolCallsCount, 0);

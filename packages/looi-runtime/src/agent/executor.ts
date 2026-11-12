@@ -84,7 +84,7 @@ export interface AgentShellOutput {
 export interface AgentRunOptions {
   traceContext?: import("../telemetry/langfuse.js").TraceContext;
   taskId?: string;
-  /** Share successful dialogue history while retaining a distinct task per turn. */
+  /** Share persisted dialogue history while retaining a distinct task per turn. */
   sessionId?: string;
   workspaceRoot?: string;
   mode?: "voice" | "text";

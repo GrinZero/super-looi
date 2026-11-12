@@ -6,6 +6,7 @@ import {
   type BeforeToolCallResult,
 } from "@earendil-works/pi-agent-core";
 import { contentText } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   AgentExecutionError,
   type AgentCommandEvidence,
@@ -21,7 +22,6 @@ import {
   type ApprovalActionReplayGuard,
   type ToolApprovalRule,
 } from "../governance/index.js";
-import type { SessionTranscriptStore } from "../memory/index.js";
 import { buildAgentTurnPrompts } from "../prompts/index.js";
 import {
   WorkspaceArtifactTracker,
@@ -71,7 +71,7 @@ export interface PiTaskRunnerHost {
   config: PiTaskRunnerConfig;
   approvalPolicy: ToolApprovalRule;
   replayGuard: ApprovalActionReplayGuard;
-  sessions: SessionTranscriptStore;
+  sessionsDirectory: string;
   isExecutorClosed: () => boolean;
   updateTask: (task: AgentTask) => void;
   onFinished: (taskId: string) => void;
@@ -233,13 +233,16 @@ export class PiTaskRunner {
       }
       fs.mkdirSync(task.workspaceRoot, { recursive: true });
 
-      const restoredMessages =
-        options.resume || options.sessionId
-          ? host.sessions.load(task.sessionId)
-          : undefined;
-      if (options.resume && !restoredMessages) {
+      const sessionFile = SessionManager.findById(
+        task.workspaceRoot, task.sessionId, host.sessionsDirectory,
+      );
+      if (options.resume && !sessionFile) {
         throw new Error("Persisted session transcript was not found");
       }
+      const session = sessionFile
+        ? SessionManager.open(sessionFile)
+        : SessionManager.create(task.workspaceRoot, host.sessionsDirectory, { id: task.sessionId });
+      const restoredMessages = session.buildSessionContext().messages;
 
       const { model, streamFn } = resolvePiModelAndStream(config);
       const startTool = (callId: string, toolName: string, args: unknown) => {
@@ -411,10 +414,16 @@ export class PiTaskRunner {
       this.agent = agent;
 
       agent.subscribe((event) => {
+        if (event.type === "message_end") {
+          if (event.message.role === "assistant") webSearch.decorateMessage(event.message);
+          const message = event.message;
+          if (message.role === "system" || message.role === "user" ||
+              message.role === "assistant" || message.role === "toolResult") {
+            session.appendMessage(message);
+          }
+        }
         if (this.stopped) return;
-        if (event.type === "message_end" && event.message.role === "assistant") {
-          webSearch.decorateMessage(event.message);
-        } else if (event.type === "turn_start") {
+        if (event.type === "turn_start") {
           step++;
           if (step > (config.maxSteps ?? 12)) {
             task.error = "Agent step budget exceeded";
@@ -444,6 +453,8 @@ export class PiTaskRunner {
       task.state = "running";
       host.updateTask(task);
 
+      const systemMessage = agent.state.messages[0];
+      if (systemMessage?.role === "system") session.appendMessage(systemMessage);
       await agent.prompt(userPrompt);
 
       if (this.stopped) throw new Error(task.error ?? "Task cancelled");
@@ -471,8 +482,6 @@ export class PiTaskRunner {
           lastAssistant?.errorMessage || stopReason || "no terminal response";
         throw new Error(`Pi agent did not complete successfully (${reason})`);
       }
-
-      host.sessions.save(task.sessionId, agent.state.messages);
 
       const recordedArtifacts = artifacts.list();
       const output: AgentRunResult = {

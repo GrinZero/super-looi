@@ -19,7 +19,6 @@ import {
 } from "../governance/index.js";
 import {
   AgentTaskStore,
-  SessionTranscriptStore,
   type TaskPersistence,
 } from "../memory/index.js";
 import { PiTaskRunner, awaitWithin } from "./pi-task-runner.js";
@@ -60,7 +59,7 @@ export class PiAgentExecutor implements AgentExecutor {
   private readonly approvalPolicy: ToolApprovalRule;
   private readonly replayGuard: ApprovalActionReplayGuard;
   private readonly store: AgentTaskStore;
-  private readonly sessions: SessionTranscriptStore;
+  private readonly sessionsDirectory: string;
   private readonly runners = new Map<string, PiTaskRunner>();
   private readonly root: string;
   private closed = false;
@@ -76,7 +75,7 @@ export class PiAgentExecutor implements AgentExecutor {
       path.join(this.root, "tasks"),
       config.taskPersistence,
     );
-    this.sessions = new SessionTranscriptStore(path.join(this.root, "sessions"));
+    this.sessionsDirectory = path.join(this.root, "sessions");
   }
 
   getTask(id: string): AgentTask | undefined {
@@ -220,7 +219,7 @@ export class PiAgentExecutor implements AgentExecutor {
       config: this.config,
       approvalPolicy: this.approvalPolicy,
       replayGuard: this.replayGuard,
-      sessions: this.sessions,
+      sessionsDirectory: this.sessionsDirectory,
       isExecutorClosed: () => this.closed,
       updateTask: (updated) => {
         updated.updatedAt = new Date().toISOString();
