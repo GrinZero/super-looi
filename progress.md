@@ -1,5 +1,19 @@
 # Super-LOOI 重构与演进进度
 
+### Pi SessionManager 接入（2026-11-12）
+
+- [x] Step 1：核对 Pi 1.5.0 的会话 API、消息事件和 NSH 构建边界
+  - [x] 采用 SessionManager 原生 JSONL；旧 JSON 不读取、不迁移
+  - [x] 删除自定义会话存储类，单任务执行器直接持有本轮 SessionManager
+- [x] Step 2：实现消息级持久化与恢复
+  - [x] 新建／按 ID 重开会话，恢复活动分支上下文
+  - [x] 用户、模型与工具消息结束即追加，失败和取消保留已结束消息
+  - [x] 声明直接依赖，接通 QuickJS 验证构建
+- [x] Step 3：验证、独立 review 与提交
+  - [x] 覆盖重启、多轮、执行中检查点、失败／取消及旧格式断开；runtime 89 项回归通过
+  - [x] runtime 89 项、独立定向 11 项通过；runtime／compat／NSH 类型检查、NSH 完整构建与 QuickJS 两组验证通过
+  - [x] 独立 review 无待修复问题，同步架构说明与源码快照，实现提交 `97a3270`，文档单独提交
+
 ### 任务真实链路与本地 Trace（2026-11-12）
 
 - [x] Step 1：追踪任务、语音、Langfuse 和审计 UI 的数据边界
