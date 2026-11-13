@@ -214,5 +214,8 @@
 ## 语音配置页模拟器 E2E 问题（2026-11-13）
 
 - [ ] 修复开启自动唤醒时停止试听／切换音色后的假对话状态：`VoiceRuntime.endSession()` 清除 purpose 后保留 speaking，异步 startWake 期间页面显示“对话中／正在回复”。实际 UI 与独立运行时探针均复现，见 [E2E 证据](docs/voice-preview-e2e-2026-11-13.md)。
-- [ ] 定位 MOSS 自然结束试听总耗时 20.2／21.9 秒的原因：每轮约 2 秒 PCM，记录 cancelled=true；采集完成／中断事件与原生播放排空时间。间歇性 TLS 失败沿用上方 TLS 待办；本轮新增三个真实失败样本。
 - [ ] 听音复核切换音色后的实际听感与快速重播叠音；本轮已完成真实云端音频返回、UI 收尾及豆包连续五轮验收，未采集扬声器录音。
+
+## MOSS 试听播放协议（2026-11-14）
+
+- [ ] MOSS 会话级主动播报输出空 turn_id／chunk_id，仅发出 2 秒 PCM 后 playback_timeout；空回执被 invalid_public_request 拒绝。24k／48k、server 播放计时、显式开启音频时钟及指定木木均复现。待服务修复后重测完整试听，证据见 [诊断与原始事件](docs/moss-preview-playback-diagnosis.md)。
