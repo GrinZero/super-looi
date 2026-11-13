@@ -92,47 +92,55 @@ export function TaskTraceView(props: { task: NativeTask }) {
   };
   return (
     <View class="gap-4 min-w-0" testID="task-trace">
-      <View class="gap-1">
-        <Text class="text-foreground text-base font-semibold" role="header">{t("traceChain")}</Text>
+      <View class="flex-row items-center justify-between gap-2 min-w-0">
+        <Text class="text-foreground text-sm font-semibold" role="header">{t("traceChain")}</Text>
         <If when={Boolean(history())}>
-          <Text class="text-muted-foreground text-xs">{t("traceHistoryCount", { count: Number((history() ? traceOutput(history()!) as { historyMessages: number } : undefined)?.historyMessages ?? 0) })}</Text>
+          <View class="px-2 py-0.5 rounded-full bg-muted border border-border shrink-0">
+            <Text class="text-muted-foreground text-xs font-medium">{t("traceHistoryCount", { count: Number((history() ? traceOutput(history()!) as { historyMessages: number } : undefined)?.historyMessages ?? 0) })}</Text>
+          </View>
         </If>
       </View>
       <If when={rows().length > 0} else={
-        <View class="gap-3">
-          <Text class="text-muted-foreground text-sm">{t("traceMissing")}</Text>
+        <View class="rounded-xl border border-border bg-muted p-3 gap-2 min-w-0">
+          <Text class="text-muted-foreground text-xs">{t("traceMissing")}</Text>
           <Each of={props.task.steps.map((step, index) => ({ ...step, id: `${props.task.id}:${index}` }))} key={step => step.id}>
-            {step => <Text class="text-muted-foreground text-xs">{translateMessage(step().summary)}</Text>}
+            {step => <Text class="text-foreground text-xs font-mono">{translateMessage(step().summary)}</Text>}
           </Each>
         </View>
       }>
-        <Accordion multiple={true} value={expanded()} onChange={event => expanded.set(event.value)} class="min-w-0">
-          <Each of={rows()} key={row => row.node.spanId}>
-            {row => (
-              <AccordionItem value={row().node.spanId} class="border-b border-border min-w-0">
-                <AccordionHeader>
-                  <AccordionTrigger testID={`trace-${row().node.spanId}`} class="min-h-11 flex-row items-start gap-2 py-3 rounded-lg active:bg-muted focus:bg-muted" style={{ paddingLeft: row().depth * 12 }}>
-                    <Text class="text-muted-foreground text-sm w-4">{expanded().includes(row().node.spanId) ? "−" : "+"}</Text>
-                    <View class="flex-1 min-w-0 gap-1">
-                      <View class="flex-row items-center gap-2">
-                        <Text class="text-foreground text-sm font-medium">{nodeTitle(row().node)}</Text>
-                        <If when={row().node.spanId === props.task.trace?.spanId}>
-                          <Text class="text-foreground text-xs font-semibold">{t("traceCurrentTask")}</Text>
-                        </If>
+        <View class="rounded-xl border border-border bg-background overflow-hidden min-w-0">
+          <Accordion multiple={true} value={expanded()} onChange={event => expanded.set(event.value)} class="min-w-0">
+            <Each of={rows()} key={row => row.node.spanId}>
+              {row => (
+                <AccordionItem value={row().node.spanId} class="border-b border-border min-w-0">
+                  <AccordionHeader>
+                    <AccordionTrigger testID={`trace-${row().node.spanId}`} class="min-h-11 flex-row items-start gap-2 px-3 py-2.5 active:bg-muted focus:bg-muted" style={{ paddingLeft: 12 + row().depth * 12 }}>
+                      <Text class="text-muted-foreground text-sm font-mono w-4 shrink-0">{expanded().includes(row().node.spanId) ? "−" : "+"}</Text>
+                      <View class="flex-1 min-w-0 gap-1">
+                        <View class="flex-row items-center gap-2 min-w-0">
+                          <Text class="text-foreground text-sm font-semibold" style={{ numberOfLines: 1, flexShrink: 1 }}>{nodeTitle(row().node)}</Text>
+                          <If when={row().node.spanId === props.task.trace?.spanId}>
+                            <View class="px-1.5 py-0.5 rounded-md bg-muted border border-border shrink-0">
+                              <Text class="text-muted-foreground text-xs font-medium">{t("traceCurrentTask")}</Text>
+                            </View>
+                          </If>
+                        </View>
+                        <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 2 }}>{row().node.name === "agent.context" ? t("traceHistoryCount", { count: Number(tracePreview(row().node)) }) : tracePreview(row().node)}</Text>
+                        <Text class="text-muted-foreground text-xs font-mono" style={{ fontVariant: ["tabular-nums"], numberOfLines: 1 }}>{formatDate(row().node.startedAt, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{row().node.endedAt === undefined ? "" : ` · ${row().node.endedAt! - row().node.startedAt} ms`}</Text>
                       </View>
-                      <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 2 }}>{row().node.name === "agent.context" ? t("traceHistoryCount", { count: Number(tracePreview(row().node)) }) : tracePreview(row().node)}</Text>
-                      <Text class="text-muted-foreground text-xs font-mono">{formatDate(row().node.startedAt, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{row().node.endedAt === undefined ? "" : ` · ${row().node.endedAt! - row().node.startedAt} ms`}</Text>
+                      <Text class={traceState(row().node) === "error" ? "text-destructive text-xs font-semibold shrink-0" : "text-muted-foreground text-xs font-medium shrink-0"}>{stateLabel(row().node)}</Text>
+                    </AccordionTrigger>
+                  </AccordionHeader>
+                  <AccordionPanel accessibilityLabel={nodeTitle(row().node)}>
+                    <View class="px-3 pt-1">
+                      <NodeDetails node={row().node} />
                     </View>
-                    <Text class={traceState(row().node) === "error" ? "text-destructive text-xs" : "text-muted-foreground text-xs"}>{stateLabel(row().node)}</Text>
-                  </AccordionTrigger>
-                </AccordionHeader>
-                <AccordionPanel accessibilityLabel={nodeTitle(row().node)}>
-                  <NodeDetails node={row().node} />
-                </AccordionPanel>
-              </AccordionItem>
-            )}
-          </Each>
-        </Accordion>
+                  </AccordionPanel>
+                </AccordionItem>
+              )}
+            </Each>
+          </Accordion>
+        </View>
       </If>
     </View>
   );

@@ -16,8 +16,6 @@ fn trace_inspector_expands_context_and_updates_the_same_tool_row() -> Result<(),
     app.set_viewport(size(Points(844.0), Points(390.0)))?;
     app.wait_for("实际执行链路")?;
     assert!(app.screen().selected("task-fixture-task")?);
-    app.press("task-detail-close")?;
-    app.press("task-fixture-task")?;
     app.wait_for("本轮载入 1 条历史消息")?;
     app.press("trace-context")?;
     app.wait_for("获取当前准确的具体时间，精确到时分秒")?;

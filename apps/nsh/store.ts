@@ -356,6 +356,7 @@ export function createAppStore() {
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
   const plugins = signal<PluginSnapshot[]>([]);
+  const inspectedPluginId = signal<string | null>(null);
   const pluginBusy = signal("");
   const pluginUiError = signal("");
   let unsubscribePlugins: (() => void) | undefined;
@@ -1151,6 +1152,10 @@ export function createAppStore() {
 
   const api = {
     plugins: () => plugins(),
+    inspectedPluginId: () => inspectedPluginId(),
+    setInspectedPluginId(id: string | null) {
+      inspectedPluginId.set(id);
+    },
     pluginBusy: () => pluginBusy(),
     pluginUiError: () => pluginUiError(),
     refreshPlugin: (id: string) => pluginAction(id, host => host.refreshPlugin(id)),
@@ -1173,7 +1178,12 @@ export function createAppStore() {
     },
     activeSpace: () => activeSpace(),
     openSpace(space: AppSpace) {
-      if (activeSpace() === space) return;
+      if (activeSpace() === space) {
+        if (space === "plugins" && inspectedPluginId() !== null) {
+          inspectedPluginId.set(null);
+        }
+        return;
+      }
       if (space !== "models" && oauthFlow().running) {
         api.cancelProviderOAuth();
       }
@@ -1199,6 +1209,10 @@ export function createAppStore() {
     goBack(): boolean {
       const space = activeSpace();
       if (space === "face") return false;
+      if (space === "plugins" && inspectedPluginId() !== null) {
+        inspectedPluginId.set(null);
+        return true;
+      }
       if (space === "home") {
         if (homeInspectedApplianceId() !== null) {
           api.setHomeInspectedApplianceId(null);
@@ -1213,6 +1227,10 @@ export function createAppStore() {
           api.setHomeSubView("devices");
           return true;
         }
+      }
+      if (space === "tasks" && windowSize().width < 600 && task() !== undefined) {
+        api.closeTask();
+        return true;
       }
       api.backToFace();
       return true;

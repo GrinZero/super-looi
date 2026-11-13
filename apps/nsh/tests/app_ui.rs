@@ -184,6 +184,48 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.wait_for("新加坡")?;
     app.press("nav-tasks")?;
     app.wait_for("任务与审计记录")?;
+    app.press("nav-plugins")?;
+    for label in [
+        "让 LOOI 连接更多能力",
+        "全部",
+        "开发工具",
+        "Codex",
+        "代码编写、任务委派与云端执行",
+    ] {
+        app.wait_for(label)?;
+    }
+    app.type_text("plugin-search", "no-such-plugin")?;
+    app.wait_for("未找到匹配的插件")?;
+    app.press("plugin-search-clear")?;
+    app.wait_for("Codex")?;
+    app.press("plugin-category-dev")?;
+    app.wait_for("Codex")?;
+    app.press("plugin-codex")?;
+    for label in [
+        "插件列表",
+        "账号连接",
+        "ChatGPT 账号",
+        "可用能力",
+        "任务委派",
+        "云端任务",
+        "云端默认设置",
+        "环境名称或 ID",
+        "分支",
+        "执行详情",
+    ] {
+        app.wait_for(label)?;
+    }
+    assert!(!app.shows("back-btn"));
+    app.press("plugin-back-to-list")?;
+    app.wait_for("让 LOOI 连接更多能力")?;
+    app.press("plugin-codex")?;
+    app.wait_for("账号连接")?;
+    app.press("nav-plugins")?;
+    app.wait_for("让 LOOI 连接更多能力")?;
+    app.press("plugin-codex")?;
+    app.wait_for("账号连接")?;
+    app.back()?;
+    app.wait_for("让 LOOI 连接更多能力")?;
     app.press("nav-settings")?;
     app.wait_for("通用设置")?;
     app.press("appearance-light")?;

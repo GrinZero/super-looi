@@ -9,7 +9,7 @@ import { VoiceServiceBar, VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
 import { BodySpaceView } from "./BodySpaceView";
 import { TasksSpaceView } from "./TasksSpaceView";
-import { PluginsSpaceView } from "./PluginsSpaceView";
+import { PluginsContextBar, PluginsSpaceView } from "./PluginsSpaceView";
 import { SettingsSpaceView } from "./SettingsSpaceView";
 import { RetainedPage } from "./RetainedPage";
 
@@ -159,7 +159,9 @@ export function ManagementShell(props: {
         </Scroll>
       </If>
 
-      <If when={props.store.activeSpace() === "plugins"}><Text class="text-foreground text-base font-semibold">{t("plugins")}</Text></If>
+      <If when={props.store.activeSpace() === "plugins"}>
+        <PluginsContextBar store={props.store} />
+      </If>
       <If when={props.store.activeSpace() === "voice"}>
         <VoiceServiceBar store={props.store} />
       </If>
@@ -322,24 +324,42 @@ export function ManagementShell(props: {
       </If>
 
       <If when={props.store.activeSpace() === "tasks"}>
-        <Scroll horizontal={true} scrollbar={false} class="flex-1 min-w-0 h-11" contentClass="flex-row items-center gap-2 h-11 pr-2">
-          <Text class="text-foreground text-xs font-semibold">
-            {t("tasksAndActivity")}</Text>
-          <IconButton
-            icon="new_chat"
-            label={t("newConversation")}
-            testID="new-conversation-btn"
-            kind="primary"
-            disabled={props.store.busy()}
-            onPress={() => props.store.newConversation()}
-          />
-          <IconButton
-            icon="refresh"
-            label={t("refresh")}
-            testID="refresh-tasks-btn"
-            onPress={() => props.store.refreshTasks(props.store.tasks().offset)}
-          />
-        </Scroll>
+        <View class="flex-1 min-w-0 h-11 flex-row items-center justify-between gap-2">
+          <View class="flex-row items-center gap-2 min-w-0 flex-1">
+            <Text class="text-foreground text-base font-bold" style={{ numberOfLines: 1 }}>
+              {t("tasksAndActivity")}
+            </Text>
+            <If when={props.store.tasks().total > 0}>
+              <View class="px-2 py-0.5 rounded-full bg-muted border border-border">
+                <Text
+                  class="text-muted-foreground text-xs font-mono font-medium"
+                  style={{ fontVariant: ["tabular-nums"] }}
+                >
+                  {String(props.store.tasks().total)}
+                </Text>
+              </View>
+            </If>
+          </View>
+          <View class="flex-row items-center gap-1.5 shrink-0">
+            <Button
+              testID="new-conversation-btn"
+              accessibilityLabel={t("newConversation")}
+              disabled={props.store.busy()}
+              onPress={() => props.store.newConversation()}
+              class="min-h-11 px-3 rounded-full border border-border bg-muted flex-row items-center gap-1.5 active:opacity-75 focus:border-ring disabled:opacity-35"
+            >
+              <Text class="text-foreground text-xs font-semibold">
+                + {t("newConversation")}
+              </Text>
+            </Button>
+            <IconButton
+              icon="refresh"
+              label={t("refresh")}
+              testID="refresh-tasks-btn"
+              onPress={() => props.store.refreshTasks(props.store.tasks().offset)}
+            />
+          </View>
+        </View>
       </If>
 
       <If when={props.store.activeSpace() === "settings"}>
@@ -411,13 +431,22 @@ export function ManagementShell(props: {
               <View class="w-2 h-2 rounded-full bg-eye-core" />
             </Button>
             {renderContextPillBar()}
-            <IconButton
-              testID="back-btn"
-              icon="back"
-              label={t("back")}
-              kind="outline"
-              onPress={() => props.store.goBack()}
-            />
+            <If
+              when={
+                !(
+                  props.store.activeSpace() === "plugins" &&
+                  Boolean(props.store.inspectedPluginId())
+                )
+              }
+            >
+              <IconButton
+                testID="back-btn"
+                icon="back"
+                label={t("back")}
+                kind="outline"
+                onPress={() => props.store.goBack()}
+              />
+            </If>
           </View>
 
           {/* Main Workspace */}
@@ -508,13 +537,22 @@ export function ManagementShell(props: {
             style={{ paddingTop: insets().top + 6, paddingRight: rightInset() + 16 }}
           >
             {renderContextPillBar()}
-            <IconButton
-              testID="back-btn"
-              icon="back"
-              label={t("back")}
-              kind="outline"
-              onPress={() => props.store.goBack()}
-            />
+            <If
+              when={
+                !(
+                  props.store.activeSpace() === "plugins" &&
+                  Boolean(props.store.inspectedPluginId())
+                )
+              }
+            >
+              <IconButton
+                testID="back-btn"
+                icon="back"
+                label={t("back")}
+                kind="outline"
+                onPress={() => props.store.goBack()}
+              />
+            </If>
           </View>
 
           {/* Bottom Workspace Body */}
