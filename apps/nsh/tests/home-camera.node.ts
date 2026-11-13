@@ -109,18 +109,20 @@ async function fixture() {
     },
   });
   const closed: string[] = [];
+  const ptzCalls: Array<{ did: string; direction: string }> = [];
   let stopped = 0;
   runtime.attachCamera({
     refreshCaptcha: async () => "", resendTicket: async () => "", cancelLogin() {},
     initialize: async () => '{"state":"ready"}', login: async () => '', submit: async () => '', resumeLogin: async () => '', logout: async () => {},
     openPreview: async () => { entered.resolve(); await released.promise; return "native-session"; },
     closePreview: id => { closed.push(id); },
+    panTilt: async (did, direction) => { ptzCalls.push({ did, direction }); },
     beginCapture: () => "capture-request", cancelCapture: () => {},
     captureDevice: async () => ({data:"/9j/test",mimeType:"image/jpeg",width:640,height:360,receivedAt:"1700000000000"}),
     stopAll: () => { stopped++; },
   });
   await runtime.connect();
-  return { runtime, entered, released, actions, closed, stopped: () => stopped };
+  return { runtime, entered, released, actions, closed, ptzCalls, stopped: () => stopped };
 }
 
 test("leaving detail before native dispatch prevents opening a preview", async () => {
@@ -157,5 +159,8 @@ test("camera capture works without detail and rejects devices outside the connec
   assert.equal(frame.mimeType,"image/jpeg");
   await assert.rejects(f.runtime.captureCamera("missing",connectionId),/camera_device_not_in_connection/);
   await assert.rejects(f.runtime.captureCamera("camera-a","old-connection"),/camera_device_not_in_connection/);
+  await f.runtime.panTiltCamera("camera-a", "right");
+  assert.deepEqual(f.ptzCalls, [{ did: "camera-a", direction: "right" }]);
+  await assert.rejects(f.runtime.panTiltCamera("missing", "left"), /camera_device_not_in_connection/);
   f.runtime.close();
 });

@@ -534,6 +534,10 @@ export class HomeRuntime {
       .catch(() => {})
       .then(async () => {
         if (!current()) throw new MiotCameraError("cancelled");
+        if (!this.owner && this.connecting) {
+          await this.connecting;
+          if (!current()) throw new MiotCameraError("cancelled");
+        }
         const capability = this.owner?.directMiot
           ?.listCameraCapabilities()
           .find((camera) => camera.did === did);
@@ -557,6 +561,28 @@ export class HomeRuntime {
   }
 
   attachCamera(camera: NativeCamera) { this.camera = camera; }
+
+  async panTiltCamera(
+    did: string,
+    direction: "left" | "right" | "up" | "down",
+  ): Promise<void> {
+    this.assertOpen();
+    if (!this.owner && this.connecting) {
+      await this.connecting;
+      this.assertOpen();
+    }
+    const owner = this.owner;
+    if (
+      !owner ||
+      !owner.directMiot
+        ?.listCameraCapabilities()
+        .some((camera) => camera.did === did)
+    ) {
+      throw new Error("camera_device_not_in_connection");
+    }
+    if (!this.camera) throw new Error("camera_decoder_unavailable");
+    await this.camera.panTilt(did, direction);
+  }
 
   async captureCamera(did: string, connectionId: string, signal?: AbortSignal) {
     this.assertOpen();

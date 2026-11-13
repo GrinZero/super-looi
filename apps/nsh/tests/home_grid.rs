@@ -36,7 +36,7 @@ fn overview_collapses_and_resize_handles_keep_the_touch_from_scrolling() -> Resu
     assert!(app.screen().selected("home-room-rail-all")?);
     app.wait_for("id:home-card-simulation:sim_hall_camera")?;
     app.wait_for("home-overview-collapse")?;
-    app.set_viewport(size(Points(390.0), Points(844.0)))?;
+    app.set_viewport(size(Points(568.0), Points(320.0)))?;
     assert!(!app.shows("home-room-pill-all"));
     app.press("home-overview-collapse")?;
     app.wait_for("home-room-pill-all")?;
@@ -83,5 +83,72 @@ fn overview_collapses_and_resize_handles_keep_the_touch_from_scrolling() -> Resu
     app.scroll("home-device-grid-scroll", Points(160.0))?;
     app.press("home-overview-collapse")?;
     app.wait_for("id:home-card-simulation:sim_hall_camera")?;
+    Ok(())
+}
+
+#[test]
+fn landscape_detail_pages_render_camera_ptz_cycle_and_pet_consoles() -> Result<(), String> {
+    let data = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let sets = vec![nsh_base::registry(), nsh_app_nsh::registry()];
+    let bundle = compile_tsx(Path::new(env!("CARGO_MANIFEST_DIR")).join("App.tsx"), &sets)?;
+    let mut config = EngineConfig::new(bundle.with_app_id(Some("com.superlooi.home-detail-test")));
+    config.ui_sets = sets;
+    config.data_dir = Some(data.path().to_owned());
+    config.storage = Some(MemoryStorage::new([]));
+    config.environment.locale = Locale::parse("zh-CN").unwrap();
+    let mut app = Headless::start(config).map_err(|error| error.to_string())?;
+    app.set_viewport(size(Points(844.0), Points(390.0)))?;
+    app.wait_until("app ready", Duration::from_secs(10), |screen| {
+        screen.enabled("voice-toggle") == Ok(true)
+    })?;
+    app.press("connection-settings")?;
+    app.press("nav-home")?;
+    app.press("home-empty-enable-sim")?;
+    app.wait_for("home-room-nav-all")?;
+
+    // Collapse sidebar on 844x390 landscape viewport and filter to 大厅
+    app.press("home-overview-collapse")?;
+    app.wait_for("home-room-rail-大厅")?;
+    app.press("home-room-rail-大厅")?;
+
+    // 1. Hall Camera detail -> 4-way PTZ controls
+    app.press("id:home-card-simulation:sim_hall_camera")?;
+    for ptz_id in [
+        "detail-cam-ptz-up",
+        "detail-cam-ptz-left",
+        "detail-cam-ptz-right",
+        "detail-cam-ptz-down",
+    ] {
+        app.wait_for(ptz_id)?;
+    }
+    app.press("home-detail-back")?;
+    app.wait_for("home-room-rail-大厅")?;
+
+    // 2. Rice Cooker detail -> 2-column cycle console
+    for _ in 0..6 {
+        if app.screen().matches("id:home-card-simulation:sim_rice_cooker")? {
+            break;
+        }
+        app.scroll("home-device-grid-scroll", Points(180.0))?;
+    }
+    app.press("id:home-card-simulation:sim_rice_cooker")?;
+    app.wait_for("id:detail-cycle-act-button.rice_cooker_start")?;
+    app.wait_for("id:detail-cycle-act-button.rice_cooker_cancel")?;
+    app.press("home-detail-back")?;
+    app.wait_for("home-room-rail-大厅")?;
+
+    // 3. Pet Feeder detail -> 2-column feeding console (replaces generic full-width rows)
+    for _ in 0..8 {
+        if app.screen().matches("id:home-card-simulation:sim_pet_feeder")? {
+            break;
+        }
+        app.scroll("home-device-grid-scroll", Points(180.0))?;
+    }
+    app.press("id:home-card-simulation:sim_pet_feeder")?;
+    app.wait_for("detail-pet-portion-inc")?;
+    app.wait_for("id:detail-act-button.pet_feeder_dispense")?;
+    app.press("home-detail-back")?;
+    app.wait_for("home-room-rail-大厅")?;
+
     Ok(())
 }

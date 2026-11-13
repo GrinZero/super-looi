@@ -40,6 +40,7 @@ struct Session {
     cancelled: AtomicBool,
     error: Mutex<Option<String>>,
     consumers: Mutex<Consumers>,
+    command: Mutex<Option<transport::CommandHandle>>,
     worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 impl Drop for Session {
@@ -50,6 +51,7 @@ impl Drop for Session {
 impl Session {
     fn close(&self) {
         self.cancelled.store(true, Ordering::Release);
+        *self.command.lock().unwrap() = None;
         if let Some(worker) = self.worker.lock().unwrap().take() {
             worker.abort();
         }
@@ -66,6 +68,7 @@ impl Session {
             cancelled: AtomicBool::new(false),
             error: Mutex::new(None),
             consumers: Mutex::new(Consumers::default()),
+            command: Mutex::new(None),
             worker: Mutex::new(None),
         });
         sessions()
@@ -133,6 +136,13 @@ struct Host {
     epoch: AtomicU64,
     account_generation: AtomicU64,
     ready: AtomicBool,
+    ptz_busy: AtomicBool,
+}
+struct PtzBusyGuard<'a>(&'a AtomicBool);
+impl Drop for PtzBusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 impl Host {
     fn close_all(&self) {
@@ -179,6 +189,94 @@ impl Host {
             APP_EPOCH.load(Ordering::Acquire),
         )
     }
+    async fn provision_device(
+        &self,
+        did: &str,
+        token: (u64, u64),
+    ) -> Result<(cloud::Device, cloud::Provision), String> {
+        self.current(token)?;
+        let mut cloud = self.cloud.lock().await;
+        self.current(token)?;
+        let cloud = cloud.as_mut().ok_or("camera_login_required")?;
+        let devices: Vec<cloud::Device> = serde_json::from_value(cloud.state["devices"].clone())
+            .map_err(|_| "camera_login_required")?;
+        let device = devices
+            .into_iter()
+            .find(|d| d.did == did)
+            .ok_or("camera_device_not_in_account")?;
+        let provision = match cloud.provision(did).await {
+            Err(error) if error == "camera_account_expired" => {
+                cloud.refresh().await?;
+                self.persist(cloud)?;
+                cloud.provision(did).await?
+            }
+            other => other?,
+        };
+        Ok((device, provision))
+    }
+    async fn pan_tilt(
+        self: &Arc<Self>,
+        did: &str,
+        direction: &str,
+        token: (u64, u64),
+    ) -> Result<(), String> {
+        if !matches!(direction, "left" | "right" | "up" | "down") {
+            return Err("camera_ptz_direction_invalid".into());
+        }
+        self.current(token)?;
+        if self
+            .ptz_busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err("camera_ptz_busy".into());
+        }
+        let _busy = PtzBusyGuard(&self.ptz_busy);
+
+        let active_session = {
+            let owned = self.owned.lock().unwrap();
+            owned
+                .values()
+                .find(|s| {
+                    s.did == did
+                        && !s.cancelled.load(Ordering::Acquire)
+                        && s.error.lock().unwrap().is_none()
+                })
+                .cloned()
+        };
+
+        if let Some(session) = active_session {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+            loop {
+                self.current(token)?;
+                if session.cancelled.load(Ordering::Acquire) {
+                    return Err("camera_session_closed".into());
+                }
+                if let Some(err) = session.error.lock().unwrap().clone() {
+                    return Err(err);
+                }
+                let handle = session.command.lock().unwrap().clone();
+                if let Some(handle) = handle {
+                    handle.pan_tilt(direction).await?;
+                    tokio::time::sleep(Duration::from_millis(350)).await;
+                    return Ok(());
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return Err("camera_cs2_handshake_timeout".into());
+                }
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+        }
+
+        let (device, provision) = self.provision_device(did, token).await?;
+        self.current(token)?;
+        let miss =
+            transport::Miss::connect_with_options(&device.host, provision, &device.model, false)
+                .await?;
+        miss.command_handle().pan_tilt(direction).await?;
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        Ok(())
+    }
     fn acquire(
         self: &Arc<Self>,
         did: &str,
@@ -208,30 +306,14 @@ impl Host {
                 let result: Result<(), String> = async {
                     let (device, provision) = {
                         let host = host.upgrade().ok_or("camera_host_closed")?;
-                        host.current(token)?;
-                        let mut cloud = host.cloud.lock().await;
-                        host.current(token)?;
-                        let cloud = cloud.as_mut().ok_or("camera_login_required")?;
-                        let devices: Vec<cloud::Device> =
-                            serde_json::from_value(cloud.state["devices"].clone())
-                                .map_err(|_| "camera_login_required")?;
-                        let device = devices
-                            .into_iter()
-                            .find(|d| d.did == did)
-                            .ok_or("camera_device_not_in_account")?;
-                        let provision = match cloud.provision(&did).await {
-                            Err(error) if error == "camera_account_expired" => {
-                                cloud.refresh().await?;
-                                host.persist(cloud)?;
-                                cloud.provision(&did).await?
-                            }
-                            other => other?,
-                        };
-                        (device, provision)
+                        host.provision_device(&did, token).await?
                     };
                     host.upgrade().ok_or("camera_host_closed")?.current(token)?;
                     let mut miss =
                         transport::Miss::connect(&device.host, provision, &device.model).await?;
+                    if let Some(session) = weak.upgrade() {
+                        *session.command.lock().unwrap() = Some(miss.command_handle());
+                    }
                     loop {
                         let packet = miss.video().await?;
                         let session = weak.upgrade().ok_or("camera_session_closed")?;
@@ -244,9 +326,12 @@ impl Host {
                     }
                 }
                 .await;
-                if let (Err(error), Some(session)) = (result, weak.upgrade()) {
-                    *session.error.lock().unwrap() = Some(error);
-                    session.decoder.close();
+                if let Some(session) = weak.upgrade() {
+                    *session.command.lock().unwrap() = None;
+                    if let Err(error) = result {
+                        *session.error.lock().unwrap() = Some(error);
+                        session.decoder.close();
+                    }
                 }
             }));
             session
@@ -403,6 +488,7 @@ impl XiaomiCameraHost {
                 epoch: AtomicU64::new(0),
                 account_generation: AtomicU64::new(0),
                 ready: AtomicBool::new(false),
+                ptz_busy: AtomicBool::new(false),
                 vault: crate::credentials::CredentialVault::new(sys)?,
             }),
         })
@@ -506,6 +592,18 @@ impl XiaomiCameraHost {
         if let Some(session) = session {
             self.host.release(&session, true);
         }
+    }
+    /// Step pan/tilt motor (`"left" | "right" | "up" | "down"`) over the active MISS TCP session.
+    pub async fn pan_tilt(
+        this: Instance<Self>,
+        did: String,
+        direction: String,
+    ) -> Result<(), String> {
+        let host = this.with(|s| s.host.clone());
+        let token = host.token();
+        background(async move { host.pan_tilt(&did, &direction, token).await })
+            .await
+            .map_err(|_| "camera_ptz_failed")?
     }
     /// Reserve a cancellable capture before its async task is polled.
     pub fn begin_capture(&self, did: String) -> Result<String, String> {

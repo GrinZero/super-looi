@@ -34,6 +34,42 @@ function fixture() {
     setOnline(value: boolean) { online = value; }, setApplyWrites(value: boolean) { applyWrites = value; }, setFailedWrite(value: boolean) { failedWrite = value; } };
 }
 
+it("resets readable filter usage to zero while preserving explicit action arguments", async () => {
+  const actions: unknown[] = [];
+  const urn = "urn:miot-spec-v2:device:air-purifier:0000A007:zhimi-va2:1";
+  const network = (async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname === "miot-spec.org") return new Response(JSON.stringify({
+      type: urn,
+      services: [{
+        iid: 3, type: "urn:miot-spec-v2:service:filter:0000780B:zhimi-va2:1", description: "Filter",
+        properties: [specProperty(3, "filter-used-time", "uint32", { access: ["read"], "value-range": [0, 10000, 1] })],
+        actions: [{ iid: 1, type: "urn:miot-spec-v2:action:reset-filter-life:00002803:zhimi-va2:1", description: "Reset Filter Life", in: [3], out: [] }],
+      }],
+    }));
+    const data = JSON.parse(String(init?.body));
+    if (url.pathname.endsWith("/gethome")) return jsonResponse({ homelist: [{ id: "home1", name: "家", dids: ["purifier.1"], roomlist: [] }] });
+    if (url.pathname.endsWith("/device_list_page")) return jsonResponse({ list: [{ did: "purifier.1", name: "净化器", model: "zhimi.airp.va2", spec_type: urn, isOnline: true }] });
+    if (url.pathname.endsWith("/prop/get")) return jsonResponse(data.params.map((prop: object) => ({ ...prop, code: 0, value: 5000 })));
+    if (url.pathname.endsWith("/action")) {
+      actions.push(data.params.in);
+      return jsonResponse({ ...data.params, code: 0, out: [] });
+    }
+    throw new Error(`unexpected endpoint ${url.pathname}`);
+  }) as typeof fetch;
+  const transport = new DirectMiotTransportAdapter({
+    client: new MiotHttpClient({ fetch: network, getAccessToken: async () => "test-token" }),
+    specs: new MiotSpecResolver({ fetch: network }), allowedEntities: ["*"],
+  });
+  const definitions = await transport.discover();
+  await transport.listStates();
+  const reset = definitions.find((entity) => entity.entity_id.endsWith("_reset_filter_life"))!;
+  assert.ok(reset);
+  assert.equal((await transport.callService("button", "press", { entity_id: reset.entity_id })).success, true);
+  assert.equal((await transport.callService("button", "press", { entity_id: reset.entity_id, in: [7] })).success, true);
+  assert.deepEqual(actions, [[0], [7]]);
+});
+
 it("discovers real topology, quantizes lighting targets, and verifies only subsequent reads", async () => {
   const { transport, writes } = fixture();
   const definitions = await transport.discover();
@@ -409,4 +445,256 @@ it("maps writable MIoT select, number, switch, and button capabilities and verif
   });
   assert.equal(rSweepVerified.status, "verified");
   assert.equal(rSweepVerified.outcome, "applied");
+});
+
+it("converges cooker action-arg cook-mode, kettle multi-param start-cook, feeder portion dispense, and camera rollover select", async () => {
+  const cookerUrn = "urn:miot-spec-v2:device:cooker:0000A00B:chunmi-cmwy4:1";
+  const kettleUrn = "urn:miot-spec-v2:device:kettle:0000A009:xiaomi-mek01:2";
+  const feederUrn = "urn:miot-spec-v2:device:pet-feeder:0000A06C:xiaomi-pi2001:3";
+  const cameraUrn = "urn:miot-spec-v2:device:camera:0000A01C:chuangmi-039a01:2";
+
+  const stateStore = new Map<string, string | number | boolean>([
+    ["cooker.1/2/1", 1],
+    ["kettle.1/2/1", 1],
+    ["kettle.1/2/5", 85],
+    ["kettle.1/2/7", true],
+    ["kettle.1/2/8", 55],
+    ["kettle.1/2/10", true],
+    ["kettle.1/2/12", false],
+    ["kettle.1/2/13", 50],
+    ["kettle.1/2/14", 45],
+    ["kettle.1/2/17", "mode_tap"],
+    ["feeder.1/2/7", 12],
+    ["cam.1/2/1", true],
+    ["cam.1/2/2", 0],
+  ]);
+  const propWrites: Array<{ did: string; siid: number; piid: number; value: unknown }> = [];
+  const actionsCalled: Array<{ did: string; siid: number; aiid: number; in: unknown[] }> = [];
+
+  const network = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.hostname === "miot-spec.org") {
+      const requestedType = url.searchParams.get("type");
+      if (requestedType === cookerUrn) {
+        return new Response(JSON.stringify({
+          type: cookerUrn,
+          services: [{
+            iid: 2,
+            type: "urn:miot-spec-v2:service:cooker:00007815:chunmi-cmwy4:1",
+            description: "Cooker",
+            properties: [
+              {
+                iid: 1,
+                type: "urn:miot-spec-v2:property:status:00000007:chunmi-cmwy4:1",
+                description: "Status",
+                format: "uint8",
+                access: ["read"],
+                "value-list": [{ value: 1, description: "Idle" }, { value: 2, description: "Running" }],
+              },
+              {
+                iid: 5,
+                type: "urn:miot-spec-v2:property:cook-mode:00000037:chunmi-cmwy4:1",
+                description: "Cook Mode",
+                format: "uint8",
+                access: [],
+                "value-list": [
+                  { value: 1, description: "Fine Cook" },
+                  { value: 2, description: "Quick Cook" },
+                  { value: 3, description: "Cook Congee" },
+                ],
+              },
+            ],
+            actions: [{
+              iid: 1,
+              type: "urn:miot-spec-v2:action:start-cook:00002806:chunmi-cmwy4:1",
+              description: "Start Cook",
+              in: [5],
+              out: [],
+            }],
+          }],
+        }));
+      }
+      if (requestedType === kettleUrn) {
+        return new Response(JSON.stringify({
+          type: kettleUrn,
+          services: [{
+            iid: 2,
+            type: "urn:miot-spec-v2:service:kettle:00007813:xiaomi-mek01:1",
+            description: "Kettle",
+            properties: [
+              {
+                iid: 1,
+                type: "urn:miot-spec-v2:property:status:00000007:xiaomi-mek01:1",
+                description: "Status",
+                format: "uint8",
+                access: ["read"],
+                "value-list": [{ value: 1, description: "Standby" }, { value: 2, description: "Heating" }],
+              },
+              specProperty(5, "target-temperature", "uint16", { access: ["read", "write"], unit: "celsius", "value-range": [40, 100, 1] }),
+              specProperty(7, "auto-keep-warm", "bool", { access: ["read", "write"] }),
+              specProperty(8, "keep-warm-temperature", "uint16", { access: ["read", "write"], unit: "celsius", "value-range": [40, 95, 1] }),
+              specProperty(10, "dechlorination", "bool", { access: ["read", "write"] }),
+              specProperty(12, "rapid-cooling", "bool", { access: ["read", "write"] }),
+              specProperty(13, "pure-water-keep-warm-temperature", "uint16", { access: ["read", "write"], "value-range": [40, 90, 1] }),
+              specProperty(14, "tap-water-keep-warm-temperature", "uint16", { access: ["read", "write"], "value-range": [40, 90, 1] }),
+              specProperty(17, "mode-id", "string", { access: ["read", "write"] }),
+            ],
+            actions: [{
+              iid: 1,
+              type: "urn:miot-spec-v2:action:start-cook:00002806:xiaomi-mek01:1",
+              description: "Start Cook",
+              in: [17, 5, 7, 8, 10, 12, 13, 14],
+              out: [],
+            }],
+          }],
+        }));
+      }
+      if (requestedType === feederUrn) {
+        return new Response(JSON.stringify({
+          type: feederUrn,
+          services: [{
+            iid: 2,
+            type: "urn:miot-spec-v2:service:pet-feeder:00007847:xiaomi-pi2001:1",
+            description: "Pet Feeder",
+            properties: [
+              specProperty(7, "target-feeding-measure", "uint8", { access: ["read", "write"], "value-range": [1, 30, 1] }),
+              specProperty(8, "feeding-measure", "uint16", { access: [], "value-range": [0, 150, 1] }),
+            ],
+            actions: [
+              { iid: 1, type: "urn:miot-spec-v2:action:pet-food-out:0000282B:xiaomi-pi2001:1", description: "Pet Food Out", in: [8], out: [] },
+              { iid: 2, type: "urn:miot-spec-v2:action:weigh-manual-calibrate:000028C5:xiaomi-pi2001:1", description: "Weigh Manual Calibrate", in: [], out: [] },
+            ],
+          }],
+        }));
+      }
+      return new Response(JSON.stringify({
+        type: cameraUrn,
+        services: [{
+          iid: 2,
+          type: "urn:miot-spec-v2:service:camera-control:0000782F:chuangmi-039a01:1",
+          description: "Camera Control",
+          properties: [
+            specProperty(1, "on", "bool", { access: ["read", "write"] }),
+            specProperty(2, "image-rollover", "uint16", { access: ["read", "write"], "value-range": [0, 180, 180], unit: "arcdegrees" }),
+          ],
+        }],
+      }));
+    }
+    const data = JSON.parse(String(init?.body));
+    if (url.pathname.endsWith("/gethome")) {
+      return jsonResponse({ homelist: [{ id: "h1", name: "家", dids: ["cooker.1", "kettle.1", "feeder.1", "cam.1"], roomlist: [] }] });
+    }
+    if (url.pathname.endsWith("/device_list_page")) {
+      return jsonResponse({
+        list: [
+          { did: "cooker.1", name: "电饭煲", model: "chunmi.cooker.cmwy4", spec_type: cookerUrn, isOnline: true },
+          { did: "kettle.1", name: "电热水瓶", model: "xiaomi.kettle.mek01", spec_type: kettleUrn, isOnline: true },
+          { did: "feeder.1", name: "宠物喂食器", model: "xiaomi.feeder.pi2001", spec_type: feederUrn, isOnline: true },
+          { did: "cam.1", name: "监控", model: "chuangmi.camera.039a01", spec_type: cameraUrn, isOnline: true },
+        ],
+      });
+    }
+    if (url.pathname.endsWith("/prop/set")) {
+      const params = data.params as Array<{ did: string; siid: number; piid: number; value: number | boolean }>;
+      for (const p of params) {
+        propWrites.push(p);
+        stateStore.set(`${p.did}/${p.siid}/${p.piid}`, p.value);
+      }
+      return jsonResponse(params.map(({ did, siid, piid }) => ({ did, siid, piid, code: 0 })));
+    }
+    if (url.pathname.endsWith("/prop/get")) {
+      const params = data.params as Array<{ did: string; siid: number; piid: number }>;
+      return jsonResponse(params.map(({ did, siid, piid }) => ({
+        did,
+        siid,
+        piid,
+        code: 0,
+        value: stateStore.get(`${did}/${siid}/${piid}`),
+      })));
+    }
+    if (url.pathname.endsWith("/action")) {
+      const p = data.params as { did: string; siid: number; aiid: number; in: unknown[] };
+      actionsCalled.push(p);
+      if (p.did === "cooker.1") stateStore.set("cooker.1/2/1", 2);
+      if (p.did === "kettle.1") stateStore.set("kettle.1/2/1", 2);
+      return jsonResponse({ did: p.did, siid: p.siid, aiid: p.aiid, code: 0, out: [] });
+    }
+    throw new Error(`unexpected endpoint ${url.pathname}`);
+  }) as typeof fetch;
+
+  let clock = Date.now();
+  const client = new MiotHttpClient({ fetch: network, getAccessToken: async () => "token" });
+  const specs = new MiotSpecResolver({ fetch: network });
+  const transport = new DirectMiotTransportAdapter({ client, specs, allowedEntities: ["*"], now: () => (clock += 5) });
+  const definitions = await transport.discover();
+  const gateway = new HomeAssistantGateway({ transport, initialEntities: definitions });
+
+  // 1. Cooker cook-mode updates local action argument without /prop/set, then start-cook sends [3]
+  const cookMode = definitions.find((d) => d.device_id === "cooker.1" && d.domain === "select")!;
+  assert.ok(cookMode);
+  const rMode = await gateway.executeCommand({
+    entity_id: cookMode.entity_id,
+    domain: "select",
+    service: "select_option",
+    service_data: { option: "Cook Congee" },
+    timeout_ms: 50,
+  });
+  assert.equal(rMode.status, "verified");
+  assert.equal(propWrites.length, 0);
+
+  const cookerStart = definitions.find((d) => d.device_id === "cooker.1" && d.domain === "button" && d.entity_id.endsWith("_start_cook"))!;
+  const rCookerStart = await gateway.executeCommand({
+    entity_id: cookerStart.entity_id,
+    domain: "button",
+    service: "press",
+    service_data: {},
+    timeout_ms: 50,
+  });
+  assert.equal(rCookerStart.status, "verified");
+  assert.deepEqual(actionsCalled[0], { did: "cooker.1", siid: 2, aiid: 1, in: [3] });
+
+  // 2. Kettle 8-param start-cook reads live device properties including string mode-id
+  const kettleStart = definitions.find((d) => d.device_id === "kettle.1" && d.domain === "button" && d.entity_id.endsWith("_start_cook"))!;
+  assert.ok(kettleStart);
+  const rKettleStart = await gateway.executeCommand({
+    entity_id: kettleStart.entity_id,
+    domain: "button",
+    service: "press",
+    service_data: {},
+    timeout_ms: 50,
+  });
+  assert.equal(rKettleStart.status, "verified");
+  assert.deepEqual(actionsCalled[1], {
+    did: "kettle.1",
+    siid: 2,
+    aiid: 1,
+    in: ["mode_tap", 85, true, 55, true, false, 50, 45],
+  });
+
+  // 3. Feeder pet-food-out dynamically uses sibling target-feeding-measure (12) + weigh-manual-calibrate exists
+  const feederCalibrate = definitions.find((d) => d.device_id === "feeder.1" && d.entity_id.endsWith("_weigh_manual_calibrate"));
+  assert.ok(feederCalibrate);
+  const feederOut = definitions.find((d) => d.device_id === "feeder.1" && d.entity_id.endsWith("_pet_food_out"))!;
+  const rFeederOut = await gateway.executeCommand({
+    entity_id: feederOut.entity_id,
+    domain: "button",
+    service: "press",
+    service_data: {},
+    timeout_ms: 20,
+  });
+  assert.equal(rFeederOut.reason_code, "action_accepted_no_state_criterion");
+  assert.deepEqual(actionsCalled[2], { did: "feeder.1", siid: 2, aiid: 1, in: [12] });
+
+  // 4. Camera image-rollover (0..180 step 180) is mapped as controllable select
+  const camRollover = definitions.find((d) => d.device_id === "cam.1" && d.domain === "select" && d.entity_id.endsWith("_image_rollover"))!;
+  assert.ok(camRollover);
+  const rRollover = await gateway.executeCommand({
+    entity_id: camRollover.entity_id,
+    domain: "select",
+    service: "select_option",
+    service_data: { option: "180°" },
+    timeout_ms: 50,
+  });
+  assert.equal(rRollover.status, "verified");
+  assert.equal(stateStore.get("cam.1/2/2"), 180);
 });

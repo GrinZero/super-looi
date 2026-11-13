@@ -14,6 +14,8 @@ export interface CameraAccountState {
   sentAt?: number;
   devices?: Array<{ did: string; name: string; model: string; host: string; online: boolean }>;
 }
+export type CameraPtzDirection = "left" | "right" | "up" | "down";
+
 export interface NativeCamera {
   initialize(): Promise<string>;
   login(username: string, password: string, region: string): Promise<string>;
@@ -25,6 +27,7 @@ export interface NativeCamera {
   logout(): Promise<void>;
   openPreview(did: string): Promise<string>;
   closePreview(sessionId: string): void;
+  panTilt(did: string, direction: CameraPtzDirection): Promise<void>;
   beginCapture(did: string): string;
   cancelCapture(requestId: string): void;
   captureDevice(requestId: string): Promise<CameraFrame>;

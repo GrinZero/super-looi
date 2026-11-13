@@ -178,3 +178,66 @@ export function getArchetypeDefaultOrder(archetype: ApplianceArchetype, icon: Ap
   if (icon === "lock" || icon === "bell") return 60;
   return 80;
 }
+
+export interface PackedBentoTile {
+  id: string;
+  colStart: number;
+  colSpan: 1 | 2;
+  rowStart: number;
+  rowSpan: 1 | 2;
+}
+
+/**
+ * Deterministic 2D occupancy-grid packer for Bento room tiles.
+ * Places each appliance in the earliest `(row, col)` slot where its `(colSpan, rowSpan)`
+ * fits without overlap, allowing `1x1` tiles to backfill empty right-hand columns beside
+ * `2x2` and `2x1` tiles when column count changes (e.g. collapsing the room sidebar `2 -> 3` cols).
+ */
+export function packBentoTiles(
+  items: ReadonlyArray<{ id: string; span: TileSpan }>,
+  columns: number,
+): PackedBentoTile[] {
+  const safeCols = Math.max(1, Math.floor(columns));
+  const occupied = new Set<string>();
+  const cellKey = (r: number, c: number) => `${r}:${c}`;
+  const placements: PackedBentoTile[] = [];
+
+  for (const item of items) {
+    const raw = parseTileSpanDimensions(item.span);
+    const colSpan = (safeCols === 1 ? 1 : Math.min(raw.cols, safeCols)) as 1 | 2;
+    const rowSpan = raw.rows;
+
+    let placed = false;
+    for (let row = 1; !placed; row++) {
+      for (let col = 1; col <= safeCols - colSpan + 1; col++) {
+        let fits = true;
+        for (let dr = 0; dr < rowSpan && fits; dr++) {
+          for (let dc = 0; dc < colSpan; dc++) {
+            if (occupied.has(cellKey(row + dr, col + dc))) {
+              fits = false;
+              break;
+            }
+          }
+        }
+        if (fits) {
+          for (let dr = 0; dr < rowSpan; dr++) {
+            for (let dc = 0; dc < colSpan; dc++) {
+              occupied.add(cellKey(row + dr, col + dc));
+            }
+          }
+          placements.push({
+            id: item.id,
+            colStart: col,
+            colSpan,
+            rowStart: row,
+            rowSpan,
+          });
+          placed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  return placements;
+}

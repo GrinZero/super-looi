@@ -217,6 +217,24 @@
   - [x] 补齐家居状态采集、异步查询、播放状态与双向纠正的依赖，更新 todo.md
   - [x] 隔离提交本次文档
 
+### 智能家居侧栏折叠修复、全屋设备能力收敛与横屏详情重构（2026-11-11）
+
+- [x] Step 1：收敛 `@super-looi/home-assistant` MIoT 只写属性与带参动作能力
+  - [x] 在 `miot-spec-resolver.ts` 与 `miot-entity-mapper.ts` 支持白名单用户控制类 `write_only` 属性及 `action.in` 参数元数据
+  - [x] 在 `direct-miot-transport.ts` 与 `core/gateway.ts` 实现只写属性本地状态缓存、轮询跳过、动作参数自动拼装与无回读确认语义，并通过包单测
+- [x] Step 2：实现 `@super-looi/home-devices` Bento 二维紧凑排布与全屋 44 台设备领域语义收敛
+  - [x] 在 `layout-store.ts` 实现 `packBentoTiles` 二维网格紧凑回填算法，消除侧栏收缩 `2→3` 列切换右侧整列空洞
+  - [x] 修正喂食器指示灯模式误判与泛化标签，补齐监控 `supportsPtz`、饮水机、电热水瓶、电饭煲、洗碗机、洗衣机、台灯、温控等全品类中文枚举与控制元语，通过包单测
+- [x] Step 3：打通原生摄像头 MISS/CS2 `0x112` 云台四向旋转链路
+  - [x] 在 `apps/nsh/src/camera/transport.rs` 与 `mod.rs` 抽取 `CommandHandle` 实现不断流 `XiaomiCameraHost::pan_tilt`
+  - [x] 串联 `apps/nsh/runtime/camera.ts`、`home.ts`、`application.ts` 与 `store.ts`
+- [x] Step 4：修复 `HomeSpaceView.tsx` 收缩侧栏布局并重构横屏双栏详情页
+  - [x] 接入 `packBentoTiles`、优化收缩房间栏防裁切间距与卡片 `border-border` 细边
+  - [x] 重构监控圆形四向云台详情页、宠物喂食器/饮水机双栏页、周期家电与电水壶可视化程序网格双栏页，以及照明/温控/开关/通用设备横屏双栏检视面板
+- [ ] Step 5：自动化回归、`iPhone 16e` 横屏模拟器实测与独立子 agent review
+  - [ ] 通过 `typecheck`、包单测、`nsh` 构建与 `home_grid` 测试
+  - [ ] 在 `iPhone 16e` 横屏模拟器验证侧栏收放、`大厅监控` 实时流云台旋转及多品类详情页截图
+  - [ ] 完成独立子 agent 代码与 UI 审查并分阶段提交
 
 ### 实时语音转写重复与文字越界修复（2026-11-11）
 
@@ -2214,6 +2232,14 @@
 - [x] Step 3：复核图义与交互，将结论更新到社区调研并隔离提交。
   - [x] 独立子 agent 复核 OpenAI 三模式契约，修正 Qwen 前台／后台工具的图义。
   - [x] 浏览器核对三模式切换、节点与表格联动；JavaScript 语法检查通过。
+
+
+## Android 真机运行最新开发版（2026-11-11）
+
+- [x] Step 1：确认魅族 20 Pro USB/ADB 连接与 NSH 真机启动命令。
+- [x] Step 2：从当前工作区构建业务 bundle 和 Android 开发宿主，安装到真机。
+- [x] Step 3：确认应用前台横屏运行及开发服务器连接。
+  - [x] 魅族 20 Pro 已显示「陪伴待机」表情主页，开发宿主连接 8790 端口，Langfuse 上报已自动开启。
 
 
 ## 家居首次进入缓存（2026-11-11）

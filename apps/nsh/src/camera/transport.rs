@@ -5,6 +5,10 @@ use serde_json::json;
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
+    sync::{
+        Arc,
+        atomic::{AtomicU16, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -61,7 +65,45 @@ struct Connection {
     receiver: mpsc::Receiver<Incoming>,
     reader: JoinHandle<()>,
     writer: JoinHandle<()>,
-    sequence: u16,
+    sequence: Arc<AtomicU16>,
+}
+
+#[derive(Clone)]
+pub struct CommandHandle {
+    sender: mpsc::Sender<Outgoing>,
+    sequence: Arc<AtomicU16>,
+    key: [u8; 32],
+}
+
+impl CommandHandle {
+    async fn send_raw(&self, command: u32, payload: &[u8]) -> Result<(), String> {
+        let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
+        let mut data = vec![0xd1, 0];
+        data.extend(seq.to_be_bytes());
+        data.extend((payload.len() as u32 + 4).to_be_bytes());
+        data.extend(command.to_be_bytes());
+        data.extend(payload);
+        let (receipt, result) = oneshot::channel();
+        self.sender
+            .send((message(0xd0, &data), Some(receipt)))
+            .await
+            .map_err(|_| "camera_connection_ended")?;
+        result.await.map_err(|_| "camera_connection_ended")?
+    }
+
+    pub async fn pan_tilt(&self, direction: &str) -> Result<(), String> {
+        let operation = match direction {
+            "left" => 1,
+            "right" => 2,
+            "up" => 3,
+            "down" => 4,
+            _ => return Err("camera_ptz_direction_invalid".into()),
+        };
+        let mut request = 0x112u32.to_be_bytes().to_vec();
+        request.extend(json!({ "operation": operation }).to_string().as_bytes());
+        self.send_raw(0x1001, &crypto::encrypt_media(&self.key, &request))
+            .await
+    }
 }
 impl Connection {
     async fn connect(host: &str) -> Result<Self, String> {
@@ -185,13 +227,13 @@ impl Connection {
             receiver,
             reader,
             writer,
-            sequence: 0,
+            sequence: Arc::new(AtomicU16::new(0)),
         })
     }
-    async fn command(&mut self, command: u32, payload: &[u8]) -> Result<(), String> {
+    async fn command(&self, command: u32, payload: &[u8]) -> Result<(), String> {
+        let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
         let mut data = vec![0xd1, 0];
-        data.extend(self.sequence.to_be_bytes());
-        self.sequence = self.sequence.wrapping_add(1);
+        data.extend(seq.to_be_bytes());
         data.extend((payload.len() as u32 + 4).to_be_bytes());
         data.extend(command.to_be_bytes());
         data.extend(payload);
@@ -221,6 +263,15 @@ pub struct Miss {
 }
 impl Miss {
     pub async fn connect(host: &str, provision: Provision, model: &str) -> Result<Self, String> {
+        Self::connect_with_options(host, provision, model, true).await
+    }
+
+    pub async fn connect_with_options(
+        host: &str,
+        provision: Provision,
+        model: &str,
+        start_video: bool,
+    ) -> Result<Self, String> {
         let mut connection = Connection::connect(host).await?;
         let auth = json!({"public_key":crypto::hex(&provision.public),"sign":provision.sign,"uuid":"","support_encrypt":0});
         connection
@@ -239,24 +290,34 @@ impl Miss {
             }
             break;
         }
-        let quality = if ["chuangmi.camera.046c04", "chuangmi.camera.72ac1"].contains(&model) {
-            3
-        } else {
-            2
-        };
-        let mut request = 0x102u32.to_be_bytes().to_vec();
-        request.extend(
-            json!({"videoquality":quality,"enableaudio":0})
-                .to_string()
-                .as_bytes(),
-        );
-        connection
-            .command(0x1001, &crypto::encrypt_media(&provision.key, &request))
-            .await?;
+        if start_video {
+            let quality = if ["chuangmi.camera.046c04", "chuangmi.camera.72ac1"].contains(&model) {
+                3
+            } else {
+                2
+            };
+            let mut request = 0x102u32.to_be_bytes().to_vec();
+            request.extend(
+                json!({"videoquality":quality,"enableaudio":0})
+                    .to_string()
+                    .as_bytes(),
+            );
+            connection
+                .command(0x1001, &crypto::encrypt_media(&provision.key, &request))
+                .await?;
+        }
         Ok(Self {
             connection,
             key: provision.key,
         })
+    }
+
+    pub fn command_handle(&self) -> CommandHandle {
+        CommandHandle {
+            sender: self.connection.sender.clone(),
+            sequence: self.connection.sequence.clone(),
+            key: self.key,
+        }
     }
     pub async fn video(&mut self) -> Result<VideoPacket, String> {
         loop {

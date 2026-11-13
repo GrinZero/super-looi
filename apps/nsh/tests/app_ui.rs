@@ -148,7 +148,7 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.wait_for("大厅")?;
     app.wait_for("大厅监控")?;
     app.wait_for("扫地机器人")?;
-    app.wait_for("基站待命")?;
+    app.wait_for("基站待命 · 电量 100% · 上次 16㎡")?;
     app.wait_for("电饭煲")?;
     app.wait_for("大厅空调")?;
     // Open Camera dedicated full page and return
@@ -241,7 +241,7 @@ fn language_and_appearance_preferences_survive_reopening() -> Result<(), String>
     restored.press("nav-home")?;
     restored.wait_for("My Devices")?;
     restored.press("home-tab-services")?;
-    restored.wait_for("Connect your Xiaomi Home account")?;
+    restored.wait_for("Sign in to Xiaomi Home")?;
     restored.press("nav-tasks")?;
     restored.wait_for("Tasks")?;
     Ok(())
@@ -249,7 +249,7 @@ fn language_and_appearance_preferences_survive_reopening() -> Result<(), String>
 
 #[test]
 fn navigation_preserves_model_draft_and_selection() -> Result<(), String> {
-    for (width, height, reduced) in [(390.0, 844.0, false), (844.0, 390.0, true)] {
+    for (width, height, reduced) in [(844.0, 390.0, false), (844.0, 390.0, true)] {
         let data = tempfile::tempdir().map_err(|error| error.to_string())?;
         let mut app = open_app(data.path(), MemoryStorage::new([]), "zh-CN")?;
         app.set_viewport(size(Points(width), Points(height)))?;

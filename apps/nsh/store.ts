@@ -483,6 +483,7 @@ export function createAppStore() {
     frames?: number;
   }>({ phase: "idle", sessionId: null, seconds: 0, buffering: false });
   const cameraRetry = signal(0);
+  const homeCameraPtzBusy = signal<"left" | "right" | "up" | "down" | null>(null);
   let cameraKey = "";
   let cameraAttempt = 0;
   function stopHomeCamera() {
@@ -566,12 +567,16 @@ export function createAppStore() {
       appliance?.icon === "camera";
     const kind = appliance?.capabilities.visionStream?.playbackKind;
     const off = appliance?.capabilities.visionStream?.cameraOn === false;
+    const videoAuthorized = xiaomiVideoAuth().authorized;
+    const restoringVideoAuth = xiaomiVideoLogin().busy && !videoAuthorized;
     const key = visible
       ? JSON.stringify([
           appliance.id,
           kind,
           off,
           homeConnection()?.connectionId,
+          videoAuthorized,
+          restoringVideoAuth,
           cameraRetry(),
         ])
       : "";
@@ -590,6 +595,16 @@ export function createAppStore() {
       });
       return;
     }
+    if (restoringVideoAuth) {
+      homeCamera.set({
+        phase: "loading",
+        sessionId: null,
+        seconds: 0,
+        buffering: true,
+        requestedAt: Date.now(),
+      });
+      return;
+    }
     const attempt = cameraAttempt;
     homeCamera.set({
       phase: "loading",
@@ -605,18 +620,17 @@ export function createAppStore() {
       },
       (error: unknown) => {
         if (!alive || attempt !== cameraAttempt) return;
-        const message = error instanceof Error ? error.message : "";
+        const rawMessage = error instanceof Error ? error.message : String(error ?? "");
+        const matchedCode =
+          /(miot_camera_(?:unsupported|off|busy|auth|network|action|unavailable)|camera_[a-z0-9_]+)/.exec(
+            rawMessage,
+          )?.[1];
         homeCamera.set({
           phase: "error",
           sessionId: null,
           seconds: 0,
           buffering: false,
-          error:
-            /^miot_camera_(unsupported|off|busy|auth|network|action|unavailable)$/.test(
-              message,
-            )
-              ? message
-              : message.startsWith("camera_") ? message : "miot_camera_network",
+          error: matchedCode ?? "miot_camera_network",
         });
       },
     );
@@ -861,12 +875,13 @@ export function createAppStore() {
     ) {
       return;
     }
+    const pollMs = homeConfiguration().mode === "direct_miot" ? 12000 : 4000;
     void syncHomeDashboard();
     const timer = setInterval(() => {
       if (alive && runtime && !homeLoggingIn()) {
         void syncHomeDashboard();
       }
-    }, 4000);
+    }, pollMs);
     return () => clearInterval(timer);
   });
   void (async () => {
@@ -949,6 +964,7 @@ export function createAppStore() {
             throw new Error("@looi:runtimeATaskIsRunningTryAgainLater");
           }
           api.dismissWakeGuide();
+          voiceTaskRunning.set(true);
           busy.set(true);
           shellOutput.set(undefined);
           try {
@@ -961,7 +977,6 @@ export function createAppStore() {
                 if (event.interaction && event.taskId) {
                   interaction.set({ ...event.interaction, taskId: event.taskId });
                 }
-          voiceTaskRunning.set(true);
                 hooks.onStep(event);
               },
               {
@@ -977,6 +992,7 @@ export function createAppStore() {
           } finally {
             if (alive) {
               busy.set(false);
+              voiceTaskRunning.set(false);
               interaction.set(undefined);
               refreshInspectedTask();
               syncBodyStatus(runtime.bodyStatus());
@@ -991,7 +1007,6 @@ export function createAppStore() {
             if (alive) {
               status.set(
                 stopped?.confirmed
-              voiceTaskRunning.set(false);
                   ? "@looi:runtimeTaskStopped"
                   : "@looi:runtimeStopResultUnverified",
               );
@@ -1048,6 +1063,7 @@ export function createAppStore() {
           }
         },
         taskBridge: voiceTaskCoordinator,
+        onConversationActivity: () => opened.touchVoiceConversation(),
         onSessionEnd: stopVoiceSessionMotion,
         controlBody: async (actionName, durationMs, extra) => {
           if (!alive || !runtime) {
@@ -1063,7 +1079,6 @@ export function createAppStore() {
               ...(extra?.turn !== undefined ? { turn: extra.turn } : {}),
             },
             "voice_realtime",
-        onConversationActivity: () => opened.touchVoiceConversation(),
           );
           if (alive) syncBodyStatus(runtime.bodyStatus());
           return receipt;
@@ -1568,8 +1583,27 @@ export function createAppStore() {
       homeInspectedApplianceId.set(id);
     },
     homeCamera: () => homeCamera(),
+    homeCameraPtzBusy: () => homeCameraPtzBusy(),
     retryHomeCamera() {
       cameraRetry.update((value) => value + 1);
+    },
+    async panTiltHomeCamera(did: string, direction: "left" | "right" | "up" | "down") {
+      if (homeCameraPtzBusy()) return;
+      homeCameraPtzBusy.set(direction);
+      try {
+        if (!runtime || homeConnection()?.simulation || did.startsWith("sim_")) {
+          await new Promise((resolve) => setTimeout(resolve, 280));
+          return;
+        }
+        await runtime.panTiltHomeCamera(did, direction, action());
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        notify(msg.includes("camera_login_required")
+          ? `请先在「服务绑定」登录小米视频账号后再控制云台：${msg}`
+          : msg);
+      } finally {
+        if (alive) homeCameraPtzBusy.set(null);
+      }
     },
     homeCameraState(event: CameraVideoState) {
       if (homeCamera().sessionId !== event.sessionId) return;

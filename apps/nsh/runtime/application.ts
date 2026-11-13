@@ -403,6 +403,18 @@ export class MobileRuntime {
   stopHomeCamera() {
     return this.home.stopCamera();
   }
+  async panTiltHomeCamera(
+    did: string,
+    direction: "left" | "right" | "up" | "down",
+    action: UserActionRef,
+  ) {
+    if (this.closed || this.loginPending)
+      throw new Error("@looi:runtimeFinishOrCancelXiaomiSigninFirst");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId)
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
+    return this.home.panTiltCamera(did, direction);
+  }
 
   async controlHomeAppliance(
     command: {

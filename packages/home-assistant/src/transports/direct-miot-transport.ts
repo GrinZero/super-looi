@@ -10,6 +10,8 @@ import { MiotSpecResolver } from "../miot/miot-spec-resolver.js";
 export class DirectMiotTransportAdapter implements HaTransportAdapter {
   private cameras: MiotCameraCapability[] = [];
   private bindings = new Map<string, MiotEntityBinding>();
+  private latestReadValues = new Map<string, string | number | boolean>();
+  private actionArgCache = new Map<string, number>();
   private discovering: Promise<HomeEntityDefinition[]> | null = null;
   private lastVerifiedAt: string | null = null;
   private healthy = false;
@@ -50,7 +52,7 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
         this.bindings = bindings; this.discoveryFailures = failures; this.error = null; this.healthy = false;
         return this.listEntities();
       } catch (error) {
-        this.cameras = []; this.bindings.clear(); this.healthy = false;
+        this.cameras = []; this.bindings.clear(); this.latestReadValues.clear(); this.actionArgCache.clear(); this.healthy = false;
         const details = transportErrorDetails(error, "miot_discovery_failed");
         this.error = String(details.code);
         throw new HomeTransportError(this.error, details);
@@ -68,7 +70,20 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
     try {
       const requested = bindings.flatMap(bindingProperties);
       const result = requested.length ? await this.options.client.getProperties(requested) : [];
+      for (const property of result) {
+        if (property.code === 0 && property.value !== undefined) {
+          this.latestReadValues.set(miotPropertyKey(property), property.value);
+        }
+      }
       const values = new Map<string, MiotPropertyResult>(result.map((property) => [miotPropertyKey(property), property]));
+      for (const binding of bindings) {
+        if (!binding.isActionArgumentOnly) continue;
+        const key = miotPropertyKey({ did: binding.did, siid: binding.primary.siid, piid: binding.primary.piid });
+        const cached = this.actionArgCache.get(key);
+        if (cached !== undefined) {
+          values.set(key, { did: binding.did, siid: binding.primary.siid, piid: binding.primary.piid, code: 0, value: cached });
+        }
+      }
       const observedAt = this.observedAt();
       this.lastVerifiedAt = observedAt; this.healthy = true; this.error = null;
       return bindings.map((binding) => {
@@ -155,7 +170,27 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
       }
       const args = Array.isArray(data.in)
         ? data.in.filter((item): item is string | number | boolean => typeof item === "string" || typeof item === "boolean" || (typeof item === "number" && Number.isFinite(item)))
-        : (binding.actionDefaultArgs ?? []);
+        : binding.actionInputProperties
+          ? binding.actionInputProperties.map((prop, idx) => {
+              if (binding.action?.name === "reset-filter-life") return 0;
+              const key = miotPropertyKey({ did: binding.did, siid: prop.siid, piid: prop.piid });
+              if (!prop.readable) {
+                const cachedArg = this.actionArgCache.get(key);
+                if (cachedArg !== undefined) return cachedArg;
+                if (binding.siblingFallbackProperty) {
+                  const sibKey = miotPropertyKey({ did: binding.did, siid: binding.siblingFallbackProperty.siid, piid: binding.siblingFallbackProperty.piid });
+                  const sibVal = this.latestReadValues.get(sibKey);
+                  if (typeof sibVal === "number" && Number.isFinite(sibVal)) return Math.max(1, sibVal);
+                }
+                return binding.actionDefaultArgs?.[idx] ?? 1;
+              }
+              const liveVal = this.latestReadValues.get(key);
+              if (binding.action?.name === "start-shake-disperse" && (typeof liveVal !== "number" || liveVal <= 0)) {
+                return 30;
+              }
+              return liveVal !== undefined ? liveVal : (binding.actionDefaultArgs?.[idx] ?? 0);
+            })
+          : (binding.actionDefaultArgs ?? []);
       try {
         const result = await this.options.client.callAction({
           did: binding.did,
@@ -176,6 +211,11 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
       const matched = binding.primary.valueList.find((item) => item.description === optionStr || String(item.value) === optionStr);
       if (!matched) {
         return { success: false, error: "miot_invalid_parameter" };
+      }
+      if (binding.isActionArgumentOnly) {
+        const key = miotPropertyKey({ did: binding.did, siid: binding.primary.siid, piid: binding.primary.piid });
+        this.actionArgCache.set(key, matched.value);
+        return { success: true };
       }
       return this.writeProperties([
           { did: binding.did, siid: binding.primary.siid, piid: binding.primary.piid, value: matched.value },

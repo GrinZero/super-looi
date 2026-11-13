@@ -290,7 +290,12 @@ export function resolveApplianceCardView(
       const showSwingToggle = Boolean(swingToggle) && isLarge;
 
       if (appliance.icon === "kettle") {
-        const stateText = appliance.isActive ? "保温中" : "待机";
+        const stateText =
+          appliance.statusBadge && !appliance.statusBadge.includes("°C")
+            ? appliance.statusBadge
+            : appliance.isActive
+              ? "保温中"
+              : "待机";
         const waterTempText =
           therm.currentTemp !== undefined ? `水温 ${therm.currentTemp}°C` : undefined;
         out.header.subtitle = [stateText, waterTempText].filter(Boolean).join(" · ");

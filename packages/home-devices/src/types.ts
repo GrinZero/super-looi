@@ -155,6 +155,7 @@ export interface ApplianceActionTrigger {
 
 export interface VisionStreamCapability {
   playbackKind?: "native" | "hls" | "p2p_pending" | "unsupported";
+  supportsPtz?: boolean;
   cameraOn?: boolean;
   streamActive: boolean;
   statusText: string;

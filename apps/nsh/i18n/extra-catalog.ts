@@ -248,6 +248,11 @@ export const extraZh = {
   miot_camera_action: "摄像头未能启动视频，请重试",
   miot_camera_unavailable: "暂时无法确认视频可用状态，请重试",
   miot_camera_playback: "视频加载失败，请重试",
+  camera_login_required: "请先在「服务绑定」登录小米视频账号",
+  camera_device_not_in_account: "当前小米视频账号下未找到该摄像机",
+  camera_session_closed: "视频会话已断开，请点击重新连接",
+  camera_start_failed: "实时视频连接失败，请点击重新连接",
+  camera_decode_failed: "视频解码异常，请点击重新连接",
 } as const;
 export const extraEn: Record<keyof typeof extraZh, string> = {
   voiceSaveSelection: "Use this voice",
@@ -499,4 +504,9 @@ export const extraEn: Record<keyof typeof extraZh, string> = {
   miot_camera_action: "Could not start video. Try again.",
   miot_camera_unavailable: "Video availability is unknown. Try again.",
   miot_camera_playback: "Could not load video. Try again.",
+  camera_login_required: "Sign in to Xiaomi Video in Service Binding first",
+  camera_device_not_in_account: "Camera not found in current Xiaomi Video account",
+  camera_session_closed: "Video session closed. Tap Reconnect.",
+  camera_start_failed: "Could not start live video. Tap Reconnect.",
+  camera_decode_failed: "Video decoder error. Tap Reconnect.",
 };

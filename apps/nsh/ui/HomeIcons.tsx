@@ -22,6 +22,8 @@ export type ActionIconName =
   | "swap"
   | "move_left"
   | "move_right"
+  | "move_up"
+  | "move_down"
   | "plus"
   | "minus"
   | "sun"
@@ -339,6 +341,22 @@ export function ActionIcon(props: {
             cx.moveTo(9.5, 6.5);
             cx.lineTo(15, 12);
             cx.lineTo(9.5, 17.5);
+            cx.stroke();
+            break;
+          }
+          case "move_up": {
+            cx.beginPath();
+            cx.moveTo(6.5, 14.5);
+            cx.lineTo(12, 9);
+            cx.lineTo(17.5, 14.5);
+            cx.stroke();
+            break;
+          }
+          case "move_down": {
+            cx.beginPath();
+            cx.moveTo(6.5, 9.5);
+            cx.lineTo(12, 15);
+            cx.lineTo(17.5, 9.5);
             cx.stroke();
             break;
           }

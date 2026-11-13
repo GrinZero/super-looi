@@ -22,7 +22,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     export {utf8Tail} from "../../packages/looi-runtime/src/agent/shell-output.ts";
     export {VoiceRuntime, VoiceTaskCoordinator} from "./runtime/voice.ts";
     export {MiotLoginFlow} from "./runtime/miot-login.ts";
-    export {resolveApplianceCardView} from "@super-looi/home-devices";
+    export {resolveApplianceCardView, packBentoTiles} from "@super-looi/home-devices";
     export {RobotFaceController, FACE_EXPRESSION_IDS, isFaceExpression, getFaceExpressionBehavior} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
     export async function openRuntime(host,vault) {
       const release=installNshNativeCompat(host);
@@ -136,9 +136,11 @@ export type ApplianceControlPrimitive =
   | {kind:"choice";id:string;label:string;entityId:string;domain:string;service:string;parameterKey:string;currentValue:string;currentLabel:string;options:ModeOption[];controllable:boolean}
   | {kind:"action";id:string;label:string;entityId:string;domain:string;service:string;serviceData?:Record<string,unknown>;tone?:"primary"|"default"|"destructive";iconKey?:ApplianceActionTrigger["iconKey"]}
   | {kind:"metric";id:string;label:string;value:string;numericValue?:number;unit?:string;badge?:string};
-export interface HomeAppliance {id:string;deviceId:string;source:HomeSourceId;sourceLabel:string;name:string;displayName?:string;room:string;homeName?:string;model?:string;archetype:ApplianceArchetype;icon:ApplianceIconKind;defaultSpan:TileSpan;span:TileSpan;order:number;online:boolean;isActive:boolean;statusBadge:string;conciseSubtitle:string;entityIds:string[];capabilities:{power?:{entityId:string;domain:string;isOn:boolean;controllable:boolean};multiGang?:{channels:MultiGangChannel[]};thermostat?:{entityId:string;domain:string;currentTemp?:number;targetTemp:number;minTemp:number;maxTemp:number;step:number;unit:string;controllable:boolean};modeBar?:ModeBarCapability;fanLevel?:ModeBarCapability;cycleTask?:{stageLabel:string;stages:string[];activeStageIndex:number;remainingMinutes?:number;keepWarmMinutes?:number;progressPercent?:number;temperatureCelsius?:number;targetTempCelsius?:number;recipeLabel?:string;isRunning:boolean;subStatus?:string};vacuum?:VacuumCapability;actions?:ApplianceActionTrigger[];visionStream?:{playbackKind?:"native"|"hls"|"p2p_pending"|"unsupported";cameraOn?:boolean;streamActive:boolean;statusText:string;resolutionBadge?:string;lastMotionText?:string;storageStatusText?:string;storageUsedPercent?:number;streamEntityId?:string;stopEntityId?:string;ptzActions:ApplianceActionTrigger[];featureToggles:Array<{id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}>;modeSelectors?:Array<{id:string;label:string;capability:ModeBarCapability}>};securityEvents?:{readOnly:boolean;lockState?:string;doorState?:string;batteryPercent?:number;events:Array<{time:string;label:string}>};dimmer?:{entityId:string;brightnessPercent?:number;colorTempKelvin?:number;colorTempRange?:[number,number];controllable:boolean};auxiliaryToggles?:Array<{id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}>;telemetry:Array<{key:string;label:string;value:string;numericValue?:number;unit?:string;badge?:string;sourceDeviceId?:string}>;controls?:ApplianceControlPrimitive[]}}
+export interface HomeAppliance {id:string;deviceId:string;source:HomeSourceId;sourceLabel:string;name:string;displayName?:string;room:string;homeName?:string;model?:string;archetype:ApplianceArchetype;icon:ApplianceIconKind;defaultSpan:TileSpan;span:TileSpan;order:number;online:boolean;isActive:boolean;statusBadge:string;conciseSubtitle:string;entityIds:string[];capabilities:{power?:{entityId:string;domain:string;isOn:boolean;controllable:boolean};multiGang?:{channels:MultiGangChannel[]};thermostat?:{entityId:string;domain:string;currentTemp?:number;targetTemp:number;minTemp:number;maxTemp:number;step:number;unit:string;controllable:boolean};modeBar?:ModeBarCapability;fanLevel?:ModeBarCapability;cycleTask?:{stageLabel:string;stages:string[];activeStageIndex:number;remainingMinutes?:number;keepWarmMinutes?:number;progressPercent?:number;temperatureCelsius?:number;targetTempCelsius?:number;recipeLabel?:string;isRunning:boolean;subStatus?:string};vacuum?:VacuumCapability;actions?:ApplianceActionTrigger[];visionStream?:{playbackKind?:"native"|"hls"|"p2p_pending"|"unsupported";cameraOn?:boolean;supportsPtz?:boolean;streamActive:boolean;statusText:string;resolutionBadge?:string;lastMotionText?:string;storageStatusText?:string;storageUsedPercent?:number;streamEntityId?:string;stopEntityId?:string;ptzActions:ApplianceActionTrigger[];featureToggles:Array<{id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}>;modeSelectors?:Array<{id:string;label:string;capability:ModeBarCapability}>};securityEvents?:{readOnly:boolean;lockState?:string;doorState?:string;batteryPercent?:number;events:Array<{time:string;label:string}>};dimmer?:{entityId:string;brightnessPercent?:number;colorTempKelvin?:number;colorTempRange?:[number,number];controllable:boolean};auxiliaryToggles?:Array<{id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}>;telemetry:Array<{key:string;label:string;value:string;numericValue?:number;unit?:string;badge?:string;sourceDeviceId?:string}>;controls?:ApplianceControlPrimitive[]}}
 export interface HomeRoomSection {id:string;name:string;totalCount:number;activeCount:number;navSummary:string;environment:Array<{key:"temperature"|"humidity"|"co2"|"pm25"|"tvoc"|"occupancy"|"power";label:string;value:string;numericValue?:number;badge?:string;sourceDeviceId?:string}>;appliances:HomeAppliance[];roomPowerEntities:{turnOnIds:string[];turnOffIds:string[]}}
 export interface HomeDashboardModel {homeName:string;totalAppliances:number;activeAppliances:number;rooms:HomeRoomSection[];allAppliances:HomeAppliance[]}
+export interface PackedBentoTile {id:string;colStart:number;colSpan:1|2;rowStart:number;rowSpan:1|2}
+export function packBentoTiles(items:ReadonlyArray<{id:string;span:TileSpan}>,columns:number):PackedBentoTile[];
 export type CardHeaderTrailing = {kind:"power";entityId:string;domain:string;isOn:boolean;controllable:boolean}|{kind:"badge";label:string;tone:"warning"|"muted"}|{kind:"none"};
 export interface CycleStageStepView {label:string;state:"completed"|"current"|"upcoming"}
 export interface ResolvedCycleCardBody {primaryReadout?:{value:string;caption:string};stages:CycleStageStepView[];actions:ApplianceActionTrigger[]}
@@ -201,6 +203,7 @@ export interface NativeRuntime {
  startHomeCamera(did:string):Promise<{sessionId:string;protocol:"native"}>;
  attachNativeCamera(camera: import("../runtime/camera.js").NativeCamera):void;
  stopHomeCamera():Promise<void>;
+ panTiltHomeCamera(did:string,direction:"left"|"right"|"up"|"down",action:UiAction):Promise<void>;
  setHomeApplianceLayout(applianceId:string,patch:{span?:TileSpan;order?:number}):HomeLayoutPreferences;
  controlHomeAppliance(command:{entity_id:string;domain:string;service:string;service_data?:Record<string,unknown>;timeout_ms?:number},action:UiAction):Promise<{receipt:{status:string;outcome?:string;reason_code?:string|null};simulation:boolean;connectionId:string;instruction:string}>;
  bodyConfiguration():BodyConfiguration;
@@ -225,12 +228,12 @@ export interface NativeRuntime {
  taskDetails(id:string):NativeTask;
  newConversation(action:UiAction):void;
  configure(value:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
+ voiceConversationId():string;
+ touchVoiceConversation():void;
  run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{onShellOutput?:(event:NativeShellOutput)=>void;agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
  sendTaskMessage(taskId:string,message:string,behavior:"steer"|"followUp",action:UiAction):Promise<"queued"|"handled">;
  respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
- voiceConversationId():string;
- touchVoiceConversation():void;
  close():Promise<void>;
  llmSnapshot():LlmCatalogSnapshot;
  refreshProviderModels(providerId:string):Promise<LlmCatalogSnapshot>;

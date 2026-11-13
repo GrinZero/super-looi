@@ -54,8 +54,11 @@ const MIOT_OPTION_TRANSLATIONS: Record<string, string> = {
   favorite: "最爱",
   manual: "手动",
   none: "关闭",
+  null: "关闭",
   off: "关闭",
   on: "开启",
+  close: "关闭",
+  open: "开启",
   cool: "制冷",
   heat: "制热",
   dry: "除湿",
@@ -69,63 +72,183 @@ const MIOT_OPTION_TRANSLATIONS: Record<string, string> = {
   "sweep and mop": "扫拖",
   low: "1档",
   medium: "2档",
+  middle: "中档",
   high: "3档",
-  custom: "自定义",
+  hight: "高",
+  custom: "自选",
   smart: "智能",
   "tap water": "自来水",
   "purified water": "纯净水",
   "cooled boiled water": "凉白开",
-  "quick wash": "超快洗",
+  "fine cook": "精煮饭",
+  "quick cook": "快煮饭",
+  "cook congee": "煮粥",
+  congee: "煮粥",
+  "keep warm": "保温",
+  "user defined": "自选烹饪",
+  "user define": "自定义",
+  fasthost: "高火速热",
+  "quick wash": "快速洗",
   "standard wash": "标准洗",
   "intensive wash": "强力洗",
+  intensive: "强力洗",
   eco: "节能洗",
   "energy saving": "节能洗",
   disinfect: "消毒洗",
+  disinfecting: "消毒洗",
   "self clean": "自清洁",
-  drying: "单独烘干",
-  "baby care": "母婴洗",
+  drying: "单烘干",
+  "baby care": "婴童洗",
   babycare: "婴童洗",
   glass: "晶柔洗",
   "pre-wash": "预冲洗",
   standard: "标准",
   soft: "柔和",
   quick: "快洗",
-  "super quick": "快速",
+  "super quick": "超快洗",
   delicate: "轻柔",
+  "delicate wash": "轻柔洗",
+  "heavy wash": "强力洗",
+  mix: "混合洗",
   wool: "羊毛",
-  "down coat": "羽绒",
+  "down coat": "羽绒服",
   spin: "单脱水",
   "rinse and spin": "漂+脱",
-  "drum clean": "筒清洁",
+  "rinse spin": "漂+脱",
+  "drum clean": "筒自洁",
   "wash and dry": "洗烘",
+  "quick wash dry": "快速洗烘",
+  "pleased wash dry": "随心洗烘",
   shirt: "衬衣",
   bedding: "大件",
   underwear: "内衣",
+  cotton: "棉麻洗",
+  boiling: "高温洗",
+  jacket: "冲锋衣",
+  "new-clothes wash": "新衣洗",
+  silk: "真丝",
+  jeans: "牛仔",
+  "aromatherapy wash": "香薰洗",
+  synthetic: "化纤",
+  sportswear: "运动衣",
+  "bacteria mite removal": "除菌除螨",
   "mite removal": "除螨",
   "dry air wash": "空气洗",
   soak: "浸泡洗",
   sterilization: "除菌",
   fragrance: "香薰",
-  reading: "阅读",
-  computer: "电脑",
+  timed: "定时烘干",
+  timing: "定时烘干",
+  ironing: "微干熨烫",
+  "wear immediately": "即穿全干",
+  store: "储藏特干",
+  reading: "专注读写",
+  computer: "电脑模式",
+  warmth: "温馨起夜",
+  leisure: "休闲放松",
+  office: "办公专注",
+  phone: "看手机",
+  free: "自由调光",
+  mymode1: "我的模式 1",
+  mymode2: "我的模式 2",
+  mymode3: "我的模式 3",
+  mymode4: "我的模式 4",
   hospitality: "会客",
-  entertainment: "娱乐",
+  entertainment: "娱乐氛围",
   wakeup: "唤醒",
   night: "夜灯",
   continuous: "连续除湿",
   "dry clothes": "干衣",
+  "clothes drying": "干衣",
   "target humidity": "恒湿",
+  common: "常用供暖",
+  hydropenia: "缺水",
+  "all record": "全天录制",
+  "motion record": "移动录制",
+  "no record": "不录制",
+  "continue record": "连续录制",
+  "dynamic record": "动态录制",
+  "stop record": "停止录制",
+  "panoramic cruise": "全景巡航",
+  "fixed point cruise": "定点巡航",
+  bright: "微亮",
+  brightest: "常亮",
+  half: "半亮",
+  full: "全亮",
+  "top rating": "最高风",
+  top: "偏上",
+  bottom: "偏下",
+  "lower rating": "最低风",
+  "surround the wind": "环绕风",
+  upper: "上吹",
+  lower: "下吹",
+  "weak cold": "微冷",
+  "small cold": "轻柔制冷",
+  comfort: "舒适",
+  "big cold": "强冷",
+  "strong cold": "速冷",
+  "weak heat": "微暖",
+  "small heat": "轻柔制热",
+  "big heat": "强暖",
+  "strong heat": "速热",
+  "cloud recommendation": "云端智选",
+  "above 50 centigrade need unlock": "高于50°C需解锁",
+  "no need unlock": "免解锁",
+  "need unlock": "常驻童锁",
+  "1 minute": "1分钟",
+  "3 minutes": "3分钟",
+  "5 minutes": "5分钟",
+  "30 minutes": "30分钟",
+  "60 minutes": "60分钟",
+  "90 minutes": "90分钟",
+  "pir mode": "感应出水",
+  "interval mode": "间歇出水",
 };
 
 function translateOptionLabel(raw: string, contextHint = ""): string {
   const trimmed = String(raw).trim();
   if (!trimmed) return trimmed;
   const lower = trimmed.toLowerCase();
-  if (/^level\s*(\d+)$/i.test(trimmed)) {
-    return `${RegExp.$1}档`;
+  const levelMatch = /^level\s*(\d+)$/i.exec(trimmed);
+  if (levelMatch) {
+    return levelMatch[1] === "0" ? "自动" : `${levelMatch[1]}档`;
+  }
+  if (/image[_-\s]*rollover|翻转|旋转/i.test(contextHint)) {
+    if (trimmed === "0" || trimmed === "0°") return "正常 (0°)";
+    if (trimmed === "180" || trimmed === "180°") return "倒装 (180°)";
+  }
+  if (/spin[_-\s]*speed|脱水转速/i.test(contextHint) && /^\d+$/.test(trimmed)) {
+    return trimmed === "0" ? "免脱水" : `${trimmed}转`;
+  }
+  if (/target[_-\s]*temperature|洗涤温度/i.test(contextHint) && /^\d+$/.test(trimmed)) {
+    return trimmed === "0" ? "常温" : `${trimmed}°C`;
+  }
+  if (/alarm[_-\s]*interval|报警间隔/i.test(contextHint) && /^\d+$/.test(trimmed)) {
+    return trimmed === "0" ? "无间隔" : `${trimmed}分钟`;
+  }
+  if (/out[_-\s]*water[_-\s]*time|出水时长|出水量/i.test(contextHint)) {
+    if (lower === "unlimited") return "不限";
+    if (/^\d+$/.test(trimmed)) return `${trimmed}秒`;
   }
   if (/angle|角度/i.test(contextHint) && /^\d+$/.test(trimmed)) {
     return `${trimmed}°`;
+  }
+  if (/camera|监控|sensitivity|灵敏度|brightness|屏幕亮度|water[_-\s]*level|水位/i.test(contextHint)) {
+    if (lower === "low") return "低";
+    if (lower === "medium" || lower === "middle") return "中";
+    if (lower === "high" || lower === "hight") return "高";
+  }
+  if (/washer|洗衣/i.test(contextHint) && lower === "dry") {
+    return "单烘干";
+  }
+  if (/dishwasher|洗碗/i.test(contextHint) && lower === "basic") {
+    return "标准洗";
+  }
+  if (/dishwasher|洗碗/i.test(contextHint) && lower === "smart") {
+    return "智能洗";
+  }
+  if (/washer|洗衣/i.test(contextHint) && lower === "smart" && !/drying|烘干/i.test(contextHint)) {
+    return "智能洗";
   }
   if (/light|desk_lamp|scene|光模式/i.test(contextHint) && /^\d+$/.test(trimmed)) {
     return trimmed === "0" ? "默认" : `场景 ${trimmed}`;
@@ -142,29 +265,36 @@ function translateOptionLabel(raw: string, contextHint = ""): string {
 
 function translateSwitchLabel(record: RawHomeEntityRecord): string {
   const text = entityLabelText(record);
-  if (/horizontal_swing|左右摆风|左右扫风|摇头/i.test(text)) return "左右摆风";
-  if (/vertical_swing|上下摆风|上下扫风/i.test(text)) return "上下摆风";
-  if (/un_straight_blowing|防直吹/i.test(text)) return "防直吹";
-  if (/sleep_mode|睡眠/i.test(text)) return "睡眠模式";
+  if (/horizontal[_-\s]*swing|左右摆风|左右扫风|摇头/i.test(text)) return "左右摆风";
+  if (/vertical[_-\s]*swing|上下摆风|上下扫风/i.test(text)) return "上下摆风";
+  if (/un[_-\s]*straight[_-\s]*blowing|防直吹/i.test(text)) return "防直吹";
+  if (/sleep[_-\s]*mode|睡眠/i.test(text)) return "睡眠模式";
   if (/heater|电辅热|辅热/i.test(text)) return "电辅热";
   if (/dryer|干燥/i.test(text)) return "干燥防霉";
   if (/\beco\b|节能/i.test(text)) return "节能";
   if (/anion|负离子/i.test(text)) return "负离子";
-  if (/auto_keep_warm|自动保温|延长保温|营养保温/i.test(text)) return "自动保温";
-  if (/dechlorination|除氯/i.test(text)) return "除氯";
-  if (/rapid_cooling|速冷/i.test(text)) return "速冷";
-  if (/over_boiling|延长煮沸/i.test(text)) return "延长煮沸";
-  if (/physical_controls_locked|child_lock|童锁/i.test(text)) return "童锁";
-  if (/indicator|指示灯|led/i.test(text)) return "指示灯";
+  if (/pure[_-\s]*water[_-\s]*keep[_-\s]*warm|纯净水.*保温/i.test(text)) return "纯净水保温";
+  if (/auto[_-\s]*keep[_-\s]*warm|keep[_-\s]*warm|自动保温|延长保温|营养保温/i.test(text)) return "自动保温";
+  if (/dechlorination|除氯/i.test(text)) return "除氯煮沸";
+  if (/rapid[_-\s]*cooling|速冷/i.test(text)) return "风冷速冷";
+  if (/over[_-\s]*boiling|延长煮沸/i.test(text)) return "延长煮沸";
+  if (/physical[_-\s]*controls[_-\s]*locked|child[_-\s]*protected|child[_-\s]*lock|童锁/i.test(text)) return "童锁保护";
+  if (/indicator|指示灯|led/i.test(text)) return "面板指示灯";
+  if (/no[_-\s]*disturb|勿扰/i.test(text)) return "勿扰模式";
   if (/alarm|提示音|蜂鸣/i.test(text)) return "提示音";
   if (/mute|静音/i.test(text)) return "静音";
   if (/watermark|水印/i.test(text)) return "时间水印";
-  if (/motion_tracking|移动追踪|人形追踪/i.test(text)) return "移动追踪";
-  if (/motion_detection|移动侦测/i.test(text)) return "移动侦测";
-  if (/wdr|宽动态/i.test(text)) return "宽动态";
-  if (/glimmer_full_color|微光全彩/i.test(text)) return "微光全彩";
+  if (/cruise[_-\s]*switch|巡航/i.test(text)) return "常开巡航";
+  if (/motion[_-\s]*tracking|移动追踪|人形追踪/i.test(text)) return "移动追踪";
+  if (/motion[_-\s]*detection|移动侦测/i.test(text)) return "移动侦测";
+  if (/wdr|wide.dynamic|宽动态/i.test(text)) return "宽动态";
+  if (/glimmer[_-\s]*full[_-\s]*color|微光全彩/i.test(text)) return "微光全彩";
   if (/carpet|地毯/i.test(text)) return "地毯增压";
-  if (/除菌|steril/i.test(text)) return "除菌";
+  if (/steam[_-\s]*sterilization|蒸汽除菌|除菌/i.test(text)) return "蒸汽除菌";
+  if (/high[_-\s]*water[_-\s]*switch|高水位/i.test(text)) return "高水位洗";
+  if (/one[_-\s]*click[_-\s]*wash|一键智洗/i.test(text)) return "一键智洗";
+  if (/ai[_-\s]*mode|灵云|智洗/i.test(text)) return "智能托管";
+  if (/favorite[_-\s]*on|智选舒适/i.test(text)) return "舒适智选";
   const raw = (record.original_name ?? record.friendly_name ?? "").trim();
   const tail = raw.includes("·") ? raw.split("·").pop()!.trim() : raw;
   return tail || "辅助开关";
@@ -172,17 +302,46 @@ function translateSwitchLabel(record: RawHomeEntityRecord): string {
 
 function translateControlLabel(record: RawHomeEntityRecord, fallback: string): string {
   const text = entityLabelText(record);
-  if (/horizontal_swing_included_angle|摇头角度|摆风角度/i.test(text)) return "摇头角度";
-  if (/favorite_level|最爱档位/i.test(text)) return "最爱档位";
-  if (/target_humidity|目标湿度/i.test(text)) return "目标湿度";
-  if (/target_temperature|目标温度|设定温度/i.test(text)) return "目标温度";
-  if (/keep_warm_temperature|保温温度/i.test(text)) return "保温温度";
-  if (/delay_off_time|延时关/i.test(text)) return "延时关闭";
-  if (/image_rollover|画面翻转|画面旋转/i.test(text)) return "画面旋转";
-  if (/night_shot|夜视/i.test(text)) return "夜视模式";
-  if (/recording_mode|录制模式|存储模式/i.test(text)) return "录制模式";
-  if (/mop_mode|water_output|水量|拖地档位/i.test(text)) return "拖地水量";
-  if (/fan_level|风速|档位/i.test(text)) return "风速档位";
+  if (/physical.controls.locked.*mode|child.*lock.*mode/i.test(text)) return "童锁模式";
+  if (/indicator.*mode|指示灯/i.test(text)) return "面板指示灯";
+  if (/screen.*off.*time|auto.screen.off|息屏/i.test(text)) return "自动息屏";
+  if (/brightness|屏幕亮度/i.test(text) && !/^light\./i.test(record.entity_id)) return "屏幕亮度";
+  if (/horizontal[_-\s]*swing[_-\s]*included[_-\s]*angle|摇头角度|摆风角度/i.test(text)) return "摇头角度";
+  if (/vertical[_-\s]*angle|上下风向|导风板/i.test(text)) return "上下风向";
+  if (/cooling[_-\s]*effect|制冷体感/i.test(text)) return "制冷强度";
+  if (/heating[_-\s]*effect|制热体感/i.test(text)) return "制热强度";
+  if (/favorite[_-\s]*type|智选偏好/i.test(text)) return "智选模式";
+  if (/favorite[_-\s]*level|最爱档位/i.test(text)) return "最爱档位";
+  if (/target[_-\s]*feeding[_-\s]*measure|feeding[_-\s]*measure|出粮份数|投喂份数/i.test(text)) return "单次出粮份数";
+  if (/out[_-\s]*water[_-\s]*time|出水时长|定量出水/i.test(text)) return "单次出水时长";
+  if (/boiling[_-\s]*point|沸点/i.test(text)) return "沸点温度";
+  if (/out[_-\s]*water[_-\s]*interval|出水间隔/i.test(text)) return "出水间隔";
+  if (/rinsh[_-\s]*times|rinse[_-\s]*times|漂洗次数/i.test(text)) return "漂洗次数";
+  if (/spin[_-\s]*speed|脱水转速/i.test(text)) return "脱水转速";
+  if (/soak[_-\s]*time|浸泡时间|浸泡时长/i.test(text)) return "浸泡时长";
+  if (/wash[_-\s]*time|洗涤时间|洗涤时长/i.test(text)) return "洗涤时长";
+  if (/drying[_-\s]*level|烘干模式|烘干档位/i.test(text)) return "烘干模式";
+  if (/drying[_-\s]*degree|烘干程度|衣干程度/i.test(text)) return "衣干程度";
+  if (/drying[_-\s]*time|烘干时间|烘干时长/i.test(text)) return "烘干时长";
+  if (/shake[_-\s]*time|抖散时间|抖散时长/i.test(text)) return "抖散时长";
+  if (/target[_-\s]*humidity|目标湿度/i.test(text)) return "目标湿度";
+  if (/pure[_-\s]*water[_-\s]*keep[_-\s]*warm|纯净水保温/i.test(text)) return "纯净水保温";
+  if (/tap[_-\s]*water[_-\s]*keep[_-\s]*warm|自来水保温/i.test(text)) return "自来水保温";
+  if (/keep[_-\s]*warm[_-\s]*temperature|保温温度/i.test(text)) return "保温温度";
+  if (/target[_-\s]*temperature|目标温度|设定温度/i.test(text)) {
+    return /washer|洗衣/i.test(text) ? "洗涤水温" : "目标温度";
+  }
+  if (/countdown[_-\s]*time|delay[_-\s]*off[_-\s]*time|延时关|倒计时/i.test(text)) return "倒计时关机";
+  if (/alarm[_-\s]*interval|报警间隔/i.test(text)) return "报警间隔";
+  if (/detection[_-\s]*sensitivity|灵敏度/i.test(text)) return "侦测灵敏度";
+  if (/image[_-\s]*rollover|画面翻转|画面旋转/i.test(text)) return "画面翻转";
+  if (/night[_-\s]*shot|夜视/i.test(text)) return "夜视模式";
+  if (/recording[_-\s]*mode|录制模式|存储模式/i.test(text)) return "录制模式";
+  if (/cruise[_-\s]*mode|巡航模式/i.test(text)) return "巡航模式";
+  if (/tv[_-\s]*input|输入源|信号源/i.test(text)) return "信号源";
+  if (/mop[_-\s]*mode|water[_-\s]*output|水量|拖地档位/i.test(text)) return "拖地水量";
+  if (/fan[_-\s]*level|风速|档位/i.test(text)) return "风速档位";
+  if (/cook[_-\s]*mode|烹饪模式|食谱/i.test(text)) return "烹饪模式";
   if (/\bmode\b|模式|程序|菜单/i.test(text)) return "工作模式";
   if (/volume|音量/i.test(text)) return "音量";
   return fallback;
@@ -536,19 +695,38 @@ function extractTelemetry(
     } else if (/hcho|甲醛/i.test(label) && num !== undefined) {
       addMetric("hcho", "甲醛", `${num}${unit}`, num, unit);
     } else if (/今日已进食|宠物进食量|eaten/i.test(label)) {
-      const v = num ?? 0;
+      const allEatenNums = sortedRecords
+        .filter((cand) => /今日已进食|宠物进食量|eaten/i.test(entityLabelText(cand)))
+        .map((cand) => numericState(cand))
+        .filter((v): v is number => v !== undefined && Number.isFinite(v));
+      const v = allEatenNums.length > 0 ? Math.max(...allEatenNums) : (num ?? 0);
       addMetric("pet_eaten", "今日进食", `${v}g`, v, "g");
-    } else if (/出水次数/i.test(label)) {
+    } else if (/pet.food.left.level|余粮/i.test(label) && str !== undefined) {
+      const isLow = /low|1|不足|缺粮|empty/i.test(str);
+      addMetric("food_level", "余粮状态", isLow ? "余粮不足" : "余粮充足", isLow ? 0 : 1);
+    } else if (/food.stuck.status|卡粮/i.test(label) && str !== undefined) {
+      const stuck = /abnormal|1|卡粮|异常/i.test(str);
+      addMetric("food_status", "出粮状态", stuck ? "出粮异常" : "出粮顺畅", stuck ? 0 : 1);
+    } else if (/出水次数|day.out.water.times/i.test(label)) {
       const v = num ?? 0;
       addMetric("water_count", "今日出水", `${v}次`, v);
-    } else if (/电池电量|battery_level|\bbattery\b/i.test(label) && num !== undefined) {
+    } else if (/water.shortage|缺水/i.test(label) && str !== undefined) {
+      const shortage = /^(on|true|1|yes|缺水)$/i.test(str);
+      addMetric("water_level", "储水状态", shortage ? "缺水需补" : "水量充足", shortage ? 0 : 1);
+    } else if (/电池电量|battery_level|\bbattery\b/i.test(label) && r.domain === "sensor" && num !== undefined) {
       const pct = Math.max(0, Math.min(100, Math.round(num)));
       addMetric("battery", "电量", `${pct}%`, pct, "%");
-    } else if (/滤芯.*寿命|滤网.*寿命|干燥剂.*寿命|filter.*life.*level/i.test(label) && num !== undefined) {
+    } else if (/干燥剂.*寿命|desiccant.*left.*level/i.test(label) && num !== undefined) {
+      const pct = Math.max(0, Math.min(100, Math.round(num)));
+      addMetric("desiccant_life", "干燥剂剩余", `${pct}%`, pct, "%");
+    } else if (/滤芯.*寿命|滤网.*寿命|filter.*life.*level/i.test(label) && num !== undefined) {
       const pct = Math.max(0, Math.min(100, Math.round(num)));
       addMetric("filter_life", "滤芯寿命", `${pct}%`, pct, "%");
-    } else if (/人在|有人|occupancy|motion/i.test(label) && r.domain === "binary_sensor") {
-      const occupied = str === "on" || str === "true" || str === "detected";
+    } else if (/water.softener|软水盐/i.test(label) && str !== undefined) {
+      const lowSalt = /low|1|缺盐|不足/i.test(str);
+      addMetric("softener", "软水盐", lowSalt ? "软水盐不足" : "充足", lowSalt ? 0 : 1);
+    } else if (/人在|有人|occupancy|motion/i.test(label) && (r.domain === "binary_sensor" || /occupancy.status/i.test(label))) {
+      const occupied = str === "on" || str === "true" || str === "detected" || str === "One" || str === "1";
       addMetric("occupancy", "感知", occupied ? "有人" : "无人", occupied ? 1 : 0);
     } else if (/光照度|illumination/i.test(label) && num !== undefined) {
       addMetric("lux", "光照", `${Math.round(num)}lx`, Math.round(num), "lx");
@@ -615,7 +793,7 @@ function buildActionTriggers(
         });
       }
     } else if (icon === "washer" || icon === "dishwasher") {
-      if (/清新抖散|启动抖散/i.test(text)) {
+      if (/清新抖散|启动抖散|shake[_-\s]*disperse/i.test(text)) {
         addTrigger({
           id: r.entity_id,
           label: "清新抖散",
@@ -729,17 +907,17 @@ function buildActionTriggers(
         });
       }
     } else if (icon === "kettle") {
-      if (/开始加热|煮沸|start[_\s]*heat/i.test(text)) {
+      if (/开始加热|煮沸|开始烹饪|start[_\s]*(?:heat|cook)/i.test(text)) {
         addTrigger({
           id: r.entity_id,
-          label: "加热",
+          label: "开始加热",
           entityId: r.entity_id,
           domain: r.domain,
           service: "press",
           tone: "primary",
           iconKey: "play",
         });
-      } else if (/停止加热|stop[_\s]*heat/i.test(text)) {
+      } else if (/停止加热|停止|取消|stop[_\s]*heat|cancel[_\s]*cook/i.test(text)) {
         addTrigger({
           id: r.entity_id,
           label: "停止",
@@ -747,6 +925,17 @@ function buildActionTriggers(
           domain: r.domain,
           service: "press",
           iconKey: "stop",
+        });
+      }
+    } else if (icon === "purifier" || icon === "waterer") {
+      if (/重置滤芯|重置滤网|reset[_\s]*filter/i.test(text)) {
+        addTrigger({
+          id: r.entity_id,
+          label: "重置滤芯",
+          entityId: r.entity_id,
+          domain: r.domain,
+          service: "press",
+          iconKey: "refresh",
         });
       }
     } else if (icon === "fan") {
@@ -781,7 +970,25 @@ function buildActionTriggers(
         });
       }
     } else if (icon === "feeder") {
-      if (/出粮|喂食|pet[_\s]*food[_\s]*out/i.test(text)) {
+      if (/称重.*校准|calibrate/i.test(text)) {
+        addTrigger({
+          id: r.entity_id,
+          label: "称重校准",
+          entityId: r.entity_id,
+          domain: r.domain,
+          service: "press",
+          iconKey: "refresh",
+        });
+      } else if (/重置干燥剂|reset[_-\s]*desiccant/i.test(text)) {
+        addTrigger({
+          id: r.entity_id,
+          label: "重置干燥剂",
+          entityId: r.entity_id,
+          domain: r.domain,
+          service: "press",
+          iconKey: "refresh",
+        });
+      } else if (/出粮|手动喂食|立即喂食|pet[_-\s]*food[_-\s]*out/i.test(text)) {
         addTrigger({
           id: r.entity_id,
           label: "立即出粮",
@@ -840,20 +1047,33 @@ function resolveVacuumStatus(
 ): { statusCode: VacuumStatusCode; statusLabel: string; chargingLabel?: string } {
   const vacuumEntity = records.find((r) => r.domain === "vacuum");
   const chargingSensor = records.find(
-    (r) => r.domain === "sensor" && /charging_state|充电状态/i.test(entityLabelText(r)),
+    (r) => r.domain === "sensor" && /charging[_-\s]*state|充电状态/i.test(entityLabelText(r)),
   );
   const statusSensor = records.find(
     (r) =>
       r.domain === "sensor" &&
       !/waterbox|拖布|水箱|charging|充电|fault|异常/i.test(entityLabelText(r)) &&
-      /status_p_2|work_mode|工作状态|设备状态|\bstatus\b/i.test(entityLabelText(r)),
+      /status_p_2|work[_-\s]*mode|工作状态|设备状态|\bstatus\b/i.test(entityLabelText(r)),
   );
 
-  const chargingText = stringState(chargingSensor);
+  const rawChargingText = stringState(chargingSensor);
+  const chargingText = !rawChargingText
+    ? undefined
+    : /^not[_-\s]*charging$/i.test(rawChargingText)
+      ? "未充电"
+      : /^go[_-\s]*charging$/i.test(rawChargingText)
+        ? "正在回充"
+        : /^charging$/i.test(rawChargingText)
+          ? batteryPercent !== undefined && batteryPercent >= 100
+            ? "已充满"
+            : "正在充电"
+          : /^(full|charge[_-\s]*full|charged)$/i.test(rawChargingText)
+            ? "已充满"
+            : translateOptionLabel(rawChargingText, "vacuum");
   const vacuumState = stringState(vacuumEntity)?.toLowerCase() ?? "";
   const rawSensorState = stringState(statusSensor) ?? "";
 
-  const combined = `${vacuumState} ${rawSensorState} ${chargingText ?? ""}`.toLowerCase();
+  const combined = `${vacuumState} ${rawSensorState} ${rawChargingText ?? ""}`.toLowerCase();
 
   // Check explicit active cleaning / washing / drying / returning states first
   if (/洗拖布|清洗拖布|washing/i.test(combined) || rawSensorState === "9") {
@@ -888,7 +1108,7 @@ function resolveVacuumStatus(
   }
 
   // Docked / Charging / Sleeping / Standby (including MIoT enum codes 6, 11, 12, 13, 14)
-  if (/正在充电|charging/i.test(chargingText ?? "") || rawSensorState === "6") {
+  if (/正在充电|^charging$/i.test(rawChargingText ?? "") || rawSensorState === "6") {
     const label = batteryPercent !== undefined && batteryPercent >= 100 ? "基站待命" : "正在充电";
     return {
       statusCode: batteryPercent !== undefined && batteryPercent >= 100 ? "docked" : "charging",
@@ -961,19 +1181,21 @@ function buildVacuumCapability(
   );
   if (mopSelect) {
     const rawOpts = Array.isArray(mopSelect.snapshot?.attributes?.options)
-      ? (mopSelect.snapshot?.attributes?.options as string[])
-      : ["1档水量", "2档水量", "3档水量"];
-    const cur = stringState(mopSelect) ?? rawOpts[0] ?? "2档水量";
-    mopModeBar = {
-      entityId: mopSelect.entity_id,
-      domain: "select",
-      service: "select_option",
-      parameterKey: "option",
-      currentMode: cur,
-      currentLabel: translateOptionLabel(cur, "mop"),
-      options: rawOpts.slice(0, 5).map((o) => ({ value: String(o), label: translateOptionLabel(String(o), "mop") })),
-      controllable: mopSelect.supported_features.includes("select_option"),
-    };
+      ? (mopSelect.snapshot.attributes.options as string[])
+      : [];
+    if (rawOpts.length > 0) {
+      const cur = stringState(mopSelect) ?? String(rawOpts[0]);
+      mopModeBar = {
+        entityId: mopSelect.entity_id,
+        domain: "select",
+        service: "select_option",
+        parameterKey: "option",
+        currentMode: cur,
+        currentLabel: translateOptionLabel(cur, "mop"),
+        options: rawOpts.slice(0, 5).map((o) => ({ value: String(o), label: translateOptionLabel(String(o), "mop") })),
+        controllable: mopSelect.supported_features.includes("select_option"),
+      };
+    }
   }
 
   // Consumables (Main brush, Side brush, Filter, Mop pad)
@@ -1403,12 +1625,13 @@ function buildUnifiedControls(
   for (const r of deviceRecords) {
     if (r.domain !== "select") continue;
     if (usedEntityKeys.has(`${r.entity_id}:option`)) continue;
+    const labelHint = entityLabelText(r);
+    if (/appearance[_-\s]*color|外观颜色/i.test(labelHint)) continue;
     const rawOpts = Array.isArray(r.snapshot?.attributes?.options)
       ? (r.snapshot?.attributes?.options as string[])
       : [];
     if (rawOpts.length === 0) continue;
     const cur = stringState(r) ?? String(rawOpts[0]);
-    const labelHint = entityLabelText(r);
     controls.push({
       kind: "choice",
       id: `${r.entity_id}:option`,
@@ -1433,24 +1656,51 @@ function buildUnifiedControls(
     if (r.domain !== "number") continue;
     if (usedEntityKeys.has(`${r.entity_id}:range`)) continue;
     if (!r.supported_features.includes("set_value")) continue;
+    const labelHint = entityLabelText(r);
+    if (icon === "kettle" && capabilities.thermostat && /\btarget[_-\s]*temperature\b/i.test(labelHint)) {
+      continue;
+    }
+    const label = translateControlLabel(r, "数值调节");
     const val = numericState(r);
-    const min = typeof r.snapshot?.attributes?.min === "number" ? (r.snapshot.attributes.min as number) : 0;
-    const max = typeof r.snapshot?.attributes?.max === "number" ? (r.snapshot.attributes.max as number) : 100;
+    const rawMin =
+      typeof r.snapshot?.attributes?.min === "number"
+        ? (r.snapshot.attributes.min as number)
+        : r.allowed_range?.value?.[0] ?? 0;
+    const rawMax =
+      typeof r.snapshot?.attributes?.max === "number"
+        ? (r.snapshot.attributes.max as number)
+        : r.allowed_range?.value?.[1] ?? 100;
     const step = typeof r.snapshot?.attributes?.step === "number" ? (r.snapshot.attributes.step as number) : 1;
-    const unit = String(r.snapshot?.attributes?.unit_of_measurement ?? "");
+    const isFeedingPortion = /target[_-\s]*feeding[_-\s]*measure|feeding[_-\s]*measure|出粮份数|投喂份数/i.test(labelHint);
+    const min = isFeedingPortion ? Math.max(1, rawMin) : rawMin;
+    const max = isFeedingPortion ? Math.min(30, Math.max(min, rawMax)) : rawMax;
+    const rawUnit = String(r.snapshot?.attributes?.unit_of_measurement ?? "").trim();
+    const normalizedUnit = isFeedingPortion
+      ? "份"
+      : /rinsh[_-\s]*times|rinse[_-\s]*times|漂洗次数/i.test(labelHint)
+        ? "次"
+        : /^minutes$/i.test(rawUnit)
+          ? "分钟"
+          : /^hours$/i.test(rawUnit)
+            ? "小时"
+            : /^seconds$/i.test(rawUnit)
+              ? "秒"
+              : /^none$/i.test(rawUnit)
+                ? ""
+                : rawUnit || (/temperature|温度|保温|沸点/i.test(labelHint) ? "°C" : "");
     controls.push({
       kind: "range",
       id: `${r.entity_id}:range`,
-      label: translateControlLabel(r, "数值调节"),
+      label,
       entityId: r.entity_id,
       domain: "number",
       service: "set_value",
       parameterKey: "value",
-      value: val ?? min,
+      value: Math.min(max, Math.max(min, val ?? min)),
       min,
       max,
       step,
-      ...(unit ? { unit } : {}),
+      ...(normalizedUnit ? { unit: normalizedUnit } : {}),
       controllable: true,
     });
     usedEntityKeys.add(`${r.entity_id}:range`);
@@ -1718,7 +1968,9 @@ export function buildHomeDashboardModel(
         }
       }
 
-      const lightActions = buildActionTriggers(deviceRecords, icon);
+      const lightActions = buildActionTriggers(deviceRecords, icon).filter(
+        (a) => !(capabilities.power?.controllable && (a.label === "切换开关" || a.label === "电源开关")),
+      );
       if (lightActions.length > 0) {
         capabilities.actions = lightActions;
       }
@@ -1736,9 +1988,15 @@ export function buildHomeDashboardModel(
     if (archetype === "climate") {
       const climateRec = deviceRecords.find((r) => r.domain === "climate" || r.domain === "humidifier");
       const fanEntity = deviceRecords.find((r) => r.domain === "fan");
-      const targetNumRec = deviceRecords.find(
-        (r) => r.domain === "number" && /目标温度|保温温度|设定温度|target_temp|keep_warm_temp/i.test(entityLabelText(r)),
-      );
+      const targetNumRec =
+        (icon === "kettle"
+          ? deviceRecords.find(
+              (r) => r.domain === "number" && /保温温度|keep.warm.temperature|keep_warm_temp/i.test(entityLabelText(r)),
+            )
+          : undefined) ??
+        deviceRecords.find(
+          (r) => r.domain === "number" && /目标温度|保温温度|设定温度|target_temp|keep_warm_temp/i.test(entityLabelText(r)),
+        );
       const currentTempMetric = telemetry.find((m) => m.key === "temperature");
       const unitAttr = String(climateRec?.snapshot?.attributes?.unit_of_measurement ?? "");
       const rawCurrentAttr =
@@ -1873,11 +2131,32 @@ export function buildHomeDashboardModel(
           const kettleStatusRec = deviceRecords.find(
             (r) => r.domain === "sensor" && /\bstatus\b|状态/i.test(entityLabelText(r)),
           );
-          const rawKettleSt = stringState(kettleStatusRec) ?? "";
-          const kettleRunning = !rawKettleSt || !/^(idle|off|standby|0|待机|休眠)$/i.test(rawKettleSt.trim());
+          const rawKettleSt = (stringState(kettleStatusRec) ?? "").trim();
+          const kettleStageLabel = /heating|boil|加热|煮沸/i.test(rawKettleSt)
+            ? "加热中"
+            : /dechlorin|除氯/i.test(rawKettleSt)
+              ? "除氯中"
+              : /cool|降温|速冷/i.test(rawKettleSt)
+                ? "降温中"
+                : /keep.?warm|保温/i.test(rawKettleSt)
+                  ? "保温中"
+                  : /power.?off|关机/i.test(rawKettleSt)
+                    ? "已关机"
+                    : /idle|standby|off|^0$|待机|休眠/i.test(rawKettleSt)
+                      ? "待机"
+                      : rawKettleSt
+                        ? translateOptionLabel(rawKettleSt, "kettle")
+                        : "待机";
+          const kettleRunning = !/^(待机|已关机|休眠)$/.test(kettleStageLabel);
           isActive = kettleRunning;
-          statusBadge = attrCurrentTemp !== undefined ? `${attrCurrentTemp}°C` : kettleRunning ? "保温中" : "待机";
-          conciseSubtitle = `设定 ${target}°C`;
+          statusBadge = kettleStageLabel;
+          conciseSubtitle = [
+            kettleStageLabel,
+            attrCurrentTemp !== undefined ? `水温 ${attrCurrentTemp}°C` : undefined,
+            `保温 ${target}°C`,
+          ]
+            .filter(Boolean)
+            .join(" · ");
         } else {
           isActive = capabilities.power ? capabilities.power.isOn : true;
           statusBadge = isActive
@@ -1900,6 +2179,7 @@ export function buildHomeDashboardModel(
       if (!capabilities.modeBar) {
         if (
           fanEntity &&
+          icon !== "kettle" &&
           Array.isArray(fanEntity.snapshot?.attributes?.preset_modes) &&
           (fanEntity.snapshot.attributes.preset_modes as string[]).length > 0
         ) {
@@ -1925,33 +2205,39 @@ export function buildHomeDashboardModel(
             deviceRecords.find(
               (r) =>
                 r.domain === "select" &&
-                !/fan_level|风速|档位|angle|角度|led|light/i.test(entityLabelText(r)) &&
+                !/fan_level|风速|档位|angle|角度|led|light|lock|童锁|screen|息屏|out[_-\s]*water|出水|indicator|指示灯/i.test(
+                  entityLabelText(r),
+                ) &&
                 /\bmode\b|模式|功能|水温|water/i.test(entityLabelText(r)),
             ) ??
             deviceRecords.find(
               (r) =>
                 r.domain === "select" &&
-                !/angle|角度|led|light/i.test(entityLabelText(r)) &&
+                !/angle|角度|led|light|lock|童锁|screen|息屏|out[_-\s]*water|出水|indicator|指示灯/i.test(
+                  entityLabelText(r),
+                ) &&
                 /模式|档位|mode|fan_level/i.test(entityLabelText(r)),
             );
           if (modeSelectRec) {
             const rawOpts = Array.isArray(modeSelectRec.snapshot?.attributes?.options)
-              ? (modeSelectRec.snapshot?.attributes?.options as string[])
-              : ["自动", "睡眠", "高速"];
-            const current = stringState(modeSelectRec) ?? rawOpts[0] ?? "自动";
-            capabilities.modeBar = {
-              entityId: modeSelectRec.entity_id,
-              domain: "select",
-              service: "select_option",
-              parameterKey: "option",
-              currentMode: current,
-              currentLabel: translateOptionLabel(current, icon),
-              options: rawOpts.map((o) => ({
-                value: String(o),
-                label: translateOptionLabel(String(o), icon),
-              })),
-              controllable: modeSelectRec.supported_features.includes("select_option"),
-            };
+              ? (modeSelectRec.snapshot.attributes.options as string[])
+              : [];
+            if (rawOpts.length > 0) {
+              const current = stringState(modeSelectRec) ?? String(rawOpts[0]);
+              capabilities.modeBar = {
+                entityId: modeSelectRec.entity_id,
+                domain: "select",
+                service: "select_option",
+                parameterKey: "option",
+                currentMode: current,
+                currentLabel: translateOptionLabel(current, icon),
+                options: rawOpts.map((o) => ({
+                  value: String(o),
+                  label: translateOptionLabel(String(o), icon),
+                })),
+                controllable: modeSelectRec.supported_features.includes("select_option"),
+              };
+            }
           }
         }
       }
@@ -1966,22 +2252,24 @@ export function buildHomeDashboardModel(
         );
         if (fanLevelSelect) {
           const rawOpts = Array.isArray(fanLevelSelect.snapshot?.attributes?.options)
-            ? (fanLevelSelect.snapshot?.attributes?.options as string[])
-            : ["1档", "2档", "3档", "4档"];
-          const current = stringState(fanLevelSelect) ?? rawOpts[0] ?? "1档";
-          capabilities.fanLevel = {
-            entityId: fanLevelSelect.entity_id,
-            domain: "select",
-            service: "select_option",
-            parameterKey: "option",
-            currentMode: current,
-            currentLabel: translateOptionLabel(current, "fan"),
-            options: rawOpts.slice(0, 8).map((o) => ({
-              value: String(o),
-              label: translateOptionLabel(String(o), "fan"),
-            })),
-            controllable: fanLevelSelect.supported_features.includes("select_option"),
-          };
+            ? (fanLevelSelect.snapshot.attributes.options as string[])
+            : [];
+          if (rawOpts.length > 0) {
+            const current = stringState(fanLevelSelect) ?? String(rawOpts[0]);
+            capabilities.fanLevel = {
+              entityId: fanLevelSelect.entity_id,
+              domain: "select",
+              service: "select_option",
+              parameterKey: "option",
+              currentMode: current,
+              currentLabel: translateOptionLabel(current, "fan"),
+              options: rawOpts.slice(0, 8).map((o) => ({
+                value: String(o),
+                label: translateOptionLabel(String(o), "fan"),
+              })),
+              controllable: fanLevelSelect.supported_features.includes("select_option"),
+            };
+          }
         } else if (fanEntity && fanEntity.supported_features.includes("set_percentage")) {
           const pct =
             typeof fanEntity.snapshot?.attributes?.percentage === "number"
@@ -2055,7 +2343,7 @@ export function buildHomeDashboardModel(
             r.domain === "switch" &&
             r.entity_id !== capabilities.power?.entityId &&
             r.supported_features.includes("turn_on") &&
-            /扫风|摇头|摆风|直吹|辅热|睡眠|干燥|负离子|保温|除菌|除氯|速冷|煮沸|节能|指示灯|童锁|提示音|swing|straight_blowing|heater|sleep|dryer|anion|keep_warm|dechlorination|rapid_cooling|over_boiling|eco|indicator|physical_controls_locked|child_lock|alarm/i.test(
+            /扫风|摇头|摆风|直吹|辅热|睡眠|干燥|负离子|保温|除菌|除氯|速冷|煮沸|节能|指示灯|童锁|提示音|swing|straight[_-\s]*blowing|heater|sleep|dryer|anion|keep[_-\s]*warm|dechlorination|rapid[_-\s]*cooling|over[_-\s]*boiling|eco|indicator|physical[_-\s]*controls[_-\s]*locked|child[_-\s]*lock|alarm/i.test(
               entityLabelText(r),
             ),
         )
@@ -2091,42 +2379,40 @@ export function buildHomeDashboardModel(
       );
       if (modeSelect) {
         const rawOpts = Array.isArray(modeSelect.snapshot?.attributes?.options)
-          ? (modeSelect.snapshot?.attributes?.options as string[])
-          : icon === "cooker"
-            ? ["精煮饭", "快煮饭", "煮粥", "热饭", "保温"]
-            : icon === "vacuum"
-              ? ["安静", "标准", "强力", "超强"]
-              : ["混合洗", "快洗", "单脱水"];
-        const cur = stringState(modeSelect) ?? rawOpts[0] ?? "标准";
-        const translatedCur = translateOptionLabel(cur, icon);
-        capabilities.modeBar = {
-          entityId: modeSelect.entity_id,
-          domain: "select",
-          service: "select_option",
-          parameterKey: "option",
-          currentMode: cur,
-          currentLabel: translatedCur,
-          options: rawOpts.slice(0, 8).map((o) => ({
-            value: String(o),
-            label: translateOptionLabel(String(o), icon),
-          })),
-          controllable: modeSelect.supported_features.includes("select_option"),
-        };
-        cycle.recipeLabel = translatedCur;
+          ? (modeSelect.snapshot.attributes.options as string[])
+          : [];
+        if (rawOpts.length > 0) {
+          const cur = stringState(modeSelect) ?? String(rawOpts[0]);
+          const translatedCur = translateOptionLabel(cur, icon);
+          capabilities.modeBar = {
+            entityId: modeSelect.entity_id,
+            domain: "select",
+            service: "select_option",
+            parameterKey: "option",
+            currentMode: cur,
+            currentLabel: translatedCur,
+            options: rawOpts.map((o) => ({
+              value: String(o),
+              label: translateOptionLabel(String(o), icon),
+            })),
+            controllable: modeSelect.supported_features.includes("select_option"),
+          };
+          cycle.recipeLabel = translatedCur;
+        }
       }
 
-      // Auxiliary toggles for cycle appliances (e.g. rice cooker auto-keep-warm, vacuum carpet boost, child lock, alarm)
+      // Auxiliary toggles for cycle appliances (e.g. rice cooker auto-keep-warm, vacuum carpet boost, washer sterilization, child lock, alarm)
       const cycleAuxSwitches = deviceRecords
         .filter(
           (r) =>
             r.domain === "switch" &&
             r.entity_id !== capabilities.power?.entityId &&
             r.supported_features.includes("turn_on") &&
-            /保温|地毯|除菌|烘干|抖散|童锁|提示音|keep_warm|carpet|steril|dry|physical_controls_locked|child_lock|alarm/i.test(
+            /保温|地毯|除菌|烘干|抖散|童锁|提示音|高水位|智洗|灵云|keep[_-\s]*warm|carpet|steril|dry|high[_-\s]*water[_-\s]*switch|one[_-\s]*click[_-\s]*wash|ai[_-\s]*mode|physical[_-\s]*controls[_-\s]*locked|child[_-\s]*lock|alarm/i.test(
               entityLabelText(r),
             ),
         )
-        .slice(0, 6);
+        .slice(0, 8);
       if (cycleAuxSwitches.length > 0) {
         capabilities.auxiliaryToggles = cycleAuxSwitches.map((r) => ({
           id: r.entity_id,
@@ -2197,11 +2483,11 @@ export function buildHomeDashboardModel(
               r.domain === "switch" &&
               r.entity_id !== capabilities.power?.entityId &&
               r.supported_features.includes("turn_on") &&
-              /休眠|遮蔽|移动侦测|追踪|巡航|水印|宽动态|全彩|夜视|watermark|motion_detection|motion_tracking|wdr|glimmer_full_color/i.test(
+              /休眠|遮蔽|移动侦测|追踪|巡航|水印|宽动态|全彩|夜视|静音|watermark|motion[_-\s]*detection|motion[_-\s]*tracking|cruise|wdr|glimmer[_-\s]*full[_-\s]*color|mute/i.test(
                 entityLabelText(r),
               ),
           )
-          .slice(0, 6)
+          .slice(0, 8)
           .map((r) => ({
             id: r.entity_id,
             label: translateSwitchLabel(r),
@@ -2211,7 +2497,7 @@ export function buildHomeDashboardModel(
             controllable: r.supported_features.includes("turn_on"),
           }));
 
-        // Camera mode selectors (Night vision, Recording mode, Sensitivity)
+        // Camera mode selectors (Night vision, Recording mode, Sensitivity, Flip, Cruise)
         const modeSelectors: NonNullable<ApplianceCapabilities["visionStream"]>["modeSelectors"] = [];
         for (const selectRec of deviceRecords) {
           if (selectRec.domain !== "select") continue;
@@ -2220,7 +2506,7 @@ export function buildHomeDashboardModel(
             ? (selectRec.snapshot?.attributes?.options as string[])
             : [];
           const cur = stringState(selectRec) ?? rawOpts[0] ?? "自动";
-          if (/夜视|night_shot/i.test(labelText)) {
+          if (/夜视|night[_-\s]*shot/i.test(labelText)) {
             const opts = rawOpts.length > 0 ? rawOpts : ["自动", "始终开启", "关闭"];
             modeSelectors.push({
               id: selectRec.entity_id,
@@ -2258,7 +2544,7 @@ export function buildHomeDashboardModel(
                 controllable: selectRec.supported_features.includes("select_option"),
               },
             });
-          } else if (/录制模式|存储模式|recording_mode/i.test(labelText)) {
+          } else if (/录制模式|存储模式|recording[_-\s]*mode/i.test(labelText)) {
             const opts = rawOpts.length > 0 ? rawOpts : ["移动录制", "全天录制", "不录制"];
             modeSelectors.push({
               id: selectRec.entity_id,
@@ -2277,28 +2563,69 @@ export function buildHomeDashboardModel(
                 controllable: selectRec.supported_features.includes("select_option"),
               },
             });
+          } else if (/image[_-\s]*rollover|画面翻转|画面旋转/i.test(labelText) && rawOpts.length > 0) {
+            modeSelectors.push({
+              id: selectRec.entity_id,
+              label: "画面翻转",
+              capability: {
+                entityId: selectRec.entity_id,
+                domain: "select",
+                service: "select_option",
+                parameterKey: "option",
+                currentMode: cur,
+                currentLabel: translateOptionLabel(cur, "image_rollover"),
+                options: rawOpts.map((o) => ({
+                  value: String(o),
+                  label: translateOptionLabel(String(o), "image_rollover"),
+                })),
+                controllable: selectRec.supported_features.includes("select_option"),
+              },
+            });
+          } else if (/cruise[_-\s]*mode|巡航模式/i.test(labelText) && rawOpts.length > 0) {
+            modeSelectors.push({
+              id: selectRec.entity_id,
+              label: "巡航模式",
+              capability: {
+                entityId: selectRec.entity_id,
+                domain: "select",
+                service: "select_option",
+                parameterKey: "option",
+                currentMode: cur,
+                currentLabel: translateOptionLabel(cur, "camera"),
+                options: rawOpts.map((o) => ({
+                  value: String(o),
+                  label: translateOptionLabel(String(o), "camera"),
+                })),
+                controllable: selectRec.supported_features.includes("select_option"),
+              },
+            });
           }
         }
 
         // SD card storage info (convert KB >= 1048576 or MB < 1048576 to GB accurately)
         const sdStatusRec = deviceRecords.find(
-          (r) => r.domain === "sensor" && /sdcard_status|存储卡状态/i.test(entityLabelText(r)),
+          (r) => r.domain === "sensor" && /sdcard_status|memory.card.*status|存储卡.*状态/i.test(entityLabelText(r)),
         );
         const totalSpaceRec = deviceRecords.find(
-          (r) => r.domain === "sensor" && /storage_total_space|总存储空间/i.test(entityLabelText(r)),
+          (r) => r.domain === "sensor" && /storage_total_space|total.space|总存储空间/i.test(entityLabelText(r)),
         );
         const usedSpaceRec = deviceRecords.find(
-          (r) => r.domain === "sensor" && /storage_used_space|已用存储空间/i.test(entityLabelText(r)),
+          (r) => r.domain === "sensor" && /storage_used_space|used.space|已用存储空间/i.test(entityLabelText(r)),
         );
         const totalRaw = totalSpaceRec ? numericState(totalSpaceRec) : undefined;
         const usedRaw = usedSpaceRec ? numericState(usedSpaceRec) : undefined;
+        const sharedUnitStr = `${totalSpaceRec?.snapshot?.attributes?.unit_of_measurement ?? ""} ${usedSpaceRec?.snapshot?.attributes?.unit_of_measurement ?? ""}`;
+        const sharedDivisor = /gb/i.test(sharedUnitStr)
+          ? 1
+          : /kb/i.test(sharedUnitStr) || (totalRaw ?? usedRaw ?? 0) >= 1024 * 1024
+            ? 1024 * 1024
+            : 1024;
         const toGb = (val: number, rec?: RawHomeEntityRecord): number => {
-          const unitStr = String(rec?.snapshot?.attributes?.unit_of_measurement ?? "");
-          if (/gb/i.test(unitStr)) return Math.round(val * 10) / 10;
-          if (/kb/i.test(unitStr) || val >= 1024 * 1024) {
-            return Math.round((val / (1024 * 1024)) * 10) / 10;
-          }
-          return Math.round((val / 1024) * 10) / 10;
+          const explicitUnit = String(rec?.snapshot?.attributes?.unit_of_measurement ?? "");
+          if (/gb/i.test(explicitUnit)) return Math.round(val * 10) / 10;
+          if (/mb/i.test(explicitUnit)) return Math.round((val / 1024) * 10) / 10;
+          if (/kb/i.test(explicitUnit)) return Math.round((val / (1024 * 1024)) * 10) / 10;
+          return Math.round((val / sharedDivisor) * 10) / 10;
         };
         const storageUsedPercent =
           totalRaw && totalRaw > 0 && usedRaw !== undefined
@@ -2306,9 +2633,17 @@ export function buildHomeDashboardModel(
             : undefined;
         const rawSdStatus = stringState(sdStatusRec);
         const sdStatus =
-          rawSdStatus === "Normal" || rawSdStatus === "0"
-            ? "存储正常"
-            : rawSdStatus;
+          !rawSdStatus
+            ? undefined
+            : /^(normal|sd-nomal|sd-normal|0)$/i.test(rawSdStatus)
+              ? "存储正常"
+              : /^(not exist|sd-no-inset|no card|1)$/i.test(rawSdStatus)
+                ? "未插存储卡"
+                : /^full$/i.test(rawSdStatus)
+                  ? "存储已满"
+                  : /^broken$/i.test(rawSdStatus)
+                    ? "存储卡异常"
+                    : translateOptionLabel(rawSdStatus, "camera");
         const storageStatusText =
           totalRaw && totalRaw > 0 && usedRaw !== undefined
             ? `${sdStatus ?? "存储正常"} · 已用 ${toGb(usedRaw, usedSpaceRec).toFixed(1)} GB / ${toGb(totalRaw, totalSpaceRec).toFixed(1)} GB`
@@ -2356,6 +2691,13 @@ export function buildHomeDashboardModel(
           });
         }
 
+        const hasPtzMarkers = deviceRecords.some((r) =>
+          /ptz|cruise|fav_area|motion_tracking|巡航|移动追踪|人形追踪|云台/i.test(entityLabelText(r)),
+        );
+        const supportsPtz =
+          hasPtzMarkers ||
+          /039a01|029a02|046c04|c200|c300|c301|c400|c500|c700|ptz|云台/i.test(`${model} ${rawDeviceName}`);
+
         capabilities.visionStream = {
           streamActive: Boolean(isActive && hasRealVideoStream),
           statusText: !online
@@ -2366,6 +2708,7 @@ export function buildHomeDashboardModel(
                 ? "实时画面流就绪"
                 : "暂未接入实时视频流",
           ...(resolutionBadge ? { resolutionBadge } : {}),
+          supportsPtz,
           lastMotionText,
           storageStatusText,
           storageUsedPercent,

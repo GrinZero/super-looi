@@ -7,6 +7,9 @@ export interface MiotEntityBinding {
   primary: MiotSpecProperty; brightness?: MiotSpecProperty; colorTemperature?: MiotSpecProperty;
   action?: MiotSpecAction;
   actionDefaultArgs?: Array<string | number | boolean>;
+  actionInputProperties?: MiotSpecProperty[];
+  siblingFallbackProperty?: MiotSpecProperty;
+  isActionArgumentOnly?: boolean;
   statusProperty?: MiotSpecProperty;
   expectedStatuses?: string[];
   serviceName?: string;
@@ -44,9 +47,9 @@ const controllableActions = new Set([
   "start-dry", "stop-dry", "start-eject", "start-charge",
   "start-wash", "stop-washing", "pause", "start-shake-disperse", "stop-shake-disperse",
   "start-cook", "cancel-cooking",
-  "pet-food-out",
+  "pet-food-out", "weigh-manual-calibrate",
   "turn-left", "turn-right",
-  "play", "next", "previous", "stop-alarm",
+  "play", "play-music", "play-radio", "wake-up", "next", "previous", "stop-alarm",
   "turn-on", "turn-off",
   "reset-brush-life", "reset-filter-life", "reset-mop-life", "reset-desiccant-life",
   "start-p2p-stream", "stop-stream",
@@ -135,8 +138,23 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
       bindings.push(binding);
     }
     const serviceStatusProp = service.properties.find((p) => p.name === "status" && p.readable) ?? deviceStatusProp;
+    const controllableActionInputs = new Set(
+      !restricted && service.actions
+        ? service.actions.filter((a) => controllableActions.has(a.name)).flatMap((a) => a.in)
+        : [],
+    );
+    const hasReadableServiceMode = service.properties.some((p) => p.readable && (p.name === "mode" || p.name === "cook-mode") && !!p.valueList && p.valueList.length > 0);
     for (const rawProperty of service.properties) {
-      if (!rawProperty.readable || consumed.has(rawProperty.piid) || !(numericFormats.has(rawProperty.format) || rawProperty.format === "bool")) continue;
+      const isActionArgSelect = !restricted
+        && !rawProperty.readable
+        && !rawProperty.writable
+        && rawProperty.name === "cook-mode"
+        && !hasReadableServiceMode
+        && controllableActionInputs.has(rawProperty.piid)
+        && numericFormats.has(rawProperty.format)
+        && !!rawProperty.valueList
+        && rawProperty.valueList.length >= 2;
+      if ((!rawProperty.readable && !isActionArgSelect) || consumed.has(rawProperty.piid) || !(numericFormats.has(rawProperty.format) || rawProperty.format === "bool")) continue;
       let property = rawProperty;
       if (
         service.name === "light" &&
@@ -157,16 +175,32 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
             { value: 3, description: "Computer" },
           ],
         };
+      } else if (
+        rawProperty.name === "image-rollover" &&
+        rawProperty.writable &&
+        !rawProperty.valueList &&
+        rawProperty.range &&
+        rawProperty.range[0] === 0 &&
+        rawProperty.range[1] >= 180 &&
+        rawProperty.range[2] === 180
+      ) {
+        property = {
+          ...rawProperty,
+          valueList: [
+            { value: 0, description: "0°" },
+            { value: 180, description: "180°" },
+          ],
+        };
       }
       const metric = Object.hasOwn(metrics, property.name) ? metrics[property.name] : undefined;
       const propSlug = property.name.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "").toLowerCase();
       const suffix = metric ? `_${metric}` : propSlug ? `_${propSlug}` : "";
       const isControllableBool = !restricted && property.writable && property.format === "bool"
         && (controllableBoolProperties.has(property.name) || (service.name === "indicator-light" && property.name === "on"));
-      const isControllableSelect = !restricted && property.writable && !!property.valueList && property.valueList.length > 0
+      const isControllableSelect = isActionArgSelect || (!restricted && property.writable && !!property.valueList && property.valueList.length > 0
         && property.name !== "default-power-on-state"
         && !(service.name === "switch" && property.name === "mode")
-        && service.name !== "self-check";
+        && service.name !== "self-check");
       const isControllableNumber = !restricted && property.writable && !property.valueList
         && canDim(property) && controllableNumberProperties.has(property.name);
       const propDomain = isControllableBool
@@ -193,20 +227,45 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
       } else if (!metric) {
         entity.entity_category = "diagnostic";
       }
-      bindings.push({ did: device.did, definition: entity, primary: property, serviceName: service.name });
+      bindings.push({
+        did: device.did,
+        definition: entity,
+        primary: property,
+        ...(isActionArgSelect ? { isActionArgumentOnly: true, ...(serviceStatusProp ? { statusProperty: serviceStatusProp } : {}) } : {}),
+        serviceName: service.name,
+      });
     }
     if (!restricted && service.actions) {
       for (const action of service.actions) {
         if (!controllableActions.has(action.name)) continue;
         let defaultArgs: Array<string | number | boolean> | undefined;
+        let inputProperties: MiotSpecProperty[] | undefined;
+        let siblingFallbackProperty: MiotSpecProperty | undefined;
         if (action.in.length === 0) {
           defaultArgs = [];
-        } else if (action.in.length === 1 && (action.name === "start-cook" || action.name === "pet-food-out")) {
-          defaultArgs = [1];
-        } else if (action.in.length === 1 && action.name === "start-shake-disperse") {
-          defaultArgs = [30];
-        } else if (action.in.length === 1 && action.name === "reset-filter-life") {
-          defaultArgs = [0];
+        } else {
+          const resolvedProps = action.in.map((piid) => service.properties.find((p) => p.piid === piid));
+          if (resolvedProps.every((p): p is MiotSpecProperty => !!p)) {
+            inputProperties = resolvedProps;
+            defaultArgs = resolvedProps.map((prop) => {
+              if (action.name === "start-shake-disperse") return 30;
+              if (action.name === "reset-filter-life") return 0;
+              if (prop.valueList && prop.valueList.length > 0) return prop.valueList[0]!.value;
+              if (prop.format === "bool") return false;
+              if (prop.format === "string") return "";
+              if (prop.range) return prop.name === "feeding-measure" ? Math.max(1, prop.range[0]) : prop.range[0];
+              return 1;
+            });
+            if (action.name === "pet-food-out") {
+              siblingFallbackProperty = service.properties.find((p) => p.name === "target-feeding-measure" && p.readable);
+            }
+          } else if (action.in.length === 1 && (action.name === "start-cook" || action.name === "pet-food-out")) {
+            defaultArgs = [1];
+          } else if (action.in.length === 1 && action.name === "start-shake-disperse") {
+            defaultArgs = [30];
+          } else if (action.in.length === 1 && action.name === "reset-filter-life") {
+            defaultArgs = [0];
+          }
         }
         if (!defaultArgs) continue;
         const actionSlug = action.name.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "").toLowerCase();
@@ -236,6 +295,8 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
           primary: syntheticPrimary,
           action,
           actionDefaultArgs: defaultArgs,
+          ...(inputProperties ? { actionInputProperties: inputProperties } : {}),
+          ...(siblingFallbackProperty ? { siblingFallbackProperty } : {}),
           ...(serviceStatusProp ? { statusProperty: serviceStatusProp } : {}),
           ...(expected ? { expectedStatuses: expected } : {}),
           serviceName: service.name,
@@ -248,7 +309,20 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
 
 export function bindingProperties(binding: MiotEntityBinding): MiotPropertyRef[] {
   if (binding.action) {
-    return binding.statusProperty
+    const refs: MiotPropertyRef[] = [];
+    if (binding.statusProperty) {
+      refs.push({ did: binding.did, siid: binding.statusProperty.siid, piid: binding.statusProperty.piid });
+    }
+    for (const prop of binding.actionInputProperties ?? []) {
+      if (prop.readable) refs.push({ did: binding.did, siid: prop.siid, piid: prop.piid });
+    }
+    if (binding.siblingFallbackProperty?.readable) {
+      refs.push({ did: binding.did, siid: binding.siblingFallbackProperty.siid, piid: binding.siblingFallbackProperty.piid });
+    }
+    return refs;
+  }
+  if (binding.isActionArgumentOnly) {
+    return binding.statusProperty && binding.statusProperty.readable
       ? [{ did: binding.did, siid: binding.statusProperty.siid, piid: binding.statusProperty.piid }]
       : [];
   }
@@ -294,7 +368,17 @@ export function miotSnapshot(binding: MiotEntityBinding, values: Map<string, Mio
       last_updated: observedAt,
     };
   }
-  const primary = value(binding.primary);
+  let primary = value(binding.primary);
+  if (binding.isActionArgumentOnly) {
+    attributes.action_argument_only = true;
+    const statusOk = !binding.statusProperty || value(binding.statusProperty) !== undefined;
+    if (!statusOk) {
+      primary = undefined;
+    } else if (primary === undefined && binding.primary.valueList && binding.primary.valueList.length > 0) {
+      primary = binding.primary.valueList[0]!.value;
+      attributes.unconfirmed_initial = true;
+    }
+  }
   if (binding.primary.unit) {
     const units: Record<string, string> = { celsius: "°C", percentage: "%", kelvin: "K", "microgram-per-cubic-meter": "μg/m³" };
     attributes.unit_of_measurement = Object.hasOwn(units, binding.primary.unit) ? units[binding.primary.unit] : binding.primary.unit;
