@@ -13,8 +13,8 @@ name = "qjs_runner"
 path = "src/bin/qjs_runner.rs"
 
 [dependencies]
-rquickjs = { package = "quickjs-jit", version = "=0.14.1", default-features = false, features = ["std", "futures", "loader", "macro"] }
-quickjs-jit-stdlib = { version = "=0.14.1", default-features = false, features = ["buffer", "path", "crypto", "url", "zlib"] }
+rquickjs = { package = "quickjs-jit", version = "=0.14.2", default-features = false, features = ["std", "futures", "loader", "macro"] }
+quickjs-jit-stdlib = { version = "=0.14.2", default-features = false, features = ["buffer", "path", "crypto", "url", "zlib"] }
 rusqlite = { version = "0.38", features = ["bundled", "hooks", "limits"] }
 cap-std = "4.0.3"
 cap-fs-ext = "4.0.3"
@@ -34,7 +34,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 [dev-dependencies]
 tempfile = "3"
 
-# quickjs-jit 0.14.1 does not ship pre-generated iOS-simulator bindings.
+# quickjs-jit 0.14.2 does not ship pre-generated iOS-simulator bindings.
 # Generate bindings for mobile targets without changing the host VM version.
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
-rquickjs = { package = "quickjs-jit", version = "=0.14.1", default-features = false, features = ["bindgen"] }
+rquickjs = { package = "quickjs-jit", version = "=0.14.2", default-features = false, features = ["bindgen"] }

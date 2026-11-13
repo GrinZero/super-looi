@@ -487,7 +487,7 @@ impl NativeVm {
             for ch in prelude.encode_utf16() {
                 hash = (hash ^ ch as u32).wrapping_mul(0x01000193);
             }
-            self.messages.borrow_mut().push(json!({"type":"started","fingerprint":format!("nsh-quickjs-jit 0.14.1, {} {}, prelude {hash:08x}, determinism {:08x}, native protocol 1, heap {}, budget {}, stack 262144",std::env::consts::OS,std::env::consts::ARCH,include_str!("codemode_determinism.js").encode_utf16().fold(0x811c9dc5u32,|h,ch|(h^ch as u32).wrapping_mul(0x01000193)),self.memory_limit,self.guard.limit)}))?;
+            self.messages.borrow_mut().push(json!({"type":"started","fingerprint":format!("nsh-quickjs-jit 0.14.2, {} {}, prelude {hash:08x}, determinism {:08x}, native protocol 1, heap {}, budget {}, stack 262144",std::env::consts::OS,std::env::consts::ARCH,include_str!("codemode_determinism.js").encode_utf16().fold(0x811c9dc5u32,|h,ch|(h^ch as u32).wrapping_mul(0x01000193)),self.memory_limit,self.guard.limit)}))?;
         }
         let run_result = self.context.with(|ctx| -> Result<(), String> {
             let api = self

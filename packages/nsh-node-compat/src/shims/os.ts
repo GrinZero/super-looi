@@ -6,7 +6,7 @@ export const EOL = "\n";
 export const cpus = () => [];
 export const hostname = () => "looi";
 export const type = () => "NSH";
-export const release = () => "0.4.0";
+export const release = () => "0.5.0";
 export const constants = { signals: { SIGTERM: 15, SIGKILL: 9, SIGINT: 2 } };
 export const userInfo = () => ({
   username: "looi",

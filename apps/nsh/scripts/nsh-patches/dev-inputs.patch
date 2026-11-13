@@ -1,22 +1,63 @@
+diff --git a/crates/nsh-bundler/src/bundle.rs b/crates/nsh-bundler/src/bundle.rs
+index 77070e5..c4acdf7 100644
+--- a/crates/nsh-bundler/src/bundle.rs
++++ b/crates/nsh-bundler/src/bundle.rs
+@@ -256,14 +256,11 @@ struct ResolveSetup {
+
+ impl ResolveSetup {
+     fn read(dir: &std::path::Path) -> Result<Self, BundleError> {
+-        let Ok(text) = std::fs::read_to_string(dir.join("nsh.json")) else {
+-            return Ok(Self::default());
+-        };
++        let text = std::fs::read_to_string(dir.join("nsh.json")).unwrap_or_else(|_| "{}".into());
+         let config: serde_json::Value = serde_json::from_str(&text)
+             .map_err(|e| BundleError::other(format!("nsh.json: {e}")))?;
+-        let Some(resolve) = config.get("resolve") else {
+-            return Ok(Self::default());
+-        };
++        let empty = serde_json::json!({});
++        let resolve = config.get("resolve").unwrap_or(&empty);
+         // What this NSH cannot read (a newer NSH's, or a typo) is left
+         // out, the rest applies.
+         let mut ignored = Vec::new();
+@@ -312,6 +309,16 @@ impl ResolveSetup {
+             }
+         }
+         warn_ignored("resolve", &ignored);
++        // Keep dev-only generated inputs separate from concurrent check/test builds.
++        if let Ok(json) = std::env::var("NSH_DEV_RESOLVE_ALIAS") {
++            let aliases: std::collections::BTreeMap<String, String> =
++                serde_json::from_str(&json)
++                    .map_err(|e| BundleError::other(format!("NSH_DEV_RESOLVE_ALIAS: {e}")))?;
++            setup.alias.splice(
++                0..0,
++                aliases.into_iter().map(|(from, to)| (from, vec![Some(to)])),
++            );
++        }
+         Ok(setup)
+     }
+
+diff --git a/crates/nsh-cli/src/dev.rs b/crates/nsh-cli/src/dev.rs
+index 92e7397..d4dd1ad 100644
 --- a/crates/nsh-cli/src/dev.rs
 +++ b/crates/nsh-cli/src/dev.rs
-@@ -40,6 +40,7 @@
+@@ -43,6 +43,7 @@ pub(crate) struct DevSession {
      /// A Rust app (`nsh.json` `"root"`): nothing to bundle, the hosts run
      /// its root; the session serves its assets, its web page and its logs.
      rust_root: bool,
 +    build_failed: Cell<bool>,
  }
- 
- impl DevSession {
-@@ -81,6 +82,7 @@
+
+ /// Where a dev server listens.
+@@ -94,6 +95,7 @@ impl DevSession {
              watch_files: Default::default(),
              builds: Cell::new(0),
              rust_root,
 +            build_failed: Cell::new(false),
          };
          session.rebuild();
-         Ok(session)
-@@ -177,14 +179,24 @@
+         // A Rust app's hosts that connect (the terminal's) run the root
+@@ -200,7 +202,12 @@ impl DevSession {
              {
                  return Err(crate::rust_app::Restart.into());
              }
@@ -29,43 +70,27 @@
 +            ) {
                  continue;
              }
-             let deadline = Instant::now() + DEBOUNCE;
--            while rx
--                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
--                .is_ok()
--            {}
-+            while let Ok(event) =
-+                rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
-+            {
-+                if let Some(app) = &rust
-+                    && event.paths.iter().any(|p| app.is_rust(p))
-+                {
-+                    return Err(crate::rust_app::Restart.into());
-+                }
-+            }
-             self.rebuild();
-             self.watch_imports(&mut watcher, &mut imported_dirs)?;
-         }
-@@ -289,6 +301,7 @@
- 
+             // A Rust change saved with this one (a checkout, a formatter)
+@@ -336,6 +343,7 @@ impl DevSession {
+
      /// `✓ built App.tsx (...)`, then `✓ rebuilt App.tsx (18ms), 2 devices`.
      fn published(&self, summary: String) {
 +        self.build_failed.set(false);
          let entry = ui::path(&self.entry);
          let builds = self.builds.get();
          self.builds.set(builds + 1);
-@@ -304,6 +317,7 @@
+@@ -351,6 +359,7 @@ impl DevSession {
      }
- 
+
      fn failed(&self, err: build::BuildError) {
 +        self.build_failed.set(true);
          let plain = err.plain.clone();
          ui::report(&err.into_error(&self.entry));
          self.server.publish_error(plain);
-@@ -443,12 +457,23 @@
-     })
+@@ -522,12 +531,21 @@ fn rust_changed_until(
+     false
  }
- 
+
 -fn is_source(event: &notify::Event) -> bool {
 -    event.paths.iter().any(|p| {
 -        !p.components()
@@ -81,8 +106,6 @@
 +        if path == dir.join("nsh.json") || inputs.contains(&path) {
 +            return true;
 +        }
-+        // An unsuccessful build may have a new, unresolved import. Keep
-+        // accepting source changes until a successful graph is available.
 +        (failed || inputs.is_empty())
              && matches!(
 -                p.extension().and_then(|e| e.to_str()),
@@ -90,11 +113,10 @@
                  Some("ts" | "tsx" | "js" | "jsx" | "json")
              )
      })
-@@ -612,4 +637,40 @@
-         ];
-         assert_eq!(super::short_name(&two, &two[1]), "iOS Simulator (iPad Air)");
+@@ -744,4 +762,40 @@ mod tests {
+         let deadline = Instant::now() + super::DEBOUNCE;
+         assert!(!super::rust_changed_until(&rx, deadline, is_rust));
      }
--}
 +    #[test]
 +    fn reloads_only_inputs_and_manifest_after_a_successful_build() {
 +        let dir = dunce::canonicalize(std::env::temp_dir()).unwrap();
@@ -131,47 +153,12 @@
 +        assert!(super::is_source(&event, &inputs, &dir, true));
 +        assert!(super::is_source(&event, &[], &dir, false));
 +    }
-+}
---- a/crates/nsh-bundler/src/bundle.rs
-+++ b/crates/nsh-bundler/src/bundle.rs
-@@ -167,14 +167,11 @@
- 
- impl ResolveSetup {
-     fn read(dir: &std::path::Path) -> Result<Self, BundleError> {
--        let Ok(text) = std::fs::read_to_string(dir.join("nsh.json")) else {
--            return Ok(Self::default());
--        };
-+        let text = std::fs::read_to_string(dir.join("nsh.json")).unwrap_or_else(|_| "{}".into());
-         let config: serde_json::Value = serde_json::from_str(&text)
-             .map_err(|e| BundleError::other(format!("nsh.json: {e}")))?;
--        let Some(resolve) = config.get("resolve") else {
--            return Ok(Self::default());
--        };
-+        let empty = serde_json::json!({});
-+        let resolve = config.get("resolve").unwrap_or(&empty);
-         let error = |m: &str| BundleError::other(format!("nsh.json: resolve: {m}"));
-         let resolve = resolve
-             .as_object()
-@@ -214,6 +211,16 @@
-                 }
-                 other => return Err(error(&format!("unknown key `{other}`"))),
-             }
-+        }
-+        // A dev process may isolate generated inputs from concurrent check/test builds.
-+        if let Ok(json) = std::env::var("NSH_DEV_RESOLVE_ALIAS") {
-+            let aliases: std::collections::BTreeMap<String, String> =
-+                serde_json::from_str(&json)
-+                    .map_err(|e| error(&format!("NSH_DEV_RESOLVE_ALIAS: {e}")))?;
-+            setup.alias.splice(
-+                0..0,
-+                aliases.into_iter().map(|(from, to)| (from, vec![Some(to)])),
-+            );
-         }
-         Ok(setup)
-     }
+ }
+diff --git a/crates/nsh-cli/src/rust_app.rs b/crates/nsh-cli/src/rust_app.rs
+index ea31243..63b17ba 100644
 --- a/crates/nsh-cli/src/rust_app.rs
 +++ b/crates/nsh-cli/src/rust_app.rs
-@@ -803,6 +803,9 @@
+@@ -1102,6 +1102,9 @@ impl RustApp {
                  return false;
              };
              !rest.starts_with("target")
@@ -181,7 +168,7 @@
                  && !rest.starts_with(".nsh")
                  && !rest.starts_with(".git")
                  && (rest.starts_with("assets")
-@@ -2412,6 +2415,9 @@
+@@ -2894,6 +2897,9 @@ mod tests {
              ("/app/native/assets/logo@2x.png", true),
              ("/app/native/assets/fonts/Script.ttf", true),
              ("/app/native/target/debug/build.rs", false),

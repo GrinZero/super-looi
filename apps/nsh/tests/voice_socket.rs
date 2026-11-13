@@ -7,7 +7,7 @@ use tokio_tungstenite::tungstenite::{
 };
 
 #[test]
-fn authenticated_voice_socket_carries_text_pcm_ping_and_http_rejections() -> Result<(), String> {
+fn builtin_websocket_carries_authorization_pcm_ping_and_http_rejections() -> Result<(), String> {
     for rejected in [false, true] {
         let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
         let url = format!(
@@ -48,29 +48,29 @@ fn authenticated_voice_socket_carries_text_pcm_ping_and_http_rejections() -> Res
             assert_eq!(socket.read().unwrap(), pcm);
             socket.send(pcm).unwrap();
             assert!(matches!(socket.read().unwrap(), Message::Close(_)));
+            assert!(matches!(socket.flush(), Ok(()) | Err(tungstenite::Error::ConnectionClosed)));
         });
         let data = tempfile::tempdir().map_err(|error| error.to_string())?;
         let entry = data.path().join("Probe.tsx");
         std::fs::write(&entry, format!(r#"
 import {{ mount, signal, Text }} from "nsh";
-import {{ VoiceWebSocket }} from "super-looi/native";
+import {{ connect }} from "websocket";
 function Probe() {{
   const status = signal("opening");
-  const socket = new VoiceWebSocket({}, {{ Authorization: "Bearer fixture-voice-key" }});
   void (async () => {{
     try {{
-      await socket.open();
-      await socket.writeText("hello");
+      const socket = await connect({}, {{ headers: {{ Authorization: "Bearer fixture-voice-key" }} }});
+      await socket.write("hello");
       const text = await socket.read();
-      if (text?.text !== "hello") throw new Error("text mismatch");
-      await socket.writeBytes(new Uint8Array([0, 255, 1, 128]));
+      if (text !== "hello") throw new Error("text mismatch");
+      await socket.write(new Uint8Array([0, 255, 1, 128]));
       const frame = await socket.read();
-      if (Array.from(frame?.bytes || []).join(",") !== "0,255,1,128") throw new Error("PCM mismatch");
+      if (!(frame instanceof Uint8Array) || Array.from(frame).join(",") !== "0,255,1,128") throw new Error("PCM mismatch");
       const pending = socket.read();
       await socket.close();
       if (await pending !== null) throw new Error("read was not cancelled");
       status.set("authenticated PCM verified");
-    }} catch (error) {{ status.set(`${{error.code}}: ${{error.message}}`); }}
+    }} catch (error) {{ status.set(`${{error.code}} ${{error.status}}: ${{error.message}}`); }}
   }})();
   return <Text>{{status()}}</Text>;
 }}
@@ -84,7 +84,7 @@ mount(Probe);
         config.ui_sets = sets;
         let mut app = Headless::start(config).map_err(|error| error.to_string())?;
         let expected = if rejected {
-            "HTTP_403: connect: HTTP error: 403 Forbidden: voice model permission denied"
+            "EPROTO 403: WebSocket handshake failed: HTTP error: 403 Forbidden"
         } else {
             "authenticated PCM verified"
         };

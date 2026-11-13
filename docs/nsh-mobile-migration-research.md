@@ -94,7 +94,7 @@ v0.4.0 有 11 个 Node-shaped 标准模块子集，包含 Buffer、crypto、path
 
 以上“需要补充”表示本轮未找到满足业务的公开内置模块，**不表示 NSH 底层无法接入**。[Speech](https://nsh.dev/modules/nsh/#speech) 仅返回听写文本，Android 内置路径不可用；它不能替代现有豆包 PCM 双工链路。[Storage](https://nsh.dev/modules/nsh/#storage) 不是 SQLite 或安全凭据库，且写盘在后台批量发生；关键任务回执应有可确认的事务提交，不能把 KV Promise 直接等同 fsync。
 
-WebSocket 有一个实际限制：模块自定义头拒绝 `Authorization`、`Cookie` 等凭证/握手头；`X-Api-Key` 不在拒绝列表。豆包接入在接口层面可行，仍需真网验证；未来依赖 Bearer WS 的 provider 应走 Rust/宿主网络 adapter。[固定 headers 校验](https://github.com/longbridge/nsh/blob/e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3/crates/nsh-core/src/runtime/websocket.rs#L142-L205)
+NSH 0.5.0 的原生 `websocket.connect(url, { headers })` 支持应用显式设置 `Authorization` 与 `Cookie`，沿用原有网络授权与收发接口；本项目通过内置连接直接接入 Bearer 鉴权的语音服务。0.4.0 的凭据头限制由 [issue #942](https://github.com/longbridge/nsh/issues/942) 记录，修复已合入 [PR #1134](https://github.com/longbridge/nsh/pull/1134)。
 
 薄宿主是当前更稳妥的集成方式：官方支持 iOS 的 `NshAppView` / xcframework 与 Android 的 `NshView` / AAR，以及 `host.call`、事件和 native component。相机预览可注册原生视图；音频、存储等无界面服务走宿主方法/Rust module，不必包装成 UI。[原生组件](https://nsh.dev/docs/native-components/)、[宿主通信](https://nsh.dev/modules/nsh/#host)
 

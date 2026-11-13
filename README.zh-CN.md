@@ -40,7 +40,7 @@ Super-LOOI 是运行在手机上的个人 AI Agent（智能体）。平时，它
 | Android | Android SDK / NDK、JDK，以及开启 USB 调试的 Android 手机 |
 | Linux 环境构建 | macOS 上安装 `meson`、`ninja`、`llvm`、`lld`、`libarchive`；详见 [Linux Shell 构建说明](docs/nsh-linux-shell.md#构建) |
 
-构建脚本固定使用 **NSH 0.4.0**，找不到匹配的 CLI 时会构建锁定的源码版本；首次构建还会下载语音唤醒模型与 Linux 依赖。
+构建脚本固定使用 **NSH 0.5.0**，找不到匹配的 CLI 时会构建锁定的源码版本；首次构建还会下载语音唤醒模型与 Linux 依赖。
 
 ### 2. 克隆与安装
 

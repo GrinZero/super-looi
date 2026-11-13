@@ -40,7 +40,7 @@ To build from source, you need:
 | Android | Android SDK / NDK, a JDK, and an Android phone with USB debugging enabled |
 | Linux guest build | On macOS, install `meson`, `ninja`, `llvm`, `lld`, and `libarchive`. See the [Linux Shell build guide](docs/nsh-linux-shell.md#构建). |
 
-The build scripts pin **NSH 0.4.0** and build the locked source revision if a matching CLI is unavailable. The first build also downloads the wake word model and Linux dependencies.
+The build scripts pin **NSH 0.5.0** and build the locked source revision if a matching CLI is unavailable. The first build also downloads the wake word model and Linux dependencies.
 
 ### 2. Clone and install
 

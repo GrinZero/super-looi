@@ -1,7 +1,6 @@
 //! App-owned native capabilities, registered in the fixed NSH host.
 use nsh_core::prelude::*;
 mod audio;
-mod voice_socket;
 mod ble;
 mod compat;
 mod credentials;
@@ -26,7 +25,6 @@ fn native(registry: &mut Registry) {
         .class::<NodeCompat>()
         .class::<CredentialVault>()
         .class::<VoiceAudio>()
-        .class::<voice_socket::VoiceWebSocket>()
         .class::<LooiBle>()
         .class::<MiotLoginBrowser>()
         .class::<camera::XiaomiCameraHost>();

@@ -1,6 +1,6 @@
 # Super LOOI NSH app
 
-固定 NSH 0.4.0 / `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`，Rust typed class + TSX。桌宠主页提供圆眼表情、文字对话、LIVE 语音、任务停止与连接入口；管理空间分为模型、语音、家居、底座、任务与设置。Pi Agent Loop 提供文件读写、Shell、用户问答与家居工具；模型由手机直连，模型与语音凭证存系统安全存储。任务与会话保存在本机，支持重开恢复。
+固定 NSH 0.5.0 / `f4d68f7f9f31eb7b3ecc8a4cbc31096d5c6238a1`，Rust typed class + TSX。桌宠主页提供圆眼表情、文字对话、LIVE 语音、任务停止与连接入口；管理空间分为模型、语音、家居、底座、任务与设置。Pi Agent Loop 提供文件读写、Shell、用户问答与家居工具；模型由手机直连，模型与语音凭证存系统安全存储。任务与会话保存在本机，支持重开恢复。
 
 应用图标使用 [`assets/brand/super-looi-app-icon.png`](../../assets/brand/super-looi-app-icon.png)；`nsh.json` 的 `icon` 字段供 NSH 打包时生成 iOS `AppIcon` asset catalog 和 Android launcher 图标。[iOS 模拟器桌面截图](../../docs/artifacts/app-icon/ios-home.png)展示安装后的图标。
 

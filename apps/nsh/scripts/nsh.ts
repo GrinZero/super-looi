@@ -13,7 +13,7 @@ import { prepareDevCli } from "./prepare-dev-cli.mjs";
 
 const app = resolve(import.meta.dirname, "..");
 const repo = resolve(app, "../..");
-const revision = "e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3";
+const revision = "f4d68f7f9f31eb7b3ecc8a4cbc31096d5c6238a1";
 const config = existsSync(resolve(repo, ".env"))
   ? parseEnv(readFileSync(resolve(repo, ".env"), "utf8"))
   : {};
@@ -21,7 +21,7 @@ const valid = (binary: string) => {
   const result = spawnSync(binary, ["--version"], { encoding: "utf8" });
   return (
     result.status === 0 &&
-    result.stdout.includes("nsh 0.4.0") &&
+    result.stdout.includes("nsh 0.5.0") &&
     result.stdout.includes(revision.slice(0, 7))
   );
 };

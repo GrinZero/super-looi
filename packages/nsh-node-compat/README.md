@@ -1,6 +1,6 @@
 # @super-looi/nsh-node-compat
 
-NSH v0.4.0 同版本 QuickJS 的独立兼容包与验证宿主。实际 Pi 1.5.0 programmatic SDK 七工具、Durable 与本机隔离 codemode 已通过。当前提供经过测试的 Node API 子集，并已接入 `apps/nsh` 的手机业务运行时；实现与验证记录见 [实施记录](../../docs/nsh-node-compat-implementation.md)。
+NSH v0.5.0 同版本 QuickJS 的独立兼容包与验证宿主。实际 Pi 1.5.0 programmatic SDK 七工具、Durable 与本机隔离 codemode 已通过。当前提供经过测试的 Node API 子集，并已接入 `apps/nsh` 的手机业务运行时；实现与验证记录见 [实施记录](../../docs/nsh-node-compat-implementation.md)。
 
 ```sh
 pnpm install --frozen-lockfile
@@ -19,7 +19,7 @@ cargo check --locked --manifest-path packages/nsh-node-compat/rust/Cargo.toml --
 
 这项已在 iPhoneSimulator 26.2 SDK 通过；仅检查 Rust lib，不构成 NSH App 链接或运行验收。移动目标启用 bindgen 生成固定 VM 缺失的 bindings；Android 两 ARM ABI 已编译，API 34 ARM64 模拟器已执行通过；32 位 ABI 尚未执行。
 
-需要 Rust/Cargo 和本机 C 编译器；Cargo.lock 固定 `quickjs-jit = 0.14.1`，SQLite 编译进宿主。`test` 使用 Node/esbuild 编译 bundle，再交给 Rust QuickJS 进程执行；不在 Node 中执行被测 bundle。另有真正 SIGKILL 后重启的 Durable 验证。
+需要 Rust/Cargo 和本机 C 编译器；Cargo.lock 固定 `quickjs-jit = 0.14.2`，SQLite 编译进宿主。`test` 使用 Node/esbuild 编译 bundle，再交给 Rust QuickJS 进程执行；不在 Node 中执行被测 bundle。另有真正 SIGKILL 后重启的 Durable 验证。
 
 `.env` 配置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 后运行：
 
