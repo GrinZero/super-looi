@@ -1,0 +1,9 @@
+The following is a diff from the previous accessibility tree for Window: "iPhone 16e" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		63 button Description: 结束并试听, ID: preview-voice-btn, Secondary Actions: Cancel
+~		67 text Description: MOSS-Live · 对话中, Secondary Actions: Cancel
+~		68 text Description: 正在回复, ID: voice-session-status, Secondary Actions: Cancel
+~		71 text Description: 可以直接开口说话，支持随时打断, Secondary Actions: Cancel
++		72 button Description: 静音, ID: voice-space-mute, Secondary Actions: Cancel
++		73 button Description: 打断, ID: voice-space-interrupt, Secondary Actions: Cancel
+~		70 button Description: 结束对话, ID: voice-space-toggle, Secondary Actions: Cancel
+The focused UI element is 0 standard window iPhone 16e – iOS 26.3, Secondary Actions: Raise

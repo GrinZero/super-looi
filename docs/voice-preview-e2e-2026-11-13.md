@@ -75,3 +75,22 @@ MOSS 的两轮自然结束会话耗时分别为 20163 ms、21872 ms，均收到�
 [会话指标](artifacts/voice-preview-e2e/session-metrics.json)截取 18:47:59 起的 19 组可观测会话，其中 16 组收到音频、3 组 TLS 失败。建连完成前即被取消的尝试可能尚未创建本地会话记录，不计入这 19 组。
 
 结束时已恢复原配置：MOSS-Live、木木、自动唤醒开启；豆包恢复知性女声 2.0。[最终页面](artifacts/voice-preview-e2e/restored-settings.png)。本轮未修改业务代码，独立审查已确认问题 2 的运行时原因。
+
+## 用户确认独占后的复测（20:37–20:40，UTC+8）
+
+用户确认已停止其他调试后，重新启动 iPhone 16e 模拟器并以横屏复测。新增 8 组可观测会话：7 组返回音频，1 组 TLS 失败。以下结果独立于前一轮操作。
+
+- MOSS 木木在 20:37:40 再次返回 `websocket.connect / ERR_SOCKET_CLOSED / tls handshake eof`，耗时 5034 ms；[独占环境失败截图](artifacts/voice-preview-e2e/exclusive-moss-tls.png)。
+- 重试在 20:38:04 成功返回 22 帧／96000 字节 PCM，自动结束总耗时 21124 ms，`cancelled:true`；前述耗时偏长的现象也在独占环境出现。
+- 20:38:28 开始的另一轮木木试听中手动停止，再次出现“对话中／正在回复／结束对话”，随后回到唤醒待机；[独占环境错误状态](artifacts/voice-preview-e2e/exclusive-stop-with-wake.txt)。
+- 豆包知性女声 2.0 连续五轮均返回真实音频并自动回到“准备就绪”。每轮都等待自动结束后再点下一轮，没有手动停止；[五轮结束截图](artifacts/voice-preview-e2e/exclusive-five-replays.png)。
+
+| 开始时间 | 握手耗时 | PCM 字节 | 估算音频时长 | 会话总耗时 |
+| --- | ---: | ---: | ---: | ---: |
+| 20:38:53 | 2999 ms | 191622 | 3992 ms | 8239 ms |
+| 20:39:14 | 2603 ms | 172110 | 3586 ms | 7452 ms |
+| 20:39:33 | 2759 ms | 191014 | 3979 ms | 8056 ms |
+| 20:39:56 | 2726 ms | 171108 | 3565 ms | 7526 ms |
+| 20:40:17 | 2440 ms | 182422 | 3800 ms | 7477 ms |
+
+[独占复测指标](artifacts/voice-preview-e2e/exclusive-session-metrics.json)保留同轮 trace ID。复测后恢复 MOSS-Live、木木、自动唤醒开启，并确认页面回到“等待唤醒”。两项问题及 MOSS 耗时现象均在独占环境复现。
