@@ -20,3 +20,33 @@ test("unchanged generated bundles keep their timestamp; changed bundles update",
     await rm(dir, { recursive: true });
   }
 });
+
+test("concurrent bundle writes publish complete files to readers", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "looi-generated-"));
+  const path = join(dir, "runtime.js");
+  const bundles = Array.from({ length: 8 }, (_, index) =>
+    Buffer.alloc(2 * 1024 * 1024 + index * 65537, 65 + index),
+  );
+  let writing = true;
+  const incompleteSizes: number[] = [];
+  try {
+    await writeGenerated(path, bundles[0]);
+    const reader = (async () => {
+      while (writing) {
+        const bytes = await readFile(path);
+        if (!bundles.some(bundle => bundle.equals(bytes))) incompleteSizes.push(bytes.length);
+      }
+    })();
+    try {
+      await Promise.all(bundles.map(bundle => writeGenerated(path, bundle)));
+    } finally {
+      writing = false;
+      await reader;
+    }
+    assert.deepEqual(incompleteSizes, []);
+    const final = await readFile(path);
+    assert.ok(bundles.some(bundle => bundle.equals(final)));
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});

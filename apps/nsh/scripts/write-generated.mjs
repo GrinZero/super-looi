@@ -1,6 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 
-/** Preserve the file timestamp when a build produced the same bytes. */
+/** Publish complete build output, preserving timestamps for unchanged bytes. */
 export async function writeGenerated(path, content) {
   const bytes = Buffer.from(content);
   const previous = await readFile(path).catch(error => {
@@ -8,5 +9,13 @@ export async function writeGenerated(path, content) {
     return undefined;
   });
   if (previous?.equals(bytes)) return;
-  await writeFile(path, bytes);
+  // Separate builders must never truncate or interleave writes to a watched file.
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, bytes, { flag: "wx" });
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
 }
