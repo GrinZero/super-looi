@@ -1,0 +1,253 @@
+[
+  {
+    "traceId": "6897339f9376493793f3a35a994d315e",
+    "spanId": "6351be8a9b164755",
+    "name": "voice.session",
+    "type": "span",
+    "startedAt": 1794591159732,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "voice_26ed23d1-576f-4c6c-8a21-a6ca157ecdd6",
+      "langfuse.observation.input": [
+        {
+          "role": "user",
+          "content": "请给我介绍一下太阳系，讲完整一点，大约二十秒。"
+        },
+        {
+          "role": "assistant",
+          "content": "太阳系以太阳为"
+        },
+        {
+          "role": "user",
+          "content": "太阳系以太阳为中。"
+        }
+      ],
+      "langfuse.observation.output": [],
+      "langfuse.observation.metadata.userTranscripts": [
+        "请给我介绍一下太阳系，讲完整一点，大约二十秒。",
+        "太阳系以太阳为中。"
+      ],
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      "langfuse.observation.metadata.assistantTranscripts": [
+        "太阳系以太阳为"
+      ],
+      "langfuse.observation.metadata.turnsCount": 2,
+      "langfuse.observation.metadata.toolCallsCount": 0,
+      "langfuse.observation.metadata.closeReason": "end_session",
+      "langfuse.observation.metadata.providerId": "moss",
+      "langfuse.observation.metadata.model": "moss-live-1.0",
+      "langfuse.observation.metadata.fromWakeWord": false
+    },
+    "endedAt": 1794591186249
+  },
+  {
+    "traceId": "6897339f9376493793f3a35a994d315e",
+    "spanId": "d229b806ee3b4c8b",
+    "parentSpanId": "6351be8a9b164755",
+    "name": "realtime.handshake",
+    "type": "span",
+    "startedAt": 1794591159732,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "voice_26ed23d1-576f-4c6c-8a21-a6ca157ecdd6",
+      "langfuse.observation.input": {
+        "providerId": "moss",
+        "model": "moss-live-1.0"
+      },
+      "langfuse.observation.metadata.handshakeMs": 824
+    },
+    "endedAt": 1794591160556
+  },
+  {
+    "traceId": "6897339f9376493793f3a35a994d315e",
+    "spanId": "a96b05b135a0492d",
+    "parentSpanId": "6351be8a9b164755",
+    "name": "realtime.context",
+    "type": "span",
+    "startedAt": 1794591160289,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "voice_26ed23d1-576f-4c6c-8a21-a6ca157ecdd6",
+      "langfuse.observation.input": {
+        "action": "session.update",
+        "session": {
+          "persona": {
+            "name": "LOOI",
+            "prompt": "You are LOOI, a playful, warm, and capable desktop robot companion."
+          },
+          "instructions": "\n你是 LOOI，一个个人智能助手，用简短自然的语言回答用户，不念括号舞台提示。\n\n\n设备控制边界：\n- LOOI 底座是机器人自身的蓝牙硬件，负责移动、头部俯仰、底座自带补光灯及电量；control_looi_body 的 light_on/light_off/light_set 只作用于这盏补光灯。\n- 台灯、房间灯、插座、空调等属于智能家居，由 App 通过已配置的米家或 Home Assistant 服务连接和控制；家居查询与控制不依赖底座蓝牙连接或手机是否吸附在底座上。\n- 底座未连接不能用来判断家居不可用；家居服务未连接也不能用来判断底座不可用。根据对应领域的工具回执说明结果和具体失败原因。\n- “打开大厅台灯”“关闭卧室灯”属于家居请求；“打开你的补光灯”“抬头”“前进”属于底座请求。单说“开灯”且上下文无法确定目标时，先询问是哪盏灯。\n\n\n工具调用规范：\n1. 查询或控制智能家居（包括台灯开关、亮度、状态）时，调用 run_agent_task，把用户要操作的设备、房间和动作交给任务 Agent 查找并执行；不要改用 control_looi_body 或因底座未连接而放弃。\n2. 用户明确操作机器人自身时，使用 control_looi_body；仅从该工具的回执判断底座动作结果。\n3. 需要执行本机任务、编写代码或复杂查询时也使用 run_agent_task：\n   - 若返回 status=\"completed\"，直接依据 answer 简短回答；\n   - 若返回 status=\"running_in_background\"，自然承接，例如“好，我来看看”，然后继续交流；结果稍后交回来，无需强调后台任务或播报任务编号；\n   - 若返回 status=\"waiting_user_confirmation\"，提醒用户在屏幕上确认授权或问题；\n   - 若用户询问后台任务进度或要求停止任务，调用 manage_agent_task；\n4. 没有实际工具回执不得声称成功，也不能编造失败原因；转述失败回执时保留对应设备、服务、失败阶段和错误码，不改成底座连接问题或其他原因。不自动重试未知结果。\n   - 失败回执带有阶段和错误码时，简短回答也要说出它们。例如回执为“米家 write 阶段 miot_http_503，未确认受理”，应回答“米家写入失败，错误码 503，台灯开灯尚未确认”。\n    \nReply language: A new conversation defaults to Simplified Chinese. Follow the user's explicit request to use a language. A complete question or request in the other language switches the reply to that language. Maintain a conversation reply language. Short acknowledgements, interjections, isolated foreign words, accents, and quoted text NEVER change it, even when their script differs. These are not full questions. Only an explicit language request or a complete new question/request changes the reply language. Preserve user facts, names, code, identifiers, and tool data. Examples: Assistant: \"The sky is blue.\" User: \"好的。\" Assistant: \"Sure. Let me know if you have another question.\" Assistant: \"Grass is green.\" User: \"嗯\" Assistant: \"Got it.\" After an English reply, \"好\", \"好的\", \"嗯\", \"好吧\", and \"谢谢\" MUST receive English, never Chinese. After a Chinese reply, \"OK\" or \"thanks\" MUST receive Chinese. Do not treat the script of an acknowledgement as a request to switch languages. Apply the same language to the final answer, spoken audio, and its transcript.\n\n[Previous Voice Conversation]\n以下是重连前可见的语音对话，按发生顺序排列。回答历史追问时同时参考这些对话与任务回执，保留日期、时间和数字原文。\n[{\"role\":\"user\",\"content\":\"你知道现在几点了吗？\"},{\"role\":\"assistant\",\"content\":\"现在是凌晨\"},{\"role\":\"user\",\"content\":\"现在是凌晨。\"},{\"role\":\"user\",\"content\":\"我说明清楚。\"},{\"role\":\"user\",\"content\":\"一定是周日。\"},{\"role\":\"assistant\",\"content\":\"现在是\"},{\"role\":\"user\",\"content\":\"现在是二零二六。\"}]",
+          "tools": [
+            {
+              "type": "function",
+              "name": "run_agent_task",
+              "description": "查询或控制智能家居（台灯、房间灯、插座、空调等），或执行本机任务、编写代码与复杂查询。家居通过已配置的米家／Home Assistant 服务执行，无需连接 LOOI 底座。prompt 应包含用户指定的设备、房间和动作。可能直接返回完成结果，也可能先返回受理并稍后将结果带回对话；用户可以继续交流。工具审批方式由用户设置。",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "type": "function",
+              "name": "manage_agent_task",
+              "description": "查询任务进度（status）、中止任务（cancel）、向执行中的任务补充或纠正要求（steer），或安排当前执行结束后继续处理的消息（follow_up）。补充消息使用 message 字段。",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "status",
+                      "cancel",
+                      "steer",
+                      "follow_up"
+                    ]
+                  },
+                  "task_id": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "type": "function",
+              "name": "control_looi_body",
+              "description": "仅控制 LOOI 机器人自身的蓝牙底座：头部俯仰（head_up/head_center/head_down 或 head_set 搭配 head_degrees 25..85）、方向或合成向量脉冲移动（forward/backward/turn_left/turn_right 或 move 搭配 speed/turn -127..127）、底座自带补光灯（light_on/light_off 或 light_set 搭配 brightness 0..255）、读取电量与外接供电（read_power）或立即停止（stop）。不能控制台灯、房间灯或其他家居设备；家居请求使用 run_agent_task，不依赖底座连接。",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "head_up",
+                      "head_center",
+                      "head_down",
+                      "head_set",
+                      "forward",
+                      "backward",
+                      "turn_left",
+                      "turn_right",
+                      "move",
+                      "light_on",
+                      "light_off",
+                      "light_set",
+                      "read_power",
+                      "stop"
+                    ]
+                  },
+                  "duration_ms": {
+                    "type": "string",
+                    "description": "移动脉冲时长（50..1200 毫秒）"
+                  },
+                  "head_degrees": {
+                    "type": "string",
+                    "description": "头部俯仰角度（25..85 度，配合 head_set）"
+                  },
+                  "brightness": {
+                    "type": "string",
+                    "description": "底座自带补光灯亮度（0..255，配合 light_set 或 light_on）"
+                  },
+                  "speed": {
+                    "type": "string",
+                    "description": "直行速度（-127..127，正数前进负数后退，配合 move）"
+                  },
+                  "turn": {
+                    "type": "string",
+                    "description": "转向角速度（-127..127，正数左转负数右转，配合 move）"
+                  }
+                },
+                "required": [
+                  "action"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ]
+        }
+      }
+    },
+    "endedAt": 1794591160290
+  },
+  {
+    "traceId": "6897339f9376493793f3a35a994d315e",
+    "spanId": "0cba7da56ec448bc",
+    "parentSpanId": "6351be8a9b164755",
+    "name": "realtime.user_turn",
+    "type": "span",
+    "startedAt": 1794591164665,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "voice_26ed23d1-576f-4c6c-8a21-a6ca157ecdd6",
+      "langfuse.observation.output": "请给我介绍一下太阳系，讲完整一点，大约二十秒。",
+      "langfuse.observation.metadata.inputFrames": 245,
+      "langfuse.observation.metadata.inputBytes": 156800,
+      "langfuse.observation.metadata.audioDurationMs": 4900
+    },
+    "endedAt": 1794591170205
+  },
+  {
+    "traceId": "6897339f9376493793f3a35a994d315e",
+    "spanId": "e7e1ec227e5340c3",
+    "parentSpanId": "6351be8a9b164755",
+    "name": "realtime.response",
+    "type": "generation",
+    "startedAt": 1794591171620,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "voice_26ed23d1-576f-4c6c-8a21-a6ca157ecdd6",
+      "langfuse.observation.model.name": "moss-live-1.0",
+      "langfuse.observation.metadata.voiceSessionTraceId": "6897339f9376493793f3a35a994d315e",
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      "langfuse.observation.input": [
+        {
+          "role": "user",
+          "content": "请给我介绍一下太阳系，讲完整一点，大约二十秒。"
+        }
+      ],
+      "langfuse.observation.output": [
+        {
+          "role": "assistant",
+          "content": "太阳系以太阳为"
+        }
+      ],
+      "langfuse.observation.completion_start_time": 1794591171628,
+      "langfuse.observation.metadata.ttfaMs": 6,
+      "langfuse.observation.metadata.outputFrames": 35,
+      "langfuse.observation.metadata.outputBytes": 158400,
+      "langfuse.observation.metadata.audioDurationMs": 3300,
+      "langfuse.observation.metadata.cancelled": false
+    },
+    "endedAt": 1794591186247
+  },
+  {
+    "traceId": "6897339f9376493793f3a35a994d315e",
+    "spanId": "93a273e90594458d",
+    "parentSpanId": "6351be8a9b164755",
+    "name": "realtime.user_turn",
+    "type": "span",
+    "startedAt": 1794591172971,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "voice_26ed23d1-576f-4c6c-8a21-a6ca157ecdd6",
+      "langfuse.observation.output": "太阳系以太阳为中。",
+      "langfuse.observation.metadata.inputFrames": 55,
+      "langfuse.observation.metadata.inputBytes": 35200,
+      "langfuse.observation.metadata.audioDurationMs": 1100
+    },
+    "endedAt": 1794591174332
+  }
+]

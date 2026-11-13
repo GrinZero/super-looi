@@ -262,9 +262,18 @@ export function observeVoiceSocket(socket: Socket, options: {
             tools++;
           }
           break;
+        case "audio_stop":
         case "response_cancelled":
+          tracer.start("realtime.interruption", "span", response?.context ?? root.context, {
+            "langfuse.observation.input": event,
+            "langfuse.observation.metadata.stage": `provider.${normalized.kind}`,
+            "langfuse.observation.metadata.responseId": normalized.responseId,
+            "langfuse.observation.metadata.turnId": normalized.turnId,
+            "langfuse.observation.metadata.reason": normalized.reason,
+          }).end();
+          if (normalized.kind === "audio_stop") break;
           if (normalized.text && !responseText) responseText = normalized.text;
-          finishResponse(true);
+          finishResponse(true, normalized.reason);
           cancelRequest?.observation.end({ "langfuse.observation.output": event });
           cancelRequest = undefined;
           nextResponseContext = undefined;

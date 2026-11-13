@@ -9,10 +9,17 @@ import { createLangfuseTracer, type TraceObservation } from "../../../packages/l
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const apiKey = "test-voice-secret";
 
-function setup(t: TestContext, connect: () => Promise<VoiceSocket>, preview = false, previewInput = async () => new Uint8Array(640)) {
+function setup(
+  t: TestContext,
+  connect: () => Promise<VoiceSocket>,
+  preview = false,
+  previewInput = async () => new Uint8Array(640),
+  protocol = preview ? createMossLiveProtocol() : createOpenAiRealtimeProtocol(),
+) {
   const observations: TraceObservation[] = [];
   const errors: string[] = [];
   const logs: unknown[][] = [];
+  const patches: Array<Record<string, unknown>> = [];
   t.mock.method(console, "error", (...args: unknown[]) => { logs.push(args); });
   const audio: VoiceAudioPort = {
     requestPermission: () => "granted", start: () => {}, beginWake: () => 0,
@@ -24,18 +31,68 @@ function setup(t: TestContext, connect: () => Promise<VoiceSocket>, preview = fa
   };
   const session = new LiveVoiceSession({
     apiKey, voiceId: "draft-voice", previewText: "你好，试听必须完整读到最后。", initialLanguage: "zh-CN", fromWakeWord: false,
-    sessionId: "failure-test-session", protocol: preview ? createMossLiveProtocol() : createOpenAiRealtimeProtocol(),
+    sessionId: "failure-test-session", protocol,
     ...(preview ? { purpose: "preview" as const } : {}),
     audio, connect, previewInput,
     tracer: createLangfuseTracer({ onObservation: (record) => observations.push(record) }),
-    onStatePatch: () => {}, onSessionComplete: () => session.dispose("immediate"),
+    onStatePatch: patch => { patches.push(patch); }, onSessionComplete: () => session.dispose("immediate"),
     onSessionError: (message) => { errors.push(message); session.dispose("immediate"); },
   });
   t.after(() => session.dispose("immediate"));
   const failure = () => JSON.parse(errors[0].slice(errors[0].indexOf("|") + 1));
   const ended = (name: string) => observations.filter((item) => item.name === name && item.endedAt);
-  return { session, errors, failure, ended, logs, audio };
+  return { session, errors, failure, ended, logs, audio, patches };
 }
+
+test("MOSS speech activity keeps playing until the explicit server interruption", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const incoming: Array<string | Uint8Array> = [];
+  const writes: Record<string, unknown>[] = [];
+  let reader: ((raw: string | Uint8Array | null) => void) | undefined;
+  const emit = (event: unknown) => {
+    const raw = event instanceof Uint8Array ? event : JSON.stringify(event);
+    if (reader) { const resolve = reader; reader = undefined; resolve(raw); }
+    else incoming.push(raw);
+  };
+  const h = setup(t, async () => socket({
+    read: () => incoming.length ? Promise.resolve(incoming.shift()!) : new Promise(resolve => { reader = resolve; }),
+    write: async raw => { if (typeof raw === "string") writes.push(JSON.parse(raw)); },
+  }), false, undefined, createMossLiveProtocol());
+  let queued = 0, cleared = 0, enqueued = 0;
+  t.mock.method(h.audio, "enqueue", (pcm: Uint8Array) => { enqueued += pcm.length; queued += pcm.length / 48; });
+  t.mock.method(h.audio, "clearPlayback", () => { cleared++; queued = 0; });
+  t.mock.method(h.audio, "status", () => ({ state: "running", permission: "granted", error: "",
+    queuedPlaybackMs: queued, captureMode: "conversation", wakeWord: "", kwsReady: true }));
+  const audioChunk = (run = "r") => {
+    emit({ action: "response.audio.context", data: { run_id: run, turn_id: "t", chunk_id: String(enqueued), duration_ms: 100 } });
+    emit(new Uint8Array(4800));
+  };
+  await h.session.open();
+  emit({ action: "session_attached", data: { session_id: "conversation" } });
+  emit({ action: "session.updated", data: { error: "" } });
+  emit({ action: "response.audio.started", data: { run_id: "r", turn_id: "t" } });
+  audioChunk(); await flush(); t.mock.timers.tick(20); await flush();
+  assert.equal(enqueued, 4800);
+  emit({ action: "input.speech.started" });
+  emit({ action: "input.speech.stopped" });
+  audioChunk(); await flush(); t.mock.timers.tick(20); await flush();
+  assert.equal(cleared, 0, "speech activity prematurely cleared model playback");
+  assert.equal(enqueued, 9600, "later PCM from the same run was discarded");
+  assert.equal(h.patches.filter(patch => patch.phase).at(-1)?.phase, "speaking");
+  emit({ action: "response.audio.stop", data: { run_id: "r", turn_id: "t", reason: "user_interrupt" } });
+  emit({ action: "response.interrupted", data: { run_id: "r", turn_id: "t", reason: "user_interrupt" } });
+  await flush();
+  assert.equal(cleared, 1);
+  assert.ok(writes.some(frame => frame.action === "playback.stopped" && frame.run_id === "r"));
+  assert.deepEqual(h.ended("realtime.interruption").map(record => ({
+    reason: record.attributes["langfuse.observation.metadata.reason"],
+    run: record.attributes["langfuse.observation.metadata.responseId"],
+  })), [{ reason: "user_interrupt", run: "r" }, { reason: "user_interrupt", run: "r" }]);
+  emit({ action: "response.audio.started", data: { run_id: "next", turn_id: "t" } });
+  audioChunk("next"); await flush(); t.mock.timers.tick(20); await flush();
+  assert.equal(enqueued, 14400, "conversation did not recover after the real interruption");
+  assert.deepEqual(h.errors, []);
+});
 
 test("MOSS preview uses a real voice turn, acknowledges all PCM and waits for the provider terminal event", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });

@@ -1,0 +1,5252 @@
+{
+  "traceId": "8c550d2b7ba24dba8b47e342cf539e07",
+  "spanId": "e7a9b3d7a25d4a6e",
+  "name": "moss.home.e2e",
+  "type": "span",
+  "startedAt": 1794591633797,
+  "attributes": {
+    "langfuse.trace.name": "moss.home.e2e",
+    "langfuse.observation.output": {
+      "inputBytes": 0,
+      "outputBytes": 929280,
+      "nativeQueuedMs": 0,
+      "events": [
+        {
+          "ms": 337,
+          "direction": "client",
+          "action": "attach_session",
+          "session_id": null
+        },
+        {
+          "ms": 400,
+          "direction": "server",
+          "action": "session_attached",
+          "data": {
+            "delegation": "none",
+            "memory_scope": "session",
+            "session_id": "259610e2-6e99-4419-b3df-b5cee2bd7065"
+          }
+        },
+        {
+          "ms": 401,
+          "direction": "client",
+          "action": "media.configure",
+          "output_audio": {
+            "format": "pcm16",
+            "sample_rate": 24000
+          }
+        },
+        {
+          "ms": 401,
+          "direction": "client",
+          "action": "change_voice",
+          "voice_name": "6c3152b1-1d4f-4e49-ade3-09f447712fec"
+        },
+        {
+          "ms": 401,
+          "direction": "client",
+          "action": "session.update",
+          "session": {
+            "persona": {
+              "name": "LOOI",
+              "prompt": "You are LOOI, a playful, warm, and capable desktop robot companion."
+            },
+            "instructions": "\n你是 LOOI，一个个人智能助手，用简短自然的语言回答用户，不念括号舞台提示。\n\n\n设备控制边界：\n- LOOI 底座是机器人自身的蓝牙硬件，负责移动、头部俯仰、底座自带补光灯及电量；control_looi_body 的 light_on/light_off/light_set 只作用于这盏补光灯。\n- 台灯、房间灯、插座、空调等属于智能家居，由 App 通过已配置的米家或 Home Assistant 服务连接和控制；家居查询与控制不依赖底座蓝牙连接或手机是否吸附在底座上。\n- 底座未连接不能用来判断家居不可用；家居服务未连接也不能用来判断底座不可用。根据对应领域的工具回执说明结果和具体失败原因。\n- “打开大厅台灯”“关闭卧室灯”属于家居请求；“打开你的补光灯”“抬头”“前进”属于底座请求。单说“开灯”且上下文无法确定目标时，先询问是哪盏灯。\n\n\n工具调用规范：\n1. 查询或控制智能家居（包括台灯开关、亮度、状态）时，调用 run_agent_task，把用户要操作的设备、房间和动作交给任务 Agent 查找并执行；不要改用 control_looi_body 或因底座未连接而放弃。\n2. 用户明确操作机器人自身时，使用 control_looi_body；仅从该工具的回执判断底座动作结果。\n3. 需要执行本机任务、编写代码或复杂查询时也使用 run_agent_task：\n   - 若返回 status=\"completed\"，直接依据 answer 简短回答；\n   - 若返回 status=\"running_in_background\"，自然承接，例如“好，我来看看”，然后继续交流；结果稍后交回来，无需强调后台任务或播报任务编号；\n   - 若返回 status=\"waiting_user_confirmation\"，提醒用户在屏幕上确认授权或问题；\n   - 若用户询问后台任务进度或要求停止任务，调用 manage_agent_task；\n4. 没有实际工具回执不得声称成功，也不能编造失败原因；转述失败回执时保留对应设备、服务、失败阶段和错误码，不改成底座连接问题或其他原因。不自动重试未知结果。\n   - 失败回执带有阶段和错误码时，简短回答也要说出它们。例如回执为“米家 write 阶段 miot_http_503，未确认受理”，应回答“米家写入失败，错误码 503，台灯开灯尚未确认”。\n    \nReply language: A new conversation defaults to Simplified Chinese. Follow the user's explicit request to use a language. A complete question or request in the other language switches the reply to that language. Maintain a conversation reply language. Short acknowledgements, interjections, isolated foreign words, accents, and quoted text NEVER change it, even when their script differs. These are not full questions. Only an explicit language request or a complete new question/request changes the reply language. Preserve user facts, names, code, identifiers, and tool data. Examples: Assistant: \"The sky is blue.\" User: \"好的。\" Assistant: \"Sure. Let me know if you have another question.\" Assistant: \"Grass is green.\" User: \"嗯\" Assistant: \"Got it.\" After an English reply, \"好\", \"好的\", \"嗯\", \"好吧\", and \"谢谢\" MUST receive English, never Chinese. After a Chinese reply, \"OK\" or \"thanks\" MUST receive Chinese. Do not treat the script of an acknowledgement as a request to switch languages. Apply the same language to the final answer, spoken audio, and its transcript.",
+            "tools": [
+              {
+                "type": "function",
+                "name": "run_agent_task",
+                "description": "查询或控制智能家居（台灯、房间灯、插座、空调等），或执行本机任务、编写代码与复杂查询。家居通过已配置的米家／Home Assistant 服务执行，无需连接 LOOI 底座。prompt 应包含用户指定的设备、房间和动作。可能直接返回完成结果，也可能先返回受理并稍后将结果带回对话；用户可以继续交流。工具审批方式由用户设置。",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "prompt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "prompt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "function",
+                "name": "manage_agent_task",
+                "description": "查询任务进度（status）、中止任务（cancel）、向执行中的任务补充或纠正要求（steer），或安排当前执行结束后继续处理的消息（follow_up）。补充消息使用 message 字段。",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "status",
+                        "cancel",
+                        "steer",
+                        "follow_up"
+                      ]
+                    },
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "function",
+                "name": "control_looi_body",
+                "description": "仅控制 LOOI 机器人自身的蓝牙底座：头部俯仰（head_up/head_center/head_down 或 head_set 搭配 head_degrees 25..85）、方向或合成向量脉冲移动（forward/backward/turn_left/turn_right 或 move 搭配 speed/turn -127..127）、底座自带补光灯（light_on/light_off 或 light_set 搭配 brightness 0..255）、读取电量与外接供电（read_power）或立即停止（stop）。不能控制台灯、房间灯或其他家居设备；家居请求使用 run_agent_task，不依赖底座连接。",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "head_up",
+                        "head_center",
+                        "head_down",
+                        "head_set",
+                        "forward",
+                        "backward",
+                        "turn_left",
+                        "turn_right",
+                        "move",
+                        "light_on",
+                        "light_off",
+                        "light_set",
+                        "read_power",
+                        "stop"
+                      ]
+                    },
+                    "duration_ms": {
+                      "type": "string",
+                      "description": "移动脉冲时长（50..1200 毫秒）"
+                    },
+                    "head_degrees": {
+                      "type": "string",
+                      "description": "头部俯仰角度（25..85 度，配合 head_set）"
+                    },
+                    "brightness": {
+                      "type": "string",
+                      "description": "底座自带补光灯亮度（0..255，配合 light_set 或 light_on）"
+                    },
+                    "speed": {
+                      "type": "string",
+                      "description": "直行速度（-127..127，正数前进负数后退，配合 move）"
+                    },
+                    "turn": {
+                      "type": "string",
+                      "description": "转向角速度（-127..127，正数左转负数右转，配合 move）"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ms": 467,
+          "direction": "server",
+          "action": "media.configured",
+          "data": {
+            "available": {
+              "input_audio": [
+                "pcm16",
+                "opus"
+              ],
+              "output_audio": [
+                "pcm16",
+                "opus",
+                "mp3"
+              ],
+              "profiles": [
+                "low",
+                "standard"
+              ]
+            },
+            "error": "",
+            "input_audio": {
+              "channels": 1,
+              "format": "pcm16",
+              "framing": "s16le",
+              "sample_rate": 16000
+            },
+            "output_audio": {
+              "channels": 1,
+              "format": "pcm16",
+              "framing": "s16le",
+              "sample_rate": 24000
+            },
+            "playback": "client",
+            "profile": "custom",
+            "video": {
+              "interval_ms": 1000,
+              "jpeg_quality": 0.75,
+              "max_long_side": 512
+            }
+          }
+        },
+        {
+          "ms": 684,
+          "direction": "server",
+          "action": "voice_changed",
+          "data": {
+            "name": "6c3152b1-1d4f-4e49-ade3-09f447712fec"
+          }
+        },
+        {
+          "ms": 684,
+          "direction": "server",
+          "action": "session.updated",
+          "data": {
+            "error": "",
+            "tools": [
+              "control_looi_body",
+              "manage_agent_task",
+              "run_agent_task"
+            ]
+          }
+        },
+        {
+          "ms": 686,
+          "direction": "client",
+          "action": "mic_state",
+          "enabled": true
+        },
+        {
+          "ms": 10194,
+          "direction": "server",
+          "action": "input.speech.started",
+          "data": {}
+        },
+        {
+          "ms": 13100,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "请",
+            "text": "请",
+            "turn": "1"
+          }
+        },
+        {
+          "ms": 13643,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "请给我介绍一下太阳",
+            "text": "请给我介绍一下太阳",
+            "turn": "1"
+          }
+        },
+        {
+          "ms": 14236,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "请给我介绍一下太阳系",
+            "text": "请给我介绍一下太阳系",
+            "turn": "1"
+          }
+        },
+        {
+          "ms": 15376,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "请给我介绍一下太阳系，讲完整",
+            "text": "请给我介绍一下太阳系，讲完整",
+            "turn": "1"
+          }
+        },
+        {
+          "ms": 15476,
+          "direction": "server",
+          "action": "input.speech.stopped",
+          "data": {}
+        },
+        {
+          "ms": 15558,
+          "direction": "server",
+          "action": "input.transcript.done",
+          "data": {
+            "text": "请给我介绍一下太阳系，讲完整一点，大约二十秒。",
+            "turn": "1"
+          }
+        },
+        {
+          "ms": 16359,
+          "direction": "server",
+          "action": "response.audio.started",
+          "data": {
+            "kind": "speech",
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16361,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "1",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16362,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "2",
+            "duration_ms": 50,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16362,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "3",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16415,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "4",
+            "duration_ms": 50,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16421,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "5",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16544,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "1"
+        },
+        {
+          "ms": 16577,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "2"
+        },
+        {
+          "ms": 16625,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "6",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16627,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "7",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16629,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "8",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16644,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "9",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16644,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "10",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16644,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "11",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16646,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "12",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16647,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "13",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16666,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "3"
+        },
+        {
+          "ms": 16686,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "14",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16687,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "15",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16687,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "16",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16688,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "17",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16693,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "18",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16694,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "19",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16729,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "4"
+        },
+        {
+          "ms": 16749,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16752,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "20",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16754,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "21",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16754,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "22",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16755,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "23",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16756,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "24",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16759,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "25",
+            "duration_ms": 14.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16793,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "26",
+            "duration_ms": 50,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16815,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "5"
+        },
+        {
+          "ms": 16878,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16878,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "27",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 16921,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "6"
+        },
+        {
+          "ms": 16986,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "28",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17030,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "7"
+        },
+        {
+          "ms": 17094,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17096,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "29",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17116,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "8"
+        },
+        {
+          "ms": 17213,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17216,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "30",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17225,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "9"
+        },
+        {
+          "ms": 17313,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "31",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17333,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "10"
+        },
+        {
+          "ms": 17418,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "11"
+        },
+        {
+          "ms": 17421,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "32",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17486,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17488,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "33",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17529,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "12"
+        },
+        {
+          "ms": 17596,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17597,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "34",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17618,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "13"
+        },
+        {
+          "ms": 17702,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "35",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17727,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "14"
+        },
+        {
+          "ms": 17791,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17793,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "36",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17814,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "15"
+        },
+        {
+          "ms": 17899,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "37",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 17923,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "16"
+        },
+        {
+          "ms": 18010,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "17"
+        },
+        {
+          "ms": 18015,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18018,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "38",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18081,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "39",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18122,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "18"
+        },
+        {
+          "ms": 18166,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "19"
+        },
+        {
+          "ms": 18188,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "40",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18233,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18234,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "41",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18255,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "20"
+        },
+        {
+          "ms": 18341,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "42",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18363,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "21"
+        },
+        {
+          "ms": 18447,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "43",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18449,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "22"
+        },
+        {
+          "ms": 18494,
+          "direction": "server",
+          "action": "input.speech.started",
+          "data": {}
+        },
+        {
+          "ms": 18513,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "44",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18557,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "23"
+        },
+        {
+          "ms": 18621,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18623,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "45",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18654,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "24"
+        },
+        {
+          "ms": 18655,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "25"
+        },
+        {
+          "ms": 18726,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "26"
+        },
+        {
+          "ms": 18815,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "27"
+        },
+        {
+          "ms": 18821,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18822,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "46",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18823,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "47",
+            "duration_ms": 64.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18886,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "48",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 18926,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "28"
+        },
+        {
+          "ms": 19000,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19001,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "49",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19011,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "29"
+        },
+        {
+          "ms": 19097,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "50",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19118,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "30"
+        },
+        {
+          "ms": 19203,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19204,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "51",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19225,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "31"
+        },
+        {
+          "ms": 19309,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "32"
+        },
+        {
+          "ms": 19309,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "52",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19375,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "53",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19417,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "33"
+        },
+        {
+          "ms": 19493,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19495,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "54",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19525,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "34"
+        },
+        {
+          "ms": 19597,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "55",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19612,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "35"
+        },
+        {
+          "ms": 19700,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19701,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "56",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19720,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "36"
+        },
+        {
+          "ms": 19810,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "57",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19828,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "37"
+        },
+        {
+          "ms": 19916,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "38"
+        },
+        {
+          "ms": 19917,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "58",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 19984,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "59",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20024,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "39"
+        },
+        {
+          "ms": 20089,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "60",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20110,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "40"
+        },
+        {
+          "ms": 20155,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "41"
+        },
+        {
+          "ms": 20195,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "61",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20241,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "62",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20263,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "42"
+        },
+        {
+          "ms": 20331,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳",
+            "text": "以太阳",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 20350,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "43"
+        },
+        {
+          "ms": 20351,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "63",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20418,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "64",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20457,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "44"
+        },
+        {
+          "ms": 20521,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20521,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "65",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20563,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "45"
+        },
+        {
+          "ms": 20631,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "66",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20670,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "46"
+        },
+        {
+          "ms": 20733,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "47"
+        },
+        {
+          "ms": 20743,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "67",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20809,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20810,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "68",
+            "duration_ms": 64.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20821,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "48"
+        },
+        {
+          "ms": 20858,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心",
+            "text": "以太阳为中心",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 20920,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "69",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 20929,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "49"
+        },
+        {
+          "ms": 21017,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "50"
+        },
+        {
+          "ms": 21020,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21022,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "70",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21085,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "71",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21126,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "51"
+        },
+        {
+          "ms": 21198,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21200,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "72",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21213,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "52"
+        },
+        {
+          "ms": 21320,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "73",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21322,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "53"
+        },
+        {
+          "ms": 21429,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "54"
+        },
+        {
+          "ms": 21450,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21452,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "74",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21524,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "75",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21535,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "55"
+        },
+        {
+          "ms": 21622,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "56"
+        },
+        {
+          "ms": 21637,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21639,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "76",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21703,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "77",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21709,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "57"
+        },
+        {
+          "ms": 21796,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "78",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21819,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "58"
+        },
+        {
+          "ms": 21905,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21907,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "79",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 21928,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "59"
+        },
+        {
+          "ms": 22000,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大",
+            "text": "以太阳为中心，包括八大",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 22015,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "60"
+        },
+        {
+          "ms": 22016,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "80",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22090,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "81",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22127,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "61"
+        },
+        {
+          "ms": 22149,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "62"
+        },
+        {
+          "ms": 22190,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22192,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "82",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22236,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "83",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22258,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "63"
+        },
+        {
+          "ms": 22347,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "84",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22366,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "64"
+        },
+        {
+          "ms": 22453,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "65"
+        },
+        {
+          "ms": 22454,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22459,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "85",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22519,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "86",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22561,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "66"
+        },
+        {
+          "ms": 22600,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星",
+            "text": "以太阳为中心，包括八大行星",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 22626,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "87",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22646,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "67"
+        },
+        {
+          "ms": 22711,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "68"
+        },
+        {
+          "ms": 22734,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22735,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "88",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22790,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "89",
+            "duration_ms": 64.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22806,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "69"
+        },
+        {
+          "ms": 22889,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "90",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 22912,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "70"
+        },
+        {
+          "ms": 22999,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23001,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "91",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23021,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "71"
+        },
+        {
+          "ms": 23109,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "92",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23131,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "72"
+        },
+        {
+          "ms": 23132,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离",
+            "text": "以太阳为中心，包括八大行星，离",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 23195,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "93",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23218,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "73"
+        },
+        {
+          "ms": 23282,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "94",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23327,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "74"
+        },
+        {
+          "ms": 23414,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23415,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "95",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23462,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "75"
+        },
+        {
+          "ms": 23512,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "76"
+        },
+        {
+          "ms": 23529,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "96",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23597,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23598,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "97",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23632,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "77"
+        },
+        {
+          "ms": 23713,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "98",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23725,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "78"
+        },
+        {
+          "ms": 23774,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳",
+            "text": "以太阳为中心，包括八大行星，离太阳",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 23813,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "79"
+        },
+        {
+          "ms": 23813,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23814,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "99",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23877,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "100",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 23921,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "80"
+        },
+        {
+          "ms": 23986,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "101",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24030,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "81"
+        },
+        {
+          "ms": 24116,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "82"
+        },
+        {
+          "ms": 24161,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "83"
+        },
+        {
+          "ms": 24191,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24192,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "102",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24193,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "103",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24224,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "104",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24248,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "84"
+        },
+        {
+          "ms": 24315,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "105",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24357,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "85"
+        },
+        {
+          "ms": 24359,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 24464,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "86"
+        },
+        {
+          "ms": 24473,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "106",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24534,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "107",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24561,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "87"
+        },
+        {
+          "ms": 24647,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "108",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24668,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "88"
+        },
+        {
+          "ms": 24733,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "89"
+        },
+        {
+          "ms": 24754,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24756,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "109",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24799,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "110",
+            "duration_ms": 64.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24820,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "90"
+        },
+        {
+          "ms": 24906,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24907,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "111",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 24918,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 24928,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "91"
+        },
+        {
+          "ms": 25014,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "92"
+        },
+        {
+          "ms": 25014,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25016,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "112",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25080,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "113",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25125,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "93"
+        },
+        {
+          "ms": 25188,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25190,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "114",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25212,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "94"
+        },
+        {
+          "ms": 25299,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "115",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25322,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "95"
+        },
+        {
+          "ms": 25409,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "96"
+        },
+        {
+          "ms": 25410,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25411,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "116",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25477,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "117",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25491,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 25518,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "97"
+        },
+        {
+          "ms": 25583,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25585,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "118",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25628,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "98"
+        },
+        {
+          "ms": 25693,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "119",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25716,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "99"
+        },
+        {
+          "ms": 25801,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25803,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "120",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25825,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "100"
+        },
+        {
+          "ms": 25915,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "101"
+        },
+        {
+          "ms": 25916,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25917,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "121",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 25980,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "122",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26025,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "102"
+        },
+        {
+          "ms": 26091,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26093,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "123",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26133,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "103"
+        },
+        {
+          "ms": 26156,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "104"
+        },
+        {
+          "ms": 26200,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "124",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26241,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "125",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26265,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "105"
+        },
+        {
+          "ms": 26332,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "126",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26354,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "106"
+        },
+        {
+          "ms": 26440,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26442,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "127",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26461,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "107"
+        },
+        {
+          "ms": 26567,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "108"
+        },
+        {
+          "ms": 26570,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "128",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26642,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "129",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26655,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "109"
+        },
+        {
+          "ms": 26664,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 26720,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "110"
+        },
+        {
+          "ms": 26729,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "130",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26793,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "131",
+            "duration_ms": 64.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26808,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "111"
+        },
+        {
+          "ms": 26915,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "112"
+        },
+        {
+          "ms": 26915,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26916,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "132",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 26981,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "133",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27024,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "113"
+        },
+        {
+          "ms": 27090,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "134",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27132,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "114"
+        },
+        {
+          "ms": 27194,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 27195,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "135",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27221,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "115"
+        },
+        {
+          "ms": 27307,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27309,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "136",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27330,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "116"
+        },
+        {
+          "ms": 27417,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "117"
+        },
+        {
+          "ms": 27425,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "137",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27491,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "138",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27526,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "118"
+        },
+        {
+          "ms": 27591,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "139",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27613,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "119"
+        },
+        {
+          "ms": 27700,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "140",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27722,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "120"
+        },
+        {
+          "ms": 27739,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 27805,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27807,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "141",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27830,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "121"
+        },
+        {
+          "ms": 27898,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "142",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 27918,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "122"
+        },
+        {
+          "ms": 28007,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "143",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28028,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "123"
+        },
+        {
+          "ms": 28113,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28115,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "124"
+        },
+        {
+          "ms": 28116,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "144",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28160,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "125"
+        },
+        {
+          "ms": 28182,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "145",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28255,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "126"
+        },
+        {
+          "ms": 28262,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "146",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28343,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "127"
+        },
+        {
+          "ms": 28369,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28369,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "147",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28445,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "148",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28466,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "128"
+        },
+        {
+          "ms": 28549,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "129"
+        },
+        {
+          "ms": 28553,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28554,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "149",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28618,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "150",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28654,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "130"
+        },
+        {
+          "ms": 28718,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "131"
+        },
+        {
+          "ms": 28722,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28723,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "151",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28786,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "152",
+            "duration_ms": 64.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28828,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "132"
+        },
+        {
+          "ms": 28897,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "153",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 28912,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "133"
+        },
+        {
+          "ms": 28940,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 29004,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29006,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "154",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29021,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "134"
+        },
+        {
+          "ms": 29106,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29107,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "155",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29127,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "135"
+        },
+        {
+          "ms": 29213,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "136"
+        },
+        {
+          "ms": 29214,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "156",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29278,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "157",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29318,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "137"
+        },
+        {
+          "ms": 29396,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29397,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "158",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29422,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "138"
+        },
+        {
+          "ms": 29487,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "159",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29521,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 29528,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "139"
+        },
+        {
+          "ms": 29612,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "140"
+        },
+        {
+          "ms": 29612,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29613,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "160",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29719,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "141"
+        },
+        {
+          "ms": 29722,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "161",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29784,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "162",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29828,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "142"
+        },
+        {
+          "ms": 29895,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29896,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "163",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 29917,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "143"
+        },
+        {
+          "ms": 30004,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "164",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30024,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "144"
+        },
+        {
+          "ms": 30046,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 30109,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "165",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30132,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "145"
+        },
+        {
+          "ms": 30154,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "146"
+        },
+        {
+          "ms": 30198,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "166",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30241,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "167",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30262,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "147"
+        },
+        {
+          "ms": 30348,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "148"
+        },
+        {
+          "ms": 30349,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "168",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30414,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "169",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30456,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "149"
+        },
+        {
+          "ms": 30522,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "170",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30563,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "150"
+        },
+        {
+          "ms": 30627,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30629,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "171",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30647,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "151"
+        },
+        {
+          "ms": 30647,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远",
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 30709,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "152"
+        },
+        {
+          "ms": 30712,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "172",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30782,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "173",
+            "duration_ms": 64.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30814,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "153"
+        },
+        {
+          "ms": 30884,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "174",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30921,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "154"
+        },
+        {
+          "ms": 30987,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30988,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "175",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 30989,
+          "direction": "server",
+          "action": "input.speech.stopped",
+          "data": {}
+        },
+        {
+          "ms": 31028,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "155"
+        },
+        {
+          "ms": 31094,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31095,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "176",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31137,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "156"
+        },
+        {
+          "ms": 31170,
+          "direction": "server",
+          "action": "input.transcript.done",
+          "data": {
+            "text": "以太阳为中心，包括八大行星，离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。",
+            "turn": "2"
+          }
+        },
+        {
+          "ms": 31203,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "177",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31223,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "157"
+        },
+        {
+          "ms": 31309,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "158"
+        },
+        {
+          "ms": 31310,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31312,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "178",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31419,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "159"
+        },
+        {
+          "ms": 31478,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "179",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31479,
+          "direction": "server",
+          "action": "input.speech.started",
+          "data": {}
+        },
+        {
+          "ms": 31507,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "180",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31533,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "160"
+        },
+        {
+          "ms": 31617,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "161"
+        },
+        {
+          "ms": 31620,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31621,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "181",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31683,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31685,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "182",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31727,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "162"
+        },
+        {
+          "ms": 31792,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "183",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31814,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "163"
+        },
+        {
+          "ms": 31899,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "184",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 31923,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "164"
+        },
+        {
+          "ms": 32010,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32012,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "185",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32032,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "165"
+        },
+        {
+          "ms": 32117,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "186",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32117,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "166"
+        },
+        {
+          "ms": 32162,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "167"
+        },
+        {
+          "ms": 32180,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32182,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "187",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32230,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "188",
+            "duration_ms": 35.75,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32248,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "168"
+        },
+        {
+          "ms": 32335,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32337,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "189",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32355,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "169"
+        },
+        {
+          "ms": 32443,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "190",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32464,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "170"
+        },
+        {
+          "ms": 32550,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "171"
+        },
+        {
+          "ms": 32560,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32562,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "191",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32625,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "192",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32660,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "172"
+        },
+        {
+          "ms": 32725,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "173"
+        },
+        {
+          "ms": 32726,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32727,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "193",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32789,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "194",
+            "duration_ms": 64.25,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32834,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "174"
+        },
+        {
+          "ms": 32919,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "175"
+        },
+        {
+          "ms": 32920,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32921,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "195",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 32983,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "196",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33031,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "176"
+        },
+        {
+          "ms": 33112,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "177"
+        },
+        {
+          "ms": 33127,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33127,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "197",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33176,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "198",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33233,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "178"
+        },
+        {
+          "ms": 33324,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "179"
+        },
+        {
+          "ms": 33325,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "199",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33389,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "200",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33410,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "180"
+        },
+        {
+          "ms": 33424,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "火星与",
+            "text": "火星与",
+            "turn": "3"
+          }
+        },
+        {
+          "ms": 33487,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "201",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33518,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "181"
+        },
+        {
+          "ms": 33583,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "202",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33626,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "182"
+        },
+        {
+          "ms": 33700,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33701,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "203",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33716,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "183"
+        },
+        {
+          "ms": 33817,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "204",
+            "duration_ms": 100,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33825,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "184"
+        },
+        {
+          "ms": 33915,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "185"
+        },
+        {
+          "ms": 33915,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33917,
+          "direction": "server",
+          "action": "response.audio.context",
+          "data": {
+            "chunk_id": "205",
+            "duration_ms": 60,
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33917,
+          "direction": "server",
+          "action": "response.audio.done",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 33973,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "火星与木星",
+            "text": "火星与木星",
+            "turn": "3"
+          }
+        },
+        {
+          "ms": 34025,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "186"
+        },
+        {
+          "ms": 34112,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 34132,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "187"
+        },
+        {
+          "ms": 34154,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "188"
+        },
+        {
+          "ms": 34263,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "189"
+        },
+        {
+          "ms": 34272,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 34274,
+          "direction": "server",
+          "action": "input.speech.stopped",
+          "data": {}
+        },
+        {
+          "ms": 34351,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "190"
+        },
+        {
+          "ms": 34366,
+          "direction": "server",
+          "action": "input.transcript.done",
+          "data": {
+            "text": "火星与木星之间还有小行星带。",
+            "turn": "3"
+          }
+        },
+        {
+          "ms": 34460,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "191"
+        },
+        {
+          "ms": 34507,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之外",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 34511,
+          "direction": "server",
+          "action": "input.speech.started",
+          "data": {}
+        },
+        {
+          "ms": 34523,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之外是",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 34568,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "192"
+        },
+        {
+          "ms": 34655,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "193"
+        },
+        {
+          "ms": 34720,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "194"
+        },
+        {
+          "ms": 34750,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之外是柯",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 34808,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "195"
+        },
+        {
+          "ms": 34893,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之外是柯伊",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 34917,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "196"
+        },
+        {
+          "ms": 35029,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "197"
+        },
+        {
+          "ms": 35115,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之外是柯伊伯",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 35117,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "198"
+        },
+        {
+          "ms": 35225,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "199"
+        },
+        {
+          "ms": 35311,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "200"
+        },
+        {
+          "ms": 35419,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "201"
+        },
+        {
+          "ms": 35442,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之外是柯伊伯带。",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 35529,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "202"
+        },
+        {
+          "ms": 35615,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "203"
+        },
+        {
+          "ms": 35722,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "204"
+        },
+        {
+          "ms": 35789,
+          "direction": "client",
+          "action": "playback.chunk.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1",
+          "chunk_id": "205"
+        },
+        {
+          "ms": 35790,
+          "direction": "client",
+          "action": "playback.completed",
+          "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+          "turn_id": "1"
+        },
+        {
+          "ms": 35912,
+          "direction": "server",
+          "action": "output.transcript.updated",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之外是柯伊伯带。",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 35913,
+          "direction": "server",
+          "action": "output.transcript.done",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "text": "太阳系以太阳为中心，包括八大行星。离太阳最近的是水星、金星、地球和火星，往外是体积巨大的木星、土星，再远是天王星和海王星。火星与木星之间还有小行星带，海王星之外是柯伊伯带。",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 35913,
+          "direction": "server",
+          "action": "response.ended",
+          "data": {
+            "run_id": "run-bc44f78c-7c4f-46e2-a88e-422993dd3cde",
+            "status": "completed",
+            "turn_id": "1"
+          }
+        },
+        {
+          "ms": 36012,
+          "direction": "server",
+          "action": "input.transcript.updated",
+          "data": {
+            "stable_text": "海王",
+            "text": "海王",
+            "turn": "4"
+          }
+        },
+        {
+          "ms": 36493,
+          "direction": "server",
+          "action": "input.speech.stopped",
+          "data": {}
+        },
+        {
+          "ms": 36655,
+          "direction": "server",
+          "action": "input.transcript.done",
+          "data": {
+            "text": "海王星之外是柯伊伯带。",
+            "turn": "4"
+          }
+        },
+        {
+          "ms": 48497,
+          "direction": "player",
+          "action": "clear",
+          "queuedMs": 0
+        }
+      ]
+    }
+  },
+  "endedAt": 1794591682303
+}

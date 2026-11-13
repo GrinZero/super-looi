@@ -950,10 +950,12 @@ ${JSON.stringify(this.previewSample())}`;
         ) {
           this.turnActivity = "user_speaking";
           this.pauseTurnTimers();
+          // MOSS is full duplex; only its explicit interruption events stop playback.
           if (
-            this.phase === "speaking" ||
-            this.audioPipeline.hasPendingOutputFrames ||
-            this.responseId
+            this.options.protocol.providerId !== "moss" &&
+            (this.phase === "speaking" ||
+              this.audioPipeline.hasPendingOutputFrames ||
+              this.responseId)
           ) {
             this.interrupt("server_vad");
           }

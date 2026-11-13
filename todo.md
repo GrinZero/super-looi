@@ -3,7 +3,7 @@
 ## MOSS-Live 真机验收
 
 - [ ] 定位间歇性 TLS 握手断开：系统解析路径曾返回 curl 35，随后相同 IP 与 CDN 地址均成功到达 WebSocket 鉴权阶段；复现时关联 mihomo 路由与连接日志。证据见 [TLS 诊断](docs/moss-live-tls-diagnosis.md)。
-- [ ] 连接开发真机，横屏安装 NSH 0.5.0 开发包，验收内置 WebSocket 的 MOSS-Live 实际鉴权、试听与对话。
+- [ ] 连接开发真机，横屏安装 NSH 0.5.0 开发包，验收内置 WebSocket 的 MOSS-Live 实际鉴权、试听与对话。 已有横屏宿主的主页截断修复及 41.44 秒／19.36 秒完整播放通过，见 [主页 E2E](docs/moss-home-realtime-e2e-2026-11-14.md)；外放回录继续由下方 AEC 条目跟踪。
 - [ ] 对齐 MOSS 协议已有用例：`packages/looi-runtime/test/realtime-protocol.test.ts:101` 期待 `session.attach/resume=false`，实现发送 `attach_session/session_id=null`；同时核对事件字段、音频上下文与降采样断言。
 
 ## QuickJS 家居恢复用例
