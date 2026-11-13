@@ -1,5 +1,14 @@
 # 当前待办
 
+## MOSS-Live 真机验收
+
+- [ ] 连接开发真机，横屏安装 NSH 0.5.0 开发包，验收内置 WebSocket 的 MOSS-Live 实际鉴权、试听与对话。
+- [ ] 对齐 MOSS 协议已有用例：`packages/looi-runtime/test/realtime-protocol.test.ts:101` 期待 `session.attach/resume=false`，实现发送 `attach_session/session_id=null`；同时核对事件字段、音频上下文与降采样断言。
+
+## QuickJS 家居恢复用例
+
+- [ ] 定位 `packages/nsh-node-compat/test/verify-mobile-runtime.ts:355` 的恢复状态不匹配：模拟已提交意图、未落盘回执后，任务实际仍为 `succeeded`，用例要求 `unknown`。同一测试 bundle 在 QuickJS 0.14.1 与 0.14.2 均复现；其余 12 组兼容测试通过，App 原生 SDK 探针也受相同断言影响。
+
 ## 底座与智能家居语义分离
 
 - [ ] 开发真机横屏复测：底座断连时仍可通过家居服务控制大厅台灯，“自己的补光灯”操作底座，家居服务错误按实际回执解释。语音／任务提示词与工具描述已分离，运行时回归及 GPT-4o 工具选择评估通过。
@@ -14,11 +23,18 @@
 
 ## 语音过早接话与重复收音
 
-- [ ] 在原生 `VoiceAudio` 选择并接入厂商无关的 AEC；优先比较 AEC3 / Sonora 与 LocalVQE 仅去回声模型，统一播放参考和采集时钟，在真机横屏核对外放与自然插话。用户提供的 SAMI 模型若继续使用，还需匹配的独立运行库及离线授权。协议与框架取舍见 [通用 Realtime 与独立 AEC 调研](docs/realtime-portability-and-aec-research.md)。
+- [ ] 在原生 `VoiceAudio` 选择并接入厂商无关的 AEC；优先比较 AEC3 / Sonora 与 LocalVQE 仅去回声模型，统一播放参考和采集时钟，在真机横屏核对外放与自然插话。协议与框架取舍见 [通用 Realtime 与独立 AEC 调研](docs/realtime-portability-and-aec-research.md)。
   - iOS 已调用 `setVoiceProcessingEnabled(true)` 并读回启用状态，mixer 输出与输入 tap 共用处理格式；iPhone 16e／iOS 26.3 模拟器的真实采播与 KWS／会话切换探针通过。用户所报现象发生于该模拟器，当前使用 Mac 内置麦克风与扬声器；继续实测外放回声抑制与自然插话效果。
   - Android 三项核查：实际使用 AAudio，输入已请求 `VOICE_COMMUNICATION`、输出已请求语音通信用途；未分配／读取音频会话 ID，未创建 AEC 或读取 `getEnabled()`，状态回执也无 AEC 字段。真机核对实际 input preset、AEC 绑定与启用返回值、采播设备及系统效果链；自定义 AAudio 播放和 16k／24k 采样率差异本身不能证明参考失配。2026-11-12 核查时 ADB 无连接真机。
+- [ ] 核验用户提供的 `/Users/bugyaluwang/Downloads/aec.model`（100076 字节、SAMI 标识）与独立 SAMICore 运行库的兼容性，确认双路 PCM 推理接口、运行库获取与离线授权；音频处理结果继续交给现有 OpenAI／豆包 Realtime API。
+- [ ] 评估通用 Realtime 框架迁移：以 LiveKit 官方 OpenAI 插件＋社区 Seeduplex 插件为主要候选，核对工具结果回传、音频截断和判停控制缺口，比较新增框架进程、手机工具 RPC 与现有本机适配层的成本，再决定是否迁移。
 - [ ] 修正实时语音上行的 20ms 节拍：当前处理后再等待 20ms、每轮最多发一帧，缺少耗时补偿，500ms 缓冲超限丢旧帧。
 - [ ] 在真机横屏复核句中停顿和外放插话，记录最后一帧人声到服务端判停的间隔，再决定是否调整停顿窗口；三次真实握手已发送 `end_smooth_window_ms=2500` 和 `enable_custom_vad=true`，现有观测不足以判断参数失效。
+
+## NSH 开发包传输
+
+
+- [ ] 修复普通开发模式大包断线：NSH 0.4.0 开发服务单帧发送约 20.1 MB 字节码，客户端使用 tungstenite 默认 16 MiB 单帧上限；压缩开发构建可缩小包体，但源码保存后采用整包重载，不保留模块热更新状态。
 
 ## Node 兼容包导出检查
 
@@ -182,16 +198,6 @@
 - [ ] 开放服务切换时将语音服务选择落到 VoiceRuntime，保持豆包与 OpenAI 各自凭证及音色配置；当前顶栏标明 OpenAI Realtime 待接入。
 
 
-## 家居设备网格交互优化
-
-- [ ] 真机验证缩放手感与折叠布局：代码、7 项回归与独立审查已通过；当前 Android 未连接，历史 Wi-Fi ADB 地址连接被拒绝，devicectl 未发现 iPhone。
-
-
-## 米家视频真实接线
-
-- [ ] 在真机补充新账号完整验证码登录与 Android 原生预览；iPhone 16e 已验证保存的视频账号恢复、真实设备发现与大厅实时画面，验证码请求序列已有原生 HTTP 回放和页面交互回归。
-
-
 ## 语音主 Agent 与长期导演
 
 实施顺序见 [Agent 架构微步骤计划](docs/plans/agent-coordinator-microsteps-plan.md)，社区依据见 [语音与多任务架构调研](docs/voice-agent-community-architecture-research.md)。
@@ -202,3 +208,4 @@
 ## 大厅台灯控制回执（2026-11-12）
 
 - [ ] 连接开发真机，横屏复测大厅台灯开关与亮度 255；核对真实米家返回码、操作后的回读及任务详情错误数据。当前 `devicectl` 和 ADB 均无连接真机。历史 11:04 回执没有保存底层码，无法追溯当次失败原因；新链路已保留 HTTP 状态、米家返回码、属性结果和网络原因。
+- [ ] 明确 `list_home_devices.query` 的原始名称／房间关键词契约；无匹配后扩大只读查询并结合 `room` 选择设备，回执区分无匹配与未连接。13:20 的 `hall 台灯 lamp` 被整段子串匹配过滤，13:21 的 `台灯` 查询成功并回读到关灯；诊断与重放证据见 [大厅台灯首次查询漏检](docs/home-device-query-diagnosis.md)。

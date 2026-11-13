@@ -23,6 +23,22 @@
 
 # Super-LOOI 重构与演进进度
 
+## MOSS-Live Realtime API Provider 接入（2026-11-12）
+
+方案见 [`docs/plans/moss-live-realtime-provider-plan.md`](docs/plans/moss-live-realtime-provider-plan.md)。
+
+- [x] Step 1：实现 `createMossLiveProtocol` 与二进制 WebSocket 观测适配（`packages/looi-runtime`）
+  - [x] 扩展 `RealtimeProtocolAdapter`、`RealtimeServerEvent` 与 `ObservedVoiceSocket` 支持 `Uint8Array` 二进制帧、快照式转写、工具确认续答及播放回执编码
+  - [x] 实现 `createMossLiveProtocol` 完整握手、音色切换、工具调用、主动播报与错误透传
+- [x] Step 2：升级 `LiveVoiceSession`、`VoiceCredentialStore` 与 `VoiceRuntime`（`apps/nsh/runtime/voice`）
+  - [x] 在 `LiveVoiceSession` 接入二进制帧读写、分块播放进度确认（`playback.chunk.completed` / `playback.completed` / `playback.stopped`）、`tool_output_confirmed` 与 `mic_state` 同步
+  - [x] 在 `VoiceCredentialStore` 与 `VoiceRuntime` 支持 `"moss"` 凭据、分服务商音色 ID 存储与运行时服务商切换
+- [x] Step 3：接入 `VoiceSpaceView` 服务商切换与 MOSS-Live 预置音色（`apps/nsh/ui`、`store.ts`、`i18n`）
+  - [x] 新增 MOSS-Live 音色表（暖暖、木木及自定义 ID），在「语音服务」支持切换 MOSS-Live / 豆包 / OpenAI Realtime
+- [ ] Step 4：自动化测试、构建检查、独立子 agent review 与提交
+  - [ ] 补充 `packages/looi-runtime/test/realtime-protocol.test.ts` 与 `apps/nsh/tests/` 中的 MOSS-Live 握手、二进制音频、播放回执、打断、工具调用与历史重连测试
+  - [ ] 通过类型检查、包测试、NSH 构建与 Rust UI 测试，完成独立 review 并更新 `docs/arch/index.html` 与 `progress.md`
+
 ## 底座与智能家居语义分离（2026-11-12）
 
 - [x] Step 1：核对截图对应的工具与会话记录，确认错误归因来源。
@@ -37,6 +53,38 @@
   - [x] 使用配置的 GPT-4o 做工具选择评估：底座断连仍委派大厅台灯、卧室灯走家居、自己的补光灯走底座、歧义“开灯”先询问；未操作真实设备。
   - [x] GPT-4o 补充评估：纠正底座断连导致台灯失败的错误归因；修正失败转述省略错误码的问题，write／503 复测按“米家写入阶段错误码 503，指令未确认受理”回答。
   - [x] 独立 review 发现并修复只读查询误导为控制、公开类型缺少 systemPrompt 两项问题，复审通过。
+
+## 开发会话无关文件刷新修复（2026-11-12）
+
+- [x] Step 1：确认固定 NSH 对整目录 TS／JS／JSON 监听，测试产物变化会触发整包重载
+- [x] Step 2：在现有工具链入口接入可重现的依赖文件监听修复，合并无效重载
+  - [x] 按构建输入、主题与配置判断更新；保留原生源码重建，排除 crate 根目录的集成测试、示例与基准文件
+  - [x] 同内容生成物不重复写入；开发 bundle 独立，业务源码由 esbuild 增量编译
+- [x] Step 3：验证无关文件不刷新、实际业务修改会更新，处理独立 review 发现
+  - [x] 实际 CLI 回归覆盖无关文件、业务依赖、错误恢复和配置更新；6 项 Rust 监听回归、3 项生成／构建环境测试及完整 NSH typecheck 通过
+  - [x] 在模拟器验证业务源码改动进入实时 bundle、普通构建保留开发配置、测试探针不覆盖开发 bundle；独立 review 通过
+- [x] Step 4：更新待办并隔离提交修复，提交 `d04ba57`
+
+## iOS 开发重载死锁修复（2026-11-12）
+
+- [x] Step 1：采样卡住的原生宿主，定位主线程等待引擎退出与 BLE 析构同步派发的互等
+- [x] Step 2：将 iOS BLE 实例析构改为按实例归属异步释放，保留显式断开的同步语义
+  - [x] 清理旧 manager 与 delegate，防止重载后旧实例影响新实例
+- [x] Step 3：构建并在模拟器重现原始重载路径，验证多次整包重载与界面响应
+  - [x] iOS 原生宿主编译通过；至少三轮源码保存触发整包重载，设备保持连接
+  - [x] 重载后采样主线程正常执行 UIKit RunLoop，实际点击进入管理空间并返回主页成功
+- [x] Step 4：独立 review、记录验证结论并隔离提交修复
+  - [x] 独立 review 通过；显式断开保持同步，延迟释放仅作用于原实例
+  - [x] 两项 BLE 单元回归通过；源码隔离提交 `e0a6a3b`
+
+## 大厅台灯首次查询漏检诊断（2026-11-12）
+
+- [x] Step 1：只读对比截图对应的两次 App 任务与工具执行记录。
+  - [x] 首次查询 `hall 台灯 lamp` 返回 0 条；第二次查询 `台灯` 返回 8 条实体，找到“台灯（大厅）”并回读关灯状态；两次家居连接 ID 相同。
+- [x] Step 2：使用历史设备实体重放实际查询函数，核对整段子串匹配造成的漏检。
+  - [x] `pnpm exec tsx` 调用实际工具函数复现 `hall 台灯 lamp` 返回 0、`台灯` 返回 8；核对组合查询依赖字段拼接顺序。
+- [x] Step 3：独立复核诊断，记录结论及待修复项。
+  - [x] 子 agent 只读复核 SQLite 与调用链；结论见 `docs/home-device-query-diagnosis.md`，最小修复项已记入 todo.md。
 
 ### Codex 插件与双工具落地（2026-11-12）
 
@@ -81,6 +129,57 @@
   - [x] 独立 review、更新架构与待办，隔离提交实现
   - [x] 完整 NSH check 与 Node 兼容包构建通过
 
+### Codex 双工具契约（2026-11-12）
+
+- [x] Step 1：按用户决定拆分工具职责
+  - [x] `codex_exec` 承接自然语言任务与会话继续
+  - [x] `codex_cloud` 直接启动云端任务并返回受理回执
+  - [x] 复用同一插件、CLI、登录态和执行记录，明确会话 ID 与云端任务 ID
+- [x] Step 2：同步方案与待办，独立复核后隔离提交设计文档
+  - [x] 同步双工具输入输出、生命周期和使用说明；独立复核补齐未启动状态与 CLI 退出回执，复核通过
+  - [x] 仅提交本轮设计文档 `dce2278`
+
+### Codex 自然语言委派与 A2A 评估（2026-11-12）
+
+- [x] Step 1：按用户澄清修正接口抽象
+  - [x] 普通 Codex 接收任务描述，自行规划创建环境等操作；不以 `codex cloud` 子命令清单定义 Agent 能力
+  - [x] 核对官方 `codex exec --json`、会话继续及完整回答输出
+- [x] Step 2：同步设计与待办
+  - [x] 主要工具改为 `codex(prompt,sessionId?,cwd?)`，通过官方 Codex 会话执行
+  - [x] 删除将独立环境管理 API 作为前置条件的设计，保留真实任务验证
+  - [x] 对比标准 A2A 与原生 Codex 接口：当前使用本机原生会话，外部 A2A Agent 通过插件接入；说明新增端点和任务／上下文映射成本
+- [x] Step 3：独立复核并隔离提交设计文档
+  - [x] 独立复核；补齐实际执行权限与网络配置继承，复核通过
+  - [x] 仅提交本轮设计文档 `bb87bc7`
+
+### Codex 插件工具能力边界修订（2026-11-12）
+
+- [x] Step 1：核对工具限制与官方客户端实际能力
+  - [x] 确认四操作枚举遗漏 `cloud apply`、帮助及其他 CLI 命令，限制了官方能力
+  - [x] 核对官方环境创建／发布流程；固定版 CLI 无创建环境子命令，app-server 的执行环境接口不等同于 Cloud 环境管理
+- [x] Step 2：修订插件对 Agent 的贡献与工具契约
+  - [x] 比较固定操作、现有 Shell 和结构化 CLI 入口，说明用途与维护成本
+  - [x] 改为 `codex(args,cwd)` + Pi 标准 Skill；补齐帮助发现、通用回执、非交互边界和环境管理接入要求
+  - [x] 同步主方案、Linux 内置方案与待办；将环境创建／发布和新版 Cloud 兼容性纳入接入验证
+- [x] Step 3：独立 review 与隔离提交
+  - [x] 复核工具开放性与环境创建承诺；补齐账号命令共用 AuthSession、Pi 标准 Skill 资源声明，独立复核通过
+  - [x] 修正后仅提交本轮设计文档 `a191a82`
+
+### 插件契约与 Codex Cloud 工具方案（2026-11-12）
+
+- [x] Step 1：对齐用户指定的三个核心任务
+  - [x] 插件页完成正常 Codex 登录，与 Linux CLI 共用同一登录态
+  - [x] 定义可扩展的插件输入输出、使用方式和生命周期
+  - [x] Task Agent 注册专用 `codex_cloud` 工具，适配官方 Cloud 命令
+- [x] Step 2：结合现有运行时和固定版 CLI 编写方案
+  - [x] 明确 `PluginHost`、插件适配器、界面和官方 CLI 的状态归属
+  - [x] 定义提交／列表／状态／差异的工具契约，区分受理与云端完成
+  - [x] 比较 CLI 子命令与 app-server，说明新增接口和实体的具体用途、复杂度
+  - [x] 保存实验草稿，撤下未完成的插件产品接线；本轮先交付方案
+- [x] Step 3：独立 review 与文档交付
+  - [x] 根据独立审查补齐调用、生命周期和输出细节；修正 status 退出码、受理未确认和取消授权后实际状态，复核通过
+  - [x] 同步待办和架构页入口，隔离提交规则与设计文档 `1324f80`
+
 ### Codex CLI 随 App Linux 内置（2026-11-12）
 
 - [x] Step 1：固定运行边界与接入目标
@@ -117,6 +216,16 @@
   - [x] 独立复核通过，修正旧请求覆盖新连接来源状态及单来源回读错误丢失；真机复测项记入 `todo.md`
   - [x] 规则与结构化错误接口隔离提交 `d9f7ee1`
   - [x] 隔离提交本次改动；额外用排除既有工作区变更的代码快照验证类型检查与 33 项定向回归
+
+### iOS 模拟器开发连接闪烁（2026-11-12）
+
+- [x] Step 1：复现连接／断开循环，核对开发包大小和 WebSocket 客户端限制
+  - [x] 当前热更新字节码约 20.1 MB；NSH 客户端使用 tungstenite 默认单帧 16 MiB 上限
+- [x] Step 2：采用压缩开发构建恢复界面，验证连接稳定及源码保存重载
+  - [x] `dev --target ios --release` 字节码降至 4.7 MB，首屏恢复，触发源码保存后重新构建且设备保持连接
+  - [x] Langfuse 健康接口正常，开发运行仍启用上报配置
+- [x] Step 3：记录普通热更新模式的大包传输问题与本次验证结论
+  - [x] 普通模式单帧限制留在 todo.md；压缩开发会话使用整包重载
 
 ### Pi 标准运行时与生态接入（2026-11-12）
 
@@ -2303,16 +2412,6 @@
   - [x] 当前启动 iPhone 16e／iOS 26.3；CoreSimulator 配置输入为 `BuiltInMicrophoneDevice`，输出跟随宿主默认设备；`system_profiler` 确认当前默认输出为 MacBook Pro Speakers。
   - [x] 当前路由存在 Mac 外放被 Mac 麦克风录回的路径，结合助手整句出现在用户转写及未启用引擎语音处理，回灌仍为主要解释；当前路由不替代历史会话测量，Android 核查不能用于归因此次现象。
 
-## Android AEC 三项核查（2026-11-12）
-
-- [x] Step 1：追踪实际采播配置。
-  - [x] 使用 AAudio，输入请求 preset `7`（`VOICE_COMMUNICATION`）、输出请求 usage `2`（语音通信），Java 设置 `MODE_IN_COMMUNICATION`；输入 preset 未读回。
-- [x] Step 2：核对 AEC 控制和播放参考证据。
-  - [x] 未调用 AAudio `setSessionId/getSessionId`，没有 Java AEC 创建、启用／读回与释放逻辑；现有状态回执无 AEC 信息。NDK 默认会话 ID 为 `NONE`，尚未接入应用可控的 Java AudioEffect 路径。
-  - [x] 自定义队列经 `AAudioStream_write` 播放，采集经独立 AAudio 流读取；没有应用侧软件 AEC／参考输入。系统是否提供正确参考、设备是否自动做 AEC 仍需真机判断，不能仅凭采样率差异或自定义播放判定失配。
-  - [x] 子 agent 独立复核三项结论与 NDK 会话语义；待确认项记入 todo.md。
-- [ ] Step 3：真机横屏读取实际 preset、音频会话／AEC 启用状态及效果链，测量外放回声；核查时 `adb devices -l` 无连接设备。
-
 ## 通用 AEC 与 Realtime 框架调研（2026-11-12）
 
 - [x] Step 1：核验独立 AEC 模型／库的端侧可用性。
@@ -2348,3 +2447,87 @@
   - [x] 主应用已恢复；普通开发构建 20.1 MB 字节码触发已有的反复断线，使用压缩开发构建降至 4.7 MB，模拟器保持连接并显示正常语音界面。
 - [x] Step 3：独立 review，更新待办与验证记录，隔离提交本次修改。
   - [x] 独立审查对照 Apple SDK 与官方 AVEchoTouch 样例，确认启用顺序、采播格式、节点生命周期与错误信息保留；格式检查通过。
+
+
+## 插件页 Imagegen 草图（2026-11-13）
+
+- [x] Step 1：核对当前插件页、横屏管理壳与 NSH 设计规范。
+  - [x] 明确 Codex 选择移入顶栏，账号与能力、云端默认设置分栏，执行详情折叠。
+- [x] Step 2：按用户最新要求使用 Imagegen 生成一版横屏草图，检查文案与布局。
+- [x] Step 3：在聊天中展示草图，等待用户评议。
+
+
+## 插件空间双视图 UI 重构（2026-11-13）
+
+- [x] Step 1：确认重构范围与模块边界。
+  - [x] 明确仅展示真实运行时插件（`Codex`），不包含高保真设计稿中的占位插件。
+  - [x] 明确仅重构「插件」空间（列表视图 + Codex 详情视图及对应顶栏），保持主导航栏现状。
+- [x] Step 2：设计并实现状态导航与中英文文案目录（`store.ts`、`plugins-catalog.ts`、`ManagementShell.tsx`）。
+  - [x] 在 `store.ts` 中维护 `inspectedPluginId` 选中状态并接入 `goBack()` 逐层返回语义。
+  - [x] 在 `ManagementShell.tsx` 顶栏实现「列表态（标题 + 副标题）」与「详情态（`< 插件列表 | Codex` 面包屑 + 右侧 `启用` 拨杆）」联动。
+  - [x] 在 `plugins-catalog.ts` 补齐搜索、分类、账号连接、可用能力、云端默认设置与执行详情摘要的双语文案。
+- [x] Step 3：重构 `PluginsSpaceView.tsx` 列表视图与 Codex 详情双栏视图。
+  - [x] 实现插件列表视图：顶部搜索框、分类胶囊栏（`全部` / `开发工具`）、响应式 3 列卡片网格（含 Canvas `</>` 图标徽章、状态圆点与配置摘要）。
+  - [x] 实现 Codex 详情视图：顶部插件身份栏 + 下方左右平衡双栏卡片（左栏「账号连接 + 可用能力」，右栏「云端默认设置 + 可展开执行详情」），严格使用语义 Token 并保证横屏首屏密度。
+- [x] Step 4：补充 UI 回归测试、运行 `nsh check` / `nsh build` / `cargo test` 并交由独立子 agent 审查。
+  - [x] 在 `apps/nsh/tests/app_ui.rs` 增加插件列表搜索、进入详情、返回列表及离开管理空间的无头测试。
+  - [x] 修复独立审查指出的 `plugin-search-clear` 与 `plugin-enabled` 触控热区细节，复审 PASS，类型检查、构建与测试全部通过。
+
+
+## MOSS-Live 连接失败截图核查（2026-11-13）
+
+- [x] Step 1：沿语音页、凭据存储、会话连接与观测链路核对失败范围。
+  - [x] 确认 open() 统一 catch 丢弃原始异常，WebSocket 连接失败没有进入会话观测器。
+  - [x] 确认绿色标记仅代表已存 Key，Toast 与页面同时重复显示通用错误。
+- [x] Step 2：对照官方接口文档核验 MOSS 地址与 Authorization 请求头，并由子 agent 独立复核代码证据。
+- [x] Step 3：将错误保留、观测缺口和状态展示问题记录到 todo.md；本次未修改业务代码。
+
+## 语音连接错误与失败状态修复（2026-11-13）
+
+- [x] Step 0：用现有横屏页面复现原始失败，确认 NSH websocket.connect 在发起请求前拒绝 Authorization 请求头。
+- [x] Step 0.1：以 App 自有原生连接类承载鉴权 WebSocket，复用已有 tungstenite／futures 库，通过原生注册接入并遵循 App 网络授权。
+- [x] Step 1：在语音会话边界保留失败阶段、底层错误码与原因，并补记建连失败的本地／远程观测。
+  - [x] 连接、首批握手发送与服务端错误保留具体信息，凭据脱敏。
+  - [x] 8 项失败链路回归覆盖建连拒绝、发送失败、读取失败、活动生成失败与取消后的迟到异常。
+- [x] Step 2：修正失败状态与错误展示。
+  - [x] 服务徽章优先反映失败，已配置 Key 使用独立语义；权限等待仍显示授权说明。
+  - [x] 语音页展示常驻错误，其他页面保留错误通知；单次发布错误状态，避免自动待机清除原因。
+- [x] Step 3：完成相关测试、类型检查、构建、独立审查与原生传输隔离提交。
+  - [x] 原生授权握手、文本／PCM、Ping／Pong、待读关闭、HTTP 403 正文透传及横屏失败／权限状态测试通过。
+  - [x] NSH 类型检查、App 构建与 iOS 真机目标编译检查通过；独立 review 两项问题均修复并复审通过。
+  - [x] 未连接 iOS／Android 真机，真机安装与实际 MOSS 服务验收记入 todo.md；未安装模拟器开发包。
+  - [x] 原生传输及其集成测试已提交 `2aab798`；错误记录与 UI 改动保留在当前工作区，与既有 MOSS 接入改动一同构建验证。
+
+## NSH 与技能升级，回归内置 WebSocket（2026-11-13）
+
+- [x] Step 1：核对最新稳定版本、WebSocket 鉴权修复、工具链与 skill 的来源及兼容变化。
+  - [x] CLI、Rust crates 与两项技能统一为 v0.5.0 / `f4d68f7f9f31eb7b3ecc8a4cbc31096d5c6238a1`；官方 PR #1134 已修复凭据头限制。
+- [x] Step 2：升级依赖与 `nsh`、`nsh-design-guides` 技能，迁移实际出现的 API 变化。
+  - [x] 移除新增的 App WebSocket 类、适配层与生产依赖，恢复 NSH 内置连接；测试服务端库仅保留为 dev-dependency。
+  - [x] App 与独立 Node 兼容包统一 QuickJS 0.14.2，两份 Cargo.lock 均更新；两项技能与官方标签逐文件一致，skills-lock.json 按安装器算法重算。
+  - [x] 开发 watcher 补丁已迁移到 0.5.0，保留项目导入隔离与输入过滤，采用上游已有 Rust 重启处理；7 项 watcher 测试通过。
+- [x] Step 3：验证内置连接的真实鉴权头收发、语音异常链路、横屏 UI、类型与构建。
+  - [x] 内置 WebSocket 的 Authorization／文本／PCM／Ping／关闭握手与 HTTP 403 状态测试通过；9 项失败链路及横屏错误／权限状态回归通过。
+  - [x] NSH 类型检查、App 构建与 iOS 真机目标编译检查通过。
+  - [x] 兼容包 12/13 组通过；家居恢复用例的 succeeded/unknown 不匹配在旧／新 VM 同样复现，记入 todo.md。
+  - [x] 配置 `locales: ["zh-CN"]`，通过新版按需 Intl 数据的中英文日期回归；唤醒开关先滚动后点击，家居卡片使用 selector 匹配而非文本匹配，原有竖屏场景改为横屏。
+  - [x] 最终复跑 App UI 4 项、家居网格 2 项、音色选择 1 项全部通过；窄布局使用 568×320 横屏，保持 600 宽度断点两侧覆盖。
+  - [x] 完整 App 回归初次 38/42 通过；日期、唤醒与家居三项修正后各自复测通过，SDK 探针剩余失败与独立兼容包相同的既有家居恢复断言一致。
+  - [x] SDK 探针采用与实际移动宿主相同的 `Limits::standalone()`，替代嵌入模式的 2 秒预算；保留家居恢复失败断言。
+  - [x] 更新文档与待办，完成独立 review；升级主体已隔离提交 `5ad52ab`，日期与探针适配提交 `8e90a45`。
+- [x] Step 4：按用户要求，在当前 iPhone 16e / iOS 26.3 模拟器安装并横屏打开升级版。
+  - [x] 使用项目原生插件配置与压缩开发构建，生成 App bundle。
+  - [x] 编译 NSH 0.5.0 模拟器宿主，安装启动；界面确认横屏显示 LOOI 表情与「陪伴待机」，开发服务保持运行。
+
+
+## 待提交改动整理与推送（2026-11-13）
+
+- [x] Step 1：检查分支、暂存区与未提交改动，读取远端最新状态。
+- [x] Step 2：独立审查完成的家居、插件和任务界面改动。
+  - [x] 修复滤芯重置误用当前使用时长，并以真实 MIoT 请求参数回归测试确认默认发送 0、显式参数保持原值。
+  - [x] 云台失败通知保留原始错误码与原因。
+- [x] Step 3：完成相关类型、包测试与横屏无头界面回归，分批提交已完成内容。
+  - [x] `pnpm typecheck` 通过；家居包 71 项测试通过；shell 6 项单独复跑通过。
+  - [x] App UI 4 项、家居网格 2 项、任务恢复与任务链路回归通过；NSH 完整回归仍复现已有的家居恢复 succeeded/unknown 断言，见 todo.md。
+  - [x] 家居与管理界面分别提交 `fdb5b67`、`37403c1`；MOSS 协议测试与实现不一致，语音代码及临时 error.log 保留工作区。
+- [ ] Step 4：推送 main，核对远端提交与保留的未完成语音改动。
