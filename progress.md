@@ -23,6 +23,16 @@
 
 # Super-LOOI 重构与演进进度
 
+## MOSS-Live TLS 与开发服务器断线核查（2026-11-13）
+
+- [x] Step 1：核对官方地址、鉴权头、原生连接实现与开发服务器状态。
+  - [x] URL 与 Bearer 请求头符合官方文档；App 指向 8790，检查时该端口无人监听。
+- [x] Step 2：用系统解析、显式代理、加密 DNS 和单次指定 IP 的请求对照 TLS 失败。
+  - [x] 复现 ClientHello 后 EOF；后续相同 IP 恢复 TLS 并返回缺少密钥的服务端 403，确认间歇性。
+  - [x] 独立子 agent 复测并纠正“DNS 污染”推断；系统 TUN 路由使 curl 的 noproxy 不等于物理直连。
+- [x] Step 3：将证据写入 `docs/moss-live-tls-diagnosis.md`，待定位的实际网络链路记录到 todo.md。
+  - [x] 未变更业务代码、网络配置或运行中的 App；App 密钥有效性尚未通过真实鉴权验证。
+
 ## MOSS-Live Realtime API Provider 接入（2026-11-12）
 
 方案见 [`docs/plans/moss-live-realtime-provider-plan.md`](docs/plans/moss-live-realtime-provider-plan.md)。
