@@ -2,8 +2,10 @@ import type { RealtimeProtocolAdapter } from "../voice/realtime-protocol.js";
 import type { LangfuseTracer, Observation, TraceContext } from "./langfuse.js";
 
 interface Socket {
+  readonly closeCode?: number | null;
+  readonly closeReason?: string | null;
   read(): Promise<string | Uint8Array | null>;
-  write(value: string): Promise<void>;
+  write(value: string | Uint8Array): Promise<void>;
   close(): Promise<void>;
 }
 export interface VoiceConversationMessage {
@@ -11,9 +13,14 @@ export interface VoiceConversationMessage {
   content: string;
 }
 export interface ObservedVoiceSocket extends Socket {
-  finalizeSession(reason?: string): void;
+  finalizeSession(reason?: string, failure?: VoiceSessionFailure): void;
   getToolTraceContext(callId: string): TraceContext | undefined;
   setResponseTraceContext(context?: TraceContext): void;
+}
+export interface VoiceSessionFailure {
+  stage: string;
+  code?: string;
+  message: string;
 }
 const bytes = (base64: string) => Math.max(0, Math.floor(base64.length * 3 / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0));
 
@@ -113,7 +120,7 @@ export function observeVoiceSocket(socket: Socket, options: {
       committedSpeech = "";
     }
   };
-  const finishResponse = (cancelled = false, statusCode?: string, error?: string) => {
+  const finishResponse = (cancelled = false, statusCode?: string, error?: string, failureStage?: string) => {
     if (!response) return;
     const observation = response, order = responseOrder, turnOrder = responseTurnOrder;
     const output = responseText || (responseFrames > 0 ? committedSpeech : "");
@@ -137,21 +144,32 @@ export function observeVoiceSocket(socket: Socket, options: {
         "langfuse.observation.metadata.cancelled": cancelled,
         ...(error ? { "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": error } : {}),
         ...(statusCode ? { "langfuse.observation.metadata.statusCode": statusCode } : {}),
+        ...(failureStage ? { "langfuse.observation.metadata.failureStage": failureStage } : {}),
       }, finishedAt);
     } });
     flushResponses();
     response = undefined;
     publishConversation();
   };
-  const finalizeSession = (reason = "close") => {
+  const finalizeSession = (reason = "close", failure?: VoiceSessionFailure) => {
     if (closed) return;
     closed = true;
-    if (!ready) handshake.end({ "langfuse.observation.metadata.handshakeMs": Date.now() - started });
+    const failureAttributes = failure ? {
+      "langfuse.observation.level": "ERROR",
+      "langfuse.observation.status_message": failure.message,
+      "langfuse.observation.metadata.failureStage": failure.stage,
+      ...(failure.code ? { "langfuse.observation.metadata.errorCode": failure.code } : {}),
+    } : {};
+    if (failure) {
+      sessionError = failure.message;
+      tracer.start("realtime.error", "span", root.context).end(failureAttributes);
+    }
+    if (!ready) handshake.end({ "langfuse.observation.metadata.handshakeMs": Date.now() - started, ...failureAttributes });
     if (turn) finishTurn(turn);
     turn = undefined;
     for (const pending of pendingTurns) finishTurn(pending);
     pendingTurns.length = 0;
-    finishResponse();
+    finishResponse(false, failure?.code, failure?.message, failure?.stage);
     cancelRequest?.observation.end({ "langfuse.observation.output": { status: "interrupted" } });
     cancelRequest = undefined;
     for (const pending of pendingResponses) pending.end();
@@ -163,6 +181,7 @@ export function observeVoiceSocket(socket: Socket, options: {
     const lastIsAssistant = messages.at(-1)?.role === "assistant";
     root.end({
       ...(sessionError ? { "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": sessionError } : {}),
+      ...failureAttributes,
       "langfuse.observation.input": lastIsAssistant ? messages.slice(0, -1) : messages,
       "langfuse.observation.output": lastIsAssistant ? [messages[messages.length - 1]] : [],
       "langfuse.observation.metadata.userTranscripts": transcripts,
@@ -177,14 +196,22 @@ export function observeVoiceSocket(socket: Socket, options: {
     });
   };
   return {
+    get closeCode() { return socket.closeCode; },
+    get closeReason() { return socket.closeReason; },
     finalizeSession,
     getToolTraceContext: (callId) => toolSpans.get(callId)?.context,
     setResponseTraceContext: (context) => { nextResponseContext = context; },
     async read() {
       const raw = await socket.read();
-      if (typeof raw !== "string" || closed) return raw;
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(raw); } catch { return raw; }
+      if (raw === null || closed) return raw;
+      let event: Record<string, unknown> | Uint8Array;
+      if (raw instanceof Uint8Array) {
+        event = raw;
+      } else if (typeof raw === "string") {
+        try { event = JSON.parse(raw); } catch { return raw; }
+      } else {
+        return raw;
+      }
       const normalized = protocol.parseServerEvent(event);
       switch (normalized.kind) {
         case "session_ready":
@@ -212,14 +239,21 @@ export function observeVoiceSocket(socket: Socket, options: {
           else parkTurn(normalized.itemId);
           break;
         case "user_transcription_failed": finishTranscript("", normalized.itemId); break;
-        case "response_started": parkTurn(); ensureResponse(); break;
+        case "response_started":
+        case "audio_started":
+          parkTurn();
+          ensureResponse();
+          break;
         case "audio_delta":
           ensureResponse();
           if (!firstAudio) firstAudio = Date.now();
           responseFrames++;
-          responseBytes += bytes(normalized.pcmBase64);
+          responseBytes += normalized.pcmBytes ? normalized.pcmBytes.byteLength : bytes(normalized.pcmBase64);
           break;
-        case "text_delta": ensureResponse(); responseText += normalized.delta; break;
+        case "text_delta":
+          ensureResponse();
+          responseText = normalized.snapshot ? normalized.delta : responseText + normalized.delta;
+          break;
         case "text_done": ensureResponse(); responseText = normalized.text; break;
         case "tool_calls":
           for (const call of normalized.calls) {
@@ -229,6 +263,7 @@ export function observeVoiceSocket(socket: Socket, options: {
           }
           break;
         case "response_cancelled":
+          if (normalized.text && !responseText) responseText = normalized.text;
           finishResponse(true);
           cancelRequest?.observation.end({ "langfuse.observation.output": event });
           cancelRequest = undefined;
@@ -246,7 +281,7 @@ export function observeVoiceSocket(socket: Socket, options: {
           }
           sessionError = normalized.message;
           if (nextResponseContext) ensureResponse();
-          if (response) finishResponse(false, normalized.code, normalized.message);
+          if (response) finishResponse(false, normalized.code, normalized.message, "provider.error");
           else tracer.start("realtime.error", "span", root.context, { "langfuse.observation.input": event }).end({
             "langfuse.observation.level": "ERROR", "langfuse.observation.status_message": normalized.message,
           });
@@ -259,26 +294,38 @@ export function observeVoiceSocket(socket: Socket, options: {
     async write(value) {
       await socket.write(value);
       if (!closed) {
+        if (value instanceof Uint8Array) {
+          if (turn) {
+            turn.frames++;
+            turn.bytes += value.byteLength;
+          }
+          return;
+        }
         try {
           const event = JSON.parse(value);
-          if (event.type === "response.cancel") {
+          const frameType = String(event.type || event.action || "");
+          if (frameType === "response.cancel") {
             cancelRequest?.observation.end({ "langfuse.observation.output": { status: "superseded" } });
             cancelRequest = { eventId: event.event_id, observation: tracer.start("realtime.cancel", "span", response?.context ?? root.context, { "langfuse.observation.input": event }) };
           }
-          if (event.type === "session.create" || event.type === "session.update") {
+          if (frameType === "session.create" || frameType === "session.update") {
             tracer.start("realtime.context", "span", root.context, { "langfuse.observation.input": event }).end();
           }
-          if (event.type === "speech_text_buffer.commit" && typeof event.text === "string" && event.text.trim()) {
+          if (frameType === "speech_text_buffer.commit" && typeof event.text === "string" && event.text.trim()) {
             ensureResponse();
             committedSpeech = event.text;
           }
-          if (event.type === "input_audio_buffer.append" && typeof event.audio === "string") {
+          if (frameType === "session.commentary.append" && typeof event.content === "string" && event.content.trim()) {
+            ensureResponse();
+            committedSpeech = event.content;
+          }
+          if (frameType === "input_audio_buffer.append" && typeof event.audio === "string") {
             if (turn) {
               turn.frames++;
               turn.bytes += bytes(event.audio);
             }
           }
-          if (event.type === "conversation.item.create") {
+          if (frameType === "conversation.item.create") {
             const callId = String(event.item?.call_id || event.items?.[0]?.call_id || "");
             const span = toolSpans.get(callId);
             if (span) { span.end({ "langfuse.observation.output": event.item?.output || event.items?.[0]?.content }); toolSpans.delete(callId); }

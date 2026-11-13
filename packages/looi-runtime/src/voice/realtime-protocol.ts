@@ -1,15 +1,17 @@
 import { Buffer } from "node:buffer";
 
-export type RealtimeProviderId = "doubao" | "openai" | (string & {});
+export type RealtimeProviderId = "doubao" | "openai" | "moss" | (string & {});
 export type VoiceToolSchema = { type: "function"; name: string; description: string; parameters: Record<string, unknown> };
 export type RealtimeInterruptContext = {
   trigger: "manual" | "server_vad";
   responseId?: string;
+  turnId?: string;
   responseInProgress: boolean;
   cancelEventId?: string;
   playback?: { itemId: string; contentIndex: number; playedMs: number };
 };
 export type NormalizedRealtimeEvent =
+  | { kind: "session_attached"; sessionId?: string; followUpMessages: Record<string, unknown>[] }
   | { kind: "session_ready"; sessionId?: string }
   | { kind: "user_speech_started" }
   | { kind: "user_transcription_started" }
@@ -17,15 +19,27 @@ export type NormalizedRealtimeEvent =
   | { kind: "user_transcription_update"; text: string; itemId?: string }
   | { kind: "user_speech_stopped"; transcript?: string; itemId?: string; transcriptionFinal?: boolean }
   | { kind: "user_transcription_failed"; message?: string; itemId?: string }
-  | { kind: "response_started"; responseId: string }
-  | { kind: "audio_started"; responseId: string; itemId?: string; contentIndex?: number }
-  | { kind: "audio_delta"; responseId: string; pcmBase64: string; itemId?: string; contentIndex?: number }
-  | { kind: "audio_done"; responseId: string; itemId?: string; contentIndex?: number; statusCode?: string }
-  | { kind: "text_delta"; responseId: string; delta: string }
-  | { kind: "text_done"; responseId: string; text: string }
+  | { kind: "response_started"; responseId: string; turnId?: string }
+  | { kind: "audio_started"; responseId: string; turnId?: string; itemId?: string; contentIndex?: number }
+  | {
+      kind: "audio_delta";
+      responseId: string;
+      turnId?: string;
+      chunkId?: string;
+      durationMs?: number;
+      pcmBase64: string;
+      pcmBytes?: Uint8Array;
+      itemId?: string;
+      contentIndex?: number;
+    }
+  | { kind: "audio_done"; responseId: string; turnId?: string; itemId?: string; contentIndex?: number; statusCode?: string }
+  | { kind: "audio_stop"; responseId: string; turnId?: string; reason?: string }
+  | { kind: "text_delta"; responseId: string; turnId?: string; delta: string; snapshot?: boolean }
+  | { kind: "text_done"; responseId: string; turnId?: string; text: string }
   | { kind: "tool_calls"; responseId: string; calls: Array<{ callId: string; name: string; argumentsJson: string }> }
-  | { kind: "response_cancelled"; responseId: string }
-  | { kind: "response_done"; responseId: string; usage?: Record<string, number> }
+  | { kind: "tool_output_confirmed"; callId: string; itemId?: string; followUpMessages: Record<string, unknown>[] }
+  | { kind: "response_cancelled"; responseId: string; turnId?: string; text?: string; reason?: string }
+  | { kind: "response_done"; responseId: string; turnId?: string; usage?: Record<string, number> }
   | { kind: "error"; message: string; code?: string; clientEventId?: string }
   | { kind: "ignored"; rawType: string };
 
@@ -44,12 +58,15 @@ export interface RealtimeProtocolAdapter {
   encodeInstructionsUpdate(instructions: string): Record<string, unknown>;
   encodeProactiveSpeech(speech: RealtimeProactiveSpeech): Record<string, unknown>[];
   encodePreviewSpeech?(sampleText: string): Record<string, unknown>[];
-  encodeAudioAppend(pcm16k: Uint8Array): Record<string, unknown>;
+  encodeAudioAppend(pcm16k: Uint8Array): Record<string, unknown> | Uint8Array;
   encodeMute(muted: boolean): Record<string, unknown> | null;
   encodeToolReply(callId: string, output: unknown): Record<string, unknown>[];
   encodeInterrupt(context: RealtimeInterruptContext): Record<string, unknown>[];
+  encodePlaybackChunkCompleted?(chunk: { responseId: string; turnId: string; chunkId: string }): Record<string, unknown> | null;
+  encodePlaybackCompleted?(turn: { responseId: string; turnId: string }): Record<string, unknown> | null;
+  encodePlaybackStopped?(turn: { responseId: string; turnId: string; playedMs: number; reason?: string }): Record<string, unknown> | null;
   encodeSessionClose(): Record<string, unknown> | null;
-  parseServerEvent(event: Record<string, unknown>): NormalizedRealtimeEvent;
+  parseServerEvent(event: Record<string, unknown> | Uint8Array): NormalizedRealtimeEvent;
 }
 
 const object = (value: unknown): Record<string, unknown> =>
@@ -108,6 +125,7 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
     encodeInterrupt: () => [{ type: "response.cancel" }],
     encodeSessionClose: () => ({ type: "session.close" }),
     parseServerEvent(event) {
+      if (event instanceof Uint8Array) return { kind: "ignored", rawType: "binary" };
       const type = string(event.type), id = responseId(event);
       switch (type) {
         case "session.created": return { kind: "session_ready", sessionId: string(object(event.session).id) || undefined };
@@ -152,6 +170,26 @@ export function resamplePcm16To24k(pcm: Uint8Array): Uint8Array {
   }
   return result;
 }
+
+/** 2:1 box-filter decimation converts 48 kHz mono PCM16LE to 24 kHz mono PCM16LE. */
+export function downsamplePcm48To24k(pcm: Uint8Array): Uint8Array {
+  const count = Math.floor(pcm.byteLength / 2);
+  const targetCount = Math.floor(count / 2);
+  const source = new DataView(pcm.buffer, pcm.byteOffset, count * 2);
+  const result = new Uint8Array(targetCount * 2);
+  const output = new DataView(result.buffer);
+  for (let i = 0; i < targetCount; i++) {
+    const left = source.getInt16(i * 4, true);
+    const right = source.getInt16(i * 4 + 2, true);
+    output.setInt16(i * 2, Math.round((left + right) / 2), true);
+  }
+  return result;
+}
+
+const truncateUnicode = (text: string, maxChars: number): string => {
+  const chars = Array.from(text);
+  return chars.length <= maxChars ? text : chars.slice(0, maxChars).join("");
+};
 
 export function createOpenAiRealtimeProtocol(options: { instructions?: string; model?: string; baseUrl?: string; providerId?: RealtimeProviderId } = {}): RealtimeProtocolAdapter {
   const model = options.model || "gpt-realtime";
@@ -231,6 +269,7 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
     },
     encodeSessionClose: () => null,
     parseServerEvent(event) {
+      if (event instanceof Uint8Array) return { kind: "ignored", rawType: "binary" };
       const type = string(event.type), id = responseId(event), identity = audioIdentity(event);
       switch (type) {
         case "session.updated": return { kind: "session_ready", sessionId: string(object(event.session).id) || undefined };
@@ -274,7 +313,403 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
   };
 }
 
+export function createMossLiveProtocol(options: { instructions?: string; model?: string; baseUrl?: string; personaPrompt?: string } = {}): RealtimeProtocolAdapter {
+  const model = options.model || "moss-live-1.0";
+  const defaultPersonaPrompt =
+    options.personaPrompt ||
+    "You are LOOI, a playful, warm, and capable desktop robot companion.";
+  let pendingHandshake: {
+    tools: VoiceToolSchema[];
+    voiceId?: string;
+    instructions: string;
+    purpose: "conversation" | "preview";
+  } = {
+    tools: [],
+    instructions: options.instructions ?? "",
+    purpose: "conversation",
+  };
+  let currentSessionId: string | undefined;
+  let currentRunId = "";
+  let currentTurnId = "";
+  let downstreamSampleRate: 16000 | 24000 | 48000 = 24000;
+  let pendingAudioContext:
+    | {
+        responseId: string;
+        turnId: string;
+        chunkId: string;
+        durationMs?: number;
+      }
+    | undefined;
+
+  return {
+    providerId: "moss",
+    model,
+    inputSampleRate: 16000,
+    outputSampleRate: 24000,
+    connectTarget: (apiKey) => ({
+      url: `${options.baseUrl || "wss://api.mosi.cn/v1/realtime"}${(options.baseUrl || "").includes("?") ? "&" : "?"}model=${encodeURIComponent(model)}`,
+      headers: { Authorization: `Bearer ${apiKey.trim()}` },
+    }),
+    createHandshakeMessages(tools, sessionOptions) {
+      pendingHandshake = {
+        tools: sessionOptions?.purpose === "preview" ? [] : tools,
+        voiceId: sessionOptions?.voiceId?.trim() || undefined,
+        instructions: sessionOptions?.instructions ?? options.instructions ?? "",
+        purpose: sessionOptions?.purpose ?? "conversation",
+      };
+      currentSessionId = undefined;
+      currentRunId = "";
+      currentTurnId = "";
+      downstreamSampleRate = 24000;
+      pendingAudioContext = undefined;
+      return [{ action: "attach_session", session_id: null }];
+    },
+    encodeInstructionsUpdate: (instructions) => ({
+      action: "session.update",
+      session: {
+        instructions: truncateUnicode(instructions, 16000),
+      },
+    }),
+    encodeProactiveSpeech: ({ spokenText, instructions }) => {
+      const frames: Record<string, unknown>[] = [];
+      if (instructions !== undefined) {
+        frames.push({
+          action: "session.update",
+          session: {
+            instructions: truncateUnicode(instructions, 16000),
+          },
+        });
+      }
+      const clean = spokenText.trim();
+      if (clean) {
+        frames.push({
+          action: "session.commentary.append",
+          content: truncateUnicode(clean, 2000),
+          status: "completed",
+        });
+      }
+      return frames;
+    },
+    // Preview is a real voice turn driven by the App's prerecorded greeting.
+    encodePreviewSpeech: () => [{ action: "mic_state", enabled: true }],
+    encodeAudioAppend: (pcm16k) => pcm16k,
+    encodeMute: (muted) => ({ action: "mic_state", enabled: !muted }),
+    encodeToolReply: (callId, output) => [
+      {
+        action: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: reply(output),
+        },
+      },
+    ],
+    encodeInterrupt: () => [],
+    encodePlaybackChunkCompleted: ({ responseId, turnId, chunkId }) =>
+      responseId && turnId && chunkId
+        ? {
+            action: "playback.chunk.completed",
+            run_id: responseId,
+            turn_id: turnId,
+            chunk_id: chunkId,
+          }
+        : null,
+    encodePlaybackCompleted: ({ responseId, turnId }) =>
+      responseId && turnId
+        ? {
+            action: "playback.completed",
+            run_id: responseId,
+            turn_id: turnId,
+          }
+        : null,
+    encodePlaybackStopped: ({ responseId, turnId, playedMs, reason }) =>
+      responseId && turnId
+        ? {
+            action: "playback.stopped",
+            run_id: responseId,
+            turn_id: turnId,
+            played_audio_ms: Math.max(0, Math.round(playedMs)),
+            ...(reason ? { reason } : {}),
+          }
+        : null,
+    encodeSessionClose: () => null,
+    parseServerEvent(event) {
+      if (event instanceof Uint8Array) {
+        const ctx = pendingAudioContext;
+        const pcm24k =
+          downstreamSampleRate === 48000 && ctx?.durationMs === undefined
+            ? downsamplePcm48To24k(event)
+            : downstreamSampleRate === 16000
+              ? resamplePcm16To24k(event)
+              : event;
+        const resolvedResponseId = ctx?.responseId || currentRunId;
+        const resolvedTurnId = ctx?.turnId || currentTurnId || undefined;
+        const resolvedChunkId = ctx?.chunkId || undefined;
+        return {
+          kind: "audio_delta",
+          responseId: resolvedResponseId,
+          turnId: resolvedTurnId,
+          chunkId: resolvedChunkId,
+          itemId: resolvedChunkId,
+          durationMs: ctx?.durationMs ?? Math.round(pcm24k.byteLength / 48),
+          pcmBase64: Buffer.from(pcm24k).toString("base64"),
+          pcmBytes: pcm24k,
+        };
+      }
+
+      const action = string(event.action) || string(event.type);
+      const data = event.data && typeof event.data === "object" ? object(event.data) : event;
+      const runId = string(data.run_id) || string(data.response_id) || string(object(data.response).id);
+      const turnId = string(data.turn_id) || string(data.source_turn) || string(data.turn);
+      if (runId) currentRunId = runId;
+      if (turnId) currentTurnId = turnId;
+
+      switch (action) {
+        case "session_attached": {
+          currentSessionId = string(data.session_id) || undefined;
+          const followUpMessages: Record<string, unknown>[] = [
+            {
+              action: "media.configure",
+              output_audio: {
+                format: "pcm16",
+                sample_rate: 24000,
+              },
+            },
+          ];
+          if (pendingHandshake.voiceId) {
+            followUpMessages.push({
+              action: "change_voice",
+              voice_name: pendingHandshake.voiceId,
+            });
+          }
+          followUpMessages.push({
+            action: "session.update",
+            session: {
+              persona: {
+                name: "LOOI",
+                prompt: truncateUnicode(defaultPersonaPrompt, 8000),
+              },
+              instructions: truncateUnicode(pendingHandshake.instructions, 16000),
+              tools: pendingHandshake.tools,
+            },
+          });
+          return {
+            kind: "session_attached",
+            sessionId: currentSessionId,
+            followUpMessages,
+          };
+        }
+        case "media.configured": {
+          const err = string(data.error);
+          if (err) {
+            return {
+              kind: "error",
+              code: "media_configure_failed",
+              message: `media.configured: ${err}`,
+            };
+          }
+          const rate = Number(object(data.output_audio).sample_rate);
+          if (rate === 16000 || rate === 24000 || rate === 48000) {
+            downstreamSampleRate = rate;
+          }
+          return { kind: "ignored", rawType: action };
+        }
+        case "voice_changed":
+          return { kind: "ignored", rawType: action };
+        case "session.updated": {
+          const err = string(data.error);
+          if (err) {
+            return {
+              kind: "error",
+              code: "session_update_failed",
+              message: `session.updated: ${err}`,
+            };
+          }
+          return {
+            kind: "session_ready",
+            sessionId: currentSessionId,
+          };
+        }
+        case "client_context.updated": {
+          const err = string(data.error);
+          if (data.accepted === false || err) {
+            return {
+              kind: "error",
+              code: "client_context_failed",
+              message: `client_context.updated: ${err || "rejected"}`,
+            };
+          }
+          return { kind: "ignored", rawType: action };
+        }
+        case "input.speech.started":
+          return { kind: "user_speech_started" };
+        case "input.speech.stopped":
+          return { kind: "user_speech_stopped", itemId: turnId || undefined };
+        case "input.transcript.updated":
+        case "input.transcript.revised":
+          return {
+            kind: "user_transcription_update",
+            text: string(data.text),
+            itemId: turnId || undefined,
+          };
+        case "input.transcript.done":
+          return {
+            kind: "user_speech_stopped",
+            transcript: string(data.text) || undefined,
+            itemId: turnId || undefined,
+            transcriptionFinal: true,
+          };
+        case "output.transcript.updated":
+          return {
+            kind: "text_delta",
+            responseId: runId || currentRunId,
+            turnId: turnId || currentTurnId || undefined,
+            delta: string(data.text),
+            snapshot: true,
+          };
+        case "output.transcript.done":
+          return {
+            kind: "text_done",
+            responseId: runId || currentRunId,
+            turnId: turnId || currentTurnId || undefined,
+            text: string(data.text),
+          };
+        case "response.audio.started":
+          return {
+            kind: "audio_started",
+            responseId: runId || currentRunId,
+            turnId: turnId || currentTurnId || undefined,
+          };
+        case "response.audio.context":
+          pendingAudioContext = {
+            responseId: runId || currentRunId,
+            turnId: turnId || currentTurnId,
+            chunkId: string(data.chunk_id),
+            ...(typeof data.duration_ms === "number" ? { durationMs: data.duration_ms } : {}),
+          };
+          return { kind: "ignored", rawType: action };
+        case "response.audio.done":
+          return {
+            kind: "audio_done",
+            responseId: runId || currentRunId,
+            turnId: turnId || currentTurnId || undefined,
+          };
+        case "response.audio.stop":
+          pendingAudioContext = undefined;
+          return {
+            kind: "audio_stop",
+            responseId: runId || currentRunId,
+            turnId: turnId || currentTurnId || undefined,
+            reason: string(data.reason) || undefined,
+          };
+        case "response.interrupted":
+          pendingAudioContext = undefined;
+          return {
+            kind: "response_cancelled",
+            responseId: runId || currentRunId,
+            turnId: turnId || currentTurnId || undefined,
+            text: string(data.text) || undefined,
+            reason: string(data.reason) || undefined,
+          };
+        case "response.ended": {
+          pendingAudioContext = undefined;
+          const status = string(data.status);
+          if (status === "failed") {
+            return {
+              kind: "error",
+              code: "response_failed",
+              message: `MOSS-Live response failed (run_id=${runId || currentRunId || "unknown"})`,
+            };
+          }
+          if (status === "aborted") {
+            return {
+              kind: "response_cancelled",
+              responseId: runId || currentRunId,
+              turnId: turnId || currentTurnId || undefined,
+              reason: "aborted",
+            };
+          }
+          return {
+            kind: "response_done",
+            responseId: runId || currentRunId,
+            turnId: turnId || currentTurnId || undefined,
+          };
+        }
+        case "response.function_call_arguments.done":
+          return {
+            kind: "tool_calls",
+            responseId: runId || currentRunId,
+            calls: [
+              {
+                callId: string(data.call_id) || string(data.item_id),
+                name: string(data.name),
+                argumentsJson: string(data.arguments),
+              },
+            ],
+          };
+        case "response.done": {
+          const response = object(data.response);
+          const outputs = Array.isArray(response.output) ? response.output : [];
+          const calls = outputs
+            .map((item) => object(item))
+            .filter((item) => string(item.type) === "function_call" && string(item.call_id) && string(item.name))
+            .map((item) => ({
+              callId: string(item.call_id),
+              name: string(item.name),
+              argumentsJson: string(item.arguments),
+            }));
+          if (calls.length > 0) {
+            return {
+              kind: "tool_calls",
+              responseId: string(response.id) || runId || currentRunId,
+              calls,
+            };
+          }
+          return { kind: "ignored", rawType: action };
+        }
+        case "conversation.item.created": {
+          const item = object(data.item);
+          const callId = string(item.call_id);
+          if (string(item.type) === "function_call_output" && callId) {
+            return {
+              kind: "tool_output_confirmed",
+              callId,
+              itemId: string(item.id) || undefined,
+              followUpMessages: [
+                {
+                  action: "response.create",
+                  response: {
+                    call_ids: [callId],
+                  },
+                },
+              ],
+            };
+          }
+          return { kind: "ignored", rawType: action };
+        }
+        case "error":
+        case "voice.error": {
+          const errObj = data.error && typeof data.error === "object" ? object(data.error) : data;
+          const code = string(errObj.code) || (action === "voice.error" ? "voice_error" : "moss_error");
+          const message = string(errObj.message) || string(data.message) || "MOSS-Live error";
+          return {
+            kind: "error",
+            code,
+            message,
+            clientEventId: string(errObj.client_event_id),
+          };
+        }
+        default:
+          return { kind: "ignored", rawType: action };
+      }
+    },
+  };
+}
+
 export function resolveRealtimeProtocol(config: { providerId?: RealtimeProviderId; instructions?: string; model?: string; baseUrl?: string } = {}): RealtimeProtocolAdapter {
+  if (config.providerId === "moss" || config.providerId === "moss-live") {
+    return createMossLiveProtocol(config);
+  }
   return config.providerId && config.providerId !== "doubao"
     ? createOpenAiRealtimeProtocol({ ...config, providerId: config.providerId })
     : createDoubaoDuplexV3Protocol(config);

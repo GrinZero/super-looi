@@ -1,4 +1,5 @@
 import type { Vault } from "../application.js";
+import { MOSS_DEFAULT_VOICE_ID } from "../../voice-defaults.js";
 
 export interface VoiceConfigurationSnapshot {
   hasKey: boolean;
@@ -6,6 +7,7 @@ export interface VoiceConfigurationSnapshot {
   providerId: string;
   providerLabel: string;
   voiceId: string;
+  configuredProviders: Record<string, boolean>;
 }
 
 /**
@@ -15,6 +17,8 @@ export interface VoiceConfigurationSnapshot {
 export class VoiceCredentialStore {
   private apiKeys: Record<string, string> = {};
   private selectedVoiceId = "";
+  private voiceIds: Record<string, string> = {};
+  private selectedProvider = "";
   private wake = true;
   readonly corruptOnLoad: boolean;
 
@@ -30,8 +34,17 @@ export class VoiceCredentialStore {
         if (typeof config.apiKey === "string" && config.apiKey.trim()) {
           this.apiKeys.doubao ??= config.apiKey.trim();
         }
+        if (config.voiceIds && typeof config.voiceIds === "object") {
+          this.voiceIds = { ...config.voiceIds };
+        }
         if (typeof config.voiceId === "string") {
           this.selectedVoiceId = config.voiceId.trim();
+          if (this.selectedVoiceId) {
+            this.voiceIds.doubao ??= this.selectedVoiceId;
+          }
+        }
+        if (typeof config.providerId === "string") {
+          this.selectedProvider = config.providerId.trim();
         }
         this.wake = config.wakeEnabled !== false;
       }
@@ -45,8 +58,19 @@ export class VoiceCredentialStore {
     return this.wake;
   }
 
+  get selectedProviderId(): string {
+    return this.selectedProvider;
+  }
+
   get voiceId(): string {
     return this.selectedVoiceId;
+  }
+
+  voiceIdFor(providerId: string): string {
+    if (providerId === "doubao") {
+      return this.voiceIds.doubao ?? this.selectedVoiceId;
+    }
+    return this.voiceIds[providerId] ?? (providerId === "moss" ? MOSS_DEFAULT_VOICE_ID : "");
   }
 
   resolveApiKey(providerId: string): string {
@@ -68,9 +92,11 @@ export class VoiceCredentialStore {
     const providerLabel =
       providerId === "doubao"
         ? "@looi:runtimeDoubao"
-        : providerId === "openai"
-          ? "OpenAI"
-          : providerId;
+        : providerId === "moss"
+          ? "MOSS-Live"
+          : providerId === "openai"
+            ? "OpenAI"
+            : providerId;
     const key = this.resolveApiKey(providerId);
     const tail = key.length >= 4 ? key.slice(-4) : "";
     return {
@@ -78,13 +104,18 @@ export class VoiceCredentialStore {
       ...(tail ? { keyHint: `••••••••${tail}` } : {}),
       providerId,
       providerLabel,
-      voiceId: providerId === "doubao" ? this.selectedVoiceId : "",
+      voiceId: this.voiceIdFor(providerId),
+      configuredProviders: {
+        doubao: Boolean(this.resolveApiKey("doubao")),
+        moss: Boolean(this.resolveApiKey("moss")),
+        openai: Boolean(this.resolveApiKey("openai")),
+      },
     };
   }
 
   clearApiKey(providerId: string): void {
     delete this.apiKeys[providerId];
-    this.save();
+    this.save(true);
   }
 
   setApiKey(providerId: string, rawValue: unknown): string {
@@ -98,19 +129,35 @@ export class VoiceCredentialStore {
     }
     const next = rawValue.trim();
     this.apiKeys[providerId] = next;
-    this.save();
+    this.save(true);
     return next;
   }
 
   setVoiceId(providerId: string, rawValue: string): void {
-    if (providerId !== "doubao") {
+    if (
+      providerId !== "doubao" &&
+      providerId !== "moss" &&
+      providerId !== "openai"
+    ) {
       throw new Error("@looi:runtimeThisVoiceServiceDoesNotSupportDoubaoSpeaker");
     }
     const next = rawValue.trim();
     if (next && !/^[A-Za-z0-9_-]{1,256}$/.test(next)) {
       throw new Error("@looi:runtimeEnterAValidDoubaoSpeakerId");
     }
-    this.selectedVoiceId = next;
+    if (providerId === "doubao") {
+      this.selectedVoiceId = next;
+    }
+    if (next) {
+      this.voiceIds[providerId] = next;
+    } else {
+      delete this.voiceIds[providerId];
+    }
+    this.save();
+  }
+
+  setProviderId(providerId: string): void {
+    this.selectedProvider = providerId.trim();
     this.save();
   }
 
@@ -119,15 +166,23 @@ export class VoiceCredentialStore {
     this.save();
   }
 
-  private save(): void {
-    this.vault.set(
-      "voice",
-      JSON.stringify({
-        ...(this.apiKeys.doubao ? { apiKey: this.apiKeys.doubao } : {}),
-        apiKeys: this.apiKeys,
-        wakeEnabled: this.wake,
-        ...(this.selectedVoiceId ? { voiceId: this.selectedVoiceId } : {}),
-      }),
-    );
+  private save(requireVault = false): void {
+    try {
+      this.vault.set(
+        "voice",
+        JSON.stringify({
+          ...(this.apiKeys.doubao ? { apiKey: this.apiKeys.doubao } : {}),
+          apiKeys: this.apiKeys,
+          wakeEnabled: this.wake,
+          ...(this.selectedVoiceId ? { voiceId: this.selectedVoiceId } : {}),
+          ...(Object.keys(this.voiceIds).length > 0 ? { voiceIds: this.voiceIds } : {}),
+          ...(this.selectedProvider ? { providerId: this.selectedProvider } : {}),
+        }),
+      );
+    } catch (error) {
+      if (requireVault || Object.keys(this.apiKeys).length > 0) {
+        throw error;
+      }
+    }
   }
 }

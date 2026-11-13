@@ -1,0 +1,392 @@
+[
+  {
+    "traceId": "a5e9e68a23134fc9b29d0063cc968c05",
+    "spanId": "e23d48a73dc0479a",
+    "name": "voice.session",
+    "type": "span",
+    "startedAt": 1794589493332,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "0b7d1362-8c7d-4c65-8b9b-0e8e97a9a137",
+      "langfuse.observation.input": [
+        {
+          "role": "user",
+          "content": "你好，请说一句问候语。"
+        }
+      ],
+      "langfuse.observation.output": [
+        {
+          "role": "assistant",
+          "content": "你好，我是 LOOI。我们可以开始聊天了。"
+        }
+      ],
+      "langfuse.observation.metadata.userTranscripts": [
+        "你好，请说一句问候语。"
+      ],
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      "langfuse.observation.metadata.assistantTranscripts": [
+        "你好，我是 LOOI。我们可以开始聊天了。"
+      ],
+      "langfuse.observation.metadata.turnsCount": 1,
+      "langfuse.observation.metadata.toolCallsCount": 0,
+      "langfuse.observation.metadata.closeReason": "end_session",
+      "langfuse.observation.metadata.providerId": "moss",
+      "langfuse.observation.metadata.model": "moss-live-1.0",
+      "langfuse.observation.metadata.fromWakeWord": false
+    },
+    "endedAt": 1794589501751
+  },
+  {
+    "traceId": "a5e9e68a23134fc9b29d0063cc968c05",
+    "spanId": "e47478c34916432c",
+    "parentSpanId": "e23d48a73dc0479a",
+    "name": "realtime.handshake",
+    "type": "span",
+    "startedAt": 1794589493332,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "0b7d1362-8c7d-4c65-8b9b-0e8e97a9a137",
+      "langfuse.observation.input": {
+        "providerId": "moss",
+        "model": "moss-live-1.0"
+      },
+      "langfuse.observation.metadata.handshakeMs": 829
+    },
+    "endedAt": 1794589494161
+  },
+  {
+    "traceId": "a5e9e68a23134fc9b29d0063cc968c05",
+    "spanId": "c5ed2631020d4b89",
+    "parentSpanId": "e23d48a73dc0479a",
+    "name": "realtime.context",
+    "type": "span",
+    "startedAt": 1794589493840,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "0b7d1362-8c7d-4c65-8b9b-0e8e97a9a137",
+      "langfuse.observation.input": {
+        "action": "session.update",
+        "session": {
+          "persona": {
+            "name": "LOOI",
+            "prompt": "You are LOOI, a playful, warm, and capable desktop robot companion."
+          },
+          "instructions": "这是音色试听。听到问候后，只朗读下面引号内的完整文本，不增加解释或其他内容：\n\"你好，我是 LOOI。我们可以开始聊天了。\"",
+          "tools": []
+        }
+      }
+    },
+    "endedAt": 1794589493841
+  },
+  {
+    "traceId": "a5e9e68a23134fc9b29d0063cc968c05",
+    "spanId": "5c18266290a1444a",
+    "parentSpanId": "e23d48a73dc0479a",
+    "name": "realtime.user_turn",
+    "type": "span",
+    "startedAt": 1794589494551,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "0b7d1362-8c7d-4c65-8b9b-0e8e97a9a137",
+      "langfuse.observation.output": "你好，请说一句问候语。",
+      "langfuse.observation.metadata.inputFrames": 117,
+      "langfuse.observation.metadata.inputBytes": 74880,
+      "langfuse.observation.metadata.audioDurationMs": 2340
+    },
+    "endedAt": 1794589497207
+  },
+  {
+    "traceId": "a5e9e68a23134fc9b29d0063cc968c05",
+    "spanId": "3ca6b4ad3e2843b0",
+    "parentSpanId": "e23d48a73dc0479a",
+    "name": "realtime.response",
+    "type": "generation",
+    "startedAt": 1794589497838,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "0b7d1362-8c7d-4c65-8b9b-0e8e97a9a137",
+      "langfuse.observation.model.name": "moss-live-1.0",
+      "langfuse.observation.metadata.voiceSessionTraceId": "a5e9e68a23134fc9b29d0063cc968c05",
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      "langfuse.observation.input": [
+        {
+          "role": "user",
+          "content": "你好，请说一句问候语。"
+        }
+      ],
+      "langfuse.observation.output": [
+        {
+          "role": "assistant",
+          "content": "你好，我是 LOOI。我们可以开始聊天了。"
+        }
+      ],
+      "langfuse.observation.completion_start_time": 1794589497842,
+      "langfuse.observation.metadata.ttfaMs": 3,
+      "langfuse.observation.metadata.outputFrames": 42,
+      "langfuse.observation.metadata.outputBytes": 180480,
+      "langfuse.observation.metadata.audioDurationMs": 3760,
+      "langfuse.observation.metadata.cancelled": false
+    },
+    "endedAt": 1794589501749
+  },
+  {
+    "traceId": "c207b3350a30439ca274a6653824cb8b",
+    "spanId": "29906354b96047b6",
+    "name": "voice.session",
+    "type": "span",
+    "startedAt": 1794589546804,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "9dbb3115-01d1-4a7c-b2fe-045035817baa",
+      "langfuse.observation.input": [
+        {
+          "role": "user",
+          "content": "你好，请说一句问候语。"
+        }
+      ],
+      "langfuse.observation.output": [
+        {
+          "role": "assistant",
+          "content": "你好，我是 LOOI。我们可以开始聊天了。"
+        }
+      ],
+      "langfuse.observation.metadata.userTranscripts": [
+        "你好，请说一句问候语。"
+      ],
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      "langfuse.observation.metadata.assistantTranscripts": [
+        "你好，我是 LOOI。我们可以开始聊天了。"
+      ],
+      "langfuse.observation.metadata.turnsCount": 1,
+      "langfuse.observation.metadata.toolCallsCount": 0,
+      "langfuse.observation.metadata.closeReason": "end_session",
+      "langfuse.observation.metadata.providerId": "moss",
+      "langfuse.observation.metadata.model": "moss-live-1.0",
+      "langfuse.observation.metadata.fromWakeWord": false
+    },
+    "endedAt": 1794589555136
+  },
+  {
+    "traceId": "c207b3350a30439ca274a6653824cb8b",
+    "spanId": "5808ab0ee6184d35",
+    "parentSpanId": "29906354b96047b6",
+    "name": "realtime.handshake",
+    "type": "span",
+    "startedAt": 1794589546804,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "9dbb3115-01d1-4a7c-b2fe-045035817baa",
+      "langfuse.observation.input": {
+        "providerId": "moss",
+        "model": "moss-live-1.0"
+      },
+      "langfuse.observation.metadata.handshakeMs": 755
+    },
+    "endedAt": 1794589547559
+  },
+  {
+    "traceId": "c207b3350a30439ca274a6653824cb8b",
+    "spanId": "8b63d39d9c734ea9",
+    "parentSpanId": "29906354b96047b6",
+    "name": "realtime.context",
+    "type": "span",
+    "startedAt": 1794589547226,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "9dbb3115-01d1-4a7c-b2fe-045035817baa",
+      "langfuse.observation.input": {
+        "action": "session.update",
+        "session": {
+          "persona": {
+            "name": "LOOI",
+            "prompt": "You are LOOI, a playful, warm, and capable desktop robot companion."
+          },
+          "instructions": "这是音色试听。听到问候后，只朗读下面引号内的完整文本，不增加解释或其他内容：\n\"你好，我是 LOOI。我们可以开始聊天了。\"",
+          "tools": []
+        }
+      }
+    },
+    "endedAt": 1794589547227
+  },
+  {
+    "traceId": "c207b3350a30439ca274a6653824cb8b",
+    "spanId": "118f42107fef4296",
+    "parentSpanId": "29906354b96047b6",
+    "name": "realtime.user_turn",
+    "type": "span",
+    "startedAt": 1794589547992,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "9dbb3115-01d1-4a7c-b2fe-045035817baa",
+      "langfuse.observation.output": "你好，请说一句问候语。",
+      "langfuse.observation.metadata.inputFrames": 117,
+      "langfuse.observation.metadata.inputBytes": 74880,
+      "langfuse.observation.metadata.audioDurationMs": 2340
+    },
+    "endedAt": 1794589550623
+  },
+  {
+    "traceId": "c207b3350a30439ca274a6653824cb8b",
+    "spanId": "b3456bbd1c354cff",
+    "parentSpanId": "29906354b96047b6",
+    "name": "realtime.response",
+    "type": "generation",
+    "startedAt": 1794589551209,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "9dbb3115-01d1-4a7c-b2fe-045035817baa",
+      "langfuse.observation.model.name": "moss-live-1.0",
+      "langfuse.observation.metadata.voiceSessionTraceId": "c207b3350a30439ca274a6653824cb8b",
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      "langfuse.observation.input": [
+        {
+          "role": "user",
+          "content": "你好，请说一句问候语。"
+        }
+      ],
+      "langfuse.observation.output": [
+        {
+          "role": "assistant",
+          "content": "你好，我是 LOOI。我们可以开始聊天了。"
+        }
+      ],
+      "langfuse.observation.completion_start_time": 1794589551215,
+      "langfuse.observation.metadata.ttfaMs": 4,
+      "langfuse.observation.metadata.outputFrames": 42,
+      "langfuse.observation.metadata.outputBytes": 180480,
+      "langfuse.observation.metadata.audioDurationMs": 3760,
+      "langfuse.observation.metadata.cancelled": false
+    },
+    "endedAt": 1794589555135
+  },
+  {
+    "traceId": "da333359101942f5bad114f5fc0b2b30",
+    "spanId": "ad8183b7771f4162",
+    "name": "voice.session",
+    "type": "span",
+    "startedAt": 1794589609826,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "fe349861-b776-435e-b9b1-c25899f03907",
+      "langfuse.observation.input": [
+        {
+          "role": "user",
+          "content": "你好，请说一句问候语。"
+        }
+      ],
+      "langfuse.observation.output": [
+        {
+          "role": "assistant",
+          "content": "你好，我是 LOOI。我们可以开始聊天了。"
+        }
+      ],
+      "langfuse.observation.metadata.userTranscripts": [
+        "你好，请说一句问候语。"
+      ],
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      "langfuse.observation.metadata.assistantTranscripts": [
+        "你好，我是 LOOI。我们可以开始聊天了。"
+      ],
+      "langfuse.observation.metadata.turnsCount": 1,
+      "langfuse.observation.metadata.toolCallsCount": 0,
+      "langfuse.observation.metadata.closeReason": "end_session",
+      "langfuse.observation.metadata.providerId": "moss",
+      "langfuse.observation.metadata.model": "moss-live-1.0",
+      "langfuse.observation.metadata.fromWakeWord": false
+    },
+    "endedAt": 1794589617737
+  },
+  {
+    "traceId": "da333359101942f5bad114f5fc0b2b30",
+    "spanId": "40142c29060940e0",
+    "parentSpanId": "ad8183b7771f4162",
+    "name": "realtime.handshake",
+    "type": "span",
+    "startedAt": 1794589609826,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "fe349861-b776-435e-b9b1-c25899f03907",
+      "langfuse.observation.input": {
+        "providerId": "moss",
+        "model": "moss-live-1.0"
+      },
+      "langfuse.observation.metadata.handshakeMs": 729
+    },
+    "endedAt": 1794589610555
+  },
+  {
+    "traceId": "da333359101942f5bad114f5fc0b2b30",
+    "spanId": "46d9ec6c6556478a",
+    "parentSpanId": "ad8183b7771f4162",
+    "name": "realtime.context",
+    "type": "span",
+    "startedAt": 1794589610266,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "fe349861-b776-435e-b9b1-c25899f03907",
+      "langfuse.observation.input": {
+        "action": "session.update",
+        "session": {
+          "persona": {
+            "name": "LOOI",
+            "prompt": "You are LOOI, a playful, warm, and capable desktop robot companion."
+          },
+          "instructions": "这是音色试听。听到问候后，只朗读下面引号内的完整文本，不增加解释或其他内容：\n\"你好，我是 LOOI。我们可以开始聊天了。\"",
+          "tools": []
+        }
+      }
+    },
+    "endedAt": 1794589610267
+  },
+  {
+    "traceId": "da333359101942f5bad114f5fc0b2b30",
+    "spanId": "1069ea8f43f94a9e",
+    "parentSpanId": "ad8183b7771f4162",
+    "name": "realtime.user_turn",
+    "type": "span",
+    "startedAt": 1794589611008,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "fe349861-b776-435e-b9b1-c25899f03907",
+      "langfuse.observation.output": "你好，请说一句问候语。",
+      "langfuse.observation.metadata.inputFrames": 116,
+      "langfuse.observation.metadata.inputBytes": 74240,
+      "langfuse.observation.metadata.audioDurationMs": 2320
+    },
+    "endedAt": 1794589613587
+  },
+  {
+    "traceId": "da333359101942f5bad114f5fc0b2b30",
+    "spanId": "81aea1c85b344ad3",
+    "parentSpanId": "ad8183b7771f4162",
+    "name": "realtime.response",
+    "type": "generation",
+    "startedAt": 1794589614184,
+    "attributes": {
+      "langfuse.trace.name": "voice.session",
+      "session.id": "fe349861-b776-435e-b9b1-c25899f03907",
+      "langfuse.observation.model.name": "moss-live-1.0",
+      "langfuse.observation.metadata.voiceSessionTraceId": "da333359101942f5bad114f5fc0b2b30",
+      "langfuse.observation.metadata.inputKind": "observed_transcripts",
+      "langfuse.observation.input": [
+        {
+          "role": "user",
+          "content": "你好，请说一句问候语。"
+        }
+      ],
+      "langfuse.observation.output": [
+        {
+          "role": "assistant",
+          "content": "你好，我是 LOOI。我们可以开始聊天了。"
+        }
+      ],
+      "langfuse.observation.completion_start_time": 1794589614288,
+      "langfuse.observation.metadata.ttfaMs": 103,
+      "langfuse.observation.metadata.outputFrames": 35,
+      "langfuse.observation.metadata.outputBytes": 157440,
+      "langfuse.observation.metadata.audioDurationMs": 3280,
+      "langfuse.observation.metadata.cancelled": false
+    },
+    "endedAt": 1794589617736
+  }
+]

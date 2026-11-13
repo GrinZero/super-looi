@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Buffer } from "node:buffer";
-import { createDoubaoDuplexV3Protocol, createOpenAiRealtimeProtocol } from "../src/voice/realtime-protocol.js";
+import {
+  createDoubaoDuplexV3Protocol,
+  createMossLiveProtocol,
+  createOpenAiRealtimeProtocol,
+  resolveRealtimeProtocol,
+} from "../src/voice/realtime-protocol.js";
 
 const tool = { type: "function" as const, name: "run_agent_task", description: "task", parameters: { type: "object" } };
 
@@ -78,4 +83,76 @@ test("OpenAI GA handshake, resampling, normalized events and interruption", () =
   assert.deepEqual(protocol.encodeInterrupt({ trigger: "manual", responseInProgress: true, cancelEventId: "cancel-1", playback }),
     [{ type: "conversation.item.truncate", item_id: "item", content_index: 0, audio_end_ms: 120 }, { type: "response.cancel", event_id: "cancel-1" }]);
   assert.equal(protocol.encodeInterrupt({ trigger: "manual", responseInProgress: false, playback }).length, 1);
+});
+
+test("MOSS-Live official handshake, negotiated PCM, playback receipts and tool continuation", () => {
+  const protocol = resolveRealtimeProtocol({ providerId: "moss", instructions: "hello moss" });
+  assert.equal(protocol.connectTarget("moss-key").url, "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0");
+  assert.equal(protocol.connectTarget("moss-key").headers.Authorization, "Bearer moss-key");
+  assert.deepEqual(protocol.createHandshakeMessages([tool], {
+    voiceId: "6cc93520-3207-4f7a-bca9-2d560b9c306b", instructions: "custom instructions",
+  }), [{ action: "attach_session", session_id: null }]);
+  const attached = protocol.parseServerEvent({ action: "session_attached", data: { session_id: "sess-1" } });
+  assert.equal(attached.kind, "session_attached");
+  if (attached.kind === "session_attached") {
+    assert.equal(attached.sessionId, "sess-1");
+    assert.deepEqual(attached.followUpMessages[0], { action: "media.configure", output_audio: { format: "pcm16", sample_rate: 24000 } });
+    assert.deepEqual(attached.followUpMessages[1], { action: "change_voice", voice_name: "6cc93520-3207-4f7a-bca9-2d560b9c306b" });
+    const update = attached.followUpMessages[2].session as Record<string, unknown>;
+    assert.equal(update.instructions, "custom instructions");
+    assert.deepEqual(update.tools, [tool]);
+  }
+  for (let i = 0; i < 2; i++) {
+    assert.equal(protocol.parseServerEvent({ action: "session.updated", data: { error: "" } }).kind, "session_ready");
+  }
+  protocol.parseServerEvent({ action: "media.configured", data: { output_audio: { sample_rate: 48000 }, error: "" } });
+  assert.equal(protocol.parseServerEvent({ action: "response.audio.context", data: {
+    run_id: "run-1", turn_id: "turn-1", chunk_id: "chunk-1",
+  } }).kind, "ignored");
+  for (let i = 0; i < 2; i++) {
+    const delta = protocol.parseServerEvent(new Uint8Array(1920));
+    assert.equal(delta.kind, "audio_delta");
+    if (delta.kind === "audio_delta") {
+      assert.equal(delta.pcmBytes?.byteLength, 960);
+      assert.equal(delta.responseId, "run-1");
+      assert.equal(delta.turnId, "turn-1");
+      assert.equal(delta.chunkId, "chunk-1");
+    }
+  }
+  protocol.parseServerEvent({ action: "media.configured", data: { output_audio: { sample_rate: 24000 }, error: "" } });
+  protocol.parseServerEvent({ action: "response.audio.context", data: {
+    run_id: "run-1", turn_id: "turn-1", chunk_id: "chunk-2", duration_ms: 20,
+  } });
+  const delta = protocol.parseServerEvent(new Uint8Array(960));
+  assert.equal(delta.kind, "audio_delta");
+  if (delta.kind === "audio_delta") assert.equal(delta.pcmBytes?.byteLength, 960);
+  assert.deepEqual(protocol.parseServerEvent({ action: "output.transcript.updated", data: {
+    run_id: "run-1", turn_id: "turn-1", text: "你好，我是暖暖",
+  } }), { kind: "text_delta", responseId: "run-1", turnId: "turn-1", delta: "你好，我是暖暖", snapshot: true });
+  assert.deepEqual(protocol.encodePlaybackChunkCompleted?.({ responseId: "run-1", turnId: "turn-1", chunkId: "chunk-1" }), {
+    action: "playback.chunk.completed", run_id: "run-1", turn_id: "turn-1", chunk_id: "chunk-1",
+  });
+  assert.deepEqual(protocol.encodePlaybackCompleted?.({ responseId: "run-1", turnId: "turn-1" }), {
+    action: "playback.completed", run_id: "run-1", turn_id: "turn-1",
+  });
+  assert.deepEqual(protocol.encodePlaybackStopped?.({ responseId: "run-1", turnId: "turn-1", playedMs: 140 }), {
+    action: "playback.stopped", run_id: "run-1", turn_id: "turn-1", played_audio_ms: 140,
+  });
+  assert.deepEqual(protocol.encodePreviewSpeech?.("试听文本"), [{ action: "mic_state", enabled: true }]);
+  const toolDone = protocol.parseServerEvent({ action: "response.done", data: { response: {
+    id: "run-1", output: [{ type: "function_call", call_id: "call-1", name: "run_agent_task", arguments: '{"prompt":"开灯"}' }],
+  } } });
+  assert.equal(toolDone.kind, "tool_calls");
+  assert.deepEqual(protocol.encodeToolReply("call-1", { ok: true }), [{ action: "conversation.item.create", item: {
+    type: "function_call_output", call_id: "call-1", output: '{"ok":true}',
+  } }]);
+  assert.deepEqual(protocol.parseServerEvent({ action: "conversation.item.created", data: { item: {
+    id: "item-1", type: "function_call_output", call_id: "call-1",
+  } } }), { kind: "tool_output_confirmed", callId: "call-1", itemId: "item-1",
+    followUpMessages: [{ action: "response.create", response: { call_ids: ["call-1"] } }],
+  });
+  assert.deepEqual(protocol.encodeProactiveSpeech({ spokenText: "任务已完成", instructions: "updated instructions" }), [
+    { action: "session.update", session: { instructions: "updated instructions" } },
+    { action: "session.commentary.append", content: "任务已完成", status: "completed" },
+  ]);
 });

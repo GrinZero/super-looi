@@ -1,9 +1,11 @@
+import mossPreviewInputUrl from "./assets/moss-preview-greeting.pcm?url";
 import { VideoAccount, type XiaomiVideoLoginState, type XiaomiVideoAuthState } from "./runtime/video-account";
 import type { CameraVideoState } from "./ui/CameraVideo";
 export type { XiaomiVideoLoginStep, XiaomiVideoLoginState, XiaomiVideoAuthState } from "./runtime/video-account";
 import { uiMessage } from "./runtime/messages";
 import { HomePowerState } from "./runtime/home-power-state";
 import { bindLocale, resolveLocale, translateMessage, type LanguagePreference } from "./i18n";
+import { voiceProviderLabel } from "./ui/doubao-voices";
 import {
   cleanup,
   colorScheme,
@@ -345,6 +347,7 @@ export function createAppStore() {
   });
   const voiceAudioLevel = signal(0);
   const voiceConfigured = signal(false);
+  const voiceConfiguredProviders = signal<Record<string, boolean>>({});
   const voiceKeyHint = signal("");
   const voiceProviderId = signal("doubao");
   const voiceId = signal("");
@@ -1042,6 +1045,7 @@ export function createAppStore() {
         defaultLanguage: effectiveLocale,
         tracer: opened.tracer,
         audio: new VoiceAudio(),
+        previewInput: async () => new Uint8Array(await (await fetch(mossPreviewInputUrl)).arrayBuffer()),
         connect,
         onState: (state) => {
           if (!alive) return;
@@ -1052,7 +1056,7 @@ export function createAppStore() {
             driver.updateAudioLevel(0);
             face.set(driver.getState());
           }
-          if (state.error && state.error !== previousError) {
+          if (state.error && state.error !== previousError && activeSpace() !== "voice") {
             notify(state.error);
           }
         },
@@ -1090,6 +1094,7 @@ export function createAppStore() {
       }
       const voiceCfg = voice.configuration();
       voiceConfigured.set(voiceCfg.hasKey);
+      voiceConfiguredProviders.set(voiceCfg.configuredProviders);
       voiceKeyHint.set(voiceCfg.keyHint ?? "");
       voiceProviderId.set(voiceCfg.providerId);
       voiceId.set(voiceCfg.voiceId);
@@ -1275,6 +1280,7 @@ export function createAppStore() {
       llmSnapshot.set(snap);
       const refreshedVoice = voice?.refreshCredentials(canAutoStandby());
       voiceConfigured.set(refreshedVoice?.hasKey ?? false);
+      voiceConfiguredProviders.set(refreshedVoice?.configuredProviders ?? {});
       voiceKeyHint.set(refreshedVoice?.keyHint ?? "");
       if (input.providerId !== "custom") {
         await api.refreshProviderModels(input.providerId);
@@ -1310,8 +1316,9 @@ export function createAppStore() {
         );
         llmSnapshot.set(snap);
         const refreshedVoice = voice?.refreshCredentials(canAutoStandby());
-      voiceConfigured.set(refreshedVoice?.hasKey ?? false);
-      voiceKeyHint.set(refreshedVoice?.keyHint ?? "");
+        voiceConfigured.set(refreshedVoice?.hasKey ?? false);
+        voiceConfiguredProviders.set(refreshedVoice?.configuredProviders ?? {});
+        voiceKeyHint.set(refreshedVoice?.keyHint ?? "");
         configuration.set(runtime.configuration());
         notify("@looi:runtimeProviderCredentialsRemoved");
       } catch (error) {
@@ -1450,10 +1457,31 @@ export function createAppStore() {
     voiceState: () => ({ ...voiceState(), error: translateMessage(voiceState().error) }),
     voiceAudioLevel: () => voiceAudioLevel(),
     voiceConfigured: () => voiceConfigured(),
+    isVoiceProviderConfigured: (providerId: string) =>
+      providerId === voiceProviderId()
+        ? voiceConfigured()
+        : Boolean(voiceConfiguredProviders()[providerId]),
     voiceKeyHint: () => voiceKeyHint(),
     voiceId: () => voiceId(),
     voiceProviderId: () => voiceProviderId(),
-    voiceProviderLabel: () => translateMessage(voice?.configuration().providerLabel ?? "@looi:runtimeDoubao"),
+    voiceProviderLabel: () =>
+      translateMessage(
+        voice?.configuration().providerLabel ??
+          voiceProviderLabel(voiceProviderId()),
+      ),
+    selectVoiceProvider(providerId: string) {
+      if (!voice) {
+        voiceProviderId.set(providerId);
+        return;
+      }
+      const nextCfg = voice.selectProvider(providerId);
+      voiceProviderId.set(nextCfg.providerId);
+      voiceConfigured.set(nextCfg.hasKey);
+      voiceConfiguredProviders.set(nextCfg.configuredProviders);
+      voiceKeyHint.set(nextCfg.keyHint ?? "");
+      voiceId.set(nextCfg.voiceId);
+      voiceState.set(voice.snapshot());
+    },
     async startVoice() {
       api.dismissWakeGuide();
       try {
@@ -1506,6 +1534,7 @@ export function createAppStore() {
       voice.configure(key);
       const nextCfg = voice.configuration();
       voiceConfigured.set(nextCfg.hasKey);
+      voiceConfiguredProviders.set(nextCfg.configuredProviders);
       voiceKeyHint.set(nextCfg.keyHint ?? "");
     },
     clearVoiceCredentials() {
@@ -1513,6 +1542,7 @@ export function createAppStore() {
       voice.clearCredentials();
       const nextCfg = voice.configuration();
       voiceConfigured.set(nextCfg.hasKey);
+      voiceConfiguredProviders.set(nextCfg.configuredProviders);
       voiceKeyHint.set(nextCfg.keyHint ?? "");
     },
     configureVoiceId(id: string) {

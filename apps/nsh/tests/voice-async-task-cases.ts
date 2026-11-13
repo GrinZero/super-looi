@@ -760,7 +760,7 @@ export async function verifyAsyncVoiceTasks() {
   //    - sequential FIFO notices (second waits for first playback to drain)
   //    - multi-turn text_delta resets transcript cleanly after proactive notice
   //    - awaitingTimer flushes noticeQueue instead of hanging up when VAD filtered noise
-  //    - proactive send failure converges to runtimeVoiceNetworkSendFailed without poisoning reconnect
+  //    - proactive send failure retains its stage and cause without poisoning reconnect
   const originalSetTimeout = globalThis.setTimeout;
   const originalDateNow = Date.now;
   let accelerateIdleTimers = false;
@@ -929,14 +929,15 @@ export async function verifyAsyncVoiceTasks() {
     es.push({ type: "response.done", response: { id: "r_next_turn" } });
     await wait(20);
 
-    // 5f. Proactive send failure converges to runtimeVoiceNetworkSendFailed without poisoning reconnect:
+    // 5f. Proactive send failure retains its stage and cause without poisoning reconnect:
     failNextSpeechCommit = true;
     edgeVoice.enqueueNotice({ id: "fail_send_1", spokenText: "触发发送异常" });
     await wait(35);
     check(
       edgeVoice.snapshot().phase === "error" &&
-        edgeVoice.snapshot().error === "@looi:runtimeVoiceNetworkSendFailed",
-      "proactive send failure did not surface runtimeVoiceNetworkSendFailed",
+        edgeVoice.snapshot().error.includes('"stage":"websocket.write"') &&
+        edgeVoice.snapshot().error.includes("simulated socket write failure"),
+      "proactive send failure lost its stage or underlying cause",
     );
     await edgeVoice.start();
     edgeSockets[1].push({ type: "session.created" });

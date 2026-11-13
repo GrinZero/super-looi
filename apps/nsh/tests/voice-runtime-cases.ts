@@ -314,7 +314,7 @@ export async function verifyVoiceRuntime() {
   await connecting;
   check(delayedWrites[0]?.session?.audio?.output?.voice === "S_First", "connecting session changed voice ID");
   await settle();
-  check(switching.snapshot().error === "@looi:runtimeDoubaoSpeakerIdUnavailableCheckTheIdAnd", "invalid voice ID showed an unrelated connection error");
+  check(switching.snapshot().error.includes('"stage":"provider.error"') && switching.snapshot().error.includes("speaker permission denied"), "invalid voice ID lost the provider's actual rejection reason");
   switching.close();
 
   // Close while connect is still unresolved: a late socket must be disposed.
@@ -439,10 +439,11 @@ export async function verifyVoiceRuntime() {
   };
   permission = "undetermined";
   const requestsBeforePreview = requests;
+  const previewStates: Array<{ phase: string; purpose?: string }> = [];
   const previewRuntime = new VoiceRuntime({
     vault,
     audio,
-    onState: () => {},
+    onState: (snapshot) => { previewStates.push(snapshot); },
     connect: async () => ({
       read: () =>
         previewIncoming.length
@@ -463,10 +464,15 @@ export async function verifyVoiceRuntime() {
     }),
   });
   previewRuntime.setWakeEnabled(true, { autoStandby: false });
+  previewStates.length = 0;
   await previewRuntime.preview({
     voiceId: "S_PreviewDraft",
     sampleText: "你好，我是 LOOI。",
   });
+  check(
+    previewStates.every((snapshot) => snapshot.phase !== "idle"),
+    "starting preview briefly exposed idle and could restart wake",
+  );
   check(
     requests === requestsBeforePreview,
     "preview requested microphone permission",

@@ -1,5 +1,6 @@
 import type { Vault } from "../application.js";
 import type { RealtimeProtocolAdapter } from "./protocol.js";
+import type { VoiceSessionFailure } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 import type {
   LangfuseTracer,
   TraceContext,
@@ -34,10 +35,12 @@ export interface VoiceAudioPort {
 }
 
 export interface VoiceSocket {
+  readonly closeCode?: number | null;
+  readonly closeReason?: string | null;
   read(): Promise<string | Uint8Array | null>;
-  write(value: string): Promise<void>;
+  write(value: string | Uint8Array): Promise<void>;
   close(): Promise<void>;
-  finalizeSession?(reason?: string): void;
+  finalizeSession?(reason?: string, failure?: VoiceSessionFailure): void;
   getToolTraceContext?(callId: string): TraceContext | undefined;
   setResponseTraceContext?(context?: TraceContext): void;
 }
@@ -105,6 +108,8 @@ export interface VoiceRuntimeOptions {
   conversationId?: () => string;
   defaultLanguage?: () => "zh-CN" | "en-US";
   audio: VoiceAudioPort;
+  /** Prerecorded 16 kHz mono PCM input for a real MOSS preview turn; never microphone capture. */
+  previewInput?: () => Promise<Uint8Array>;
   connect: (
     url: string,
     options: { headers: Record<string, string> },

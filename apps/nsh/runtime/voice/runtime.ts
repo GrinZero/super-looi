@@ -25,7 +25,7 @@ const PERMISSION_POLL_MS = 250;
  */
 export class VoiceRuntime {
   private readonly credentials: VoiceCredentialStore;
-  private readonly protocol: RealtimeProtocolAdapter;
+  private protocol: RealtimeProtocolAdapter;
   private state: VoiceState;
   private session?: LiveVoiceSession;
   private latestContextNote = "";
@@ -41,14 +41,14 @@ export class VoiceRuntime {
   private closed = false;
 
   constructor(private readonly options: VoiceRuntimeOptions) {
+    this.credentials = new VoiceCredentialStore(options.vault);
     this.protocol =
       options.protocol ??
       createVoiceProtocol({
-        providerId: process.env.VOICE_PROVIDER,
+        providerId: this.credentials.selectedProviderId || process.env.VOICE_PROVIDER,
         baseUrl: process.env.VOICE_BASE_URL,
         model: process.env.VOICE_MODEL,
       });
-    this.credentials = new VoiceCredentialStore(options.vault);
     this.state = {
       phase: this.credentials.corruptOnLoad ? "error" : "idle",
       muted: false,
@@ -62,6 +62,25 @@ export class VoiceRuntime {
 
   configuration(): VoiceConfigurationSnapshot {
     return this.credentials.configuration(this.protocol.providerId);
+  }
+
+  selectProvider(providerId: string): VoiceConfigurationSnapshot {
+    if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
+    this.suppressAutoStandbyPrompt = false;
+    this.protocol = createVoiceProtocol({
+      providerId,
+      baseUrl: process.env.VOICE_BASE_URL,
+      model: process.env.VOICE_MODEL,
+    });
+    this.credentials.setProviderId(this.protocol.providerId);
+    this.stop();
+    if (
+      this.state.wakeEnabled &&
+      this.credentials.resolveApiKey(this.protocol.providerId)
+    ) {
+      void this.enterStandby();
+    }
+    return this.configuration();
   }
 
   refreshCredentials(autoStandby = true): VoiceConfigurationSnapshot {
@@ -233,7 +252,7 @@ export class VoiceRuntime {
     const apiKey = this.credentials.resolveApiKey(this.protocol.providerId);
     if (!apiKey) throw new Error("@looi:configureVoiceKey");
 
-    const selectedVoiceId = this.credentials.voiceId;
+    const selectedVoiceId = this.credentials.voiceIdFor(this.protocol.providerId);
     const initialLanguage = this.options.defaultLanguage?.() ?? "zh-CN";
     const fromStandby = this.state.phase === "standby";
 
@@ -309,7 +328,7 @@ export class VoiceRuntime {
     const apiKey = this.credentials.resolveApiKey(this.protocol.providerId);
     if (!apiKey) throw new Error("@looi:configureVoiceKey");
 
-    let targetVoiceId = this.credentials.voiceId;
+    let targetVoiceId = this.credentials.voiceIdFor(this.protocol.providerId);
     if (options.voiceId !== undefined) {
       const candidate = options.voiceId.trim();
       if (candidate && !/^[A-Za-z0-9_-]{1,256}$/.test(candidate)) {
@@ -327,13 +346,14 @@ export class VoiceRuntime {
     ++this.standbyGeneration;
     this.clearStandbyTimer();
     this.clearCueStopTimer();
-    this.stop();
+    this.stop(undefined, "", true);
     this.prePreviewTranscript = savedTranscript;
 
     const session = new LiveVoiceSession({
       apiKey,
       voiceId: targetVoiceId,
       purpose: "preview",
+      previewInput: this.options.previewInput,
       previewText: options.sampleText,
       initialLanguage,
       fromWakeWord: false,
@@ -473,6 +493,8 @@ export class VoiceRuntime {
       (!wasPreview || this.options.audio.status().permission === "granted");
     if (canResumeWake) {
       this.publish({
+        phase: preserveError ? "error" : "idle",
+        muted: false,
         purpose: undefined,
         activeVoiceId: undefined,
         ...(restoredTranscript !== undefined ? { transcript: restoredTranscript } : {}),
@@ -480,7 +502,7 @@ export class VoiceRuntime {
       });
       void this.enterStandby({ preserveError });
     } else {
-      this.stop(restoredTranscript);
+      this.stop(restoredTranscript, preserveError);
     }
   }
 
@@ -491,7 +513,7 @@ export class VoiceRuntime {
     }
   }
 
-  stop(restoredTranscriptOverride?: string): void {
+  stop(restoredTranscriptOverride?: string, error = "", preparingPreview = false): void {
     ++this.standbyGeneration;
     this.standbyPreparing = undefined;
     this.clearStandbyTimer();
@@ -513,12 +535,12 @@ export class VoiceRuntime {
     this.options.onAudioLevel?.(0);
     (this.options.onSessionEnd ?? this.options.cancelTask)?.();
     this.publish({
-      phase: "idle",
+      phase: error ? "error" : preparingPreview ? "connecting" : "idle",
       muted: false,
-      purpose: undefined,
+      purpose: preparingPreview ? "preview" : undefined,
       activeVoiceId: undefined,
       ...(restoredTranscript !== undefined ? { transcript: restoredTranscript } : {}),
-      error: "",
+      error,
     });
   }
 
@@ -554,8 +576,7 @@ export class VoiceRuntime {
       this.publish({ error: message });
       return;
     }
-    this.stop();
-    this.publish({ phase: "error", error: message });
+    this.stop(undefined, message);
   }
 
   private isStandbyGeneration(generation: number): boolean {

@@ -1,6 +1,17 @@
 import { voicePrompts } from "./prompts.js";
-import { resolveRealtimeProtocol } from "../../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+import {
+  createDoubaoDuplexV3Protocol,
+  createMossLiveProtocol,
+  createOpenAiRealtimeProtocol,
+  resolveRealtimeProtocol,
+} from "../../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+export {
+  createDoubaoDuplexV3Protocol,
+  createMossLiveProtocol,
+  createOpenAiRealtimeProtocol,
+};
 export type {
+  RealtimeProviderId,
   RealtimeProtocolAdapter,
   NormalizedRealtimeEvent,
 } from "../../../../packages/looi-runtime/src/voice/realtime-protocol.js";
