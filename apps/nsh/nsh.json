@@ -49,6 +49,7 @@
   },
   "theme": "theme.json",
   "appearance": "system",
+  "locales": ["zh-CN"],
   "statusBar": {
     "hidden": true
   }
