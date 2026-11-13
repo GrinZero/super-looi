@@ -1,0 +1,510 @@
+[
+  {
+    "time": "18:56:34",
+    "trace": "6be8da28c43143b3bc74265cec965896",
+    "kind": "realtime.response",
+    "duration_ms": 6998,
+    "ended": true,
+    "outputFrames": 22,
+    "outputBytes": 96000,
+    "audioDurationMs": 2000,
+    "cancelled": false
+  },
+  {
+    "time": "18:56:30",
+    "trace": "6be8da28c43143b3bc74265cec965896",
+    "kind": "voice.session",
+    "duration_ms": 11099,
+    "ended": true
+  },
+  {
+    "time": "18:56:30",
+    "trace": "6be8da28c43143b3bc74265cec965896",
+    "kind": "realtime.handshake",
+    "duration_ms": 4092,
+    "ended": true,
+    "handshakeMs": 4092,
+    "providerId": "moss",
+    "model": "moss-live-1.0"
+  },
+  {
+    "time": "18:55:54",
+    "trace": "07f8edeca71646d591e452422de8d53d",
+    "kind": "realtime.response",
+    "duration_ms": 17111,
+    "ended": true,
+    "outputFrames": 22,
+    "outputBytes": 96000,
+    "audioDurationMs": 2000,
+    "cancelled": true
+  },
+  {
+    "time": "18:55:49",
+    "trace": "07f8edeca71646d591e452422de8d53d",
+    "kind": "voice.session",
+    "duration_ms": 21872,
+    "ended": true
+  },
+  {
+    "time": "18:55:49",
+    "trace": "07f8edeca71646d591e452422de8d53d",
+    "kind": "realtime.handshake",
+    "duration_ms": 4725,
+    "ended": true,
+    "handshakeMs": 4725,
+    "providerId": "moss",
+    "model": "moss-live-1.0"
+  },
+  {
+    "time": "18:55:22",
+    "trace": "9ca029418a754120801483388d3a6ee9",
+    "kind": "voice.session",
+    "duration_ms": 5025,
+    "ended": true,
+    "failureStage": "websocket.connect",
+    "errorCode": "ERR_SOCKET_CLOSED",
+    "error": "code=ERR_SOCKET_CLOSED: WebSocket handshake failed: IO error: tls handshake eof"
+  },
+  {
+    "time": "18:55:22",
+    "trace": "9ca029418a754120801483388d3a6ee9",
+    "kind": "realtime.handshake",
+    "duration_ms": 5025,
+    "ended": true,
+    "failureStage": "websocket.connect",
+    "errorCode": "ERR_SOCKET_CLOSED",
+    "error": "code=ERR_SOCKET_CLOSED: WebSocket handshake failed: IO error: tls handshake eof"
+  },
+  {
+    "time": "18:54:48",
+    "trace": "3daae0087d494a9aaa9c3060db607fed",
+    "kind": "realtime.response",
+    "duration_ms": 1411,
+    "ended": true,
+    "outputFrames": 8,
+    "outputBytes": 144498,
+    "audioDurationMs": 3010,
+    "cancelled": false
+  },
+  {
+    "time": "18:54:45",
+    "trace": "3daae0087d494a9aaa9c3060db607fed",
+    "kind": "voice.session",
+    "duration_ms": 6745,
+    "ended": true
+  },
+  {
+    "time": "18:54:45",
+    "trace": "3daae0087d494a9aaa9c3060db607fed",
+    "kind": "realtime.handshake",
+    "duration_ms": 2712,
+    "ended": true,
+    "handshakeMs": 2712,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:54:30",
+    "trace": "d4c3c95720a3476cbac00d3a8046cb5e",
+    "kind": "realtime.response",
+    "duration_ms": 1545,
+    "ended": true,
+    "outputFrames": 9,
+    "outputBytes": 152380,
+    "audioDurationMs": 3175,
+    "cancelled": false
+  },
+  {
+    "time": "18:54:26",
+    "trace": "d4c3c95720a3476cbac00d3a8046cb5e",
+    "kind": "voice.session",
+    "duration_ms": 7889,
+    "ended": true
+  },
+  {
+    "time": "18:54:26",
+    "trace": "d4c3c95720a3476cbac00d3a8046cb5e",
+    "kind": "realtime.handshake",
+    "duration_ms": 3632,
+    "ended": true,
+    "handshakeMs": 3632,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:54:12",
+    "trace": "a6be7b6593dc4442ba7680ed06fcff1c",
+    "kind": "realtime.response",
+    "duration_ms": 2095,
+    "ended": true,
+    "outputFrames": 9,
+    "outputBytes": 152574,
+    "audioDurationMs": 3179,
+    "cancelled": false
+  },
+  {
+    "time": "18:54:09",
+    "trace": "a6be7b6593dc4442ba7680ed06fcff1c",
+    "kind": "voice.session",
+    "duration_ms": 7292,
+    "ended": true
+  },
+  {
+    "time": "18:54:09",
+    "trace": "a6be7b6593dc4442ba7680ed06fcff1c",
+    "kind": "realtime.handshake",
+    "duration_ms": 3013,
+    "ended": true,
+    "handshakeMs": 3013,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:53:53",
+    "trace": "557a78ff59c44143956adc1b919aa95a",
+    "kind": "realtime.response",
+    "duration_ms": 1442,
+    "ended": true,
+    "outputFrames": 8,
+    "outputBytes": 144270,
+    "audioDurationMs": 3006,
+    "cancelled": false
+  },
+  {
+    "time": "18:53:50",
+    "trace": "557a78ff59c44143956adc1b919aa95a",
+    "kind": "voice.session",
+    "duration_ms": 6655,
+    "ended": true
+  },
+  {
+    "time": "18:53:50",
+    "trace": "557a78ff59c44143956adc1b919aa95a",
+    "kind": "realtime.handshake",
+    "duration_ms": 2600,
+    "ended": true,
+    "handshakeMs": 2600,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:53:36",
+    "trace": "957b4b3128ed480eb97a428e4b7df22e",
+    "kind": "realtime.response",
+    "duration_ms": 2438,
+    "ended": true,
+    "outputFrames": 9,
+    "outputBytes": 152300,
+    "audioDurationMs": 3173,
+    "cancelled": false
+  },
+  {
+    "time": "18:53:33",
+    "trace": "957b4b3128ed480eb97a428e4b7df22e",
+    "kind": "voice.session",
+    "duration_ms": 8351,
+    "ended": true
+  },
+  {
+    "time": "18:53:33",
+    "trace": "957b4b3128ed480eb97a428e4b7df22e",
+    "kind": "realtime.handshake",
+    "duration_ms": 3425,
+    "ended": true,
+    "handshakeMs": 3425,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:53:13",
+    "trace": "7e55f45064f44eb7ba706d98eefb8a21",
+    "kind": "realtime.response",
+    "duration_ms": 1816,
+    "ended": true,
+    "outputFrames": 8,
+    "outputBytes": 132944,
+    "audioDurationMs": 2770,
+    "cancelled": false
+  },
+  {
+    "time": "18:53:10",
+    "trace": "7e55f45064f44eb7ba706d98eefb8a21",
+    "kind": "voice.session",
+    "duration_ms": 7650,
+    "ended": true
+  },
+  {
+    "time": "18:53:10",
+    "trace": "7e55f45064f44eb7ba706d98eefb8a21",
+    "kind": "realtime.handshake",
+    "duration_ms": 3504,
+    "ended": true,
+    "handshakeMs": 3504,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:52:00",
+    "trace": "ce3f07ab2c064ecb870456ecd7eb987a",
+    "kind": "realtime.response",
+    "duration_ms": 1821,
+    "ended": true,
+    "outputFrames": 8,
+    "outputBytes": 143926,
+    "audioDurationMs": 2998,
+    "cancelled": false
+  },
+  {
+    "time": "18:51:57",
+    "trace": "ce3f07ab2c064ecb870456ecd7eb987a",
+    "kind": "voice.session",
+    "duration_ms": 7229,
+    "ended": true
+  },
+  {
+    "time": "18:51:57",
+    "trace": "ce3f07ab2c064ecb870456ecd7eb987a",
+    "kind": "realtime.handshake",
+    "duration_ms": 2980,
+    "ended": true,
+    "handshakeMs": 2980,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:51:34",
+    "trace": "9772555a83fe4c489bbe2fe8e1155954",
+    "kind": "realtime.response",
+    "duration_ms": 1570,
+    "ended": true,
+    "outputFrames": 9,
+    "outputBytes": 152550,
+    "audioDurationMs": 3178,
+    "cancelled": false
+  },
+  {
+    "time": "18:51:31",
+    "trace": "9772555a83fe4c489bbe2fe8e1155954",
+    "kind": "voice.session",
+    "duration_ms": 6966,
+    "ended": true
+  },
+  {
+    "time": "18:51:31",
+    "trace": "9772555a83fe4c489bbe2fe8e1155954",
+    "kind": "realtime.handshake",
+    "duration_ms": 2643,
+    "ended": true,
+    "handshakeMs": 2643,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:51:21",
+    "trace": "cc98dd8b0d504b7f856f695f842be46a",
+    "kind": "realtime.response",
+    "duration_ms": 1537,
+    "ended": true,
+    "outputFrames": 10,
+    "outputBytes": 209968,
+    "audioDurationMs": 4374,
+    "cancelled": false
+  },
+  {
+    "time": "18:51:19",
+    "trace": "cc98dd8b0d504b7f856f695f842be46a",
+    "kind": "voice.session",
+    "duration_ms": 7323,
+    "ended": true
+  },
+  {
+    "time": "18:51:19",
+    "trace": "cc98dd8b0d504b7f856f695f842be46a",
+    "kind": "realtime.handshake",
+    "duration_ms": 2443,
+    "ended": true,
+    "handshakeMs": 2443,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:51:12",
+    "trace": "01a77168733d4d44b5cb726198ac16e3",
+    "kind": "realtime.response",
+    "duration_ms": 1521,
+    "ended": true,
+    "outputFrames": 9,
+    "outputBytes": 191346,
+    "audioDurationMs": 3986,
+    "cancelled": false
+  },
+  {
+    "time": "18:51:10",
+    "trace": "01a77168733d4d44b5cb726198ac16e3",
+    "kind": "voice.session",
+    "duration_ms": 4544,
+    "ended": true
+  },
+  {
+    "time": "18:51:10",
+    "trace": "01a77168733d4d44b5cb726198ac16e3",
+    "kind": "realtime.handshake",
+    "duration_ms": 2771,
+    "ended": true,
+    "handshakeMs": 2771,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:51:01",
+    "trace": "09f0aa28769346278fd71fe18f3208fc",
+    "kind": "realtime.response",
+    "duration_ms": 1874,
+    "ended": true,
+    "outputFrames": 9,
+    "outputBytes": 181978,
+    "audioDurationMs": 3791,
+    "cancelled": false
+  },
+  {
+    "time": "18:50:56",
+    "trace": "09f0aa28769346278fd71fe18f3208fc",
+    "kind": "voice.session",
+    "duration_ms": 10421,
+    "ended": true
+  },
+  {
+    "time": "18:50:56",
+    "trace": "09f0aa28769346278fd71fe18f3208fc",
+    "kind": "realtime.handshake",
+    "duration_ms": 5217,
+    "ended": true,
+    "handshakeMs": 5217,
+    "providerId": "doubao",
+    "model": "1.2.6.1"
+  },
+  {
+    "time": "18:50:35",
+    "trace": "b7c3beb26c254a2685da1282d0af6893",
+    "kind": "voice.session",
+    "duration_ms": 5034,
+    "ended": true,
+    "failureStage": "websocket.connect",
+    "errorCode": "ERR_SOCKET_CLOSED",
+    "error": "code=ERR_SOCKET_CLOSED: WebSocket handshake failed: IO error: tls handshake eof"
+  },
+  {
+    "time": "18:50:35",
+    "trace": "b7c3beb26c254a2685da1282d0af6893",
+    "kind": "realtime.handshake",
+    "duration_ms": 5034,
+    "ended": true,
+    "failureStage": "websocket.connect",
+    "errorCode": "ERR_SOCKET_CLOSED",
+    "error": "code=ERR_SOCKET_CLOSED: WebSocket handshake failed: IO error: tls handshake eof"
+  },
+  {
+    "time": "18:50:01",
+    "trace": "46ee15f52d9b4fd79e3ad4f9b00b888d",
+    "kind": "realtime.response",
+    "duration_ms": 16570,
+    "ended": true,
+    "outputFrames": 22,
+    "outputBytes": 96000,
+    "audioDurationMs": 2000,
+    "cancelled": true
+  },
+  {
+    "time": "18:49:58",
+    "trace": "46ee15f52d9b4fd79e3ad4f9b00b888d",
+    "kind": "voice.session",
+    "duration_ms": 20163,
+    "ended": true
+  },
+  {
+    "time": "18:49:58",
+    "trace": "46ee15f52d9b4fd79e3ad4f9b00b888d",
+    "kind": "realtime.handshake",
+    "duration_ms": 3537,
+    "ended": true,
+    "handshakeMs": 3537,
+    "providerId": "moss",
+    "model": "moss-live-1.0"
+  },
+  {
+    "time": "18:49:26",
+    "trace": "fe4393020fd048a08a2799f9ec8c802d",
+    "kind": "realtime.response",
+    "duration_ms": 7227,
+    "ended": true,
+    "outputFrames": 22,
+    "outputBytes": 96000,
+    "audioDurationMs": 2000,
+    "cancelled": false
+  },
+  {
+    "time": "18:49:22",
+    "trace": "fe4393020fd048a08a2799f9ec8c802d",
+    "kind": "voice.session",
+    "duration_ms": 10892,
+    "ended": true
+  },
+  {
+    "time": "18:49:22",
+    "trace": "fe4393020fd048a08a2799f9ec8c802d",
+    "kind": "realtime.handshake",
+    "duration_ms": 3660,
+    "ended": true,
+    "handshakeMs": 3660,
+    "providerId": "moss",
+    "model": "moss-live-1.0"
+  },
+  {
+    "time": "18:48:53",
+    "trace": "e2f7384413074c35ac35791cd94d3669",
+    "kind": "voice.session",
+    "duration_ms": 5034,
+    "ended": true,
+    "failureStage": "websocket.connect",
+    "errorCode": "ERR_SOCKET_CLOSED",
+    "error": "code=ERR_SOCKET_CLOSED: WebSocket handshake failed: IO error: tls handshake eof"
+  },
+  {
+    "time": "18:48:53",
+    "trace": "e2f7384413074c35ac35791cd94d3669",
+    "kind": "realtime.handshake",
+    "duration_ms": 5034,
+    "ended": true,
+    "failureStage": "websocket.connect",
+    "errorCode": "ERR_SOCKET_CLOSED",
+    "error": "code=ERR_SOCKET_CLOSED: WebSocket handshake failed: IO error: tls handshake eof"
+  },
+  {
+    "time": "18:48:03",
+    "trace": "79f1ac188b1144c3b3a9520baebfdaab",
+    "kind": "realtime.response",
+    "duration_ms": 13338,
+    "ended": true,
+    "outputFrames": 22,
+    "outputBytes": 96000,
+    "audioDurationMs": 2000,
+    "cancelled": false
+  },
+  {
+    "time": "18:47:59",
+    "trace": "79f1ac188b1144c3b3a9520baebfdaab",
+    "kind": "voice.session",
+    "duration_ms": 17354,
+    "ended": true
+  },
+  {
+    "time": "18:47:59",
+    "trace": "79f1ac188b1144c3b3a9520baebfdaab",
+    "kind": "realtime.handshake",
+    "duration_ms": 4008,
+    "ended": true,
+    "handshakeMs": 4008,
+    "providerId": "moss",
+    "model": "moss-live-1.0"
+  }
+]
