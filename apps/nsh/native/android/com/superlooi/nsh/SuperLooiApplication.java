@@ -55,15 +55,18 @@ public final class SuperLooiApplication extends Application {
         MiotLoginDialog.registerVm();
         LooiBleBridge.registerVm();
         CameraMedia.registerVm();
+        DeviceCameraBridge.registerVm();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             public void onActivityResumed(Activity value) {
                 CameraMedia.foreground(true);
+                DeviceCameraBridge.foreground(true);
                 value.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 activity = new WeakReference<>(value);
                 observeDisplayCutout(value);
             }
             public void onActivityPaused(Activity value) {
                 CameraMedia.foreground(false);
+                DeviceCameraBridge.foreground(false);
                 value.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 stopObservingDisplayCutout();
                 MiotLoginDialog.background(value);
@@ -77,7 +80,7 @@ public final class SuperLooiApplication extends Application {
                 }
             }
             public void onActivityDestroyed(Activity value) { stopObservingDisplayCutout(); MiotLoginDialog.background(value); LooiBleBridge.background(); if (activity.get() == value) activity.clear(); }
-            public void onActivityCreated(Activity value, Bundle state) { new Handler(Looper.getMainLooper()).post(() -> CameraMedia.registerComponents(value)); }
+            public void onActivityCreated(Activity value, Bundle state) { new Handler(Looper.getMainLooper()).post(() -> { CameraMedia.registerComponents(value); DeviceCameraBridge.registerComponents(value); }); }
             public void onActivityStarted(Activity value) {}
             public void onActivityStopped(Activity value) {}
             public void onActivitySaveInstanceState(Activity value, Bundle state) {}
@@ -144,6 +147,7 @@ public final class SuperLooiApplication extends Application {
         cutoutListener = null;
     }
 
+    static SuperLooiApplication appContext() { return instance; }
     static Activity foregroundActivity() { return activity.get(); }
 
     public static String voicePermission() {

@@ -17,6 +17,7 @@ globalThis.LOOI_ARCH = {
         { path: "apps/nsh/App.tsx", entry: "function App()", anchors: [{ label: "组件入口", match: "function App()" }, { label: "挂载应用", match: "mount(App)" }] },
         { path: "apps/nsh/ui/stage/MorphableStage.tsx", entry: "export function MorphableStage" },
         { path: "apps/nsh/ui/stage/posture-geometry.ts", entry: "export function computeStageLayout" },
+        { path: "apps/nsh/ui/DeviceCameraPreview.tsx", entry: "export const DeviceCameraPreview" },
         { path: "apps/nsh/ui/PluginsSpaceView.tsx", entry: "export function PluginsSpaceView" },
         { path: "apps/nsh/ui/ManagementShell.tsx", entry: "export function ManagementShell" },
         { path: "apps/nsh/ui/TasksSpaceView.tsx", entry: "export function TasksSpaceView" },
@@ -28,12 +29,14 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "runtime", x: 280, y: 86, title: "MobileRuntime", symbol: "layers", category: "TypeScript · 本机业务", detail: "会话 / 任务 / 插件 / 家居 / 底座", path: "apps/nsh/runtime/application.ts",
-      description: "本机业务入口，维护任务与会话，创建共享 observation 记录器、Pi 执行器、PluginHost v2（含 DAG 服务拓扑、DualLoopAiBus 与 PluginStageManager）、模型目录、HomeRuntime 与 BodyRuntime。任务保存根 span 引用，模型输入与输出、工具回执、语音转写和交付记录保存在 SQLite，Langfuse 导出使用相同 ID。",
+      description: "本机业务入口，维护任务与会话，创建共享 observation 记录器、Pi 执行器、PluginHost v2（含 DAG 服务拓扑、.nshpkg Ed25519 验签装载、DualLoopAiBus、VisionBroker 与 PluginStageManager）、模型目录、HomeRuntime 与 BodyRuntime。任务保存根 span 引用，模型输入与输出、工具回执、语音转写和交付记录保存在 SQLite，Langfuse 导出使用相同 ID。",
       files: [
         { path: "apps/nsh/runtime/application.ts", entry: "export class MobileRuntime", anchors: [{ label: "运行时入口", match: "export class MobileRuntime" }, { label: "创建执行器", match: "private createExecutorForSelection(" }] },
         { path: "apps/nsh/runtime/plugins/host.ts", entry: "export class PluginHost" },
+        { path: "apps/nsh/runtime/plugins/package-loader.ts", entry: "export function verifyNshPackage" },
         { path: "apps/nsh/runtime/plugins/stage-manager.ts", entry: "export class PluginStageManager" },
         { path: "apps/nsh/runtime/plugins/ai-bus.ts", entry: "export class DualLoopAiBus" },
+        { path: "apps/nsh/runtime/device-camera.ts", entry: "export class VisionBroker" },
         { path: "apps/nsh/runtime/tools/body-tools.ts", entry: "export function createBodyTools" },
         { path: "apps/nsh/runtime/tools/home-tools.ts", entry: "export function createHomeTools" },
         { path: "apps/nsh/runtime/body.ts", entry: "export class BodyRuntime" },
@@ -180,9 +183,10 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "native", x: 28, y: 676, compact: true, title: "NSH 原生宿主", symbol: "chip", category: "Rust · 原生模块注册", detail: "src/lib.rs", path: "apps/nsh/src/lib.rs",
-      description: "原生模块注册入口 super-looi/native。向 TSX 暴露 NodeCompat、CredentialVault、VoiceAudio、MiotLoginBrowser 与 LooiBle，供 store 完成接线。",
+      description: "原生模块注册入口 super-looi/native。向 TSX 暴露 NodeCompat、CredentialVault、VoiceAudio、MiotLoginBrowser、LooiBle 与手机本机前／后置摄像头 DeviceCameraHost（含 looi.DeviceCameraPreview 原生预览组件），供 store 完成接线。",
       files: [
         { path: "apps/nsh/src/lib.rs", entry: 'fn native(' },
+        { path: "apps/nsh/src/device_camera/mod.rs", entry: "pub struct DeviceCameraHost" },
         { path: "apps/nsh/src/ble.rs", entry: "pub struct LooiBle" },
         { path: "apps/nsh/src/credentials.rs", entry: "pub struct CredentialVault" },
         { path: "apps/nsh/src/login_browser.rs", entry: "pub struct MiotLoginBrowser" },

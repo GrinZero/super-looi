@@ -81,7 +81,7 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
   for (const source of [
     "scripts/native-plugins.mjs", "native/android/merge_apk.py", "native/android/patch_manifest.py",
     "native/android/com/superlooi/nsh/SuperLooiApplication.java",
-    "native/android/com/superlooi/nsh/MiotLoginDialog.java", "native/android/com/superlooi/nsh/LooiBleBridge.java", "native/android/com/superlooi/nsh/CameraMedia.java",
+    "native/android/com/superlooi/nsh/MiotLoginDialog.java", "native/android/com/superlooi/nsh/LooiBleBridge.java", "native/android/com/superlooi/nsh/CameraMedia.java", "native/android/com/superlooi/nsh/DeviceCameraBridge.java",
     "native/linux/sources.lock.json",
     ...readdirSync(join(app,"native/linux/licenses")).map(name=>`native/linux/licenses/${name}`),
   ]) pluginHash.update(readFileSync(join(app,source)));
@@ -173,6 +173,7 @@ export function patchIosApp(target) {
   cpSync(join(app,"native/linux/licenses"),join(target,"ThirdPartyLicenses/LinuxShell"),{recursive:true});
   cpSync(join(app,"native/licenses/xiaomi-camera"),join(target,"ThirdPartyLicenses/XiaomiCamera"),{recursive:true});
   run("plutil", ["-replace", "NSLocalNetworkUsageDescription", "-string", config.ios.localNetworkUsageDescription, plist]);
+  run("plutil", ["-replace", "NSCameraUsageDescription", "-string", config.ios.cameraUsageDescription, plist]);
   const orientations = [
     "UIInterfaceOrientationLandscapeLeft",
     "UIInterfaceOrientationLandscapeRight",
@@ -246,6 +247,7 @@ function applyAndroidPlugin(apk, sdk, tools) {
       join(app, "native/android/com/superlooi/nsh/MiotLoginDialog.java"),
       join(app, "native/android/com/superlooi/nsh/LooiBleBridge.java"),
       join(app, "native/android/com/superlooi/nsh/CameraMedia.java"),
+      join(app, "native/android/com/superlooi/nsh/DeviceCameraBridge.java"),
     ]);
     run(join(tools, "d8"), [
       "--lib",

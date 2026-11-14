@@ -22,9 +22,9 @@
   - [x] Step 3.1：重构 `App.tsx` 首屏舞台层支持 `FaceStagePosture`（`full` / `floating_top` / `docked_corner` / `split_left` / `minimized_pill`）单实例弹簧变形与刘海安全区透传
   - [x] Step 3.2：实现 `StageCapsule`、四档位 `StageDrawer`（含 FLIP 位移、无缝延展底裙与上下双向吸附手势）、`StageCanvas` 与最高层级不可遮挡宿主安全控制柄
   - [x] Step 3.3：完成 Milestone 3 无头 UI 变形／异常熔断恢复回归、独立子 agent review（修复全部 10 项审阅问题并补齐回归断言）、`docs/arch/index.html` 更新与隔离提交
-- [ ] Step 4（Milestone 4）：手机本机前／后置摄像头原生模块（`DeviceCameraHost`）与跨插件生态闭环
-  - [ ] Step 4.1：实现 Rust `DeviceCameraHost`（iOS `AVCaptureSession` / Android `Camera2` / `<DeviceCameraPreview />`）与 TS `VisionBroker`
-  - [ ] Step 4.2：落地跨插件示范组合与 `.nshpkg` 签名市场包验证入口，完成自动化验证与独立 review
+- [x] Step 4（Milestone 4）：手机本机前／后置摄像头原生模块（`DeviceCameraHost`）与跨插件生态闭环
+  - [x] Step 4.1：实现 Rust `DeviceCameraHost`（iOS `AVCaptureSession` + `AVCaptureDeviceRotationCoordinator` 横屏校正 / Android `Camera2` + `TextureView` 等比居中裁剪预览 / `<DeviceCameraPreview />` 前后台重绑）与 TS `VisionBroker`（按镜头多路复用、动态分辨率／帧率重协商与单帧在途背压）
+  - [x] Step 4.2：落地跨插件 DAG 示范组合（`vision-person-tracker` → `games-werewolf-referee`）、零依赖 RFC 8032 Ed25519 `.nshpkg` 签名市场包验证与动态安装／热升级入口（`package-loader.ts` + `installMarketplacePackage`）、开机默认启动与按需唤醒分层（`activation: "startup" | "on_demand"`），完成全套自动化测试与独立子 agent review（修复全部 11 项问题并复审闭环）
 
 ## Task Agent 历史会话工具（2026-11-12）
 

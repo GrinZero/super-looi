@@ -21,6 +21,12 @@ import type {
 import { createEffectScope } from "./effect-scope.js";
 import { extractPluginFailure, PluginKernelError } from "./errors.js";
 import {
+  verifyNshPackage,
+  type NshPackageEnvelope,
+  type VerifiedNshPackage,
+  type VerifyNshPackageOptions,
+} from "./package-loader.js";
+import {
   PluginServiceBroker,
   validateAndSortPluginTopology,
   type ValidatedTopology,
@@ -35,8 +41,9 @@ export interface PluginHostHardwareDrivers {
 }
 
 interface ManagedPluginEntry {
-  readonly definition: PluginDefinition<any, any>;
+  definition: PluginDefinition<any, any>;
   readonly storage: PluginStorage;
+  source: "builtin" | "marketplace";
   enabled: boolean;
   installedVersion: string;
   migrated: boolean;
@@ -75,7 +82,7 @@ function toStringRecord(entries: Record<string, unknown>, state: unknown): Recor
  * DAG cross-plugin service topology, EffectScope lifecycle unwinding, Stage arbitration, and Dual-Loop AI bus.
  */
 export class PluginHost {
-  private readonly topology: ValidatedTopology;
+  private topology: ValidatedTopology;
   private readonly entries = new Map<string, ManagedPluginEntry>();
   private readonly listeners = new Set<(event: PluginEvent) => void>();
   readonly services: PluginServiceBroker;
@@ -108,10 +115,24 @@ export class PluginHost {
 
     this.ai = new DualLoopAiBus(() => this.stage.activePluginId(), drivers.aiBridge);
 
-    this.services = new PluginServiceBroker(this.topology, async (event) => {
-      if (this.closing) return;
-      await this.suspendHardDependents(event.providerPluginId);
-    });
+    this.services = new PluginServiceBroker(
+      this.topology,
+      async (event) => {
+        if (this.closing) return;
+        await this.suspendHardDependents(event.providerPluginId);
+      },
+      ({ consumerPluginId, serviceId, error }) => {
+        if (this.closing) return;
+        const entry = this.entries.get(consumerPluginId);
+        if (!entry) return;
+        entry.lastError = extractPluginFailure(
+          error,
+          `${consumerPluginId}.whenAvailable(${serviceId})`,
+          "ERR_PLUGIN_DEPENDENCY_BIND_FAILED",
+        );
+        this.publishSnapshot(entry);
+      },
+    );
 
     const defsById = new Map(definitions.map((d) => [d.manifest.id, d]));
 
@@ -121,14 +142,18 @@ export class PluginHost {
       const storage = this.createStorageForPlugin(manifest.id);
 
       const savedRow = this.database
-        .prepare("SELECT enabled, installed_version FROM plugin_installations WHERE id = ?")
-        .get(manifest.id) as { enabled: number; installed_version: string } | undefined;
+        .prepare("SELECT enabled, installed_version, source FROM plugin_installations WHERE id = ?")
+        .get(manifest.id) as
+        | { enabled: number; installed_version: string; source: string }
+        | undefined;
 
       const enabled = savedRow ? Boolean(savedRow.enabled) : true;
       const installedVersion = savedRow ? savedRow.installed_version : manifest.version;
+      const source: "builtin" | "marketplace" =
+        savedRow?.source === "marketplace" ? "marketplace" : "builtin";
 
       if (!savedRow) {
-        this.saveInstallationRow(manifest.id, enabled, installedVersion, "builtin");
+        this.saveInstallationRow(manifest.id, enabled, installedVersion, source);
       }
 
       const initialState = (definition.initialState(storage) ?? {}) as Record<string, unknown>;
@@ -137,6 +162,7 @@ export class PluginHost {
       const entry: ManagedPluginEntry = {
         definition,
         storage,
+        source,
         enabled,
         installedVersion,
         migrated: installedVersion === manifest.version || !definition.migrate,
@@ -226,6 +252,7 @@ export class PluginHost {
          ON CONFLICT(id) DO UPDATE SET
            enabled = excluded.enabled,
            installed_version = excluded.installed_version,
+           source = excluded.source,
            updated_at = excluded.updated_at`,
       )
       .run(id, Number(enabled), installedVersion, source, new Date().toISOString());
@@ -475,7 +502,7 @@ export class PluginHost {
         entry.state = structuredClone(
           (entry.definition.initialState(entry.storage) ?? {}) as Record<string, unknown>,
         );
-        this.saveInstallationRow(manifest.id, entry.enabled, entry.installedVersion);
+        this.saveInstallationRow(manifest.id, entry.enabled, entry.installedVersion, entry.source);
       } catch (error) {
         entry.lifecycle = "failed";
         entry.lastError = extractPluginFailure(error, "plugin.migrate", "ERR_PLUGIN_MIGRATION_FAILED");
@@ -485,7 +512,7 @@ export class PluginHost {
     } else {
       entry.installedVersion = manifest.version;
       entry.migrated = true;
-      this.saveInstallationRow(manifest.id, entry.enabled, entry.installedVersion);
+      this.saveInstallationRow(manifest.id, entry.enabled, entry.installedVersion, entry.source);
     }
   }
 
@@ -505,6 +532,24 @@ export class PluginHost {
       const entry = this.entries.get(id)!;
       if (entry.enabled) {
         await this.startPlugin(id);
+      }
+    }
+  }
+
+  /**
+   * Starts all enabled plugins whose `manifest.activation` is `"startup"` (the default),
+   * leaving `"on_demand"` plugins (such as `codex`) mounted and lazy-ready without booting heavy guests.
+   */
+  async startStartupPlugins(): Promise<void> {
+    for (const id of this.topology.bootOrder) {
+      if (this.closing) return;
+      const entry = this.entries.get(id);
+      if (!entry || !entry.enabled) continue;
+      if (entry.definition.manifest.activation === "on_demand") continue;
+      try {
+        await this.startPlugin(id);
+      } catch {
+        // Individual start failures are recorded on entry.lifecycle = "failed" and entry.lastError.
       }
     }
   }
@@ -680,7 +725,7 @@ export class PluginHost {
     const entry = this.requireEntry(id);
     await this.enqueue(entry, async () => {
       entry.enabled = enabled;
-      this.saveInstallationRow(id, enabled, entry.installedVersion);
+      this.saveInstallationRow(id, enabled, entry.installedVersion, entry.source);
       if (enabled) {
         await this.activateInternal(entry);
       } else {
@@ -705,7 +750,7 @@ export class PluginHost {
       for (const [k, v] of Object.entries(values)) {
         entry.storage.set(k, v);
       }
-      this.saveInstallationRow(id, enabled, entry.installedVersion);
+      this.saveInstallationRow(id, enabled, entry.installedVersion, entry.source);
 
       if (enabled) {
         if (this.services.areHardDependenciesSatisfied(entry.definition.manifest)) {
@@ -780,6 +825,141 @@ export class PluginHost {
 
   contribution(context: PluginTaskContext) {
     return this.ai.taskContribution(context);
+  }
+
+  /**
+   * Verifies a signed `.nshpkg` archive (SHA-256 + RFC 8032 Ed25519 + Manifest + Host API version),
+   * validates cross-plugin DAG topology, persists installation metadata (`source = "marketplace"`),
+   * runs any SemVer migration, activates the plugin, and wakes waiting dependent plugins.
+   */
+  async installMarketplacePackage(
+    rawArchive: string | Uint8Array | NshPackageEnvelope,
+    verifyOptions: VerifyNshPackageOptions,
+    createDefinition: (verified: VerifiedNshPackage) => PluginDefinition<any, any>,
+  ): Promise<PluginSnapshot<any>> {
+    if (this.closing) {
+      throw new PluginKernelError({
+        stage: "plugin.marketplace.install",
+        code: "ERR_PLUGIN_HOST_CLOSED",
+        reason: "Cannot install Marketplace package on a closed PluginHost",
+      });
+    }
+
+    const verified = verifyNshPackage(rawArchive, verifyOptions);
+    const definition = createDefinition(verified);
+    if (
+      definition.manifest.id !== verified.manifest.id ||
+      definition.manifest.version !== verified.manifest.version
+    ) {
+      throw new PluginKernelError({
+        stage: "plugin.marketplace.install",
+        code: "ERR_NSHPKG_MANIFEST_INVALID",
+        pluginId: verified.manifest.id,
+        reason: `Loaded definition (${definition.manifest.id}@${definition.manifest.version}) does not match verified .nshpkg manifest (${verified.manifest.id}@${verified.manifest.version})`,
+      });
+    }
+
+    const existingEntry = this.entries.get(verified.manifest.id);
+    const nextManifests: PluginManifest[] = [];
+    for (const id of this.topology.bootOrder) {
+      if (id === verified.manifest.id) {
+        nextManifests.push(definition.manifest);
+      } else {
+        nextManifests.push(this.entries.get(id)!.definition.manifest);
+      }
+    }
+    if (!existingEntry) {
+      nextManifests.push(definition.manifest);
+    }
+
+    const nextTopology = validateAndSortPluginTopology(nextManifests);
+
+    if (existingEntry) {
+      await this.enqueue(existingEntry, async () => {
+        const wasEnabled = existingEntry.enabled;
+        await this.deactivateInternal(existingEntry, "disabled");
+        this.topology = nextTopology;
+        this.services.updateTopology(nextTopology);
+        existingEntry.definition = definition;
+        existingEntry.source = "marketplace";
+        if (!definition.migrate) {
+          existingEntry.installedVersion = definition.manifest.version;
+          existingEntry.migrated = true;
+          this.saveInstallationRow(
+            definition.manifest.id,
+            wasEnabled,
+            existingEntry.installedVersion,
+            existingEntry.source,
+          );
+        } else {
+          existingEntry.migrated = existingEntry.installedVersion === definition.manifest.version;
+          this.saveInstallationRow(
+            definition.manifest.id,
+            wasEnabled,
+            existingEntry.installedVersion,
+            existingEntry.source,
+          );
+        }
+        existingEntry.state = structuredClone(
+          (definition.initialState(existingEntry.storage) ?? {}) as Record<string, unknown>,
+        );
+        if (wasEnabled) {
+          existingEntry.enabled = true;
+          await this.activateInternal(existingEntry);
+        } else {
+          this.publishSnapshot(existingEntry);
+        }
+      });
+      await this.reconcileWaitingPlugins();
+      return this.buildSnapshot(existingEntry);
+    }
+
+    const storage = this.createStorageForPlugin(definition.manifest.id);
+    const initialState = structuredClone(
+      (definition.initialState(storage) ?? {}) as Record<string, unknown>,
+    );
+    const savedRow = this.database
+      .prepare("SELECT enabled, installed_version, source FROM plugin_installations WHERE id = ?")
+      .get(definition.manifest.id) as
+      | { enabled: number; installed_version: string; source: string }
+      | undefined;
+
+    const enabled = savedRow ? Boolean(savedRow.enabled) : true;
+    const installedVersion = savedRow ? savedRow.installed_version : definition.manifest.version;
+    if (!savedRow || savedRow.source !== "marketplace") {
+      this.saveInstallationRow(
+        definition.manifest.id,
+        enabled,
+        installedVersion,
+        "marketplace",
+      );
+    }
+
+    const hasHardDeps = (definition.manifest.dependencies ?? []).some((d) => !d.optional);
+    const entry: ManagedPluginEntry = {
+      definition,
+      storage,
+      source: "marketplace",
+      enabled,
+      installedVersion,
+      migrated: installedVersion === definition.manifest.version || !definition.migrate,
+      lifecycle: !enabled ? "stopped" : hasHardDeps ? "waiting_dependency" : "registered",
+      state: initialState,
+      mounting: false,
+      generation: 0,
+      transitionQueue: Promise.resolve(),
+    };
+    this.entries.set(definition.manifest.id, entry);
+    this.topology = nextTopology;
+    this.services.updateTopology(nextTopology);
+
+    if (enabled) {
+      await this.enqueue(entry, () => this.activateInternal(entry));
+      await this.reconcileWaitingPlugins();
+    } else {
+      this.publishSnapshot(entry);
+    }
+    return this.buildSnapshot(entry);
   }
 
   async close(): Promise<void> {

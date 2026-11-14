@@ -4,6 +4,7 @@
     "application": "com.superlooi.nsh.SuperLooiApplication",
     "allowBackup": false,
     "permissions": [
+      "android.permission.CAMERA",
       "android.permission.RECORD_AUDIO",
       "android.permission.MODIFY_AUDIO_SETTINGS",
       "android.permission.BLUETOOTH",
@@ -18,6 +19,7 @@
     "releaseApplicationIdentifier": "SUPERLOOI.com.superlooi.app"
   },
   "ios": {
-    "localNetworkUsageDescription": "连接同一网络中的米家摄像头，用于实时预览和按需查看画面。"
+    "localNetworkUsageDescription": "连接同一网络中的米家摄像头，用于实时预览和按需查看画面。",
+    "cameraUsageDescription": "授权 LOOI 调用手机前／后置摄像头，为已启用的视觉与桌面交互插件提供本地实时感知。"
   }
 }

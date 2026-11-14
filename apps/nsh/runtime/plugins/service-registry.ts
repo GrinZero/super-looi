@@ -278,11 +278,20 @@ export class PluginServiceBroker {
   private readonly watchers = new Set<ServiceWatcher>();
 
   constructor(
-    private readonly topology: ValidatedTopology,
+    private topology: ValidatedTopology,
     private readonly onHardServiceRemoved?: (
       event: { serviceId: PluginServiceId; providerPluginId: string },
     ) => void | Promise<void>,
+    private readonly onWatcherError?: (event: {
+      consumerPluginId: string;
+      serviceId: PluginServiceId;
+      error: unknown;
+    }) => void,
   ) {}
+
+  updateTopology(nextTopology: ValidatedTopology): void {
+    this.topology = nextTopology;
+  }
 
   hasCompatibleActiveService(serviceId: PluginServiceId, versionRange: string, consumerId?: string): boolean {
     const active = this.activeServices.get(serviceId);
@@ -522,12 +531,17 @@ export class PluginServiceBroker {
         }
         return watcher.callback(record.proxy, depScope);
       })
-      .catch(() => {
-        // Watcher callback failures unwind their dedicated dependency scope cleanly.
+      .catch((error) => {
+        // Watcher callback failures unwind their dedicated dependency scope cleanly and surface structured diagnostics.
         if (watcher.depScope === depScope) {
           watcher.depScope = undefined;
           void depScope.dispose().catch(() => {});
         }
+        this.onWatcherError?.({
+          consumerPluginId: watcher.consumerPluginId,
+          serviceId: record.serviceId,
+          error,
+        });
       });
   }
 }

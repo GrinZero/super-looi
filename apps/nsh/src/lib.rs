@@ -5,6 +5,7 @@ mod ble;
 mod compat;
 mod credentials;
 mod camera;
+mod device_camera;
 #[cfg(target_os = "ios")]
 mod keep_awake;
 #[cfg(all(any(target_os = "android", target_os = "ios"), target_arch = "aarch64"))]
@@ -27,11 +28,13 @@ fn native(registry: &mut Registry) {
         .class::<VoiceAudio>()
         .class::<LooiBle>()
         .class::<MiotLoginBrowser>()
-        .class::<camera::XiaomiCameraHost>();
+        .class::<camera::XiaomiCameraHost>()
+        .class::<device_camera::DeviceCameraHost>();
 }
 
 #[cfg(target_os = "ios")]
 #[native_components(ios)]
 fn components(components: &nsh_platform_ios::Components) {
     components.register("looi.CameraVideo", camera::view_ios::factory());
+    components.register("looi.DeviceCameraPreview", device_camera::view_ios::factory());
 }

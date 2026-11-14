@@ -9,6 +9,7 @@ import {
   type RobotFaceController,
 } from "../../../../packages/looi-runtime/src/ui/robot-face-controller.js";
 import type { BodyRuntime } from "../body.js";
+import type { VisionBroker } from "../device-camera.js";
 import type {
   BodyServoLease,
   EffectScope,
@@ -18,6 +19,7 @@ import type {
   PluginFaceCapability,
   PluginManifest,
   PluginPermission,
+  PluginVisionCapability,
   ScopedExpressionId,
 } from "./contracts.js";
 import { extractPluginFailure, PluginKernelError } from "./errors.js";
@@ -300,6 +302,123 @@ export function createBodyCapability(
         setLight: wrapServoMethod(manifest.id, "setLight", rawLease.setLight),
         onPreempted: rawLease.onPreempted,
         release: wrapServoMethod(manifest.id, "release", rawLease.release),
+      };
+    },
+  };
+}
+
+function assertCameraFacingPermission(
+  manifest: PluginManifest,
+  facing: "front" | "back",
+  stage: string,
+): void {
+  if (facing !== "front" && facing !== "back") {
+    throw new PluginKernelError({
+      stage,
+      code: "ERR_INVALID_CAMERA_FACING",
+      pluginId: manifest.id,
+      reason: `Unsupported camera facing "${String(facing)}"; expected "front" or "back"`,
+    });
+  }
+  const required: PluginPermission = facing === "front" ? "camera.front" : "camera.back";
+  assertPluginPermission(manifest, required, stage);
+}
+
+function rethrowAsVisionKernelError(
+  pluginId: string,
+  method: string,
+  error: unknown,
+): never {
+  if (error instanceof PluginKernelError) throw error;
+  const fallbackStage = `plugin:${pluginId}:vision.${method}`;
+  const failure = extractPluginFailure(error, fallbackStage, "ERR_VISION_EXECUTION_FAILED");
+  throw new PluginKernelError({
+    stage: failure.stage,
+    code: failure.code !== undefined ? String(failure.code) : "ERR_VISION_EXECUTION_FAILED",
+    pluginId,
+    reason: failure.reason,
+    cause: error,
+  });
+}
+
+export function createVisionCapability(
+  manifest: PluginManifest,
+  pluginScope: EffectScope,
+  vision: VisionBroker,
+): PluginVisionCapability | undefined {
+  const canFront = manifest.permissions.includes("camera.front");
+  const canBack = manifest.permissions.includes("camera.back");
+  if (!canFront && !canBack) {
+    return undefined;
+  }
+
+  return {
+    permissionStatus: () => vision.permissionStatus(),
+    requestPermission: async () => {
+      try {
+        return await vision.requestPermission();
+      } catch (error) {
+        rethrowAsVisionKernelError(manifest.id, "requestPermission", error);
+      }
+    },
+    captureFrame: async (options) => {
+      assertCameraFacingPermission(manifest, options.facing, "vision.captureFrame");
+      if (!pluginScope.active) {
+        throw new PluginKernelError({
+          stage: "vision.captureFrame",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Plugin "${manifest.id}" scope is already disposed`,
+        });
+      }
+      try {
+        return await vision.captureFrame(options);
+      } catch (error) {
+        rethrowAsVisionKernelError(manifest.id, "captureFrame", error);
+      }
+    },
+    subscribeFrames: async (options, onFrame) => {
+      assertCameraFacingPermission(manifest, options.facing, "vision.subscribeFrames");
+      const targetScope = options.scope ?? pluginScope;
+      if (!targetScope.active) {
+        throw new PluginKernelError({
+          stage: "vision.subscribeFrames",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Target EffectScope "${targetScope.id}" is already disposed`,
+        });
+      }
+      let handle: { readonly previewSessionId: string; close(): void };
+      try {
+        handle = await vision.subscribeFrames(
+          {
+            facing: options.facing,
+            maxDimension: options.maxDimension,
+            maxFps: options.maxFps,
+          },
+          onFrame,
+        );
+      } catch (error) {
+        rethrowAsVisionKernelError(manifest.id, "subscribeFrames", error);
+      }
+      if (!targetScope.active) {
+        handle.close();
+        throw new PluginKernelError({
+          stage: "vision.subscribeFrames",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Target EffectScope "${targetScope.id}" disposed while camera session was opening`,
+        });
+      }
+      const unregisterDispose = targetScope.onDispose(() => {
+        handle.close();
+      });
+      return {
+        previewSessionId: handle.previewSessionId,
+        close: () => {
+          handle.close();
+          unregisterDispose();
+        },
       };
     },
   };

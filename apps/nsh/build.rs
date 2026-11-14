@@ -23,8 +23,10 @@ fn main() {
     println!("cargo:rustc-env=LOOI_KWS_MODEL_DIR={}", model.display());
     if target == "ios" {
         println!("cargo:rerun-if-changed=native/ios/CameraMedia.m");
+        println!("cargo:rerun-if-changed=native/ios/DeviceCamera.m");
         cc::Build::new()
             .file("native/ios/CameraMedia.m")
+            .file("native/ios/DeviceCamera.m")
             .flag("-fobjc-arc")
             .flag("-fblocks")
             .compile("looi_camera_media");

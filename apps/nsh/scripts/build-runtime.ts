@@ -24,6 +24,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     export {MiotLoginFlow} from "./runtime/miot-login.ts";
     export {resolveApplianceCardView, packBentoTiles} from "@super-looi/home-devices";
     export {RobotFaceController, FACE_EXPRESSION_IDS, FACE_PRIORITY, isFaceExpression, getFaceExpressionBehavior} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
+    export {verifyEd25519Signature, verifyNshPackage} from "./runtime/plugins/package-loader.ts";
     export async function openRuntime(host,vault) {
       const release=installNshNativeCompat(host);
       try {const {MobileRuntime}=await import("./runtime/application.ts");return new MobileRuntime(vault,release);}
@@ -176,14 +177,18 @@ export type LlmOAuthUiEvent =
  | {kind:"auth_url";url:string;instructions?:string}
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
-import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft} from "../runtime/plugins/shared-types.js";
-export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft} from "../runtime/plugins/shared-types.js";
+import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,NativeDeviceCameraPort,VisionBrokerAttachOptions} from "../runtime/plugins/shared-types.js";
+export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,NativeDeviceCameraPort,VisionBrokerAttachOptions} from "../runtime/plugins/shared-types.js";
 export interface NativeRuntime {
  pluginsSnapshot():PluginSnapshot[];
+ startPlugins():Promise<void>;
  activeStagePresentation():{pluginId:string;revision:number;presentation:PluginStagePresentation}|null;
  exitPluginStage(id:string):void;
  reportPluginStageCrash(id:string,slot:"StageCanvas"|"StageCapsule"|"StageDrawer",error:unknown):PluginFailure;
+ installMarketplacePlugin(rawArchive:string|Uint8Array|{readonly format:"nshpkg-v1";readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string;readonly signature:string},verifyOptions:{readonly trustedKeys:Readonly<Record<string,string|Uint8Array>>;readonly hostApiVersion?:number},createDefinition:(verified:{readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string})=>unknown,action:UiAction):Promise<PluginSnapshot>;
  attachFaceController(controller:RobotFaceController|undefined):void;
+ attachNativeDeviceCamera(port:NativeDeviceCameraPort|null,options?:VisionBrokerAttachOptions):void;
+ setDeviceCameraForegroundActive(active:boolean):void;
  setPluginAiBridge(bridge:{speak?:(options:{pluginId:string;spokenText:string;contextNote?:string;delivery:"when_idle"|"interrupt"})=>Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;runBackgroundTask?:(options:{pluginId:string;prompt:string})=>Promise<{readonly taskId:string;readonly answer:string}>;onVoiceContextUpdated?:(summaryPrompt:string)=>void;onVoiceToolsUpdated?:()=>void}):void;
  pluginAmbientVoiceContext():string;
  pluginVoiceTools():readonly PluginVoiceTool[];
@@ -271,6 +276,8 @@ export interface FaceState {expression:FaceExpression;gaze:{x:number;y:number};b
 export class RobotFaceController {
  constructor(options?:{onStateChange?:()=>void});getState():FaceState;attachRecipeSyncBridge(bridge:((id:PluginFaceExpressionId,recipe:Record<string,unknown>|null)=>void)|undefined):void;registerDynamicExpression(id:PluginFaceExpressionId,recipe:Record<string,unknown>,behavior?:Partial<{closedRest:boolean;allowsBlink:boolean;allowsAudioResonance:boolean}>):()=>void;acquireLayerLease(priority:FacePriorityLevel,initial?:{expression?:FaceExpression|null;gaze?:{x:number;y:number}|null}):FaceLayerLease;setHostPresence(presence:{systemCritical?:FaceExpression|null;dockTransient?:FaceExpression|null;conversational?:FaceExpression|null;idle?:FaceExpression}):void;setExpression(value:FaceExpression):void;setGaze(x:number,y:number):void;updateAudioLevel(rms:number):void;triggerBlink():void;dispose():void;
 }
+export function verifyEd25519Signature(message:Uint8Array,signature:Uint8Array,publicKey32:Uint8Array):boolean;
+export function verifyNshPackage(rawArchive:string|Uint8Array|{readonly format:"nshpkg-v1";readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string;readonly signature:string},options:{readonly trustedKeys:Readonly<Record<string,string|Uint8Array>>;readonly hostApiVersion?:number}):{readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string};
 export function openRuntime(host:{request(raw:string):string;begin(kind:string,raw:string):string;wait(ticket:string):Promise<string>;close():void},vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void}):Promise<NativeRuntime>;
 `,
   );

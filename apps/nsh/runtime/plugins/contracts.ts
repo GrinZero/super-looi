@@ -4,6 +4,7 @@ import type { BodyActionReceipt, BodyControlInput, BodyStatusSnapshot } from "..
 import {
   HOST_PLUGIN_API_VERSION,
   PLUGIN_CATEGORIES,
+  PLUGIN_PERMISSIONS,
   type AiTurnDraft,
   type CliReceipt,
   type FaceStagePosture,
@@ -30,6 +31,7 @@ import {
 export {
   HOST_PLUGIN_API_VERSION,
   PLUGIN_CATEGORIES,
+  PLUGIN_PERMISSIONS,
   type AiTurnDraft,
   type CliReceipt,
   type FaceStagePosture,

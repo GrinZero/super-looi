@@ -19,4 +19,5 @@ export const codexManifest: PluginManifest = {
     verified: true,
   },
   permissions: ["ai.tools", "ai.intercept", "linux.exec"],
+  activation: "on_demand",
 };

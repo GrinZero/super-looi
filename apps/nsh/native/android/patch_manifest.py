@@ -86,6 +86,7 @@ def patch(data, application, allow_backup=False, orientation="landscape", permis
     strings = parse_strings(chunks[pool_index])
     permissions = tuple(dict.fromkeys(permissions))
     supported_permissions = (
+        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.BLUETOOTH",

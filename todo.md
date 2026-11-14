@@ -1,5 +1,9 @@
 # 当前待办
 
+## 插件系统 v2 与本机前后摄真机横屏验收
+
+- [ ] 连接 iOS 与 Android 开发真机，横屏（`844 × 390`）实测 `DeviceCameraHost` 本机前／后置摄像头授权弹窗、`<DeviceCameraPreview />` 横屏正向预览与前后台自动重绑、`VisionBroker` 多插件共享采样，以及连接真实 LOOI 蓝牙底座时的连续伺服（`acquireServo`）与首屏 `MorphableStage` 五姿态切换；当前桌面无头测试、QuickJS FFI、ObjC／Java 原生编译检查与跨插件生态回归均已通过。
+
 ## Realtime 开源会话层
 
 - [ ] 若采用统一 WebRTC 媒体路径，先向豆包 Seeduplex／MOSS 确认直接 WebRTC／SDP 能力；当前公开直接接口只核实 WebSocket，边界见 [GPT-Live 与 SDK](docs/gpt-live-and-realtime-sdk-boundaries-2026-11-14.md)。

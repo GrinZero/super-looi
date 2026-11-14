@@ -15,19 +15,22 @@ export const PLUGIN_CATEGORIES: readonly PluginCategory[] = [
   "utilities",
 ] as const;
 
-export type PluginPermission =
-  | "face.control"
-  | "face.register"
-  | "body.motion"
-  | "camera.front"
-  | "camera.back"
-  | "ai.tools"
-  | "ai.context"
-  | "ai.intercept"
-  | "ai.proactive"
-  | "stage.ui"
-  | "linux.exec"
-  | "network.https";
+export const PLUGIN_PERMISSIONS = [
+  "face.control",
+  "face.register",
+  "body.motion",
+  "camera.front",
+  "camera.back",
+  "ai.tools",
+  "ai.context",
+  "ai.intercept",
+  "ai.proactive",
+  "stage.ui",
+  "linux.exec",
+  "network.https",
+] as const;
+
+export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
 
 export type PluginServiceId = `${string}.${string}`;
 
@@ -60,6 +63,7 @@ export interface PluginManifest {
   readonly summary: LocalizedText;
   readonly author: { readonly name: string; readonly verified?: boolean };
   readonly permissions: readonly PluginPermission[];
+  readonly activation?: "startup" | "on_demand";
   readonly provides?: readonly PluginServiceDescriptor[];
   readonly dependencies?: readonly PluginServiceDependency[];
   readonly marketplace?: {
@@ -410,4 +414,45 @@ export function validateDynamicFaceRecipeIssue(
     }
   }
   return null;
+}
+
+export interface NativeDeviceCameraFrame {
+  readonly jpeg: Uint8Array;
+  readonly width: number;
+  readonly height: number;
+  readonly facing: string;
+  readonly capturedAtMs: number;
+  readonly seq: number;
+}
+
+export interface NativeDeviceCameraPort {
+  permission(): string;
+  requestPermission(): Promise<string>;
+  openSession(
+    facing: string,
+    maxDimension: number,
+    maxFps: number,
+    sessionId: string,
+  ): Promise<string>;
+  openSample?(
+    facing: string,
+    maxDimension: number,
+    maxFps: number,
+    sessionId: string,
+  ): Promise<string>;
+  reconfigureSession(sessionId: string, maxDimension: number, maxFps: number): void;
+  status(sessionId: string): string;
+  captureFrame(
+    sessionId: string,
+    maxDimension: number,
+    afterSeq: number,
+  ): Promise<NativeDeviceCameraFrame>;
+  closeSession(sessionId: string): void;
+  setForeground(active: boolean): void;
+  stopAll(): void;
+  dispose?(): void;
+}
+
+export interface VisionBrokerAttachOptions {
+  readonly useSampleStream?: boolean;
 }

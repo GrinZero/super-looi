@@ -46,14 +46,25 @@ import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemet
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import { VoiceConversationWindow } from "./voice/conversation-window.js";
 import { PluginHost } from "./plugins/host.js";
+import type {
+  NshPackageEnvelope,
+  VerifiedNshPackage,
+  VerifyNshPackageOptions,
+} from "./plugins/package-loader.js";
 import type { DualLoopAiBusBridge } from "./plugins/ai-bus.js";
 import {
   FaceDriverHub,
   createBodyCapability,
+  createVisionCapability,
   uint8ArrayToBase64,
 } from "./plugins/embodied-drivers.js";
+import {
+  VisionBroker,
+  type NativeDeviceCameraPort,
+  type VisionBrokerAttachOptions,
+} from "./device-camera.js";
 import { createBuiltinPluginDefinitions } from "../plugins/registry.js";
-import type { PluginEvent } from "./plugins/contracts.js";
+import type { PluginDefinition, PluginEvent } from "./plugins/contracts.js";
 import type { RobotFaceController } from "../../../packages/looi-runtime/src/ui/robot-face-controller.js";
 
 type MutableModels = ReturnType<typeof createLooiModelsRegistry>;
@@ -157,6 +168,7 @@ export class MobileRuntime {
   private readonly home: HomeRuntime;
   private readonly body: BodyRuntime;
   private readonly faceHub = new FaceDriverHub();
+  private readonly visionBroker = new VisionBroker();
   private readonly plugins: PluginHost;
   private readonly credentialStore: VaultCredentialStore;
   private readonly modelsRegistry: MutableModels;
@@ -210,6 +222,8 @@ export class MobileRuntime {
         {
           createFaceCapability: (manifest, scope) => this.faceHub.createCapability(manifest, scope),
           createBodyCapability: (manifest, scope) => createBodyCapability(manifest, scope, this.body),
+          createVisionCapability: (manifest, scope) =>
+            createVisionCapability(manifest, scope, this.visionBroker),
           aiBridge: {
             runBackgroundTask: ({ pluginId, prompt: bgPrompt }) =>
               this.runPluginBackgroundTask(pluginId, bgPrompt),
@@ -257,6 +271,7 @@ export class MobileRuntime {
   }
 
   pluginsSnapshot() { return this.plugins.snapshots(); }
+  startPlugins() { return this.plugins.startStartupPlugins(); }
   activeStagePresentation() { return this.plugins.stage.activePresentation(); }
   exitPluginStage(id: string) { this.plugins.stage.exitPluginStage(id); }
   reportPluginStageCrash(
@@ -266,7 +281,29 @@ export class MobileRuntime {
   ) {
     return this.plugins.reportStageCrash(id, slot, error);
   }
+  installMarketplacePlugin(
+    rawArchive: string | Uint8Array | NshPackageEnvelope,
+    verifyOptions: VerifyNshPackageOptions,
+    createDefinition: (verified: VerifiedNshPackage) => PluginDefinition<any, any>,
+    action: UserActionRef,
+  ) {
+    if (this.closed) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId) {
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
+    }
+    return this.plugins.installMarketplacePackage(rawArchive, verifyOptions, createDefinition);
+  }
   attachFaceController(controller: RobotFaceController | undefined) { this.faceHub.attachController(controller); }
+  attachNativeDeviceCamera(
+    port: NativeDeviceCameraPort | null,
+    options?: VisionBrokerAttachOptions,
+  ) {
+    this.visionBroker.attachNativePort(port, options);
+  }
+  setDeviceCameraForegroundActive(active: boolean) {
+    this.visionBroker.setForegroundActive(active);
+  }
   setPluginAiBridge(bridge: DualLoopAiBusBridge) { this.plugins.ai.setBridge(bridge); }
   pluginAmbientVoiceContext() { return this.plugins.ai.renderAmbientInstructions(); }
   pluginVoiceTools() { return this.plugins.ai.voiceTools(); }
@@ -1192,6 +1229,7 @@ export class MobileRuntime {
     this.closed = true;
     this.cancelProviderOAuth();
     this.faceHub.attachController(undefined);
+    this.visionBroker.setForegroundActive(false);
     this.home.close();
     this.body.close();
     for (const bgTaskId of this.activePluginTaskIds) {
@@ -1203,6 +1241,7 @@ export class MobileRuntime {
       } finally {
         try { await this.plugins.close(); }
         finally {
+          this.visionBroker.close();
           try { await this.tracer.shutdown(); }
           finally { this.storage.close(); this.releaseHost(); }
         }

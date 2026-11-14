@@ -24,6 +24,7 @@ import {
 } from "nsh";
 import {
   CredentialVault,
+  DeviceCameraHost,
   NodeCompat,
   VoiceAudio,
   MiotLoginBrowser,
@@ -849,6 +850,7 @@ export function createAppStore() {
   effect(() => {
     const active = lifecycle() === "active";
     runtime?.setBodyForegroundActive(active);
+    runtime?.setDeviceCameraForegroundActive(active);
     const conversational = !active
       ? null
       : voiceState().phase === "speaking"
@@ -994,6 +996,10 @@ export function createAppStore() {
       }
       runtime = opened;
       opened.attachFaceController(driver);
+      opened.setDeviceCameraForegroundActive(lifecycle() === "active");
+      try {
+        opened.attachNativeDeviceCamera(new DeviceCameraHost());
+      } catch {}
       plugins.set(opened.pluginsSnapshot());
       activeStage.set(opened.activeStagePresentation());
       unsubscribePlugins = opened.subscribePlugins(event => {
@@ -1195,6 +1201,12 @@ export function createAppStore() {
         onVoiceToolsUpdated: () => {
           if (alive) voice?.refreshPluginVoiceTools();
         },
+      });
+      void opened.startPlugins().finally(() => {
+        if (alive) {
+          plugins.set(opened.pluginsSnapshot());
+          activeStage.set(opened.activeStagePresentation());
+        }
       });
       if (wakePreferenceTouched) {
         voice.setWakeEnabled(voiceState().wakeEnabled, { autoStandby: false });
