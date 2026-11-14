@@ -1,3 +1,31 @@
+## 插件系统 v2 与可变形首屏舞台落地（2026-11-14）
+
+方案见 [`docs/plans/plugin-system-v2-architecture-plan.md`](docs/plans/plugin-system-v2-architecture-plan.md)。
+
+- [x] Step 0：架构蓝图审视、融合与落盘
+  - [x] 完成双面满血 NSH TSX 插件包、可变形首屏舞台合成器、分层表情/视线栈、躯体伺服租约与本机前后摄原生接口契约设计
+  - [x] 对比并吸收 DeepSeek Harness（Cordis）跨插件 DAG 服务图（`provides` / `dependencies`）、`EffectScope`（`forkScope`）逆序回滚与带超时预算的 `bail` / `waterfall` 双环 AI 认知管线
+  - [x] 定稿写入 `docs/plans/plugin-system-v2-architecture-plan.md`
+- [x] Step 1（Milestone 1）：插件微内核 v2、双面 UI 桥接与 Codex 插件迁移
+  - [x] Step 1.1：实现 `EffectScope`（含 `fork` 与 LIFO 析构）与零依赖 SemVer 解析／范围匹配器（`semver.ts`）
+  - [x] Step 1.2：升级 `contracts.ts`、`service-registry.ts` 与 `ai-bus.ts`（`PluginManifest`、Kahn DAG 环检测、SemVer 兼容检查、`waiting_dependency` 级联挂起恢复、`whenAvailable` 子作用域热插拔及 Fail-Closed `interceptToolCall` / `interceptUserTurn` / `useTurnAssembler`）
+  - [x] Step 1.3：升级 `PluginHost`（SQLite `plugin_installations` + `plugin_kv_storage` 无损迁移旧 `plugin_settings`、版本升级 `migrate()`、按权限裁剪注入 `PluginContext` 与 `handleCommand` 类型化指令派发）
+  - [x] Step 1.4：将 `codex` 迁移至双面结构 `apps/nsh/plugins/codex/`（分离插件版本与 CLI 版本，将 `application.ts` 硬编码审批规则收归插件 `ctx.ai.interceptToolCall`）
+  - [x] Step 1.5：建立 `ui/plugins/ui-contracts.ts` 与 `registry.ts`，重构 `PluginsSpaceView.tsx`（多分类筛选胶囊、依赖状态展示、`<ErrorBoundary>` 动态挂载插件自定义 `SettingsView`）
+  - [x] Step 1.6：完成 Milestone 1 单元测试、Rust UI 回归、类型与构建验证、独立子 agent review（修复全部 11 项安全边界与并发竞态问题）、`docs/arch/index.html` 更新与隔离提交
+- [ ] Step 2（Milestone 2）：表情动态注册栈、躯体伺服抢占与双环语音／任务深度接线
+  - [ ] Step 2.1：升级 `RobotFaceController` 与 `RobotFace.tsx` 支持命名空间动态配方注册与 P0–P5 表情／视线 `gaze` 正交合成
+  - [ ] Step 2.2：升级 `BodyRuntime` 支持 `acquireServo` 连续伺服租约与用户／语音指令实时抢占回调
+  - [ ] Step 2.3：将 `DualLoopAiBus` 完整接入 `VoiceRuntime`（`80ms` 组装预算、语音轮次短路、等待播放完毕的 `speak`）与 `PiTaskRunner`（`1500ms` 多模态组装）
+  - [ ] Step 2.4：完成 Milestone 2 自动化验证、独立子 agent review 与隔离提交
+- [ ] Step 3（Milestone 3）：横屏首屏“可变形舞台（Morphable Stage）”合成器
+  - [ ] Step 3.1：重构 `App.tsx` 首屏舞台层支持 `FaceStagePosture`（`full` / `floating_top` / `docked_corner` / `split_left` / `minimized_pill`）单实例弹簧变形
+  - [ ] Step 3.2：实现 `StageCapsule`、四档位 `StageDrawer`、`StageCanvas` 与最高层级不可遮挡宿主安全控制柄
+  - [ ] Step 3.3：完成 Milestone 3 无头 UI 变形／异常熔断回归、独立子 agent review 与隔离提交
+- [ ] Step 4（Milestone 4）：手机本机前／后置摄像头原生模块（`DeviceCameraHost`）与跨插件生态闭环
+  - [ ] Step 4.1：实现 Rust `DeviceCameraHost`（iOS `AVCaptureSession` / Android `Camera2` / `<DeviceCameraPreview />`）与 TS `VisionBroker`
+  - [ ] Step 4.2：落地跨插件示范组合与 `.nshpkg` 签名市场包验证入口，完成自动化验证与独立 review
+
 ## Task Agent 历史会话工具（2026-11-12）
 
 - [x] Step 1：核对 Pi 会话格式、现有工具接入与 App 自有存储边界。

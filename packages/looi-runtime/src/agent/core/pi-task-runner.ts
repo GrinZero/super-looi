@@ -350,11 +350,21 @@ export class PiTaskRunner {
         });
 
       const extension: ExtensionFactory = (pi) => {
-        pi.on("before_agent_start", (event, ctx) => {
+        pi.on("before_agent_start", async (event, ctx) => {
           this.resolveSession(this.session);
+          const turnPrompt = event.messageType === "user" ? event.prompt : prompt;
+          const assembled = await config.assembleTurnContext?.({
+            taskId: task.id,
+            sessionId: task.sessionId,
+            prompt: turnPrompt,
+          });
+          const extraContext = assembled?.contextText?.trim() ? `\n${assembled.contextText.trim()}` : "";
           const { systemPrompt } = buildAgentTurnPrompts({
-            baseSystemPrompt: event.systemPrompt + (config.systemPrompt ? `\n${config.systemPrompt}` : ""),
-            prompt: event.messageType === "user" ? event.prompt : prompt,
+            baseSystemPrompt:
+              event.systemPrompt +
+              (config.systemPrompt ? `\n${config.systemPrompt}` : "") +
+              extraContext,
+            prompt: turnPrompt,
             mode: options.mode,
             defaultLanguage: options.defaultLanguage,
             restoredMessages: manager.buildSessionContext().messages,
@@ -375,16 +385,35 @@ export class PiTaskRunner {
           if (host.isExecutorClosed() || this.stopped) {
             return { block: true, reason: "Task was stopped; no further tool execution is permitted." };
           }
-          const details = host.approvalPolicy({
+          const approvalContext = {
             callId: event.toolCallId,
             toolName: event.toolName,
             arguments: event.input,
             sessionId: task.sessionId,
             workspaceRoot: task.workspaceRoot,
             approvalMode: options.approvalMode ?? "ask",
-          });
-          if (details) {
-            const decision = await this.waitForInteraction("approval", details);
+          };
+          const pluginDecision = await config.beforeToolCall?.(approvalContext);
+          if (pluginDecision?.decision === "deny") {
+            return {
+              block: true,
+              reason: `[${pluginDecision.code}] ${pluginDecision.reason}`,
+            };
+          }
+          // Host safety policy is always authoritative and can never be bypassed or spoofed by a plugin.
+          const hostApprovalDetails = host.approvalPolicy(approvalContext);
+          if (hostApprovalDetails) {
+            const decision = await this.waitForInteraction("approval", hostApprovalDetails);
+            if (!("outcome" in decision) || decision.outcome !== "allowed-once") {
+              return { block: true, reason: "User rejected approval request. Do not retry or use alternative methods; state clearly that the operation was rejected." };
+            }
+          } else if (pluginDecision?.decision === "ask" && approvalContext.approvalMode !== "yolo") {
+            const decision = await this.waitForInteraction("approval", {
+              ...pluginDecision.promptPayload,
+              callId: event.toolCallId,
+              toolName: event.toolName,
+              sessionId: task.sessionId,
+            });
             if (!("outcome" in decision) || decision.outcome !== "allowed-once") {
               return { block: true, reason: "User rejected approval request. Do not retry or use alternative methods; state clearly that the operation was rejected." };
             }

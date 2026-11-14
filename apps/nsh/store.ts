@@ -6,6 +6,7 @@ import { uiMessage } from "./runtime/messages";
 import { HomePowerState } from "./runtime/home-power-state";
 import { bindLocale, resolveLocale, translateMessage, type LanguagePreference } from "./i18n";
 import { voiceProviderLabel } from "./ui/doubao-voices";
+import type { PluginViewContext } from "./ui/plugins/ui-contracts";
 import {
   cleanup,
   colorScheme,
@@ -50,6 +51,7 @@ import {
   type TileSpan,
   type NativeRuntime,
   type PluginSnapshot,
+  type PluginStagePresentation,
   type NativeStep,
   type NativeTask,
   type NativeTaskPage,
@@ -359,17 +361,45 @@ export function createAppStore() {
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
   const plugins = signal<PluginSnapshot[]>([]);
+  const activeStage = signal<{ pluginId: string; presentation: PluginStagePresentation } | null>(null);
   const inspectedPluginId = signal<string | null>(null);
-  const pluginBusy = signal("");
-  const pluginUiError = signal("");
+  const pluginBusyById = signal<Record<string, boolean>>({});
+  const pluginUiErrorById = signal<Record<string, string>>({});
+  const setPluginBusy = (id: string, busyVal: boolean) => {
+    const next = { ...pluginBusyById() };
+    if (busyVal) next[id] = true;
+    else delete next[id];
+    pluginBusyById.set(next);
+  };
+  const setPluginUiError = (id: string, message: string) => {
+    const next = { ...pluginUiErrorById() };
+    if (message) next[id] = message;
+    else delete next[id];
+    pluginUiErrorById.set(next);
+  };
+  const pluginContexts = new Map<string, PluginViewContext<any, any>>();
   let unsubscribePlugins: (() => void) | undefined;
-  const pluginAction = async (id: string, run: (host: NativeRuntime) => Promise<unknown>) => {
-    if (!runtime || pluginBusy()) return;
-    pluginBusy.set(id);
-    pluginUiError.set("");
-    try { await run(runtime); }
-    catch (error) { if (alive) pluginUiError.set(String(error)); }
-    finally { if (alive) { if (runtime) plugins.set(runtime.pluginsSnapshot()); pluginBusy.set(""); } }
+  const pluginAction = async <TResult = unknown>(
+    id: string,
+    run: (host: NativeRuntime) => Promise<TResult>,
+  ): Promise<TResult | undefined> => {
+    if (!runtime || pluginBusyById()[id]) return undefined;
+    setPluginBusy(id, true);
+    setPluginUiError(id, "");
+    try {
+      return await run(runtime);
+    } catch (error) {
+      if (alive) setPluginUiError(id, error instanceof Error ? error.message : String(error));
+      return undefined;
+    } finally {
+      if (alive) {
+        if (runtime) {
+          plugins.set(runtime.pluginsSnapshot());
+          activeStage.set(runtime.activeStagePresentation());
+        }
+        setPluginBusy(id, false);
+      }
+    }
   };
   const appearancePreference = signal<AppearancePreference>("system");
   const taskApprovalMode = signal<TaskApprovalMode>("ask");
@@ -938,12 +968,28 @@ export function createAppStore() {
       }
       runtime = opened;
       plugins.set(opened.pluginsSnapshot());
+      activeStage.set(opened.activeStagePresentation());
       unsubscribePlugins = opened.subscribePlugins(event => {
         if (!alive) return;
-        if (event.type === "state_changed") plugins.update(current => current.map(item => item.id === event.pluginId ? event.snapshot : item));
+        if (event.type === "state_changed") {
+          plugins.update(current => {
+            const idx = current.findIndex(item => item.id === event.pluginId);
+            if (idx < 0) return [...current, event.snapshot];
+            const next = [...current];
+            next[idx] = event.snapshot;
+            return next;
+          });
+        }
+        if (event.type === "stage_changed") {
+          activeStage.set(
+            event.pluginId && event.presentation
+              ? { pluginId: event.pluginId, presentation: event.presentation }
+              : null,
+          );
+        }
         if (event.type === "auth_challenge") {
           const current = plugins().find(item => item.id === event.pluginId);
-          if (current?.enabled && current.auth?.state === "authorizing" && current.auth.sessionId === event.sessionId) void openUrl(event.url).catch(error => { if (alive) pluginUiError.set(String(error)); });
+          if (current?.enabled && current.auth?.state === "authorizing" && current.auth.sessionId === event.sessionId) void openUrl(event.url).catch(error => { if (alive) setPluginUiError(event.pluginId, String(error)); });
         }
       });
       unsubscribeTrace = opened.subscribeTrace(() => {
@@ -1023,7 +1069,14 @@ export function createAppStore() {
         },
         onNotice: (notice) => {
           if (!alive) return;
-          const task = notice.taskId ? opened.taskDetails(notice.taskId) : undefined;
+          let task: ReturnType<typeof opened.taskDetails> | undefined;
+          if (notice.taskId) {
+            try {
+              task = opened.taskDetails(notice.taskId);
+            } catch {
+              task = undefined;
+            }
+          }
           const traceContext = task?.trace ? {
             traceId: task.trace.traceId,
             parentSpanId: task.trace.spanId,
@@ -1157,18 +1210,95 @@ export function createAppStore() {
 
   const api = {
     plugins: () => plugins(),
+    activeStage: () => activeStage(),
+    exitPluginStage(id?: string) {
+      const targetId = id ?? activeStage()?.pluginId;
+      if (!targetId || !runtime) {
+        activeStage.set(null);
+        return;
+      }
+      runtime.exitPluginStage(targetId);
+      activeStage.set(runtime.activeStagePresentation());
+      plugins.set(runtime.pluginsSnapshot());
+    },
     inspectedPluginId: () => inspectedPluginId(),
     setInspectedPluginId(id: string | null) {
+      if (id) setPluginUiError(id, "");
       inspectedPluginId.set(id);
     },
-    pluginBusy: () => pluginBusy(),
-    pluginUiError: () => pluginUiError(),
+    pluginBusy: () => {
+      const inspected = inspectedPluginId();
+      if (inspected && pluginBusyById()[inspected]) return inspected;
+      return Object.keys(pluginBusyById())[0] ?? "";
+    },
+    pluginUiError: () => {
+      const inspected = inspectedPluginId();
+      return inspected ? (pluginUiErrorById()[inspected] ?? "") : "";
+    },
     refreshPlugin: (id: string) => pluginAction(id, host => host.refreshPlugin(id)),
     configurePlugin: (id: string, values: Record<string, string>) => pluginAction(id, host => host.configurePlugin(id, plugins().find(item => item.id === id)?.enabled ?? true, values, action())),
-    setPluginEnabled: (id: string, enabled: boolean) => pluginAction(id, host => host.configurePlugin(id, enabled, plugins().find(item => item.id === id)?.configuration ?? {}, action())),
+    setPluginEnabled: (id: string, enabled: boolean) => pluginAction(id, host => host.setPluginEnabled(id, enabled, action())),
+    sendPluginCommand: <TCommand = unknown, TResult = unknown>(id: string, command: TCommand) =>
+      pluginAction<TResult>(id, host => host.sendPluginCommand<TCommand, TResult>(id, command, action())),
     beginPluginLogin: (id: string) => pluginAction(id, host => host.beginPluginLogin(id, action())),
     cancelPluginLogin: (id: string) => pluginAction(id, host => host.cancelPluginLogin(id)),
     logoutPlugin: (id: string) => pluginAction(id, host => host.logoutPlugin(id, action())),
+    pluginViewContext<TState = Record<string, unknown>, TCommand = unknown>(
+      id: string,
+    ): PluginViewContext<TState, TCommand> {
+      let cached = pluginContexts.get(id);
+      if (!cached) {
+        const snap = () => plugins().find(item => item.id === id);
+        cached = {
+          pluginId: id,
+          manifest: () =>
+            snap()?.manifest ?? {
+              id,
+              version: "0.0.0",
+              minHostApiVersion: 2,
+              category: "utilities",
+              icon: "wrench",
+              name: { "zh-CN": id, "en-US": id },
+              summary: { "zh-CN": "", "en-US": "" },
+              author: { name: "Unknown" },
+              permissions: [],
+            },
+          state: () => (snap()?.state ?? {}) as TState,
+          configuration: () => snap()?.configuration ?? {},
+          enabled: () => snap()?.enabled ?? false,
+          lifecycle: () => snap()?.lifecycle ?? "stopped",
+          dependencies: () => snap()?.dependencies ?? [],
+          busy: () => Boolean(pluginBusyById()[id]),
+          uiError: () => pluginUiErrorById()[id] ?? "",
+          auth: () => snap()?.auth,
+          lastExecution: () => snap()?.lastExecution,
+          lastError: () => snap()?.lastError,
+          stagePresentation: () => snap()?.stagePresentation,
+          locale: () => effectiveLocale(),
+          sendCommand: <TResult = unknown>(command: TCommand) =>
+            api.sendPluginCommand<TCommand, TResult>(id, command),
+          configure: async (values: Record<string, string>) => {
+            await api.configurePlugin(id, values);
+          },
+          refresh: async () => {
+            await api.refreshPlugin(id);
+          },
+          beginLogin: async () => {
+            await api.beginPluginLogin(id);
+          },
+          cancelLogin: async () => {
+            await api.cancelPluginLogin(id);
+          },
+          logout: async () => {
+            await api.logoutPlugin(id);
+          },
+          notify,
+          exitStage: () => api.exitPluginStage(id),
+        };
+        pluginContexts.set(id, cached);
+      }
+      return cached as PluginViewContext<TState, TCommand>;
+    },
     languagePreference: () => languagePreference(),
     effectiveLocale,
     async setLanguagePreference(value: LanguagePreference) {

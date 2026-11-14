@@ -17,6 +17,26 @@ import { wrapStreamFnWithLangfuse } from "../../telemetry/llm-observer.js";
 
 export interface PiSessionConfig extends ModelStreamConfig {
   taskTools?: (context: { taskId: string; workspaceRoot: string; approvalMode: "ask" | "local_auto" | "yolo"; commandTimeoutMs: number }) => { tools: AgentTool<any>[]; skillPaths?: readonly string[] };
+  beforeToolCall?: (context: {
+    callId: string;
+    toolName: string;
+    arguments: Record<string, unknown>;
+    sessionId: string;
+    workspaceRoot: string;
+    approvalMode: "ask" | "local_auto" | "yolo";
+  }) =>
+    | Promise<
+        | undefined
+        | { readonly decision: "allow" }
+        | { readonly decision: "ask"; readonly promptPayload: Record<string, unknown> }
+        | { readonly decision: "deny"; readonly code: string; readonly reason: string }
+      >
+    | undefined;
+  assembleTurnContext?: (input: {
+    taskId: string;
+    sessionId: string;
+    prompt: string;
+  }) => Promise<{ readonly contextText?: string } | undefined> | { readonly contextText?: string } | undefined;
   customTools?: AgentTool<any>[];
   agentDirectory?: string;
   credentialStore?: CredentialStore;

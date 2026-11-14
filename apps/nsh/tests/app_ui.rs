@@ -198,7 +198,7 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.wait_for("未找到匹配的插件")?;
     app.press("plugin-search-clear")?;
     app.wait_for("Codex")?;
-    app.press("plugin-category-dev")?;
+    app.press("plugin-category-productivity")?;
     app.wait_for("Codex")?;
     app.press("plugin-codex")?;
     for label in [

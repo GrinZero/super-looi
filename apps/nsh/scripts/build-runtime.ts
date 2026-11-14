@@ -176,13 +176,17 @@ export type LlmOAuthUiEvent =
  | {kind:"auth_url";url:string;instructions?:string}
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
-import type {PluginSnapshot,PluginEvent} from "../runtime/plugins/contracts.js";
-export type {PluginSnapshot,PluginEvent} from "../runtime/plugins/contracts.js";
+import type {PluginSnapshot,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent} from "../runtime/plugins/shared-types.js";
+export type {PluginSnapshot,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent} from "../runtime/plugins/shared-types.js";
 export interface NativeRuntime {
  pluginsSnapshot():PluginSnapshot[];
+ activeStagePresentation():{pluginId:string;presentation:PluginStagePresentation}|null;
+ exitPluginStage(id:string):void;
  subscribePlugins(listener:(event:PluginEvent)=>void):()=>void;
  refreshPlugin(id:string):Promise<PluginSnapshot[]>;
+ setPluginEnabled(id:string,enabled:boolean,action:UiAction):Promise<PluginSnapshot>;
  configurePlugin(id:string,enabled:boolean,values:Record<string,string>,action:UiAction):Promise<PluginSnapshot>;
+ sendPluginCommand<TCommand=unknown,TResult=unknown>(id:string,command:TCommand,action:UiAction):Promise<TResult>;
  beginPluginLogin(id:string,action:UiAction):Promise<{sessionId:string}>;
  cancelPluginLogin(id:string):Promise<void>;
  logoutPlugin(id:string,action:UiAction):Promise<void>;

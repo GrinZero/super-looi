@@ -1,165 +1,108 @@
 import {
-  Canvas,
-  Clipboard,
-  effect,
-  openUrl,
+  computed,
+  ErrorBoundary,
   Scroll,
   signal,
   Text,
-  token,
   View,
   windowSize,
 } from "nsh";
 import { Button, Input, Switch } from "nsh/base";
 import { t } from "../i18n";
+import type { PluginSnapshot } from "../generated/looi-runtime";
+import {
+  PLUGIN_CATEGORIES,
+  type PluginCategory,
+  type PluginDependencyStatus,
+} from "../runtime/plugins/shared-types";
 import type { createAppStore } from "../store";
-import { ActionButton, TextField } from "./Controls";
+import { ActionButton } from "./Controls";
+import {
+  normalizePluginIconName,
+  PluginVectorIcon,
+} from "./plugins/PluginVectorIcon";
+import { getPluginUiModule } from "./plugins/registry";
 
-type PluginIconName =
-  | "code"
-  | "search"
-  | "user"
-  | "terminal"
-  | "cloud"
-  | "refresh"
-  | "chevron_left"
-  | "chevron_right"
-  | "chevron_down";
-
-type PluginIconTone = "foreground" | "primaryFg" | "muted";
-
-function resolvePluginIconColor(tone: PluginIconTone): string {
-  switch (tone) {
-    case "primaryFg":
-      return token("primary-foreground");
-    case "muted":
-      return token("muted-foreground");
-    case "foreground":
-    default:
-      return token("foreground");
+function categoryLabel(cat: PluginCategory): string {
+  switch (cat) {
+    case "productivity":
+      return t("pluginCategoryProductivity");
+    case "vision_motion":
+      return t("pluginCategoryVisionMotion");
+    case "games_social":
+      return t("pluginCategoryGamesSocial");
+    case "persona_expression":
+      return t("pluginCategoryPersonaExpression");
+    case "smart_space":
+      return t("pluginCategorySmartSpace");
+    case "utilities":
+      return t("pluginCategoryUtilities");
   }
 }
 
-function PluginVectorIcon(props: {
-  name: PluginIconName;
-  tone?: PluginIconTone;
-  size?: number;
-}) {
-  const iconSize = () => props.size ?? 18;
-  return (
-    <Canvas
-      style={{
-        width: iconSize(),
-        height: iconSize(),
-        pointerEvents: "none",
-      }}
-      draw={(cx, canvasSize) => {
-        const w = canvasSize.width || iconSize();
-        const h = canvasSize.height || iconSize();
-        const color = resolvePluginIconColor(props.tone ?? "foreground");
+function localizedPluginName(
+  item: PluginSnapshot | undefined,
+  locale: "zh-CN" | "en-US",
+): string {
+  if (!item) return "";
+  return item.manifest?.name?.[locale] ?? item.name;
+}
 
-        cx.save();
-        cx.scale(w / 24, h / 24);
-        cx.strokeStyle = color;
-        cx.fillStyle = color;
-        cx.lineWidth = 2;
-        cx.lineCap = "round";
-        cx.lineJoin = "round";
+function localizedPluginSummary(
+  item: PluginSnapshot | undefined,
+  locale: "zh-CN" | "en-US",
+): string {
+  if (!item) return "";
+  return item.manifest?.summary?.[locale] ?? item.description;
+}
 
-        switch (props.name) {
-          case "code": {
-            cx.beginPath();
-            cx.moveTo(8.5, 8.2);
-            cx.lineTo(4.5, 12);
-            cx.lineTo(8.5, 15.8);
-            cx.moveTo(15.5, 8.2);
-            cx.lineTo(19.5, 12);
-            cx.lineTo(15.5, 15.8);
-            cx.moveTo(13.4, 7.2);
-            cx.lineTo(10.6, 16.8);
-            cx.stroke();
-            break;
-          }
-          case "search": {
-            cx.beginPath();
-            cx.arc(10.8, 10.8, 5.8, 0, Math.PI * 2);
-            cx.stroke();
-            cx.beginPath();
-            cx.moveTo(15.2, 15.2);
-            cx.lineTo(19.5, 19.5);
-            cx.stroke();
-            break;
-          }
-          case "user": {
-            cx.beginPath();
-            cx.arc(12, 8.2, 3.4, 0, Math.PI * 2);
-            cx.stroke();
-            cx.beginPath();
-            cx.arc(12, 20.2, 6.2, Math.PI * 1.15, Math.PI * 1.85);
-            cx.stroke();
-            break;
-          }
-          case "terminal": {
-            cx.beginPath();
-            cx.moveTo(5.5, 8);
-            cx.lineTo(10.2, 12);
-            cx.lineTo(5.5, 16);
-            cx.moveTo(12.2, 16);
-            cx.lineTo(18.5, 16);
-            cx.stroke();
-            break;
-          }
-          case "cloud": {
-            cx.beginPath();
-            cx.moveTo(6.8, 18);
-            cx.lineTo(17.2, 18);
-            cx.arc(17.2, 14.3, 3.7, Math.PI * 0.5, Math.PI * 1.5, true);
-            cx.arc(12.4, 10.8, 4.8, Math.PI * 1.88, Math.PI * 1.08, true);
-            cx.arc(6.8, 14.6, 3.4, Math.PI * 1.5, Math.PI * 0.5, true);
-            cx.closePath();
-            cx.stroke();
-            break;
-          }
-          case "refresh": {
-            cx.beginPath();
-            cx.arc(12, 12, 6.8, -Math.PI * 0.78, Math.PI * 0.65);
-            cx.stroke();
-            cx.beginPath();
-            cx.moveTo(15.8, 4.2);
-            cx.lineTo(18.6, 7.2);
-            cx.lineTo(14.8, 8.2);
-            cx.stroke();
-            break;
-          }
-          case "chevron_left": {
-            cx.beginPath();
-            cx.moveTo(14.5, 6);
-            cx.lineTo(8.5, 12);
-            cx.lineTo(14.5, 18);
-            cx.stroke();
-            break;
-          }
-          case "chevron_right": {
-            cx.beginPath();
-            cx.moveTo(9.5, 6);
-            cx.lineTo(15.5, 12);
-            cx.lineTo(9.5, 18);
-            cx.stroke();
-            break;
-          }
-          case "chevron_down": {
-            cx.beginPath();
-            cx.moveTo(6, 9.5);
-            cx.lineTo(12, 15.5);
-            cx.lineTo(18, 9.5);
-            cx.stroke();
-            break;
-          }
-        }
-        cx.restore();
-      }}
-    />
-  );
+function cardStatusDotClass(item: PluginSnapshot | undefined): string {
+  if (!item?.enabled) return "w-2 h-2 rounded-full bg-subtle-text";
+  if (item.lifecycle === "waiting_dependency") {
+    return "w-2 h-2 rounded-full bg-warning";
+  }
+  if (item.lifecycle === "failed") {
+    return "w-2 h-2 rounded-full bg-destructive";
+  }
+  if (item.auth) {
+    if (item.auth.state === "signed_in") return "w-2 h-2 rounded-full bg-verified";
+    if (item.auth.state === "authorizing") return "w-2 h-2 rounded-full bg-warning";
+    if (item.auth.state === "unavailable") return "w-2 h-2 rounded-full bg-destructive";
+    return "w-2 h-2 rounded-full bg-subtle-text";
+  }
+  return "w-2 h-2 rounded-full bg-verified";
+}
+
+function cardStatusText(item: PluginSnapshot | undefined): string {
+  if (!item?.enabled) return t("pluginDisabled");
+  if (item.lifecycle === "waiting_dependency") {
+    return t("pluginWaitingDependency");
+  }
+  if (item.lifecycle === "failed") {
+    return t("pluginFailedState");
+  }
+  if (item.auth) {
+    if (item.auth.state === "authorizing") return t("pluginAuthorizing");
+    if (item.auth.state === "signed_in") return t("pluginConnected");
+    if (item.auth.state === "unavailable") return t("pluginAccountUnavailable");
+    return t("pluginSignedOut");
+  }
+  return t("pluginActive");
+}
+
+function dependencyHintText(
+  dep: PluginDependencyStatus,
+  locale: "zh-CN" | "en-US",
+): string {
+  if (dep.satisfied) return t("pluginDependencyReady");
+  if (dep.reason?.startsWith("version_mismatch")) {
+    return t("pluginDependencyVersionMismatch");
+  }
+  if (dep.optional) return t("pluginDependencyOptional");
+  if (dep.reason === "provider_inactive" && dep.providerName) {
+    return `${t("pluginDependencyProviderInactive")}${dep.providerName[locale]}`;
+  }
+  return t("pluginDependencyMissingProvider");
 }
 
 /** Top 48pt context bar for the Plugins space: switches between catalog title and detail breadcrumb + enable switch. */
@@ -171,6 +114,7 @@ export function PluginsContextBar(props: {
     props.store.plugins().find((item) => item.id === inspectedId());
   const busy = () =>
     Boolean(inspectedId()) && props.store.pluginBusy() === inspectedId();
+  const locale = () => props.store.effectiveLocale();
 
   return (
     <If
@@ -210,7 +154,7 @@ export function PluginsContextBar(props: {
             class="text-foreground text-base font-bold px-1"
             style={{ numberOfLines: 1 }}
           >
-            {plugin()?.name ?? "Codex"}
+            {localizedPluginName(plugin(), locale())}
           </Text>
         </View>
 
@@ -240,101 +184,211 @@ export function PluginsContextBar(props: {
   );
 }
 
-/** Settings stay in the runtime; this surface owns catalog filtering, selection, and editable drafts. */
+function PluginDetailPane(props: {
+  pluginId: string;
+  store: ReturnType<typeof createAppStore>;
+}) {
+  const locale = () => props.store.effectiveLocale();
+  const plugin = () =>
+    props.store.plugins().find((item) => item.id === props.pluginId);
+  const customSettingsView = computed(
+    () => getPluginUiModule(props.pluginId)?.SettingsView,
+  );
+  const viewCtx = props.store.pluginViewContext(props.pluginId);
+
+  return (
+    <If when={Boolean(plugin())}>
+      <View class="flex-1 min-h-0 gap-2.5">
+        {/* Top Plugin Identity Header */}
+        <View class="flex-row items-center justify-between gap-3 px-0.5">
+          <View class="flex-row items-center gap-3 flex-1 min-w-0">
+            <View class="w-10 h-10 rounded-xl bg-primary items-center justify-center shrink-0">
+              <PluginVectorIcon
+                name={normalizePluginIconName(plugin()?.manifest?.icon)}
+                tone="primaryFg"
+                size={20}
+              />
+            </View>
+            <View class="flex-1 min-w-0 gap-0.5">
+              <View class="flex-row flex-wrap items-center gap-2">
+                <Text
+                  class="text-foreground text-base font-bold"
+                  style={{ numberOfLines: 1 }}
+                >
+                  {localizedPluginName(plugin(), locale())}
+                </Text>
+                <View class="px-2 py-0.5 rounded-md bg-muted border border-border">
+                  <Text class="text-muted-foreground text-xs font-mono">
+                    v{plugin()?.version}
+                  </Text>
+                </View>
+                <If when={Boolean(plugin()?.category)}>
+                  <View class="px-2 py-0.5 rounded-md bg-muted border border-border">
+                    <Text class="text-muted-foreground text-xs">
+                      {categoryLabel(plugin()!.category)}
+                    </Text>
+                  </View>
+                </If>
+                <If when={(plugin()?.manifest?.provides?.length ?? 0) > 0}>
+                  <Each
+                    of={plugin()?.manifest?.provides ?? []}
+                    key={(svc) => svc.id}
+                  >
+                    {(svc) => (
+                      <View class="px-2 py-0.5 rounded-md bg-muted border border-border flex-row items-center gap-1">
+                        <PluginVectorIcon name="link" tone="muted" size={12} />
+                        <Text class="text-muted-foreground text-xs font-mono">
+                          {svc().id}@{svc().version}
+                        </Text>
+                      </View>
+                    )}
+                  </Each>
+                </If>
+              </View>
+              <Text
+                class="text-muted-foreground text-xs"
+                style={{ numberOfLines: 1 }}
+              >
+                {localizedPluginSummary(plugin(), locale())}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Cross-Plugin Service Dependencies Banner (when plugin declares dependencies) */}
+        <If when={(plugin()?.dependencies?.length ?? 0) > 0}>
+          <View class="rounded-2xl border border-border bg-card px-3.5 py-2.5 gap-2">
+            <Text class="text-foreground text-xs font-bold" role="header">
+              {t("pluginDependenciesSection")}
+            </Text>
+            <View class="flex-row flex-wrap items-center gap-2">
+              <Each
+                of={plugin()?.dependencies ?? []}
+                key={(dep) => dep.service}
+              >
+                {(dep) => (
+                  <Button
+                    disabled={!dep().providerPluginId}
+                    onPress={() => {
+                      const targetId = dep().providerPluginId;
+                      if (targetId) {
+                        props.store.setInspectedPluginId(targetId);
+                      }
+                    }}
+                    class="min-h-11 px-3 rounded-xl bg-muted border border-border flex-row items-center gap-2 active:opacity-75 disabled:opacity-100"
+                  >
+                    <View
+                      class={
+                        dep().satisfied
+                          ? "w-2 h-2 rounded-full bg-verified"
+                          : dep().optional
+                            ? "w-2 h-2 rounded-full bg-subtle-text"
+                            : "w-2 h-2 rounded-full bg-warning"
+                      }
+                    />
+                    <Text class="text-foreground text-xs font-mono">
+                      {dep().service} ({dep().versionRange})
+                    </Text>
+                    <Text class="text-muted-foreground text-xs">
+                      {dependencyHintText(dep(), locale())}
+                    </Text>
+                  </Button>
+                )}
+              </Each>
+            </View>
+          </View>
+        </If>
+
+        {/* Error-Boundary-Isolated Plugin Custom SettingsView */}
+        <ErrorBoundary
+          fallback={(error, reset) => (
+            <View
+              testID="plugin-view-error-boundary"
+              class="flex-1 min-h-0 rounded-2xl border border-destructive bg-card p-5 items-center justify-center gap-3"
+            >
+              <PluginVectorIcon name="alert" tone="destructive" size={24} />
+              <Text class="text-foreground text-sm font-bold">
+                {t("pluginViewCrashedTitle")}
+              </Text>
+              <Text class="text-destructive text-xs font-mono">
+                {error instanceof Error ? error.message : String(error)}
+              </Text>
+              <ActionButton
+                testID="plugin-view-retry"
+                compact
+                label={t("pluginViewRetry")}
+                onPress={reset}
+              />
+            </View>
+          )}
+        >
+          <If
+            when={Boolean(customSettingsView())}
+            else={
+              <View class="flex-1 min-h-0 rounded-2xl border border-border bg-card p-5 items-center justify-center gap-2">
+                <Text class="text-muted-foreground text-sm">
+                  {t("pluginNoCustomSettings")}
+                </Text>
+              </View>
+            }
+          >
+            {() => {
+              const CustomSettings = customSettingsView()!;
+              return <CustomSettings ctx={viewCtx} />;
+            }}
+          </If>
+        </ErrorBoundary>
+      </View>
+    </If>
+  );
+}
+
+/** Plugin catalog directory, category filtering, dependency indicators, and isolated custom SettingsView host. */
 export function PluginsSpaceView(props: {
   store: ReturnType<typeof createAppStore>;
 }) {
   const searchQuery = signal("");
-  const category = signal<"all" | "dev">("all");
-  const environment = signal("");
-  const branch = signal("");
-  const details = signal(false);
+  const selectedCategory = signal<"all" | PluginCategory>("all");
 
   const wide = () => windowSize().width >= 600;
-  const activePluginId = () => props.store.inspectedPluginId() ?? "codex";
-  const plugin = () =>
-    props.store.plugins().find((item) => item.id === activePluginId());
-  const busy = () => props.store.pluginBusy() === activePluginId();
-  const authorizing = () => plugin()?.auth?.state === "authorizing";
-  const signedIn = () => plugin()?.auth?.state === "signed_in";
-
-  let configurationKey = "";
-  let checked = false;
-
-  effect(() => {
-    const item = plugin();
-    if (!item) return;
-    const nextKey = JSON.stringify([item.id, item.configuration]);
-    if (configurationKey !== nextKey) {
-      configurationKey = nextKey;
-      environment.set(item.configuration.environment ?? "");
-      branch.set(item.configuration.branch ?? "");
-    }
-  });
-
-  effect(() => {
-    if (props.store.activeSpace() === "plugins" && plugin() && !checked) {
-      checked = true;
-      void props.store.refreshPlugin(activePluginId());
-    }
-  });
+  const locale = () => props.store.effectiveLocale();
 
   const filteredPlugins = () => {
     const q = searchQuery().trim().toLowerCase();
+    const cat = selectedCategory();
+    const loc = locale();
     return props.store.plugins().filter((item) => {
-      if (category() === "dev" && item.id !== "codex") return false;
+      if (cat !== "all" && item.category !== cat) return false;
       if (!q) return true;
-      const haystack = `${item.name} ${item.description} ${t("codexSummary")} ${t("pluginExecTitle")} ${t("pluginCloudTitle")}`.toLowerCase();
+      const provided = (item.manifest?.provides ?? [])
+        .map((svc) => svc.id)
+        .join(" ");
+      const haystack = [
+        item.id,
+        localizedPluginName(item, loc),
+        localizedPluginSummary(item, loc),
+        item.manifest?.name?.["zh-CN"] ?? "",
+        item.manifest?.name?.["en-US"] ?? "",
+        item.manifest?.summary?.["zh-CN"] ?? "",
+        item.manifest?.summary?.["en-US"] ?? "",
+        provided,
+      ]
+        .join(" ")
+        .toLowerCase();
       return haystack.includes(q);
     });
   };
 
-  const cardStatusText = (item: ReturnType<typeof plugin>) => {
-    if (!item?.enabled) return t("pluginDisabled");
-    if (item.auth?.state === "authorizing") return t("pluginAuthorizing");
-    if (item.auth?.state === "signed_in") return t("pluginConnected");
-    if (item.auth?.state === "unavailable") return t("pluginAccountUnavailable");
-    return t("pluginSignedOut");
-  };
-
-  const statusDotClass = (item: ReturnType<typeof plugin>) => {
-    if (!item?.enabled) return "w-2 h-2 rounded-full bg-subtle-text";
-    if (item.auth?.state === "signed_in") return "w-2 h-2 rounded-full bg-verified";
-    if (item.auth?.state === "authorizing") return "w-2 h-2 rounded-full bg-warning";
-    if (item.auth?.state === "unavailable") return "w-2 h-2 rounded-full bg-destructive";
-    return "w-2 h-2 rounded-full bg-subtle-text";
-  };
-
-  const status = () =>
-    !plugin()?.enabled
-      ? t("pluginDisabled")
-      : authorizing()
-        ? t("pluginAuthorizing")
-        : signedIn()
-          ? t("pluginSignedIn")
-          : plugin()?.auth?.state === "unavailable"
-            ? t("pluginAccountUnavailable")
-            : t("pluginSignedOut");
-
-  const executionSummary = () => {
-    const exec = plugin()?.lastExecution;
-    if (exec) {
-      if (exec.stage === "codex.account" && exec.state === "exited") {
-        return t("pluginRecentAccountUpdated");
-      }
-      return `${t("pluginRecentStagePrefix")}${exec.stage} (${exec.state})`;
-    }
-    if (signedIn()) {
-      return t("pluginRecentAccountUpdated");
-    }
-    return t("pluginRecentNoRecord");
+  const inspectedIds = () => {
+    const id = props.store.inspectedPluginId();
+    return id ? [id] : [];
   };
 
   return (
     <If
       when={Boolean(props.store.inspectedPluginId())}
       else={
-        /* View 1: Plugins Directory / List View */
+        /* View 1: Plugins Directory / Marketplace-Ready Catalog */
         <View class="flex-1 min-h-0 gap-3">
           {/* Search bar */}
           <View class="h-11 rounded-2xl border border-border bg-card px-3.5 flex-row items-center gap-2.5">
@@ -364,21 +418,26 @@ export function PluginsSpaceView(props: {
           </View>
 
           {/* Category filter pills */}
-          <View class="flex-row items-center gap-2">
+          <Scroll
+            horizontal={true}
+            scrollbar={false}
+            class="shrink-0"
+            contentClass="flex-row items-center gap-2 pr-2"
+          >
             <Button
               testID="plugin-category-all"
-              selected={category() === "all"}
+              selected={selectedCategory() === "all"}
               hitSlop={4}
-              onPress={() => category.set("all")}
+              onPress={() => selectedCategory.set("all")}
               class={
-                category() === "all"
-                  ? "min-h-9 px-4 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
-                  : "min-h-9 px-4 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
+                selectedCategory() === "all"
+                  ? "min-h-10 px-4 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
+                  : "min-h-10 px-4 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
               }
             >
               <Text
                 class={
-                  category() === "all"
+                  selectedCategory() === "all"
                     ? "text-primary-foreground text-xs font-semibold"
                     : "text-muted-foreground text-xs font-medium"
                 }
@@ -387,34 +446,35 @@ export function PluginsSpaceView(props: {
               </Text>
             </Button>
 
-            <Button
-              testID="plugin-category-dev"
-              selected={category() === "dev"}
-              hitSlop={4}
-              onPress={() => category.set("dev")}
-              class={
-                category() === "dev"
-                  ? "min-h-9 px-4 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
-                  : "min-h-9 px-4 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
-              }
-            >
-              <Text
-                class={
-                  category() === "dev"
-                    ? "text-primary-foreground text-xs font-semibold"
-                    : "text-muted-foreground text-xs font-medium"
-                }
-              >
-                {t("pluginCategoryDev")}
-              </Text>
-            </Button>
-          </View>
+            <Each of={PLUGIN_CATEGORIES} key={(cat) => cat}>
+              {(cat) => (
+                <Button
+                  testID={`plugin-category-${cat()}`}
+                  selected={selectedCategory() === cat()}
+                  hitSlop={4}
+                  onPress={() => selectedCategory.set(cat())}
+                  class={
+                    selectedCategory() === cat()
+                      ? "min-h-10 px-4 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
+                      : "min-h-10 px-4 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
+                  }
+                >
+                  <Text
+                    class={
+                      selectedCategory() === cat()
+                        ? "text-primary-foreground text-xs font-semibold"
+                        : "text-muted-foreground text-xs font-medium"
+                    }
+                  >
+                    {categoryLabel(cat())}
+                  </Text>
+                </Button>
+              )}
+            </Each>
+          </Scroll>
 
           {/* Plugin cards grid */}
-          <Scroll
-            class="flex-1 min-h-0"
-            contentClass="gap-3 pb-2"
-          >
+          <Scroll class="flex-1 min-h-0" contentClass="gap-3 pb-2">
             <If
               when={filteredPlugins().length > 0}
               else={
@@ -436,19 +496,21 @@ export function PluginsSpaceView(props: {
                   {(item) => (
                     <Button
                       testID={`plugin-${item().id}`}
-                      onPress={() => props.store.setInspectedPluginId(item().id)}
+                      onPress={() =>
+                        props.store.setInspectedPluginId(item().id)
+                      }
                       class="rounded-2xl border border-border bg-card p-4 gap-3 items-stretch justify-between active:bg-muted focus:border-ring"
                       style={
-                        wide()
-                          ? { width: "32%", minWidth: 220 }
-                          : undefined
+                        wide() ? { width: "32%", minWidth: 220 } : undefined
                       }
                     >
                       <View class="flex-row items-center justify-between gap-2.5">
                         <View class="flex-row items-center gap-3 flex-1 min-w-0">
                           <View class="w-10 h-10 rounded-xl bg-primary items-center justify-center shrink-0">
                             <PluginVectorIcon
-                              name="code"
+                              name={normalizePluginIconName(
+                                item().manifest?.icon,
+                              )}
                               tone="primaryFg"
                               size={20}
                             />
@@ -458,16 +520,14 @@ export function PluginsSpaceView(props: {
                               class="text-foreground text-base font-bold"
                               style={{ numberOfLines: 1 }}
                             >
-                              {item().name}
+                              {localizedPluginName(item(), locale())}
                             </Text>
-                            <If when={Boolean(item().version)}>
-                              <Text
-                                class="text-subtle-text text-xs font-mono"
-                                style={{ numberOfLines: 1 }}
-                              >
-                                CLI {item().version}
-                              </Text>
-                            </If>
+                            <Text
+                              class="text-subtle-text text-xs font-mono"
+                              style={{ numberOfLines: 1 }}
+                            >
+                              v{item().version}
+                            </Text>
                           </View>
                         </View>
                         <PluginVectorIcon
@@ -481,24 +541,22 @@ export function PluginsSpaceView(props: {
                         class="text-muted-foreground text-xs"
                         style={{ numberOfLines: 2 }}
                       >
-                        {t("codexSummary")}
+                        {localizedPluginSummary(item(), locale())}
                       </Text>
 
                       <View class="flex-row items-center justify-between gap-2 pt-0.5">
                         <View class="flex-row items-center gap-1.5">
-                          <View class={statusDotClass(item())} />
+                          <View class={cardStatusDotClass(item())} />
                           <Text class="text-muted-foreground text-xs font-medium">
                             {cardStatusText(item())}
                           </Text>
                         </View>
-                        <If when={Boolean(item().configuration?.environment)}>
-                          <Text
-                            class="text-subtle-text text-xs font-mono"
-                            style={{ numberOfLines: 1 }}
-                          >
-                            {item().configuration.environment}
-                          </Text>
-                        </If>
+                        <Text
+                          class="text-subtle-text text-xs"
+                          style={{ numberOfLines: 1 }}
+                        >
+                          {categoryLabel(item().category)}
+                        </Text>
                       </View>
                     </Button>
                   )}
@@ -509,353 +567,9 @@ export function PluginsSpaceView(props: {
         </View>
       }
     >
-      {/* View 2: Plugin Detail View */}
-      <If when={Boolean(plugin())}>
-        <View class="flex-1 min-h-0 gap-2.5">
-          {/* Top Plugin Identity Header */}
-          <View class="flex-row items-center justify-between gap-3 px-0.5">
-            <View class="flex-row items-center gap-3 flex-1 min-w-0">
-              <View class="w-10 h-10 rounded-xl bg-primary items-center justify-center shrink-0">
-                <PluginVectorIcon name="code" tone="primaryFg" size={20} />
-              </View>
-              <View class="flex-1 min-w-0 gap-0.5">
-                <View class="flex-row items-center gap-2">
-                  <Text
-                    class="text-foreground text-base font-bold"
-                    style={{ numberOfLines: 1 }}
-                  >
-                    {plugin()?.name}
-                  </Text>
-                  <If when={Boolean(plugin()?.version)}>
-                    <View class="px-2 py-0.5 rounded-md bg-muted border border-border">
-                      <Text class="text-muted-foreground text-xs font-mono">
-                        Codex CLI {plugin()?.version}
-                      </Text>
-                    </View>
-                  </If>
-                </View>
-                <Text
-                  class="text-muted-foreground text-xs"
-                  style={{ numberOfLines: 1 }}
-                >
-                  {t("codexSummary")}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Balanced Two-Column Cards */}
-          <View
-            class={
-              wide()
-                ? "flex-1 min-h-0 flex-row gap-3.5"
-                : "flex-1 min-h-0 gap-3"
-            }
-          >
-            {/* Left Card: Account Connection + Available Capabilities */}
-            <View class="flex-1 min-w-0 min-h-0 rounded-2xl border border-border bg-card overflow-hidden">
-              <Scroll
-                class="flex-1 min-h-0"
-                contentClass="p-3.5 gap-3"
-              >
-                {/* Section 1: Account Connection */}
-                <View class="gap-2.5">
-                  <Text
-                    class="text-foreground text-sm font-bold"
-                    role="header"
-                  >
-                    {t("pluginAccountSection")}
-                  </Text>
-
-                  <View class="flex-row items-center justify-between gap-3">
-                    <View class="flex-row items-center gap-2.5 flex-1 min-w-0">
-                      <View class="w-10 h-10 rounded-xl bg-muted border border-border items-center justify-center shrink-0">
-                        <PluginVectorIcon
-                          name="user"
-                          tone="foreground"
-                          size={18}
-                        />
-                      </View>
-                      <View class="flex-1 min-w-0 gap-0.5">
-                        <Text
-                          class="text-foreground text-sm font-semibold"
-                          style={{ numberOfLines: 1 }}
-                        >
-                          {t("pluginChatGptAccount")}
-                        </Text>
-                        <View class="flex-row items-center gap-1.5">
-                          <View class={statusDotClass(plugin())} />
-                          <Text
-                            testID="plugin-account-state"
-                            class="text-muted-foreground text-xs font-medium"
-                            style={{ numberOfLines: 1 }}
-                          >
-                            {status()}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-
-                    <View class="shrink-0">
-                      <If when={!signedIn() && !authorizing()}>
-                        <ActionButton
-                          testID="plugin-login"
-                          compact
-                          label={t("pluginSignIn")}
-                          kind="primary"
-                          disabled={busy() || !plugin()?.enabled}
-                          onPress={() => {
-                            void props.store.beginPluginLogin(activePluginId());
-                          }}
-                        />
-                      </If>
-                      <If when={authorizing()}>
-                        <ActionButton
-                          testID="plugin-cancel-login"
-                          compact
-                          label={t("pluginCancel")}
-                          disabled={busy()}
-                          onPress={() => {
-                            void props.store.cancelPluginLogin(activePluginId());
-                          }}
-                        />
-                      </If>
-                      <If when={signedIn()}>
-                        <ActionButton
-                          testID="plugin-logout"
-                          compact
-                          label={t("pluginSignOut")}
-                          disabled={busy()}
-                          onPress={() => {
-                            void props.store.logoutPlugin(activePluginId());
-                          }}
-                        />
-                      </If>
-                    </View>
-                  </View>
-
-                  <Text class="text-muted-foreground text-xs">
-                    {t("codexPluginDescription")}
-                  </Text>
-
-                  <View class="flex-row flex-wrap items-center gap-2">
-                    <Button
-                      testID="plugin-refresh"
-                      disabled={busy() || authorizing() || !plugin()?.enabled}
-                      onPress={() => {
-                        void props.store.refreshPlugin(activePluginId());
-                      }}
-                      class="min-h-11 px-3.5 rounded-full border border-border bg-background flex-row items-center gap-1.5 active:bg-muted focus:border-ring disabled:opacity-35"
-                    >
-                      <PluginVectorIcon
-                        name="refresh"
-                        tone="foreground"
-                        size={14}
-                      />
-                      <Text class="text-foreground text-xs font-medium">
-                        {t("pluginRefresh")}
-                      </Text>
-                    </Button>
-
-                    <If when={authorizing() && Boolean(plugin()?.auth?.url)}>
-                      <ActionButton
-                        compact
-                        label={t("pluginOpenSignIn")}
-                        onPress={() => {
-                          void openUrl(plugin()!.auth!.url!).catch((error) =>
-                            props.store.notify(String(error)),
-                          );
-                        }}
-                      />
-                      <ActionButton
-                        compact
-                        label={t("copyLink")}
-                        onPress={() => {
-                          void Clipboard.writeText(plugin()!.auth!.url!).catch(
-                            (error) => props.store.notify(String(error)),
-                          );
-                        }}
-                      />
-                    </If>
-                  </View>
-
-                  <If when={authorizing() && Boolean(plugin()?.auth?.url)}>
-                    <Text class="text-muted-foreground text-xs">
-                      {t("pluginContinueInBrowser")}
-                    </Text>
-                  </If>
-
-                  <If
-                    when={Boolean(
-                      props.store.pluginUiError() || plugin()?.lastError,
-                    )}
-                  >
-                    <View class="rounded-xl bg-muted border border-destructive px-3 py-2">
-                      <Text
-                        testID="plugin-error"
-                        class="text-destructive text-xs"
-                      >
-                        {props.store.pluginUiError() ||
-                          `${plugin()?.lastError?.stage}: ${plugin()?.lastError?.reason}`}
-                      </Text>
-                    </View>
-                  </If>
-                </View>
-
-                <View class="h-px bg-border" />
-
-                {/* Section 2: Available Capabilities */}
-                <View class="gap-2.5">
-                  <Text
-                    class="text-foreground text-sm font-bold"
-                    role="header"
-                  >
-                    {t("pluginAgentTools")}
-                  </Text>
-
-                  <View class="flex-row items-center gap-2.5">
-                    <View class="w-9 h-9 rounded-xl bg-muted border border-border items-center justify-center shrink-0">
-                      <PluginVectorIcon
-                        name="terminal"
-                        tone="foreground"
-                        size={16}
-                      />
-                    </View>
-                    <View class="flex-1 min-w-0 gap-0.5">
-                      <Text class="text-foreground text-xs font-semibold">
-                        {t("pluginExecTitle")}
-                      </Text>
-                      <Text class="text-muted-foreground text-xs">
-                        {t("pluginExecDescription")}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View class="flex-row items-center gap-2.5">
-                    <View class="w-9 h-9 rounded-xl bg-muted border border-border items-center justify-center shrink-0">
-                      <PluginVectorIcon
-                        name="cloud"
-                        tone="foreground"
-                        size={16}
-                      />
-                    </View>
-                    <View class="flex-1 min-w-0 gap-0.5">
-                      <Text class="text-foreground text-xs font-semibold">
-                        {t("pluginCloudTitle")}
-                      </Text>
-                      <Text class="text-muted-foreground text-xs">
-                        {t("pluginCloudDescription")}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </Scroll>
-            </View>
-
-            {/* Right Card: Cloud Defaults + Execution Details */}
-            <View class="flex-1 min-w-0 min-h-0 rounded-2xl border border-border bg-card overflow-hidden">
-              <Scroll
-                class="flex-1 min-h-0"
-                contentClass="p-3.5 gap-3"
-              >
-                {/* Section 1: Cloud Defaults */}
-                <View class="gap-2.5">
-                  <View class="gap-0.5">
-                    <Text
-                      class="text-foreground text-sm font-bold"
-                      role="header"
-                    >
-                      {t("pluginCloudDefaults")}
-                    </Text>
-                    <Text class="text-muted-foreground text-xs">
-                      {t("pluginCloudDefaultsHint")}
-                    </Text>
-                  </View>
-
-                  <TextField
-                    testID="plugin-environment"
-                    compact
-                    label={t("pluginEnvironment")}
-                    value={environment()}
-                    onChange={environment.set}
-                    placeholder="video2rig"
-                  />
-
-                  <TextField
-                    testID="plugin-branch"
-                    compact
-                    label={t("pluginBranch")}
-                    value={branch()}
-                    onChange={branch.set}
-                    placeholder="main"
-                  />
-
-                  <View class="flex-row justify-end pt-0.5">
-                    <ActionButton
-                      testID="plugin-save"
-                      compact
-                      kind="primary"
-                      label={t("pluginSave")}
-                      disabled={busy()}
-                      onPress={() => {
-                        void props.store
-                          .configurePlugin(activePluginId(), {
-                            environment: environment(),
-                            branch: branch(),
-                          })
-                          .then(() => {
-                            if (!props.store.pluginUiError()) {
-                              props.store.notify(t("pluginSettingsSaved"));
-                            }
-                          });
-                      }}
-                    />
-                  </View>
-                </View>
-
-                <View class="h-px bg-border" />
-
-                {/* Section 2: Execution Details */}
-                <View class="gap-2">
-                  <Button
-                    testID="plugin-execution-details"
-                    onPress={() => details.set(!details())}
-                    class="min-h-11 rounded-xl px-2 -mx-2 py-1 flex-row items-center justify-between gap-2 active:bg-muted focus:border-ring"
-                  >
-                    <View class="flex-1 min-w-0 gap-0.5">
-                      <Text class="text-foreground text-sm font-bold">
-                        {t("pluginExecutionDetails")}
-                      </Text>
-                      <Text
-                        class="text-muted-foreground text-xs"
-                        style={{ numberOfLines: 1 }}
-                      >
-                        {executionSummary()}
-                      </Text>
-                    </View>
-                    <PluginVectorIcon
-                      name={details() ? "chevron_down" : "chevron_right"}
-                      tone="muted"
-                      size={16}
-                    />
-                  </Button>
-
-                  <If when={details() && Boolean(plugin()?.lastExecution)}>
-                    <View class="rounded-xl bg-muted border border-border p-2.5">
-                      <Text
-                        testID="plugin-execution-output"
-                        class="text-muted-foreground text-xs font-mono"
-                      >
-                        {JSON.stringify(plugin()?.lastExecution, null, 2)}
-                      </Text>
-                    </View>
-                  </If>
-                </View>
-              </Scroll>
-            </View>
-          </View>
-        </View>
-      </If>
+      <Each of={inspectedIds()} key={(id) => id}>
+        {(id) => <PluginDetailPane pluginId={id()} store={props.store} />}
+      </Each>
     </If>
   );
 }

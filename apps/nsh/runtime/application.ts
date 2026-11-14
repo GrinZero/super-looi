@@ -46,7 +46,7 @@ import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemet
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import { VoiceConversationWindow } from "./voice/conversation-window.js";
 import { PluginHost } from "./plugins/host.js";
-import { codexDefinition } from "./plugins/codex/index.js";
+import { createBuiltinPluginDefinitions } from "../plugins/registry.js";
 import type { PluginEvent } from "./plugins/contracts.js";
 
 type MutableModels = ReturnType<typeof createLooiModelsRegistry>;
@@ -187,13 +187,18 @@ export class MobileRuntime {
       );
       this.home = new HomeRuntime({ vault, cache: createHomeCache(this.database) });
       this.body = new BodyRuntime({ vault });
-      this.plugins = new PluginHost(this.database, [codexDefinition({
-        tracer: this.tracer,
-        traceContext: () => {
-          const trace = this.taskId ? this.executor?.getTask(this.taskId)?.trace : undefined;
-          return trace ? { traceId: trace.traceId, parentSpanId: trace.spanId, traceName: "codex" } : undefined;
-        },
-      })]);
+      this.plugins = new PluginHost(
+        this.database,
+        createBuiltinPluginDefinitions({
+          codex: {
+            tracer: this.tracer,
+            traceContext: () => {
+              const trace = this.taskId ? this.executor?.getTask(this.taskId)?.trace : undefined;
+              return trace ? { traceId: trace.traceId, parentSpanId: trace.spanId, traceName: "codex" } : undefined;
+            },
+          },
+        }),
+      );
       this.credentialStore = new VaultCredentialStore(vault, {
         conversationId: () => this.conversationId,
       });
@@ -235,6 +240,8 @@ export class MobileRuntime {
   }
 
   pluginsSnapshot() { return this.plugins.snapshots(); }
+  activeStagePresentation() { return this.plugins.stage.activePresentation(); }
+  exitPluginStage(id: string) { this.plugins.stage.exitPluginStage(id); }
   subscribePlugins(listener: (event: PluginEvent) => void) { return this.plugins.subscribe(listener); }
   async refreshPlugin(id: string) { await this.plugins.get(id).auth?.refresh(); return this.pluginsSnapshot(); }
   private assertPluginAction(action: UserActionRef) {
@@ -242,7 +249,9 @@ export class MobileRuntime {
     assertFreshUiAction(action);
     if (action.ui_session_id !== this.uiSessionId) throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
   }
+  async setPluginEnabled(id: string, enabled: boolean, action: UserActionRef) { this.assertPluginAction(action); return this.plugins.setEnabled(id, enabled); }
   async configurePlugin(id: string, enabled: boolean, values: Record<string, string>, action: UserActionRef) { this.assertPluginAction(action); return this.plugins.configure(id, enabled, values); }
+  async sendPluginCommand<TCommand = unknown, TResult = unknown>(id: string, command: TCommand, action: UserActionRef): Promise<TResult> { this.assertPluginAction(action); return this.plugins.sendCommand<TCommand, TResult>(id, command); }
   async beginPluginLogin(id: string, action: UserActionRef) { this.assertPluginAction(action); const auth = this.plugins.get(id).auth; if (!auth) throw new Error(`Plugin has no login: ${id}`); return auth.begin(); }
   async cancelPluginLogin(id: string) { await this.plugins.get(id).auth?.cancel(); }
   async logoutPlugin(id: string, action: UserActionRef) { this.assertPluginAction(action); await this.plugins.get(id).auth?.logout(); }
@@ -852,7 +861,24 @@ export class MobileRuntime {
         ...(bodyEnabled ? this.bodyTools() : []),
       ],
       taskTools: context => this.plugins.contribution(context),
-      toolApprovalRules: Object.fromEntries(["codex_exec", "codex_cloud"].map(name => [name, ({ approvalMode, arguments: input }: { approvalMode: string; arguments: Record<string, unknown> }) => approvalMode === "ask" ? { operation: name, ...input } : undefined])),
+      beforeToolCall: call =>
+        this.plugins.ai.evaluateToolCall({
+          channel: "task",
+          toolName: call.toolName,
+          approvalMode: call.approvalMode,
+          arguments: call.arguments,
+        }),
+      assembleTurnContext: async turn => {
+        const draft = await this.plugins.ai.assembleTurn({
+          channel: "task",
+          userText: turn.prompt,
+        });
+        const contextText = draft.contextBlocks
+          .map(block => block.text.trim())
+          .filter(Boolean)
+          .join("\n");
+        return contextText ? { contextText } : undefined;
+      },
       approvalRequiredTools: homeEnabled ? ["control_home_device"] : [],
     });
   }
@@ -904,6 +930,32 @@ export class MobileRuntime {
       ? this.voiceConversation.begin()
       : this.conversationId;
     try {
+      const turnGuard = await this.plugins.ai.evaluateUserTurn({
+        channel: options.mode === "voice" ? "voice" : "task",
+        text,
+      });
+      if (turnGuard?.decision === "block") {
+        const message =
+          turnGuard.spokenReply && turnGuard.spokenReply !== turnGuard.reason
+            ? `${turnGuard.spokenReply} (${turnGuard.reason})`
+            : turnGuard.reason;
+        throw Object.assign(
+          new Error(message),
+          {
+            stage: turnGuard.stage ?? `${turnGuard.pluginId}:ai.interceptUserTurn`,
+            code: turnGuard.code ?? "ERR_PLUGIN_USER_TURN_BLOCKED",
+            ...(turnGuard.spokenReply ? { spokenReply: turnGuard.spokenReply } : {}),
+            ...(turnGuard.cause !== undefined ? { cause: turnGuard.cause } : {}),
+          },
+        );
+      }
+      if (turnGuard?.decision === "handled") {
+        return {
+          answer: turnGuard.answer ?? turnGuard.spokenReply ?? "",
+          taskId: "",
+          runtimeExited: true,
+        };
+      }
       if (!this.executor) throw new Error("@looi:runtimeConfigureAChatModelInConnectionsFirst");
       if (!this.conversationPersisted && this.vault.get("model")) {
         this.credentialStore.updateEnvelope((draft) => {

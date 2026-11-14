@@ -1,5 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "noEmit": true, "lib": ["ES2022", "DOM", "DOM.Iterable"] },
-  "include": ["runtime/**/*.ts"]
+  "include": ["runtime/**/*.ts", "plugins/**/*.ts"],
+  "exclude": ["plugins/**/ui/**"]
 }
