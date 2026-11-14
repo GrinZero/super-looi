@@ -2636,3 +2636,9 @@
 - [x] Step 1：核对 12 秒阈值、实际播放排空、讲话／转写活动和任务门闩。
 - [x] Step 2：只读关联截图对应的 App SQLite 记录，确认助手回复随后出现在新的用户话轮中。
 - [x] Step 3：独立复核证据与推断边界，将核查结论保存至 docs/voice-auto-sleep-diagnosis-2026-11-14.md，并更新既有回录待办。
+
+## Realtime 与原生回声处理核查（2026-11-14）
+
+- [x] Step 1：读取 OpenAI 官方降噪／WebRTC 文档及 Apple／Android 原生 AEC 契约。
+- [x] Step 2：核对源码与当前宿主：iOS 已启用并读回 Voice Processing；Android 只有通信模式，尚未显式绑定音效并读取 AEC 状态。
+- [x] Step 3：修正既有 AEC 文档中已过时的 iOS 缺口描述，区分系统启用、云端降噪与实际回声抑制效果。

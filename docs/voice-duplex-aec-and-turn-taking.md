@@ -1,6 +1,12 @@
 # 实时语音回声消除与判停方案
 
-核验日期：2026-11-12。现役协议为 Seeduplex `1.2.6.1`，连接 `/api/v3/duplex/realtime/dialogue`。
+豆包资料核验日期：2026-11-12；OpenAI 参数与原生实现复核：2026-11-14。现役豆包协议为 Seeduplex `1.2.6.1`，连接 `/api/v3/duplex/realtime/dialogue`。
+
+## OpenAI Realtime 与设备端处理
+
+OpenAI Realtime 提供 `audio.input.noise_reduction`，支持 `near_field`／`far_field`，在音频送入 VAD 和模型前过滤噪声，以减少误触发。该公开配置说明的是降噪，没有给出使用播放参考消除自身外放回声的承诺。当前 OpenAI 握手没有显式设置它；省略字段会保留服务端已有值，不能仅凭省略判断服务端降噪已关闭。[OpenAI 参数](https://developers.openai.com/api/reference/resources/realtime/client-events)
+
+OpenAI 官方推荐客户端语音使用 WebRTC；浏览器媒体采集有 `echoCancellation` 约束，实际能力由客户端音源和媒体实现提供。当前 App 通过自有原生 WebSocket／PCM 接 SDK 会话，AEC 由 `VoiceAudio` 承载。复用 `RealtimeSession` 不会自动为这条原生音频路径增加回声处理。[OpenAI WebRTC](https://developers.openai.com/api/docs/guides/realtime-webrtc)、[W3C 媒体采集能力](https://www.w3.org/TR/mediacapture-streams/#dom-mediatrackconstraintset-echocancellation)
 
 ## 豆包提供的能力
 
@@ -41,7 +47,7 @@
 
 ## 集成取舍
 
-系统 AEC 能复用本项目已有的原生音频层和厂商无关 WebSocket 协议，新增工作集中在 iOS 语音处理启用、Android 音效会话绑定，以及现有音频状态中的启用结果；不增加模型资源和第三方 SDK。
+系统 AEC 能复用本项目已有的原生音频层和厂商无关 WebSocket 协议。iOS 已启用系统语音处理；剩余接线与核查集中在 Android 音效会话绑定，以及两端现有音频状态中的启用／旁路结果。该路径沿用系统 API，无额外模型资源和第三方 SDK。
 
 官方 SDK 的具体收益是提供同一厂商的软件 AEC 与采播链路。代价是增加两端 SDK、网络依赖、模型资源打包与路径管理、原生桥接和引擎生命周期；现有 `VoiceAudio` 与 SDK 需要明确唯一的音频所有者，KWS（唤醒词）与会话之间也需切换所有权。为保持回声参考对齐，由 SDK 同时拥有采集和播放比混用两套播放进度更直接。这些是基于 SDK 接口与现有调用链的集成推断。
 
@@ -53,7 +59,9 @@
 
 iOS 13 起，`AVAudioEngine` 的 I/O 节点提供 `setVoiceProcessingEnabled(true)`。引擎停止时在输入节点启用，系统会同时将输入、输出节点切到语音处理模式，采集端据此消除设备播放声音。`voiceChat` 负责语音会话模式，单独设置它不会启用这套回声消除处理。[Apple API](https://developer.apple.com/documentation/avfaudio/avaudioionode/setvoiceprocessingenabled(_:))、[Apple 语音会话说明](https://developer.apple.com/documentation/avfaudio/avaudiosession/mode-swift.struct/voicechat)、[WWDC 的输入输出处理说明](https://developer.apple.com/videos/play/wwdc2019/510/)。
 
-当前 [`audio/ios.rs`](../apps/nsh/src/audio/ios.rs) 在 `Audio::start` 配置 `playAndRecord + voiceChat`，随后获取输入格式、安装采集 tap 并启动引擎，缺少语音处理启用。最小修改位置在引擎启动和读取输入格式之前；启用后重新读取实际格式，继续复用现有重采样及同一引擎中的播放器。语音处理是否启用可由 `isVoiceProcessingEnabled` 读取，`isVoiceProcessingBypassed` 用于确认采集端没有绕过处理。[Apple bypass API](https://developer.apple.com/documentation/avfaudio/avaudioinputnode/isvoiceprocessingbypassed)。
+当前 [`audio/ios.rs`](../apps/nsh/src/audio/ios.rs) 已在 `Audio::start(capture=true)` 配置 `playAndRecord + voiceChat`，在引擎停止且尚未连接节点时调用 `setVoiceProcessingEnabled(true)`，并读回 `isVoiceProcessingEnabled`；请求失败或读回 false 会明确报错。mixer 输出与输入 tap 使用匹配的语音处理格式。该实现于 `0d7ada4` 落地，当前运行的开发宿主二进制也包含启用调用和读回检查。
+
+尚未查询 `isVoiceProcessingBypassed`，`VoiceAudioStatus` 也没有输出语音处理／AEC 字段。下一项核查是在现有状态回执中暴露启用和旁路结果，关联实际输入输出路由与外放回录；当前模拟器使用 Mac 音频设备，启用标志本身不能证明实际回声抑制效果。[Apple bypass API](https://developer.apple.com/documentation/avfaudio/avaudioinputnode/isvoiceprocessingbypassed)、[Apple 语音处理及回声消除](https://developer.apple.com/videos/play/wwdc2023/10235/)。
 
 这条实现不增加第三方依赖，现有 `VoiceAudio` 生命周期继续统一管理待机、LIVE 和设备切换。
 
