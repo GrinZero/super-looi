@@ -37,4 +37,4 @@ Agents SDK 允许其他 speech-to-speech API 实现 `RealtimeTransportLayer`。�
 
 本项目已把公共会话接到 `@openai/agents-realtime@0.22.0`，三家经自定义原生 transport 进入 SDK，后端由 `VoiceTaskCoordinator`／Pi 运行。当前 OpenAI 编解码仍连接 `/v1/realtime`，模型默认 `gpt-realtime`。
 
-因此当前实现已经分离前台语音 provider 与后端执行器，但尚未接入 GPT-Live 的 `/v1/live/sessions`、委派事件和上下文流。GPT-Live 可以作为新增的前台 provider 适配；其价值是使用该模型的全双工对话与委派能力，新增工作是 Live 协议、上下文与结果交付，而非直接更换现有模型字符串。实际 SDK 接入见 [实现记录](openai-agents-sdk-integration-2026-11-14.md)。
+用户确认继续采用 **Agents SDK＋自定义 transport**，OpenAI 使用 **Realtime API（`/v1/realtime`）**，不接入 GPT-Live 的 `/v1/live/sessions`。前台语音 provider 与后端执行器继续独立替换；WebRTC／WebSocket 的评估依据各 provider 的能力进行。实际 SDK 接入见 [实现记录](openai-agents-sdk-integration-2026-11-14.md)。

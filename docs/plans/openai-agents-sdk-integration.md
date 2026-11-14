@@ -4,6 +4,8 @@
 
 使用 `@openai/agents-realtime@0.22.0` 的 `RealtimeSession`、`RealtimeAgent` 和工具执行，替换 App 自有工具分派、调用去重与本连接对话历史。App 保持直接连接三家语音云服务；原生播放账本、唤醒待机、试听和 Pi 任务生命周期继续由现有模块承载。
 
+用户确认的 API 路径为 **Agents SDK＋自定义 transport＋OpenAI Realtime API（`/v1/realtime`）**，不迁移 GPT-Live。前台语音 provider 与 Pi 后端独立替换；WebRTC／WebSocket 按各 provider 的实际支持评估，该传输选择与是否采用 GPT-Live 分开决定。
+
 ## 接口选择
 
 采用一个实现 SDK `RealtimeTransportLayer` 的原生连接适配器，复用现有三家协议编解码。它负责连接、发送顺序、原始事件到 SDK 事件的转换和供应商工具回执。`LiveVoiceSession` 保留原生音频、交互状态和通知空闲窗口。
