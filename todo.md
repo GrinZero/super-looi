@@ -1,5 +1,9 @@
 # 当前待办
 
+## Realtime 开源会话层
+
+- [ ] 验证 OpenAI Agents SDK 的 RealtimeSession／自定义 transport 在 NSH QuickJS 中的加载、原生 PCM、工具往返与实际播放中断，再比较豆包／MOSS 插件成本；候选和固定源码见 [开源选型](docs/realtime-open-source-selection-2026-11-14.md)。
+
 ## MOSS-Live 真机验收
 
 - [ ] 定位间歇性 TLS 握手断开：系统解析路径曾返回 curl 35，随后相同 IP 与 CDN 地址均成功到达 WebSocket 鉴权阶段；复现时关联 mihomo 路由与连接日志。证据见 [TLS 诊断](docs/moss-live-tls-diagnosis.md)。

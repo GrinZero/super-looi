@@ -2600,3 +2600,12 @@
 - [x] Step 3：完成相关检查、独立 review 和 E2E 结果记录，隔离提交本任务改动。
   - [x] 13 项失败／试听回归、完整语音运行时用例、19 项协议／追踪测试、两包类型检查和 App 构建通过；独立 review 通过。
   - [x] 撤回临时探针，证据保存至 docs/moss-home-realtime-e2e-2026-11-14.md；外放回声仍进入转写，沿用现有 AEC 待办。
+
+## Realtime 开源替代方案选型（2026-11-14）
+
+- [x] Step 1：核对现有自研职责与 App 端内直连约束，重新检索开源会话框架和 SDK。
+- [x] Step 2：核验候选的真实 provider 实现、扩展接口与运行位置。
+  - [x] 核验 OpenAI Agents SDK、Qwen Audio Agent、Micdrop 与 MOSS 官方 SDK 源码。
+  - [x] 复核 LiveKit、Pipecat、TEN 与中文 Seeduplex 插件；独立 primary-source 调研确认公共核心可复用，插件覆盖与端内运行成本需分别判断。
+- [x] Step 3：整理可复用层、适配工作量与首选验证方向，保存 primary-source 证据笔记。
+  - [x] 结论保存至 docs/realtime-open-source-selection-2026-11-14.md；优先验证开源公共会话核心，NSH 兼容性未实测。
