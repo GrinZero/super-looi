@@ -1,8 +1,8 @@
 //! Android Camera2 JNI bindings for `DeviceCameraHost`.
-use super::{EncodedFrame, NativeSessionStatus, format_backend_error};
+use super::{DetectedCameraNativeFace, EncodedFrame, NativeSessionStatus, format_backend_error};
 use jni::{
     JNIEnv, JavaVM,
-    objects::{GlobalRef, JByteArray, JClass, JLongArray, JString, JValue},
+    objects::{GlobalRef, JByteArray, JClass, JFloatArray, JLongArray, JString, JValue},
     sys::jboolean,
 };
 use std::{
@@ -207,12 +207,34 @@ impl PlatformSession {
                 return Ok(None);
             }
             let bytes = env.get_field(&snap, "data", "[B")?.l()?;
+            let faces_obj = env.get_field(&snap, "faces", "[F")?.l()?;
+            let faces = if faces_obj.is_null() {
+                Vec::new()
+            } else {
+                let float_arr = JFloatArray::from(faces_obj);
+                let len = env.get_array_length(&float_arr)?.max(0) as usize;
+                let mut raw = vec![0.0f32; len.min(48)];
+                if !raw.is_empty() {
+                    env.get_float_array_region(float_arr, 0, &mut raw)?;
+                }
+                raw.chunks_exact(6)
+                    .map(|chunk| DetectedCameraNativeFace {
+                        track_id: chunk[0].max(0.0) as u32,
+                        offset_x: (chunk[1] as f64).clamp(-1.0, 1.0),
+                        offset_y: (chunk[2] as f64).clamp(-1.0, 1.0),
+                        width: (chunk[3] as f64).clamp(0.0, 1.0),
+                        height: (chunk[4] as f64).clamp(0.0, 1.0),
+                        confidence: (chunk[5] as f64).clamp(0.0, 1.0),
+                    })
+                    .collect()
+            };
             Ok(Some(EncodedFrame {
                 jpeg: env.convert_byte_array(JByteArray::from(bytes))?,
                 width: env.get_field(&snap, "width", "I")?.i()?.max(0) as u32,
                 height: env.get_field(&snap, "height", "I")?.i()?.max(0) as u32,
                 captured_at_ms: env.get_field(&snap, "capturedAt", "J")?.j()?,
                 seq: env.get_field(&snap, "seq", "J")?.j()?.max(0) as u64,
+                faces,
             }))
         })?
         .ok_or_else(|| {

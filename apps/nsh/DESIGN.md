@@ -142,3 +142,33 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 | `StageDrawer` 档位切换与手势松手吸附 | 抽屉 FLIP `translateY` + 底部同色连续延展裙边（结合 `PanEvent.velocity.y` 速度投射与 `cancelled` 回弹） | 原生 `AnimatedValue.spring`（`stiffness: 320, damping: 32, mass: 1`） | 跳过弹簧直接 `.set(0)` 瞬时吸附 |
 | `StageCanvas` / `StageCapsule` 挂载入场 | 容器 `opacity` | `createMotion({ enter: "fadeIn", duration: 180 })` 原生淡入 | 自动跳过淡入瞬时呈现 `opacity: 1` |
 | 顶栏 `退出舞台` 胶囊点击反馈 | 按压态透明度 `active:opacity-75` | 系统即时触控反馈 | 保留即时明度对比反馈 |
+
+---
+
+## 6. 具身桌游舞台与防窥交互规范（Embodied Tabletop Stage · `werewolf-judge`）
+
+面向 6–12 人线下桌面聚会，LOOI 作为居中具身法官承载 **本机首屏触控** 与 **局域网手机扫码副屏** 双模体验，所有视图严格受控于 `844 × 390` 横屏安全区与 `theme.json` 语义令牌：
+
+### 6.1 双舞台色彩分工与二维码反差纪律
+- **前台首屏插槽（`StageCapsule` / `StageCanvas` / `StageDrawer`）**：沿用前台深色器物语言（`ask-bar-bg`、`elevated-glass`、`stage-pill-bg`、`stage-pill-border`、`stage-fg`、`stage-pill-fg`、`stage-muted`）。阵营与牌局状态仅在关键判断处点缀低饱和舞台令牌：已入座/金水使用 `verified` / `face-sage-core`，警徽与当前发言聚焦使用 `face-amber-core`，神职技能提示使用 `face-mist-core`，狼刀/查杀/倒牌出局使用 `destructive` / `face-rose-core`，且每项状态均同时具备文字或符号标识（绝不只靠颜色区分）。
+- **扫码二维码表面（`<QrCodeCanvas />`）**：固定使用 `token("face-ivory-core")` 绘制 4 模块静区浅底、`token("stage-bg")` 绘制深色码点，保证浅色与深色系统外观下均维持高反差深码浅底极性，手机相机与微信扫一扫无需反色识别即可秒扫。
+- **后台配置页（`SettingsView`）**：沿用 `ManagementShell` 暖石日光 / 中性锌灰双栏平面卡片（`background`、`card`、`muted`、`border`、`foreground`、`muted-foreground`），全页仅保留唯一 `primary` 主操作按钮「登上首屏开局」。
+
+### 6.2 防窥门禁（Hold-to-Reveal Privacy Shield）与键盘/无障碍双通道
+- 发牌看牌（`dealing`）与本机黑夜行动面板（`night_guard` / `night_wolf` / `night_witch` / `night_seer`）默认覆盖不透明防窥门禁层，未解锁前底层不渲染敏感目标信息。
+- **触屏按住防窥**：基于语义 `<Button>` 的 `onPressDown` 与 `onPressUp` 实现——手指按住（持续 `>= 220ms`）期间揭开底牌或夜晚技能盘；手指抬起或滑出瞬间 **`0ms` 瞬时闭合遮罩**，杜绝递手机或闭眼瞬间的余光泄密。
+- **键盘与辅助功能等价路径**：轻点或键盘 `Enter` / `Space` 激活（`< 220ms`）切换至显式展开态并提供独立 `44 × 44pt`「隐藏底牌 / 锁定遮罩」按钮；点击「记住了，下一位」或提交夜晚技能时同步强制归零门禁状态。
+
+### 6.3 狼人杀舞台完整动效清单（Motion Inventory）
+
+| 状态变化类别（Category & State Change） | 原生动效工具与令牌参数（Tool & Motion Tokens） | 无障碍降级（`reduceMotion()`） |
+| :--- | :--- | :--- |
+| **1. 按压与悬停（Press & Hover）**：座位卡、操作胶囊、分段项与提交按钮 | 悬停色阶过渡 `transition-colors duration-120`；按压反馈 `transition-transform duration-180 active:scale-[0.97]` + 按压底色加深，禁用态屏蔽按压缩放 | `motion-reduce:active:scale-100`，仅保留即时明度/边框色阶切换 |
+| **2. 图标与标签切换（Glyph & Label Swap）**：顶部阶段胶囊、存活计数、计时器「暂停 / 继续」状态 | 胶囊阶段文案与存活人数使用 `tabular-nums` 等宽数字稳定换字，状态徽章通过 `180ms` 透明度与语义色平滑过渡 | 瞬时切换文案与状态色，无闪烁 |
+| **3. 选中态滑动（Sliding Selection）**：建房大厅预设切换（6人 / 9人 / 12人守卫 / 12人白痴）与载体切换 | 单一选中背景滑块通过 `createAnimatedValue` `timing(targetX, { duration: 240, easing: "easeInOut" })` 在等宽槽位间平滑滑动 | 直接 `.set(targetX)` 瞬时落位 |
+| **4. 内容入场与离场（Arriving & Leaving Content）**：副屏玩家扫码入座点亮、终局全员底牌与时间轴揭晓 | 扫码座位就绪徽章 `createMotion({ enter: "fadeIn", duration: 240 })`；终局底牌网格采用上限封顶波浪淡入（每座间隔 `30ms`，封顶 `240ms`） | 跳过入场动画，全部座位就绪点与终局底牌瞬时完整呈现 |
+| **5. 浮层与防窥盾开合（Opening & Closing Surface）**：长按防窥盾揭开/闭合、狼人自爆二级确认条 | 揭开防窥盾时内容层 `opacity` `0 → 1` + `scale` `0.96 → 1.0`（`180ms easeOut`）；**松手遮蔽时 `0ms` 瞬时置回遮罩（安全优先）**；自爆确认栏 `180ms` 淡入展开 | 揭开、遮蔽与确认栏展开均为 `0ms` 瞬时显隐 |
+| **6. 用户触发的布局变形（Layout Change）**：阶段推进驱动首屏五姿态（`floating_top` ↔ `split_left` ↔ `full`）与抽屉四档位切换 | 复用宿主 `MorphableStage` 单实例 `AnimatedValue.spring`（`stiffness: 280, damping: 30, mass: 1`）与抽屉 FLIP 弹簧 | 宿主自动 `.set(target)` 瞬时切换姿态与抽屉高度 |
+| **7. 拖拽与松手释放（Drag & Release）**：玩家上下拖拽底部 `StageDrawer` 抓手查看计票或规则摘要 | 拖拽过程 `1:1` 跟随手指，松手按 `PanEvent.velocity.y` 投射吸附至最近档位（`stiffness: 320, damping: 32`） | 松手直接瞬时吸附目标档位 |
+| **8. 加载与进度（Loading & Progress）**：终局 AI 法官毒舌 MVP 颁奖词后台生成中 | 复用共享 `<LoadingIndicator />` 旋转圆弧进度环，生成完成后平滑替换为颁奖词正文卡片 | `<LoadingIndicator />` 自动停转静止展示进度语义环 |
+| **9. 实时连续状态（Live & Continuous）**：白天/警上发言 `<Canvas>` 环形倒计时弧、发牌前摄人脸对准环 | `<Canvas>` 进度弧随剩余秒数连续绘制，最后 `10s` 切换 `token("warning")` 语义色；人脸对准就绪时外环切换 `token("verified")` | 倒计时弧按整秒离散步进更新，不播放呼吸脉冲 |

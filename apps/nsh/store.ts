@@ -25,6 +25,7 @@ import {
 import {
   CredentialVault,
   DeviceCameraHost,
+  LanRoomHost,
   NodeCompat,
   VoiceAudio,
   MiotLoginBrowser,
@@ -851,6 +852,7 @@ export function createAppStore() {
     const active = lifecycle() === "active";
     runtime?.setBodyForegroundActive(active);
     runtime?.setDeviceCameraForegroundActive(active);
+    runtime?.setLanRoomForegroundActive(active);
     const conversational = !active
       ? null
       : voiceState().phase === "speaking"
@@ -999,6 +1001,10 @@ export function createAppStore() {
       opened.setDeviceCameraForegroundActive(lifecycle() === "active");
       try {
         opened.attachNativeDeviceCamera(new DeviceCameraHost());
+      } catch {}
+      opened.setLanRoomForegroundActive(lifecycle() === "active");
+      try {
+        opened.attachNativeLanRoom(new LanRoomHost());
       } catch {}
       plugins.set(opened.pluginsSnapshot());
       activeStage.set(opened.activeStagePresentation());
@@ -1391,6 +1397,13 @@ export function createAppStore() {
           },
           notify,
           exitStage: () => api.exitPluginStage(id),
+          openStage: () => api.backToFace(),
+          openPluginSettings: () => {
+            if (activeSpace() !== "plugins") {
+              api.openSpace("plugins");
+            }
+            inspectedPluginId.set(id);
+          },
         };
         pluginContexts.set(id, cached);
       }

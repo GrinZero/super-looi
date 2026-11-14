@@ -63,6 +63,11 @@ import {
   type NativeDeviceCameraPort,
   type VisionBrokerAttachOptions,
 } from "./device-camera.js";
+import {
+  LanRoomBroker,
+  createLanRoomCapability,
+  type NativeLanRoomPort,
+} from "./lan-room.js";
 import { createBuiltinPluginDefinitions } from "../plugins/registry.js";
 import type { PluginDefinition, PluginEvent } from "./plugins/contracts.js";
 import type { RobotFaceController } from "../../../packages/looi-runtime/src/ui/robot-face-controller.js";
@@ -169,6 +174,7 @@ export class MobileRuntime {
   private readonly body: BodyRuntime;
   private readonly faceHub = new FaceDriverHub();
   private readonly visionBroker = new VisionBroker();
+  private readonly lanRoomBroker = new LanRoomBroker();
   private readonly plugins: PluginHost;
   private readonly credentialStore: VaultCredentialStore;
   private readonly modelsRegistry: MutableModels;
@@ -224,6 +230,8 @@ export class MobileRuntime {
           createBodyCapability: (manifest, scope) => createBodyCapability(manifest, scope, this.body),
           createVisionCapability: (manifest, scope) =>
             createVisionCapability(manifest, scope, this.visionBroker),
+          createLanCapability: (manifest, scope) =>
+            createLanRoomCapability(manifest, scope, this.lanRoomBroker),
           aiBridge: {
             runBackgroundTask: ({ pluginId, prompt: bgPrompt }) =>
               this.runPluginBackgroundTask(pluginId, bgPrompt),
@@ -299,10 +307,18 @@ export class MobileRuntime {
     port: NativeDeviceCameraPort | null,
     options?: VisionBrokerAttachOptions,
   ) {
-    this.visionBroker.attachNativePort(port, options);
+    const effectiveOptions =
+      options ?? (process.env.LOOI_IOS_SIMULATOR === "1" ? { useSampleStream: true } : undefined);
+    this.visionBroker.attachNativePort(port, effectiveOptions);
   }
   setDeviceCameraForegroundActive(active: boolean) {
     this.visionBroker.setForegroundActive(active);
+  }
+  attachNativeLanRoom(port: NativeLanRoomPort | null) {
+    this.lanRoomBroker.attachNativePort(port);
+  }
+  setLanRoomForegroundActive(active: boolean) {
+    this.lanRoomBroker.setForegroundActive(active);
   }
   setPluginAiBridge(bridge: DualLoopAiBusBridge) { this.plugins.ai.setBridge(bridge); }
   pluginAmbientVoiceContext() { return this.plugins.ai.renderAmbientInstructions(); }
@@ -1230,6 +1246,7 @@ export class MobileRuntime {
     this.cancelProviderOAuth();
     this.faceHub.attachController(undefined);
     this.visionBroker.setForegroundActive(false);
+    this.lanRoomBroker.setForegroundActive(false);
     this.home.close();
     this.body.close();
     for (const bgTaskId of this.activePluginTaskIds) {
@@ -1241,6 +1258,7 @@ export class MobileRuntime {
       } finally {
         try { await this.plugins.close(); }
         finally {
+          this.lanRoomBroker.close();
           this.visionBroker.close();
           try { await this.tracer.shutdown(); }
           finally { this.storage.close(); this.releaseHost(); }

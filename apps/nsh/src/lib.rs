@@ -6,6 +6,7 @@ mod compat;
 mod credentials;
 mod camera;
 mod device_camera;
+mod lan_room;
 #[cfg(target_os = "ios")]
 mod keep_awake;
 #[cfg(all(any(target_os = "android", target_os = "ios"), target_arch = "aarch64"))]
@@ -29,7 +30,8 @@ fn native(registry: &mut Registry) {
         .class::<LooiBle>()
         .class::<MiotLoginBrowser>()
         .class::<camera::XiaomiCameraHost>()
-        .class::<device_camera::DeviceCameraHost>();
+        .class::<device_camera::DeviceCameraHost>()
+        .class::<lan_room::LanRoomHost>();
 }
 
 #[cfg(target_os = "ios")]

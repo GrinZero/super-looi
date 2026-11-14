@@ -11,6 +11,15 @@
 extern void looi_device_camera_background(void);
 extern void looi_device_camera_foreground(void);
 
+typedef struct {
+    int32_t track_id;
+    float offset_x;
+    float offset_y;
+    float width;
+    float height;
+    float confidence;
+} LCDetectedFace;
+
 static char *LCDupError(NSString *message) {
     const char *utf8 = message ? message.UTF8String : "ERR_DEVICE_CAMERA_UNKNOWN";
     size_t len = strlen(utf8);
@@ -67,20 +76,25 @@ static void LCReadActiveSceneContext(CALayer * __strong *layerOut, UIInterfaceOr
     if (orientationOut) *orientationOut = foundOrientation;
 }
 
-@interface LCDeviceCameraSession : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate> {
+@interface LCDeviceCameraSession : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureMetadataOutputObjectsDelegate> {
 @public
     dispatch_queue_t _sessionQueue;
     dispatch_queue_t _sampleQueue;
+    dispatch_queue_t _metadataQueue;
     NSLock *_lock;
     AVCaptureSession *_session;
     AVCaptureDevice *_device;
     AVCaptureDeviceInput *_input;
     AVCaptureVideoDataOutput *_output;
+    AVCaptureMetadataOutput *_metadataOutput;
     id _rotationCoordinator;
     id _runtimeErrorObserver;
     id _orientationObserver;
     id _activeSceneObserver;
     CVPixelBufferRef _latest;
+    LCDetectedFace _faces[8];
+    int32_t _faceCount;
+    int64_t _facesUpdatedAtMs;
     uint64_t _frames;
     int64_t _capturedAtMs;
     int64_t _lastAcceptedAtMs;
@@ -186,6 +200,7 @@ static void LCApplyLandscapeConnection(AVCaptureConnection *connection,
     if ((self = [super init])) {
         _sessionQueue = dispatch_queue_create("com.superlooi.device_camera.session", DISPATCH_QUEUE_SERIAL);
         _sampleQueue = dispatch_queue_create("com.superlooi.device_camera.sample", DISPATCH_QUEUE_SERIAL);
+        _metadataQueue = dispatch_queue_create("com.superlooi.device_camera.metadata", DISPATCH_QUEUE_SERIAL);
         _lock = [NSLock new];
     }
     return self;
@@ -318,6 +333,16 @@ static void LCApplyLandscapeConnection(AVCaptureConnection *connection,
                 return;
             }
             [session addOutput:output];
+
+            AVCaptureMetadataOutput *metadataOutput = [AVCaptureMetadataOutput new];
+            [metadataOutput setMetadataObjectsDelegate:self queue:self->_metadataQueue];
+            if ([session canAddOutput:metadataOutput]) {
+                [session addOutput:metadataOutput];
+                if ([metadataOutput.availableMetadataObjectTypes containsObject:AVMetadataObjectTypeFace]) {
+                    metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeFace];
+                }
+                self->_metadataOutput = metadataOutput;
+            }
 
             self->_device = device;
             CGFloat initialAngle = 0.0;
@@ -520,6 +545,100 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
     }
 }
 
+- (void)captureOutput:(AVCaptureOutput *)output
+didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)metadataObjects
+       fromConnection:(AVCaptureConnection *)connection {
+    (void)output;
+    (void)connection;
+    @autoreleasepool {
+        [_lock lock];
+        if (_closed) {
+            [_lock unlock];
+            return;
+        }
+        int32_t frameW = _width;
+        int32_t frameH = _height;
+        [_lock unlock];
+
+        int64_t nowMs = (int64_t)llround(NSDate.date.timeIntervalSince1970 * 1000.0);
+        AVCaptureVideoDataOutput *videoOutput = _output;
+        AVCaptureConnection *videoConn = videoOutput ? [videoOutput connectionWithMediaType:AVMediaTypeVideo] : nil;
+
+        LCDetectedFace candidates[16];
+        int32_t count = 0;
+
+        for (AVMetadataObject *obj in metadataObjects) {
+            if (![obj isKindOfClass:AVMetadataFaceObject.class]) continue;
+            AVMetadataFaceObject *face = (AVMetadataFaceObject *)obj;
+            AVMetadataObject *transformed = (videoOutput && videoConn)
+                ? [videoOutput transformedMetadataObjectForMetadataObject:face connection:videoConn]
+                : nil;
+            CGFloat cx = 0.5;
+            CGFloat cy = 0.5;
+            CGFloat nw = 0.0;
+            CGFloat nh = 0.0;
+            if (transformed) {
+                CGRect r = transformed.bounds;
+                if (frameW > 1 && frameH > 1 &&
+                    (r.size.width > 1.5 || r.size.height > 1.5 || r.origin.x > 1.05 || r.origin.y > 1.05)) {
+                    cx = CGRectGetMidX(r) / (CGFloat)frameW;
+                    cy = CGRectGetMidY(r) / (CGFloat)frameH;
+                    nw = r.size.width / (CGFloat)frameW;
+                    nh = r.size.height / (CGFloat)frameH;
+                } else {
+                    cx = CGRectGetMidX(r);
+                    cy = CGRectGetMidY(r);
+                    nw = r.size.width;
+                    nh = r.size.height;
+                }
+            } else {
+                CGRect r = face.bounds;
+                cx = CGRectGetMidX(r);
+                cy = CGRectGetMidY(r);
+                nw = r.size.width;
+                nh = r.size.height;
+                if (videoConn && videoConn.isVideoMirrored) {
+                    cx = 1.0 - cx;
+                }
+            }
+            if (nw <= 0.0 || nh <= 0.0) continue;
+            LCDetectedFace item;
+            item.track_id = (int32_t)MAX(1, face.faceID);
+            item.offset_x = (float)MAX(-1.0, MIN(1.0, cx * 2.0 - 1.0));
+            item.offset_y = (float)MAX(-1.0, MIN(1.0, cy * 2.0 - 1.0));
+            item.width = (float)MAX(0.0, MIN(1.0, nw));
+            item.height = (float)MAX(0.0, MIN(1.0, nh));
+            item.confidence = 0.95f;
+            candidates[count++] = item;
+            if (count >= 16) break;
+        }
+
+        // Sort descending by bounding-box area so primary/closest faces come first
+        for (int32_t i = 0; i < count; i++) {
+            for (int32_t j = i + 1; j < count; j++) {
+                float areaI = candidates[i].width * candidates[i].height;
+                float areaJ = candidates[j].width * candidates[j].height;
+                if (areaJ > areaI) {
+                    LCDetectedFace tmp = candidates[i];
+                    candidates[i] = candidates[j];
+                    candidates[j] = tmp;
+                }
+            }
+        }
+
+        int32_t kept = MIN(8, count);
+        [_lock lock];
+        if (!_closed) {
+            _faceCount = kept;
+            _facesUpdatedAtMs = nowMs;
+            if (kept > 0) {
+                memcpy(_faces, candidates, (size_t)kept * sizeof(LCDetectedFace));
+            }
+        }
+        [_lock unlock];
+    }
+}
+
 - (void)close {
     [_lock lock];
     if (_closed) {
@@ -555,18 +674,24 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
             if (self->_output) {
                 [self->_output setSampleBufferDelegate:nil queue:NULL];
             }
+            if (self->_metadataOutput) {
+                [self->_metadataOutput setMetadataObjectsDelegate:nil queue:NULL];
+            }
             if (self->_session) {
                 if (self->_session.running) {
                     [self->_session stopRunning];
                 }
                 if (self->_input) [self->_session removeInput:self->_input];
                 if (self->_output) [self->_session removeOutput:self->_output];
+                if (self->_metadataOutput) [self->_session removeOutput:self->_metadataOutput];
                 self->_session = nil;
             }
             self->_input = nil;
             self->_output = nil;
+            self->_metadataOutput = nil;
             self->_device = nil;
             [self->_lock lock];
+            self->_faceCount = 0;
             if (self->_latest) {
                 CVPixelBufferRelease(self->_latest);
                 self->_latest = NULL;
@@ -801,6 +926,24 @@ uint8_t *looi_device_camera_jpeg(void *handle, int32_t max_dimension, size_t *le
 
 void looi_device_camera_bytes_free(void *bytes) {
     free(bytes);
+}
+
+int32_t looi_device_camera_faces(void *handle, LCDetectedFace *out_faces, int32_t max_faces) {
+    if (!handle || !out_faces || max_faces <= 0) return 0;
+    @autoreleasepool {
+        int64_t nowMs = (int64_t)llround(NSDate.date.timeIntervalSince1970 * 1000.0);
+        LCDeviceCameraSession *session = (__bridge LCDeviceCameraSession *)handle;
+        [session->_lock lock];
+        if (session->_closed || session->_faceCount <= 0 ||
+            (session->_facesUpdatedAtMs > 0 && (nowMs - session->_facesUpdatedAtMs) > 1500)) {
+            [session->_lock unlock];
+            return 0;
+        }
+        int32_t count = MIN(session->_faceCount, MIN(8, max_faces));
+        memcpy(out_faces, session->_faces, (size_t)count * sizeof(LCDetectedFace));
+        [session->_lock unlock];
+        return count;
+    }
 }
 
 void *looi_device_camera_view_create(void) {

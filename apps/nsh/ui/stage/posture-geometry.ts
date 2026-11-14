@@ -97,30 +97,19 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
     Math.min(1.08, (safeWidth - 32) / 620, (safeHeight - 80) / 340),
   );
 
-  // 4-detent bottom drawer geometry: never intrudes into the top host safety bar
-  const maxDrawerHeight = Math.max(
+  // Base top-bar-safe drawer ceiling; refined below once top floating pill clearance is known
+  const unclampedMaxDrawerHeight = Math.max(
     160,
     Math.round(height - safeTop - STAGE_TOP_BAR_HEIGHT - 8),
   );
-  const peekHeight = Math.min(96, Math.max(88, Math.round(maxDrawerHeight * 0.29)));
-  const mediumHeight = Math.max(
-    peekHeight + 48,
-    Math.round(maxDrawerHeight * 0.6),
+  const basePeekHeight = Math.min(
+    96,
+    Math.max(88, Math.round(unclampedMaxDrawerHeight * 0.29)),
   );
-  const largeHeight = maxDrawerHeight;
 
   const effectiveDetent: StageDrawerDetent = input.hasDrawer
     ? input.drawerDetent
     : "closed";
-
-  const visibleDrawerHeight =
-    effectiveDetent === "large"
-      ? largeHeight
-      : effectiveDetent === "medium"
-        ? mediumHeight
-        : effectiveDetent === "peek"
-          ? peekHeight
-          : 0;
 
   let targetScale = 1;
   let targetCenterX = naturalFaceCenterX;
@@ -147,10 +136,10 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
       const maxClearCenterX = rightControlsLeftX - 8 - pillVisualHalfW;
       if (naturalFaceCenterX + pillVisualHalfW <= rightControlsLeftX - 8) {
         targetCenterX = naturalFaceCenterX;
-        targetCenterY = safeTop + Math.max(36, Math.round(pillVisualHalfH + 10));
+        targetCenterY = safeTop + Math.max(30, Math.round(pillVisualHalfH + 6));
       } else if (maxClearCenterX >= minLeftCenterX) {
         targetCenterX = maxClearCenterX;
-        targetCenterY = safeTop + Math.max(36, Math.round(pillVisualHalfH + 10));
+        targetCenterY = safeTop + Math.max(30, Math.round(pillVisualHalfH + 6));
       } else {
         targetCenterX = naturalFaceCenterX;
         targetCenterY = safeTop + STAGE_TOP_BAR_HEIGHT + 6 + Math.round(pillVisualHalfH);
@@ -180,7 +169,8 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
         (leftPaneWidth - 28) / Math.max(240, 560 * baseFaceScale);
       targetScale = clamp(maxFitScale, 0.32, 0.64);
       const availableBottom =
-        height - Math.max(safeBottom, visibleDrawerHeight > 0 ? peekHeight : 0);
+        height -
+        Math.max(safeBottom, effectiveDetent !== "closed" ? basePeekHeight : 0);
       const verticalTop = safeTop + STAGE_TOP_BAR_HEIGHT;
       targetCenterX = safeLeft + leftPaneWidth / 2;
       targetCenterY =
@@ -192,7 +182,7 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
       targetScale = 0.22;
       const pillVisualHalfH = (STAGE_BASE_PILL_HEIGHT * baseFaceScale * targetScale) / 2;
       targetCenterX = naturalFaceCenterX;
-      targetCenterY = safeTop + Math.max(28, Math.round(pillVisualHalfH + 8));
+      targetCenterY = safeTop + Math.max(26, Math.round(pillVisualHalfH + 6));
       pillOpacity = 1;
       break;
     }
@@ -213,6 +203,30 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
   const pillBottomY = Math.round(
     targetCenterY + (STAGE_BASE_PILL_HEIGHT * pillScale) / 2,
   );
+
+  // 4-detent bottom drawer geometry: never intrudes into the top host safety bar OR top floating face pill
+  const maxDrawerHeight =
+    posture.kind === "floating_top" || posture.kind === "minimized_pill"
+      ? Math.max(
+          160,
+          Math.min(unclampedMaxDrawerHeight, height - (pillBottomY + 6)),
+        )
+      : unclampedMaxDrawerHeight;
+  const peekHeight = Math.min(96, Math.max(88, Math.round(maxDrawerHeight * 0.29)));
+  const mediumHeight = Math.max(
+    peekHeight + 48,
+    Math.round(maxDrawerHeight * 0.6),
+  );
+  const largeHeight = maxDrawerHeight;
+
+  const visibleDrawerHeight =
+    effectiveDetent === "large"
+      ? largeHeight
+      : effectiveDetent === "medium"
+        ? mediumHeight
+        : effectiveDetent === "peek"
+          ? peekHeight
+          : 0;
 
   const capsuleTop =
     posture.kind === "floating_top" || posture.kind === "minimized_pill"

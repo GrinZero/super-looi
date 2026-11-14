@@ -19,6 +19,7 @@ interface StageStackEntry {
  */
 export class PluginStageManager {
   private readonly stack: StageStackEntry[] = [];
+  private readonly hostExitListeners = new Map<string, Set<() => void>>();
   private nextRevision = 1;
 
   constructor(
@@ -72,7 +73,19 @@ export class PluginStageManager {
         changed = true;
       }
     }
-    if (changed) this.emitChange();
+    if (changed) {
+      this.emitChange();
+    }
+    const listeners = this.hostExitListeners.get(pluginId);
+    if (listeners && listeners.size > 0) {
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch {
+          // Isolate plugin listener errors so host stage exit always completes.
+        }
+      }
+    }
   }
 
   createScopedCapability(manifest: PluginManifest, defaultScope: EffectScope): PluginStageCapability | undefined {
@@ -113,6 +126,39 @@ export class PluginStageManager {
         };
       },
       currentPresentation: () => this.presentationForPlugin(manifest.id) ?? null,
+      onHostExit: (listener: () => void, scope: EffectScope = defaultScope): Dispose => {
+        if (!scope.active) {
+          throw new PluginKernelError({
+            stage: "plugin.stage.onHostExit",
+            code: "ERR_PLUGIN_SCOPE_DISPOSED",
+            pluginId: manifest.id,
+            reason: `Cannot register stage onHostExit listener on disposed scope for "${manifest.id}"`,
+          });
+        }
+        let bucket = this.hostExitListeners.get(manifest.id);
+        if (!bucket) {
+          bucket = new Set();
+          this.hostExitListeners.set(manifest.id, bucket);
+        }
+        bucket.add(listener);
+        let removed = false;
+        const remove = () => {
+          if (removed) return;
+          removed = true;
+          const current = this.hostExitListeners.get(manifest.id);
+          if (current) {
+            current.delete(listener);
+            if (current.size === 0) {
+              this.hostExitListeners.delete(manifest.id);
+            }
+          }
+        };
+        const detach = scope.onDispose(remove);
+        return () => {
+          detach();
+          remove();
+        };
+      },
     };
   }
 

@@ -41,6 +41,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     keepNames: true,
     define: {
       "import.meta.url": JSON.stringify("file:///app/looi-runtime.mjs"),
+      "process.env.LOOI_IOS_SIMULATOR": JSON.stringify(options.simulator ? "1" : "0"),
       ...Object.fromEntries(Object.entries(variables).map(([key, value]) => [`process.env.${key}`, JSON.stringify(value)])),
     },
     plugins: [
@@ -177,8 +178,8 @@ export type LlmOAuthUiEvent =
  | {kind:"auth_url";url:string;instructions?:string}
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
-import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,NativeDeviceCameraPort,VisionBrokerAttachOptions} from "../runtime/plugins/shared-types.js";
-export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,NativeDeviceCameraPort,VisionBrokerAttachOptions} from "../runtime/plugins/shared-types.js";
+import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraPort,VisionBrokerAttachOptions,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
+export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraPort,VisionBrokerAttachOptions,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
 export interface NativeRuntime {
  pluginsSnapshot():PluginSnapshot[];
  startPlugins():Promise<void>;
@@ -189,6 +190,8 @@ export interface NativeRuntime {
  attachFaceController(controller:RobotFaceController|undefined):void;
  attachNativeDeviceCamera(port:NativeDeviceCameraPort|null,options?:VisionBrokerAttachOptions):void;
  setDeviceCameraForegroundActive(active:boolean):void;
+ attachNativeLanRoom(port:NativeLanRoomPort|null):void;
+ setLanRoomForegroundActive(active:boolean):void;
  setPluginAiBridge(bridge:{speak?:(options:{pluginId:string;spokenText:string;contextNote?:string;delivery:"when_idle"|"interrupt"})=>Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;runBackgroundTask?:(options:{pluginId:string;prompt:string})=>Promise<{readonly taskId:string;readonly answer:string}>;onVoiceContextUpdated?:(summaryPrompt:string)=>void;onVoiceToolsUpdated?:()=>void}):void;
  pluginAmbientVoiceContext():string;
  pluginVoiceTools():readonly PluginVoiceTool[];

@@ -7,8 +7,15 @@ import {
   PLUGIN_PERMISSIONS,
   type AiTurnDraft,
   type CliReceipt,
+  type DetectedCameraFace,
   type FaceStagePosture,
+  type LanHttpRequest,
+  type LanHttpResponse,
+  type LanRoomSession,
   type LocalizedText,
+  type NativeLanHttpRequest,
+  type NativeLanRoomInfo,
+  type NativeLanRoomPort,
   type PluginAuthSnapshot,
   type PluginCategory,
   type PluginDependencyStatus,
@@ -34,8 +41,15 @@ export {
   PLUGIN_PERMISSIONS,
   type AiTurnDraft,
   type CliReceipt,
+  type DetectedCameraFace,
   type FaceStagePosture,
+  type LanHttpRequest,
+  type LanHttpResponse,
+  type LanRoomSession,
   type LocalizedText,
+  type NativeLanHttpRequest,
+  type NativeLanRoomInfo,
+  type NativeLanRoomPort,
   type PluginAuthSnapshot,
   type PluginCategory,
   type PluginDependencyStatus,
@@ -96,6 +110,7 @@ export interface PluginTaskContext {
 export interface PluginStageCapability {
   usePresentation(presentation: PluginStagePresentation, scope?: EffectScope): Dispose;
   currentPresentation(): PluginStagePresentation | null;
+  onHostExit(listener: () => void, scope?: EffectScope): Dispose;
 }
 
 export type ScopedExpressionId = `plugin:${string}:${string}`;
@@ -149,6 +164,14 @@ export interface DeviceCameraFrame {
   readonly height: number;
   readonly facing: "front" | "back";
   readonly capturedAtMs: number;
+  readonly faces: readonly DetectedCameraFace[];
+}
+
+export interface PluginLanRoomCapability {
+  openRoom(options: {
+    scope?: EffectScope;
+    onRequest: (req: LanHttpRequest) => Promise<LanHttpResponse> | LanHttpResponse;
+  }): Promise<LanRoomSession>;
 }
 
 export interface PluginVisionCapability {
@@ -231,6 +254,7 @@ export interface PluginContext<TState = Record<string, unknown>> {
   readonly face?: PluginFaceCapability;
   readonly body?: PluginBodyCapability;
   readonly vision?: PluginVisionCapability;
+  readonly lan?: PluginLanRoomCapability;
   readonly ai?: PluginAiCapability;
   readonly stage?: PluginStageCapability;
 }

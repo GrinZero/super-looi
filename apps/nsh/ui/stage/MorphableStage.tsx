@@ -278,6 +278,14 @@ export function MorphableStage(props: MorphableStageProps) {
     }),
   );
 
+  // Prevent glass-on-glass text ghosting when StageDrawer rises across the StageCapsule band
+  const capsuleOccludedByDrawer = computed(() => {
+    const m = layout();
+    if (m.drawer.visibleHeight <= 0) return false;
+    const drawerTopY = windowSize().height - m.drawer.visibleHeight;
+    return drawerTopY <= m.capsule.top + 36;
+  });
+
   // Persistent native animated channels for single-instance RobotFace & Pill Chrome
   const faceTx = createAnimatedValue(0);
   const faceTy = createAnimatedValue(0);
@@ -289,19 +297,20 @@ export function MorphableStage(props: MorphableStageProps) {
 
   let faceInitialized = false;
   let lastFaceTarget = {
-    tx: Number.NaN,
-    ty: Number.NaN,
-    scale: Number.NaN,
-    pillTx: Number.NaN,
-    pillTy: Number.NaN,
-    pillScale: Number.NaN,
-    pillOpacity: Number.NaN,
+    tx: 0,
+    ty: 0,
+    scale: 1,
+    pillTx: 0,
+    pillTy: 0,
+    pillScale: 1,
+    pillOpacity: 0,
   };
 
   effect(() => {
     const m = layout().face;
     const instant = !faceInitialized || !props.active || reduceMotion();
     const changed =
+      !faceInitialized ||
       Math.abs(m.translateX - lastFaceTarget.tx) > 0.25 ||
       Math.abs(m.translateY - lastFaceTarget.ty) > 0.25 ||
       Math.abs(m.scale - lastFaceTarget.scale) > 0.002 ||
@@ -544,7 +553,7 @@ export function MorphableStage(props: MorphableStageProps) {
               class="absolute inset-0"
               style={{ zIndex: 25, pointerEvents: "box-none" }}
             >
-              <If when={Boolean(CapsuleSlot())}>
+              <If when={Boolean(CapsuleSlot()) && !capsuleOccludedByDrawer()}>
                 {() => {
                   const Comp = CapsuleSlot()!;
                   const capsuleMotion = createMotion({

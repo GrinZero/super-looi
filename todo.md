@@ -1,5 +1,9 @@
 # 当前待办
 
+## 具身狼人杀 AI 裁判与视觉座位追踪真机底座验收
+
+- [ ] 连接 iOS 或 Android 开发真机并吸合真实 LOOI 蓝牙底座（横屏 `844 × 390`），在木质／玻璃等不同摩擦系数圆桌上实测 `werewolf-judge` 发牌阶段的 `vision-person-tracker` 硬件人脸 `offsetX` 比例对脸闭环、黑夜声学掩护归位（`Decoy Sweep`）实耳听感无方位泄密，以及多人同局域网／手机热点下微信扫码副屏盲操与终局语音外放复盘；当前 iOS 模拟器横屏开发包安装调试、进程内 `LanRoomHost` 真实 TCP 多客户端对局 E2E 与全套状态机／安全不变量回归验证均纳入本轮自动化覆盖。
+
 ## 插件系统 v2 与本机前后摄真机横屏验收
 
 - [ ] 连接 iOS 与 Android 开发真机，横屏（`844 × 390`）实测 `DeviceCameraHost` 本机前／后置摄像头授权弹窗、`<DeviceCameraPreview />` 横屏正向预览与前后台自动重绑、`VisionBroker` 多插件共享采样，以及连接真实 LOOI 蓝牙底座时的连续伺服（`acquireServo`）与首屏 `MorphableStage` 五姿态切换；当前桌面无头测试、QuickJS FFI、ObjC／Java 原生编译检查与跨插件生态回归均已通过。

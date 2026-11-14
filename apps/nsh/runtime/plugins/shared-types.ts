@@ -28,6 +28,7 @@ export const PLUGIN_PERMISSIONS = [
   "stage.ui",
   "linux.exec",
   "network.https",
+  "network.lan_room",
 ] as const;
 
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
@@ -416,6 +417,17 @@ export function validateDynamicFaceRecipeIssue(
   return null;
 }
 
+export interface DetectedCameraFace {
+  readonly trackId: number;
+  /** Landscape horizontal center offset: -1.0 (leftmost) .. 0.0 (center) .. +1.0 (rightmost) */
+  readonly offsetX: number;
+  /** Landscape vertical center offset: -1.0 (topmost) .. 0.0 (center) .. +1.0 (bottommost) */
+  readonly offsetY: number;
+  readonly width: number;
+  readonly height: number;
+  readonly confidence: number;
+}
+
 export interface NativeDeviceCameraFrame {
   readonly jpeg: Uint8Array;
   readonly width: number;
@@ -423,6 +435,7 @@ export interface NativeDeviceCameraFrame {
   readonly facing: string;
   readonly capturedAtMs: number;
   readonly seq: number;
+  readonly faces?: readonly DetectedCameraFace[];
 }
 
 export interface NativeDeviceCameraPort {
@@ -455,4 +468,68 @@ export interface NativeDeviceCameraPort {
 
 export interface VisionBrokerAttachOptions {
   readonly useSampleStream?: boolean;
+}
+
+export interface LanHttpRequest {
+  readonly method: "GET" | "POST";
+  readonly path: string;
+  readonly query: Record<string, string>;
+  readonly headers: Record<string, string>;
+  readonly bodyText: string;
+  readonly remoteAddr: string;
+}
+
+export interface LanHttpResponse {
+  readonly status: number;
+  readonly contentType: string;
+  readonly body: string;
+  readonly cacheControl?: string;
+}
+
+export interface LanRoomSession {
+  readonly roomId: string;
+  readonly port: number;
+  /** Reachable LAN root URL, e.g. "http://192.168.31.88:54120" */
+  readonly baseUrl: string;
+  readonly lanIpv4: string | null;
+  /** Broadcasts a state revision bump, immediately waking `/api/wait?sinceRev=` long-polls */
+  notifyRevision(revision: number): void;
+  refreshAddresses(): { readonly lanIpv4: string | null; readonly baseUrl: string };
+  close(): Promise<void>;
+}
+
+export interface NativeLanRoomInfo {
+  readonly roomId: string;
+  readonly port: number;
+  readonly lanIpv4: string;
+  readonly baseUrl: string;
+}
+
+export interface NativeLanHttpRequest {
+  readonly requestId: string;
+  readonly method: string;
+  readonly path: string;
+  readonly queryJson: string;
+  readonly headersJson: string;
+  readonly bodyText: string;
+  readonly remoteAddr: string;
+}
+
+export interface NativeLanRoomPort {
+  openRoom(requestedId: string): Promise<NativeLanRoomInfo>;
+  nextRequest(roomId: string): Promise<NativeLanHttpRequest>;
+  respondRequest(
+    roomId: string,
+    requestId: string,
+    status: number,
+    contentType: string,
+    cacheControl: string,
+    body: string,
+  ): void;
+  notifyRevision(roomId: string, revision: number): void;
+  refreshAddresses(roomId: string): NativeLanRoomInfo;
+  closeRoom(roomId: string): void;
+  setForeground(active: boolean): void;
+  stopAll(): void;
+  dispose?(): void;
 }

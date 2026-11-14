@@ -49,6 +49,8 @@ export interface PluginViewContext<
   logout: () => Promise<void>;
   notify: (message: string) => void;
   exitStage: () => void;
+  openStage: () => void;
+  openPluginSettings: () => void;
 }
 
 export interface PluginUiModule<

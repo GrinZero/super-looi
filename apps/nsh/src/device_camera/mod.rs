@@ -148,6 +148,24 @@ pub(super) struct EncodedFrame {
     pub height: u32,
     pub captured_at_ms: i64,
     pub seq: u64,
+    pub faces: Vec<DetectedCameraNativeFace>,
+}
+
+/// Hardware ISP detected face normalized to landscape `[-1, 1]` center offsets.
+#[derive(Clone, Debug, JsObject)]
+pub struct DetectedCameraNativeFace {
+    /// Stable hardware face tracking identifier (`0` when untracked).
+    pub track_id: u32,
+    /// Horizontal center offset in landscape space: `-1.0` (left) .. `0.0` (center) .. `+1.0` (right).
+    pub offset_x: f64,
+    /// Vertical center offset in landscape space: `-1.0` (top) .. `0.0` (center) .. `+1.0` (bottom).
+    pub offset_y: f64,
+    /// Normalized face bounding-box width in `[0.0, 1.0]`.
+    pub width: f64,
+    /// Normalized face bounding-box height in `[0.0, 1.0]`.
+    pub height: f64,
+    /// Normalized detector confidence in `[0.0, 1.0]`.
+    pub confidence: f64,
 }
 
 /// One downscaled JPEG frame captured from the device front or back camera.
@@ -165,6 +183,25 @@ pub struct DeviceCameraNativeFrame {
     pub captured_at_ms: f64,
     /// Monotonic frame sequence number within this session.
     pub seq: f64,
+    /// Hardware ISP detected faces normalized to landscape `[-1, 1]` center offsets.
+    pub faces: Vec<DetectedCameraNativeFace>,
+}
+
+fn build_sample_faces(facing: &str, seq: u64) -> Vec<DetectedCameraNativeFace> {
+    if facing != "front" {
+        return Vec::new();
+    }
+    let phase = seq as f64 * 0.35;
+    let offset_x = ((phase.sin() * 0.08) * 10_000.0).round() / 10_000.0;
+    let offset_y = (((phase * 0.7).cos() * 0.05 - 0.02) * 10_000.0).round() / 10_000.0;
+    vec![DetectedCameraNativeFace {
+        track_id: 1,
+        offset_x,
+        offset_y,
+        width: 0.24,
+        height: 0.36,
+        confidence: 0.96,
+    }]
 }
 
 pub(super) struct SampleStreamState {
@@ -416,12 +453,14 @@ impl Session {
                         let effective_dim = clamped_dim.min(st.max_dimension.load(Ordering::Acquire));
                         let (jpeg, width, height) =
                             sample_jpeg::encode_sample_jpeg(&s.facing, effective_dim, seq);
+                        let faces = build_sample_faces(&s.facing, seq);
                         Ok(EncodedFrame {
                             jpeg,
                             width,
                             height,
                             captured_at_ms: ts,
                             seq,
+                            faces,
                         })
                     }
                 })
@@ -435,6 +474,7 @@ impl Session {
                     facing,
                     captured_at_ms: encoded.captured_at_ms as f64,
                     seq: encoded.seq as f64,
+                    faces: encoded.faces,
                 });
             }
             if tokio::time::Instant::now() >= deadline {
@@ -658,8 +698,11 @@ pub extern "C" fn looi_device_camera_foreground() {
 mod tests {
     use super::*;
 
+    static FOREGROUND_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test]
     async fn sample_session_streams_downscaled_jpegs_and_tears_down_on_background() {
+        let _guard = FOREGROUND_TEST_LOCK.lock().await;
         handle_platform_foreground_change(true);
         let session = Session::open_sample(Some("cam-test-1"), "front", 640, 25).unwrap();
         assert_eq!(session.id, "cam-test-1");
@@ -670,6 +713,17 @@ mod tests {
         assert_eq!(frame1.height, 360);
         assert_eq!(&frame1.jpeg[0..2], &[0xFF, 0xD8]);
         assert_eq!(&frame1.jpeg[frame1.jpeg.len() - 2..], &[0xFF, 0xD9]);
+        assert_eq!(frame1.faces.len(), 1);
+        assert_eq!(frame1.faces[0].track_id, 1);
+        assert!((-1.0..=1.0).contains(&frame1.faces[0].offset_x));
+        assert!((-1.0..=1.0).contains(&frame1.faces[0].offset_y));
+        assert!((0.0..=1.0).contains(&frame1.faces[0].width));
+        assert!((0.0..=1.0).contains(&frame1.faces[0].height));
+
+        let back_session = Session::open_sample(Some("cam-test-back"), "back", 640, 25).unwrap();
+        let back_frame = back_session.clone().capture_frame(640, 0).await.unwrap();
+        assert!(back_frame.faces.is_empty());
+        back_session.close();
 
         // Downscaled request on the same session respects smaller max_dimension
         let thumb = session.clone().capture_frame(320, 0).await.unwrap();
@@ -694,6 +748,7 @@ mod tests {
 
     #[tokio::test]
     async fn reopening_same_session_id_after_background_preserves_registry_across_late_drop() {
+        let _guard = FOREGROUND_TEST_LOCK.lock().await;
         handle_platform_foreground_change(true);
         let stale_session = Session::open_sample(Some("preview-rebind-1"), "front", 640, 20).unwrap();
         assert!(Arc::ptr_eq(

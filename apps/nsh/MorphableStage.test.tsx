@@ -45,6 +45,9 @@ test("pure posture geometry preserves landscape invariants, asymmetric cutouts, 
     floating.face.targetCenterY + (STAGE_BASE_PILL_HEIGHT * floating.face.pillScale) / 2;
   expect(floating.capsule.top > floatingPillBottom).toBe(true);
   expect(floating.canvas.top > floating.capsule.top).toBe(true);
+  // Large drawer top edge stays strictly below floating_top pill bottom with >= 6pt breathing room
+  const largeDrawerTopY = viewport.height - floating.drawer.largeHeight;
+  expect(largeDrawerTopY >= Math.round(floatingPillBottom) + 6).toBe(true);
 
   // docked_corner top_right never intrudes into top safety bar (y >= STAGE_TOP_BAR_HEIGHT)
   const dockedRight = computeStageLayout({

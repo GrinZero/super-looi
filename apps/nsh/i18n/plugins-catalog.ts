@@ -61,7 +61,8 @@ export const pluginsZh = {
   "pluginRecentStagePrefix": "最近操作：",
   "pluginSave": "保存设置",
   "pluginSettingsSaved": "云端默认设置已保存",
-  "pluginCancel": "取消登录"
+  "pluginCancel": "取消登录",
+  "pluginPermissionLanRoom": "局域网手机副屏房间"
 } as const;
 export const pluginsEn: Record<keyof typeof pluginsZh, string> = {
   "plugins": "Plugins",
@@ -126,5 +127,6 @@ export const pluginsEn: Record<keyof typeof pluginsZh, string> = {
   "pluginRecentStagePrefix": "Recent: ",
   "pluginSave": "Save settings",
   "pluginSettingsSaved": "Cloud default settings saved",
-  "pluginCancel": "Cancel sign-in"
+  "pluginCancel": "Cancel sign-in",
+  "pluginPermissionLanRoom": "Local Wi-Fi companion room"
 };

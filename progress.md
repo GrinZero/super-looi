@@ -1,3 +1,32 @@
+## 具身狼人杀 AI 裁判与视觉座位追踪双插件落地（2026-11-15）
+
+方案见 [`docs/plans/werewolf-game-plugin-plan.md`](docs/plans/werewolf-game-plugin-plan.md)。
+
+- [x] Step 0：实施方案落盘与进度拆解
+  - [x] 将审阅通过的实施方案归档至 `docs/plans/werewolf-game-plugin-plan.md`
+  - [x] 在 `progress.md` 建立细粒度里程碑与 E2E／iOS 模拟器调试核验清单
+- [x] Step 1（Milestone 1）：宿主微内核补齐、原生相机 ISP 人脸元数据与 `LanRoomHost` 房间服务
+  - [x] Step 1.1：扩展 `shared-types.ts`、`contracts.ts` 与 `ui-contracts.ts`（`network.lan_room` 权限、`DetectedCameraFace`、`onHostExit`、`PluginLanRoomCapability`、`openStage`／`openPluginSettings`）
+  - [x] Step 1.2：补齐 `stage-manager.ts`、`host.ts`、`application.ts`、`build-runtime.ts`、`store.ts` 与 `plugins-catalog.ts` 宿主桥接
+  - [x] Step 1.3：升级 `DeviceCamera.m`、`DeviceCameraBridge.java`、`device_camera/mod.rs` 与 `device-camera.ts` 支持横屏归一化人脸框及测试模拟人脸帧
+  - [x] Step 1.4：实现 Rust `lan_room.rs`（`TcpListener` 端口绑定、局域网／热点 IPv4 探测、`/api/wait` `watch` 长轮询即时唤醒、前后台原子断连）与 TS `lan-room.ts` `LanRoomBroker`，通过 Cargo 单元测试
+- [x] Step 2（Milestone 2）：底层感知服务插件 `vision-person-tracker`
+  - [x] Step 2.1：实现 `manifest.ts`、`contracts.ts` 与 `runtime/index.ts`（引用计数按需开流、最后消费者析构即熄灯、EMA 主目标平滑、仅驻留内存的 `capturePortrait` 头像抓拍）
+  - [x] Step 2.2：实现横屏语义化配置页 `SettingsView.tsx`（相机权限引导、`<DeviceCameraPreview />` 实时校准与人脸坐标读数）
+- [x] Step 3（Milestone 3）：`werewolf-judge` 确定性规则引擎、反作弊具身演出与局域网手机副屏
+  - [x] Step 3.1：实现 `presets.ts` 与 `engine.ts`（6 人屠城／9 人屠边／12 人预女猎守·预女猎白及自定义规则、CSPRNG 洗牌、同守同救奶穿、女巫首夜自救与双药互斥、猎人毒死禁枪、首日先选警长再报死讯、警长 `1.5` 票与双平票 PK、白痴翻牌免死、狼人自爆校验及严格底牌防窥投影）
+  - [x] Step 3.2：实现 `choreography.ts`（8 套法官动态表情、`speed = 0` 纯原地自转、发牌 `offsetX` 比例对脸闭环、黑夜声学掩护归位与阵亡神职 `6–9s` 时序伪装窗口）
+  - [x] Step 3.3：实现 `lan-companion.ts` 与 `runtime/index.ts`（零外链移动端防窥 Web 副屏、单座 `seatToken` 鉴权隔离、黑夜 `interceptUserTurn` 禁言短路、白天纯公开 `ContextSlice` 与语音工具、终局 AI MVP 复盘播报、`onHostExit` 挂起清理）
+- [x] Step 4（Milestone 4）：满血 NSH TSX 首屏舞台 UI、`<QrCodeCanvas />` 与设计规范文档
+  - [x] Step 4.1：实现纯算法 Reed-Solomon `<QrCodeCanvas />`（支持导出 `encodeQrMatrix` 校验）
+  - [x] Step 4.2：实现横屏 `StageCapsule.tsx`、`StageCanvas.tsx`、`StageDrawer.tsx` 与 `SettingsView.tsx`（全语义 Token、`>= 44pt` 热区、`>= 12pt` 字号、`Hold-to-Reveal` 松手 0ms 遮蔽与 `reduceMotion()` 降级）
+  - [x] Step 4.3：更新 `apps/nsh/DESIGN.md` 第 6 节具身桌游舞台与动效清单
+- [x] Step 5：全链路集成、多维校验、iOS 模拟器开发包安装调试、架构同步与独立审查
+  - [x] Step 5.1：注册 `vision-person-tracker` 与 `werewolf-judge` 双面模块，通过 `typecheck`、`build`、Cargo `--lib` 与既有插件套件回归
+  - [x] Step 5.2：完成 `tests/werewolf-plugin.node.ts` 全判例与反作弊安全不变量单测，以及 `WerewolfStage.test.tsx`／`app_ui` 横屏 `844 × 390` 明暗双主题 + `reduceMotion` 无头 UI 回归
+  - [x] Step 5.3：在横屏 iOS 模拟器（`iPhone 16e`）安装调试 `NshDev` 开发包并执行真实端到端（E2E）对局测试（连接模拟器进程内 `LanRoomHost` 完成 6 座扫码领牌、夜晚狼刀／女巫／预言家协同、白天发言放逐至终局复盘及横屏截图取证，并定位修复 `MorphableStage.tsx` 姿态弹簧初始 `NaN` 比较导致人脸未缩放分栏的渲染缺陷）
+  - [x] Step 5.4：同步更新 `docs/arch/index.html`、`todo.md` 与 `progress.md`，修复 `posture-geometry.ts`／`MorphableStage.tsx` 顶部表情胶囊间距与 `StageCapsule` 抽屉层叠避让，通过 `@verifier` 独立代码／安全／UI 审查并完成隔离提交
+
 ## 插件系统 v2 与可变形首屏舞台落地（2026-11-14）
 
 方案见 [`docs/plans/plugin-system-v2-architecture-plan.md`](docs/plans/plugin-system-v2-architecture-plan.md)。

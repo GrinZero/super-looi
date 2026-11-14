@@ -21,6 +21,9 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.Face;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
@@ -53,13 +56,15 @@ public final class DeviceCameraBridge {
         public final int height;
         public final long capturedAt;
         public final long seq;
+        public final float[] faces;
 
-        Snapshot(byte[] data, int width, int height, long capturedAt, long seq) {
+        Snapshot(byte[] data, int width, int height, long capturedAt, long seq, float[] faces) {
             this.data = data;
             this.width = width;
             this.height = height;
             this.capturedAt = capturedAt;
             this.seq = seq;
+            this.faces = faces != null ? faces : new float[0];
         }
     }
 
@@ -83,11 +88,15 @@ public final class DeviceCameraBridge {
     private ImageReader imageReader;
     private Range<Integer>[] availableFpsRanges;
     private int sensorOrientation;
+    private Rect sensorActiveRect;
+    private int faceDetectMode = CaptureRequest.STATISTICS_FACE_DETECT_MODE_OFF;
     private volatile int maxDimension;
     private volatile int maxFps;
     private volatile boolean closed;
 
     private byte[] latestNv21;
+    private float[] latestFaces = new float[0];
+    private long facesUpdatedAtMs;
     private int rawWidth;
     private int rawHeight;
     private long frames;
@@ -243,6 +252,9 @@ public final class DeviceCameraBridge {
             selectedCameraId = foundId;
             Integer sensor = foundChars.get(CameraCharacteristics.SENSOR_ORIENTATION);
             this.sensorOrientation = sensor != null ? sensor : 0;
+            this.sensorActiveRect = foundChars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+            int[] faceModes = foundChars.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES);
+            this.faceDetectMode = chooseFaceDetectMode(faceModes);
             StreamConfigurationMap map = foundChars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
             Size[] sizes = map != null ? map.getOutputSizes(ImageFormat.YUV_420_888) : null;
             // Open ImageReader at a <=1280 landscape-capable sensor size so dynamic reconfigure()
@@ -286,8 +298,11 @@ public final class DeviceCameraBridge {
                             req.addTarget(imageReader.getSurface());
                             req.set(CaptureRequest.CONTROL_AF_MODE,
                                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-                            if (selectedFpsRange != null) {
+                             if (selectedFpsRange != null) {
                                 req.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, selectedFpsRange);
+                            }
+                            if (faceDetectMode != CaptureRequest.STATISTICS_FACE_DETECT_MODE_OFF) {
+                                req.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, faceDetectMode);
                             }
                             previewRequestBuilder = req;
                             camera.createCaptureSession(
@@ -307,7 +322,7 @@ public final class DeviceCameraBridge {
                                                 if (currentRange != null) {
                                                     req.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, currentRange);
                                                 }
-                                                session.setRepeatingRequest(req.build(), null, handler);
+                                                session.setRepeatingRequest(req.build(), captureCallback, handler);
                                                 openLatch.countDown();
                                             } catch (CameraAccessException | RuntimeException err) {
                                                 openFailure[0] = "ERR_DEVICE_CAMERA_CAPTURE_REQUEST: " + err.getMessage();
@@ -405,6 +420,131 @@ public final class DeviceCameraBridge {
         return best;
     }
 
+    private static int chooseFaceDetectMode(int[] modes) {
+        if (modes == null || modes.length == 0) {
+            return CaptureRequest.STATISTICS_FACE_DETECT_MODE_OFF;
+        }
+        boolean hasSimple = false;
+        boolean hasFull = false;
+        for (int mode : modes) {
+            if (mode == CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE) hasSimple = true;
+            if (mode == CaptureRequest.STATISTICS_FACE_DETECT_MODE_FULL) hasFull = true;
+        }
+        if (hasSimple) return CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE;
+        if (hasFull) return CaptureRequest.STATISTICS_FACE_DETECT_MODE_FULL;
+        return CaptureRequest.STATISTICS_FACE_DETECT_MODE_OFF;
+    }
+
+    private final CameraCaptureSession.CaptureCallback captureCallback =
+            new CameraCaptureSession.CaptureCallback() {
+                @Override
+                public void onCaptureCompleted(
+                        CameraCaptureSession session,
+                        CaptureRequest request,
+                        TotalCaptureResult result) {
+                    updateDetectedFaces(result);
+                }
+            };
+
+    private void updateDetectedFaces(TotalCaptureResult result) {
+        if (closed || result == null) return;
+        Face[] rawFaces = result.get(CaptureResult.STATISTICS_FACES);
+        Rect active = sensorActiveRect;
+        long now = System.currentTimeMillis();
+        if (rawFaces == null || rawFaces.length == 0 || active == null || active.width() <= 0 || active.height() <= 0) {
+            synchronized (lock) {
+                if (!closed) {
+                    latestFaces = new float[0];
+                    facesUpdatedAtMs = now;
+                }
+            }
+            return;
+        }
+        int rotation = computeUprightRotationDegrees();
+        boolean mirrorHorizontal = (facing == 0);
+        float activeW = (float) active.width();
+        float activeH = (float) active.height();
+
+        float[][] candidates = new float[Math.min(16, rawFaces.length)][6];
+        int count = 0;
+        for (Face f : rawFaces) {
+            if (f == null) continue;
+            Rect b = f.getBounds();
+            if (b == null || b.width() <= 0 || b.height() <= 0) continue;
+            float sx = ((b.exactCenterX() - active.left) / activeW);
+            float sy = ((b.exactCenterY() - active.top) / activeH);
+            float sw = b.width() / activeW;
+            float sh = b.height() / activeH;
+
+            float nx;
+            float ny;
+            float nw;
+            float nh;
+            if (rotation == 90) {
+                nx = 1f - sy;
+                ny = sx;
+                nw = sh;
+                nh = sw;
+            } else if (rotation == 180) {
+                nx = 1f - sx;
+                ny = 1f - sy;
+                nw = sw;
+                nh = sh;
+            } else if (rotation == 270) {
+                nx = sy;
+                ny = 1f - sx;
+                nw = sh;
+                nh = sw;
+            } else {
+                nx = sx;
+                ny = sy;
+                nw = sw;
+                nh = sh;
+            }
+            if (mirrorHorizontal) {
+                nx = 1f - nx;
+            }
+            int rawId = f.getId();
+            int trackId = rawId > 0 ? rawId : (count + 1);
+            int rawScore = f.getScore();
+            float confidence = rawScore > 0
+                    ? Math.max(0.1f, Math.min(1.0f, rawScore / 100.0f))
+                    : 0.9f;
+            candidates[count][0] = (float) trackId;
+            candidates[count][1] = Math.max(-1f, Math.min(1f, nx * 2f - 1f));
+            candidates[count][2] = Math.max(-1f, Math.min(1f, ny * 2f - 1f));
+            candidates[count][3] = Math.max(0f, Math.min(1f, nw));
+            candidates[count][4] = Math.max(0f, Math.min(1f, nh));
+            candidates[count][5] = confidence;
+            count++;
+            if (count >= candidates.length) break;
+        }
+
+        for (int i = 0; i < count; i++) {
+            for (int j = i + 1; j < count; j++) {
+                float areaI = candidates[i][3] * candidates[i][4];
+                float areaJ = candidates[j][3] * candidates[j][4];
+                if (areaJ > areaI) {
+                    float[] tmp = candidates[i];
+                    candidates[i] = candidates[j];
+                    candidates[j] = tmp;
+                }
+            }
+        }
+
+        int kept = Math.min(8, count);
+        float[] packed = new float[kept * 6];
+        for (int i = 0; i < kept; i++) {
+            System.arraycopy(candidates[i], 0, packed, i * 6, 6);
+        }
+        synchronized (lock) {
+            if (!closed) {
+                latestFaces = packed;
+                facesUpdatedAtMs = now;
+            }
+        }
+    }
+
     public void reconfigure(int nextMaxDimension, int nextMaxFps) {
         final int clampedDim = Math.max(160, Math.min(1920, nextMaxDimension));
         final int clampedFps = Math.max(1, Math.min(30, nextMaxFps));
@@ -418,7 +558,7 @@ public final class DeviceCameraBridge {
             if (nextRange != null) {
                 previewRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, nextRange);
                 try {
-                    captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, handler);
+                    captureSession.setRepeatingRequest(previewRequestBuilder.build(), captureCallback, handler);
                 } catch (CameraAccessException | RuntimeException ignored) {
                 }
             }
@@ -578,6 +718,8 @@ public final class DeviceCameraBridge {
         long ts;
         long seq;
         int fallbackDim;
+        float[] facesSnapshot;
+        long now = System.currentTimeMillis();
         synchronized (lock) {
             if (closed || latestNv21 == null || frames == 0) return null;
             nv21 = latestNv21;
@@ -586,6 +728,9 @@ public final class DeviceCameraBridge {
             ts = capturedAtMs;
             seq = frames;
             fallbackDim = maxDimension;
+            facesSnapshot = (facesUpdatedAtMs > 0 && (now - facesUpdatedAtMs) <= 1500 && latestFaces != null)
+                    ? latestFaces.clone()
+                    : new float[0];
         }
         int targetMax = Math.max(160, Math.min(1920, reqMaxDimension > 0 ? reqMaxDimension : fallbackDim));
         YuvImage yuv = new YuvImage(nv21, ImageFormat.NV21, w, h, null);
@@ -597,7 +742,7 @@ public final class DeviceCameraBridge {
         int rotation = computeUprightRotationDegrees();
         boolean mirrorHorizontal = (facing == 0);
         if (longest <= targetMax && rotation == 0 && !mirrorHorizontal) {
-            return new Snapshot(encoded, w, h, ts, seq);
+            return new Snapshot(encoded, w, h, ts, seq, facesSnapshot);
         }
 
         Bitmap transformed = decodeUprightBitmap(encoded, targetMax);
@@ -608,7 +753,7 @@ public final class DeviceCameraBridge {
         int finalH = transformed.getHeight();
         transformed.recycle();
         if (!ok) return null;
-        return new Snapshot(out.toByteArray(), finalW, finalH, ts, seq);
+        return new Snapshot(out.toByteArray(), finalW, finalH, ts, seq, facesSnapshot);
     }
 
     private int computeUprightRotationDegrees() {
@@ -659,6 +804,7 @@ public final class DeviceCameraBridge {
             closed = true;
             boundPreview = null;
             latestNv21 = null;
+            latestFaces = new float[0];
         }
         WeakReference<DeviceCameraBridge> currentRef = sessions.get(id);
         if (currentRef != null) {

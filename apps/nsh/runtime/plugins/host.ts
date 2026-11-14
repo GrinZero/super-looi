@@ -10,6 +10,7 @@ import type {
   PluginEvent,
   PluginFaceCapability,
   PluginFailure,
+  PluginLanRoomCapability,
   PluginLifecycleState,
   PluginManifest,
   PluginRuntime,
@@ -37,6 +38,7 @@ export interface PluginHostHardwareDrivers {
   createFaceCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginFaceCapability | undefined;
   createBodyCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginBodyCapability | undefined;
   createVisionCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginVisionCapability | undefined;
+  createLanCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginLanRoomCapability | undefined;
   aiBridge?: DualLoopAiBusBridge;
 }
 
@@ -357,6 +359,7 @@ export class PluginHost {
       face: this.drivers.createFaceCapability?.(manifest, scope),
       body: this.drivers.createBodyCapability?.(manifest, scope),
       vision: this.drivers.createVisionCapability?.(manifest, scope),
+      lan: this.drivers.createLanCapability?.(manifest, scope),
       ai: this.ai.createScopedCapability(manifest, scope),
       stage: this.stage.createScopedCapability(manifest, scope),
     };

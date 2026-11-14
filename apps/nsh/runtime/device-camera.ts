@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DeviceCameraFrame } from "./plugins/contracts.js";
+import type { DetectedCameraFace, DeviceCameraFrame } from "./plugins/contracts.js";
 import type {
   NativeDeviceCameraFrame,
   NativeDeviceCameraPort,
@@ -7,6 +7,7 @@ import type {
 } from "./plugins/shared-types.js";
 
 export type {
+  DetectedCameraFace,
   NativeDeviceCameraFrame,
   NativeDeviceCameraPort,
   VisionBrokerAttachOptions,
@@ -85,6 +86,31 @@ function normalizeDimension(raw: number | undefined): DeviceCameraDimension {
   if (raw <= 320) return 320;
   if (raw <= 640) return 640;
   return 1280;
+}
+
+function clampFaceMetric(val: number, min: number, max: number): number {
+  if (!Number.isFinite(val)) return 0;
+  return Math.max(min, Math.min(max, val));
+}
+
+function normalizeDetectedFaces(
+  raw: readonly DetectedCameraFace[] | undefined,
+): readonly DetectedCameraFace[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const out: DetectedCameraFace[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const trackId = Number.isFinite(item.trackId) ? Math.max(0, Math.trunc(item.trackId)) : 0;
+    out.push({
+      trackId,
+      offsetX: clampFaceMetric(item.offsetX, -1, 1),
+      offsetY: clampFaceMetric(item.offsetY, -1, 1),
+      width: clampFaceMetric(item.width, 0, 1),
+      height: clampFaceMetric(item.height, 0, 1),
+      confidence: clampFaceMetric(item.confidence, 0, 1),
+    });
+  }
+  return out;
 }
 
 function clampFps(raw: number | undefined): number {
@@ -264,6 +290,7 @@ export class VisionBroker {
         height: raw.height,
         facing: slot.facing,
         capturedAtMs: raw.capturedAtMs,
+        faces: normalizeDetectedFaces(raw.faces),
       };
     } finally {
       slot.oneshotHolders.delete(holderId);
@@ -706,6 +733,7 @@ export class VisionBroker {
       }
 
       const now = Date.now();
+      const normalizedFaces = normalizeDetectedFaces(rawFrame.faces);
       const downscaledCache = new Map<DeviceCameraDimension, Promise<NativeDeviceCameraFrame>>();
 
       const resolveDimensionFrame = (dim: DeviceCameraDimension): Promise<DeviceCameraFrame> => {
@@ -716,6 +744,7 @@ export class VisionBroker {
             height: rawFrame.height,
             facing: slot.facing,
             capturedAtMs: rawFrame.capturedAtMs,
+            faces: normalizedFaces,
           });
         }
         let cached = downscaledCache.get(dim);
@@ -729,6 +758,7 @@ export class VisionBroker {
           height: scaled.height,
           facing: slot.facing,
           capturedAtMs: scaled.capturedAtMs,
+          faces: scaled.faces !== undefined ? normalizeDetectedFaces(scaled.faces) : normalizedFaces,
         }));
       };
 

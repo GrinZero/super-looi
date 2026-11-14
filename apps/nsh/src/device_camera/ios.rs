@@ -1,6 +1,17 @@
 //! iOS AVCaptureSession native FFI bindings for `DeviceCameraHost`.
-use super::{EncodedFrame, NativeSessionStatus, format_backend_error};
+use super::{DetectedCameraNativeFace, EncodedFrame, NativeSessionStatus, format_backend_error};
 use std::ffi::{CStr, c_char, c_void};
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct LCDetectedFace {
+    track_id: i32,
+    offset_x: f32,
+    offset_y: f32,
+    width: f32,
+    height: f32,
+    confidence: f32,
+}
 
 unsafe extern "C" {
     fn looi_device_camera_permission() -> i32;
@@ -33,6 +44,11 @@ unsafe extern "C" {
         captured_at_ms: *mut i64,
         seq: *mut u64,
     ) -> *mut u8;
+    fn looi_device_camera_faces(
+        handle: *mut c_void,
+        out_faces: *mut LCDetectedFace,
+        max_faces: i32,
+    ) -> i32;
     fn looi_device_camera_bytes_free(bytes: *mut c_void);
     pub fn looi_device_camera_view_create() -> *mut c_void;
     pub fn looi_device_camera_view_bind(view: *mut c_void, session: *mut c_void);
@@ -153,12 +169,29 @@ impl PlatformSession {
         unsafe {
             looi_device_camera_bytes_free(bytes.cast());
         }
+        let mut raw_faces = [LCDetectedFace::default(); 8];
+        let face_count = unsafe {
+            looi_device_camera_faces(self.0, raw_faces.as_mut_ptr(), raw_faces.len() as i32)
+        }
+        .clamp(0, raw_faces.len() as i32) as usize;
+        let faces = raw_faces[..face_count]
+            .iter()
+            .map(|face| DetectedCameraNativeFace {
+                track_id: face.track_id.max(0) as u32,
+                offset_x: (face.offset_x as f64).clamp(-1.0, 1.0),
+                offset_y: (face.offset_y as f64).clamp(-1.0, 1.0),
+                width: (face.width as f64).clamp(0.0, 1.0),
+                height: (face.height as f64).clamp(0.0, 1.0),
+                confidence: (face.confidence as f64).clamp(0.0, 1.0),
+            })
+            .collect();
         Ok(EncodedFrame {
             jpeg: data,
             width: width.max(0) as u32,
             height: height.max(0) as u32,
             captured_at_ms,
             seq,
+            faces,
         })
     }
 
