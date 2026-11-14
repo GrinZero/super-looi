@@ -195,6 +195,19 @@ function PluginDetailPane(props: {
     () => getPluginUiModule(props.pluginId)?.SettingsView,
   );
   const viewCtx = props.store.pluginViewContext(props.pluginId);
+  const formattedDiagnosticError = () => {
+    const uiErr = viewCtx.uiError();
+    if (uiErr) return uiErr;
+    const lastErr = plugin()?.lastError;
+    if (!lastErr) return "";
+    const codePart = lastErr.code !== undefined ? ` code=${String(lastErr.code)}` : "";
+    return `[stage=${lastErr.stage}${codePart}] ${lastErr.reason}`;
+  };
+  const showHostStageCrashBanner = () => {
+    const text = formattedDiagnosticError();
+    if (!text) return false;
+    return Boolean(customSettingsView()) && text.includes(":ui.Stage");
+  };
 
   return (
     <If when={Boolean(plugin())}>
@@ -299,6 +312,18 @@ function PluginDetailPane(props: {
           </View>
         </If>
 
+        <If when={showHostStageCrashBanner()}>
+          <View
+            testID="plugin-stage-crash-banner"
+            class="rounded-xl border border-destructive bg-card px-3.5 py-2 flex-row items-center gap-2"
+          >
+            <PluginVectorIcon name="alert" tone="destructive" size={16} />
+            <Text class="flex-1 text-destructive text-xs font-mono">
+              {formattedDiagnosticError()}
+            </Text>
+          </View>
+        </If>
+
         {/* Error-Boundary-Isolated Plugin Custom SettingsView */}
         <ErrorBoundary
           fallback={(error, reset) => (
@@ -325,7 +350,14 @@ function PluginDetailPane(props: {
           <If
             when={Boolean(customSettingsView())}
             else={
-              <View class="flex-1 min-h-0 rounded-2xl border border-border bg-card p-5 items-center justify-center gap-2">
+              <View class="flex-1 min-h-0 rounded-2xl border border-border bg-card p-5 items-center justify-center gap-3">
+                <If when={Boolean(formattedDiagnosticError())}>
+                  <View class="w-full rounded-xl bg-muted border border-destructive px-3 py-2">
+                    <Text testID="plugin-error" class="text-destructive text-xs font-mono">
+                      {formattedDiagnosticError()}
+                    </Text>
+                  </View>
+                </If>
                 <Text class="text-muted-foreground text-sm">
                   {t("pluginNoCustomSettings")}
                 </Text>

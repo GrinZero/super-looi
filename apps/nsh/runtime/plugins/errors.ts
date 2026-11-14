@@ -24,12 +24,25 @@ export class PluginKernelError extends Error {
   }
 
   toFailure(): PluginFailure {
+    const causeText = formatErrorCause(this.cause);
     return {
       stage: this.stage,
       code: this.code,
-      reason: this.message,
+      reason:
+        causeText && !this.message.includes(causeText)
+          ? `${this.message} (cause: ${causeText})`
+          : this.message,
     };
   }
+}
+
+function formatErrorCause(cause: unknown): string {
+  if (cause === undefined || cause === null) return "";
+  if (cause instanceof Error) return cause.message || String(cause);
+  if (typeof cause === "object" && "message" in cause && typeof (cause as { message?: unknown }).message === "string") {
+    return (cause as { message: string }).message;
+  }
+  return String(cause);
 }
 
 export function extractPluginFailure(error: unknown, defaultStage: string, defaultCode?: string): PluginFailure {
@@ -37,18 +50,29 @@ export function extractPluginFailure(error: unknown, defaultStage: string, defau
     return error.toFailure();
   }
   if (error && typeof error === "object") {
-    const candidate = error as { stage?: unknown; code?: unknown; message?: unknown; reason?: unknown };
+    const candidate = error as {
+      stage?: unknown;
+      code?: unknown;
+      message?: unknown;
+      reason?: unknown;
+      cause?: unknown;
+    };
     const stage = typeof candidate.stage === "string" && candidate.stage ? candidate.stage : defaultStage;
     const code =
       typeof candidate.code === "string" || typeof candidate.code === "number"
         ? candidate.code
         : defaultCode;
-    const reason =
+    const baseReason =
       typeof candidate.reason === "string" && candidate.reason
         ? candidate.reason
         : typeof candidate.message === "string" && candidate.message
           ? candidate.message
           : String(error);
+    const causeText = formatErrorCause(candidate.cause);
+    const reason =
+      causeText && !baseReason.includes(causeText)
+        ? `${baseReason} (cause: ${causeText})`
+        : baseReason;
     return { stage, ...(code !== undefined ? { code } : {}), reason };
   }
   return {

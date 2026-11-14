@@ -91,8 +91,13 @@ export class PluginHost {
     this.topology = validateAndSortPluginTopology(definitions.map((d) => d.manifest));
     this.ensureSchemaAndMigrateLegacySettings();
 
-    this.stage = new PluginStageManager((pluginId, presentation) => {
-      this.emit({ type: "stage_changed", pluginId, presentation });
+    this.stage = new PluginStageManager((pluginId, presentation, revision) => {
+      this.emit({
+        type: "stage_changed",
+        pluginId,
+        ...(revision !== undefined ? { revision } : {}),
+        presentation,
+      });
       this.ai?.notifyStageChanged();
       for (const entry of this.entries.values()) {
         if (entry.definition.manifest.permissions.includes("stage.ui")) {
@@ -750,6 +755,27 @@ export class PluginHost {
       });
     }
     return runtime.handleCommand(command);
+  }
+
+  reportStageCrash(
+    pluginId: string,
+    slot: "StageCanvas" | "StageCapsule" | "StageDrawer",
+    error: unknown,
+  ): PluginFailure {
+    const failure = extractPluginFailure(
+      error,
+      `plugin:${pluginId}:ui.${slot}`,
+      "ERR_PLUGIN_STAGE_CRASH",
+    );
+    const entry = this.entries.get(pluginId);
+    if (entry) {
+      entry.lastError = structuredClone(failure);
+    }
+    this.stage.exitPluginStage(pluginId);
+    if (entry) {
+      this.publishSnapshot(entry);
+    }
+    return failure;
   }
 
   contribution(context: PluginTaskContext) {

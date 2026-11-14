@@ -174,7 +174,12 @@ export type PluginEvent =
   | { type: "auth_challenge"; pluginId: string; sessionId: string; url: string }
   | { type: "execution_output"; pluginId: string; callId: string; stream: "stdout" | "stderr"; text: string }
   | { type: "execution_finished"; pluginId: string; receipt: CliReceipt }
-  | { type: "stage_changed"; pluginId: string | null; presentation: PluginStagePresentation | null };
+  | {
+      type: "stage_changed";
+      pluginId: string | null;
+      revision?: number;
+      presentation: PluginStagePresentation | null;
+    };
 
 export type UserTurnBailResult =
   | undefined

@@ -1,78 +1,11 @@
 import { t } from "./i18n";
-import { Canvas, effect, host, mount, signal, Text, View, token } from "nsh";
-import { Button, Input } from "nsh/base";
+import { effect, host, mount, signal, Text, View } from "nsh";
 import { BackHandler } from "nsh/mobile";
 import { createAppStore } from "./store";
-import {
-  ActionButton,
-  LightToast,
-  LiveVoiceButton,
-  Panel,
-  ResponsePreview,
-  TextField,
-  WakeGuideBar,
-} from "./ui/Controls";
-import { RobotFace } from "./ui/RobotFace";
+import { ActionButton, Panel, TextField } from "./ui/Controls";
 import { ManagementShell } from "./ui/ManagementShell";
 import { RetainedPage } from "./ui/RetainedPage";
-
-function HomeHeaderIcon(props: { kind: "chat" | "settings"; active?: boolean }) {
-  return (
-    <Canvas
-      class="w-6 h-6"
-      draw={(cx, size) => {
-        cx.clearRect(0, 0, size.width, size.height);
-        cx.save();
-        cx.scale(size.width / 24, size.height / 24);
-        cx.strokeStyle = token(props.active ? "stage-pill-fg" : "stage-muted");
-        cx.lineWidth = 1.8;
-        cx.lineCap = "round";
-        cx.lineJoin = "round";
-
-        if (props.kind === "chat") {
-          cx.beginPath();
-          cx.moveTo(7, 4.5);
-          cx.lineTo(17, 4.5);
-          cx.quadraticCurveTo(20.5, 4.5, 20.5, 8);
-          cx.lineTo(20.5, 14.5);
-          cx.quadraticCurveTo(20.5, 18, 17, 18);
-          cx.lineTo(10, 18);
-          cx.lineTo(5, 21);
-          cx.lineTo(5, 17.5);
-          cx.quadraticCurveTo(3.5, 16.5, 3.5, 14.5);
-          cx.lineTo(3.5, 8);
-          cx.quadraticCurveTo(3.5, 4.5, 7, 4.5);
-          cx.closePath();
-          cx.stroke();
-          cx.beginPath();
-          cx.moveTo(8, 10);
-          cx.lineTo(16, 10);
-          cx.moveTo(8, 13.5);
-          cx.lineTo(13.5, 13.5);
-          cx.stroke();
-        } else {
-          cx.beginPath();
-          for (let tooth = 0; tooth < 8; tooth++) {
-            for (let edge = 0; edge < 4; edge++) {
-              const angle = ((tooth * 4 + edge) * Math.PI) / 16 - Math.PI / 2;
-              const radius = edge === 1 || edge === 2 ? 10 : 7.7;
-              const x = 12 + Math.cos(angle) * radius;
-              const y = 12 + Math.sin(angle) * radius;
-              if (tooth === 0 && edge === 0) cx.moveTo(x, y);
-              else cx.lineTo(x, y);
-            }
-          }
-          cx.closePath();
-          cx.stroke();
-          cx.beginPath();
-          cx.arc(12, 12, 3, 0, Math.PI * 2);
-          cx.stroke();
-        }
-        cx.restore();
-      }}
-    />
-  );
-}
+import { MorphableStage } from "./ui/stage/MorphableStage";
 
 function App() {
   const store = createAppStore();
@@ -86,9 +19,6 @@ function App() {
     draft = signal("");
   const questionAnswers = signal<Record<string, string>>({});
   const responseOpen = signal(false);
-
-  const voiceActive = () =>
-    ["connecting", "listening", "speaking"].includes(store.voiceState().phase);
 
   const responseText = () =>
     ["listening", "speaking"].includes(store.voiceState().phase) &&
@@ -173,145 +103,36 @@ function App() {
           ? "flex-1 bg-stage-bg"
           : "flex-1 bg-background"
       }
-      style={{
-        paddingLeft: store.activeSpace() === "face" ? missingCutout().left : 0,
-        paddingRight: store.activeSpace() === "face" ? missingCutout().right : 0,
-      }}
     >
       <RetainedPage active={store.activeSpace() === "face"}>
-        <View
-          class="flex-1 justify-between"
-          style={{
-            paddingTop: "env(safe-area-inset-top)",
-            paddingBottom: "env(safe-area-inset-bottom)",
-            paddingLeft: "env(safe-area-inset-left)",
-            paddingRight: "env(safe-area-inset-right)",
-          }}
-        >
-          <RobotFace
-            active={store.activeSpace() === "face"}
-            state={store.face()}
-            shift={{ dx: 0, dy: 0 }}
-          />
-
-          <View class="flex-1 px-4 py-2.5 justify-between">
-            <View class="gap-2">
-              <View class="flex-row items-center justify-between gap-3">
-                <View
-                  class="flex-1 min-w-0 flex-row items-center gap-2 px-2 py-1"
-                  style={{ opacity: 0.85, minHeight: 38, flexShrink: 1 }}
-                >
-                  <View
-                    class={
-                      voiceActive()
-                        ? "w-1.5 h-1.5 rounded-full bg-verified"
-                        : "w-1.5 h-1.5 rounded-full bg-eye-core"
-                    }
-                  />
-                  <Text
-                    class="text-stage-muted text-xs font-medium"
-                    style={{ letterSpacing: 1, flexShrink: 1 }}
-                  >
-                    {store.status()}
-                  </Text>
-                </View>
-
-                <View class="flex-row items-center gap-2">
-                  <LiveVoiceButton
-                    phase={store.voiceState().phase}
-                    muted={store.voiceState().muted}
-                    audioLevel={store.voiceAudioLevel()}
-                    accessibilityLabel={
-                      store.voiceState().phase === "speaking"
-                        ? t("interruptPlayback")
-                        : voiceActive()
-                          ? t("endLiveVoice")
-                          : t("startProviderVoice", { provider: store.voiceProviderLabel() })
-                    }
-                    disabled={!store.ready()}
-                    onPress={toggleLiveVoice}
-                  />
-
-                  <Button
-                    testID="compose"
-                    accessibilityLabel={t("sendAMessageToLooi")}
-                    selected={compose()}
-                    onPress={() => compose.set(!compose())}
-                    class="w-11 h-11 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
-                  >
-                    <HomeHeaderIcon kind="chat" active={compose()} />
-                  </Button>
-
-                  <Button
-                    testID="connection-settings"
-                    accessibilityLabel={t("openConnectionsAndSettings")}
-                    onPress={() => store.openSpace("models")}
-                    class="w-11 h-11 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
-                  >
-                    <HomeHeaderIcon kind="settings" />
-                  </Button>
-                </View>
-              </View>
-
-              <If when={store.toast()}>
-                <View class="items-center">
-                  <LightToast text={store.toast()} stage={true} />
-                </View>
-              </If>
-            </View>
-
-            <View
-              class="items-center gap-2"
-              style={{ marginBottom: "env(keyboard-inset-height)" }}
-            >
-              <If
-                when={responseText()}
-                else={
-                  <If
-                    when={
-                      !compose() &&
-                      !store.wakeGuideDismissed() &&
-                      !voiceActive()
-                    }
-                  >
-                    <WakeGuideBar active={store.voiceState().phase === "standby"} onPress={toggleLiveVoice} />
-                  </If>
-                }
-              >
-                <ResponsePreview
-                  text={responseText()}
-                  onOpen={() => responseOpen.set(true)}
-                />
-              </If>
-
-              <If when={compose()}>
-                <View class="w-full rounded-2xl border border-stage-pill-border bg-ask-bar-bg px-3 py-1.5 flex-row items-center gap-2">
-                  <Input
-                    testID="message-input"
-                    accessibilityLabel={t("sendAMessageToLooi")}
-                    value={draft()}
-                    onChange={(e) => draft.set(e.value)}
-                    onSubmit={send}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                    maxLength={8192}
-                    placeholder={t("askLooiEgListFilesOrWrite")}
-                    class="flex-1 h-10 rounded-xl border border-transparent bg-transparent px-2 text-stage-fg text-sm placeholder:text-stage-pill-muted focus:border-ring"
-                  />
-                  <Button
-                    testID="send-message"
-                    disabled={!draft().trim() || !store.ready() || store.busy()}
-                    onPress={send}
-                    class="rounded-full bg-eye-core px-4 items-center justify-center active:opacity-75 disabled:opacity-40"
-                    style={{ minHeight: 44 }}
-                  >
-                    <Text class="text-stage-bg text-xs font-bold">{t("send")}</Text>
-                  </Button>
-                </View>
-              </If>
-            </View>
-          </View>
-        </View>
+        <MorphableStage
+          active={store.activeSpace() === "face"}
+          ready={store.ready()}
+          busy={store.busy()}
+          cutoutInsets={missingCutout()}
+          faceState={store.face()}
+          statusText={store.status()}
+          toastText={store.toast()}
+          voiceState={store.voiceState()}
+          voiceAudioLevel={store.voiceAudioLevel()}
+          voiceProviderLabel={store.voiceProviderLabel()}
+          wakeGuideDismissed={store.wakeGuideDismissed()}
+          responseText={responseText()}
+          composeOpen={compose()}
+          composeDraft={draft()}
+          activeStage={store.activeStage()}
+          getPluginViewContext={(id) => store.pluginViewContext(id)}
+          onToggleVoice={toggleLiveVoice}
+          onToggleCompose={() => compose.set(!compose())}
+          onChangeDraft={(value) => draft.set(value)}
+          onSubmitDraft={send}
+          onOpenSettings={() => store.openSpace("models")}
+          onOpenResponse={() => responseOpen.set(true)}
+          onExitStage={(id) => store.exitPluginStage(id)}
+          onReportStageCrash={(id, slot, error) =>
+            store.reportPluginStageCrash(id, slot, error)
+          }
+        />
       </RetainedPage>
       <RetainedPage active={store.activeSpace() !== "face"}>
         <ManagementShell store={store} cutoutInsets={missingCutout()} />

@@ -259,6 +259,13 @@ export class MobileRuntime {
   pluginsSnapshot() { return this.plugins.snapshots(); }
   activeStagePresentation() { return this.plugins.stage.activePresentation(); }
   exitPluginStage(id: string) { this.plugins.stage.exitPluginStage(id); }
+  reportPluginStageCrash(
+    id: string,
+    slot: "StageCanvas" | "StageCapsule" | "StageDrawer",
+    error: unknown,
+  ) {
+    return this.plugins.reportStageCrash(id, slot, error);
+  }
   attachFaceController(controller: RobotFaceController | undefined) { this.faceHub.attachController(controller); }
   setPluginAiBridge(bridge: DualLoopAiBusBridge) { this.plugins.ai.setBridge(bridge); }
   pluginAmbientVoiceContext() { return this.plugins.ai.renderAmbientInstructions(); }

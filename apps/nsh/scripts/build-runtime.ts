@@ -176,12 +176,13 @@ export type LlmOAuthUiEvent =
  | {kind:"auth_url";url:string;instructions?:string}
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
-import type {PluginSnapshot,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft} from "../runtime/plugins/shared-types.js";
-export type {PluginSnapshot,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft} from "../runtime/plugins/shared-types.js";
+import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft} from "../runtime/plugins/shared-types.js";
+export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft} from "../runtime/plugins/shared-types.js";
 export interface NativeRuntime {
  pluginsSnapshot():PluginSnapshot[];
- activeStagePresentation():{pluginId:string;presentation:PluginStagePresentation}|null;
+ activeStagePresentation():{pluginId:string;revision:number;presentation:PluginStagePresentation}|null;
  exitPluginStage(id:string):void;
+ reportPluginStageCrash(id:string,slot:"StageCanvas"|"StageCapsule"|"StageDrawer",error:unknown):PluginFailure;
  attachFaceController(controller:RobotFaceController|undefined):void;
  setPluginAiBridge(bridge:{speak?:(options:{pluginId:string;spokenText:string;contextNote?:string;delivery:"when_idle"|"interrupt"})=>Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;runBackgroundTask?:(options:{pluginId:string;prompt:string})=>Promise<{readonly taskId:string;readonly answer:string}>;onVoiceContextUpdated?:(summaryPrompt:string)=>void;onVoiceToolsUpdated?:()=>void}):void;
  pluginAmbientVoiceContext():string;

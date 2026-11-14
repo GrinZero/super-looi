@@ -4,7 +4,7 @@ import type { CameraVideoState } from "./ui/CameraVideo";
 export type { XiaomiVideoLoginStep, XiaomiVideoLoginState, XiaomiVideoAuthState } from "./runtime/video-account";
 import { uiMessage } from "./runtime/messages";
 import { HomePowerState } from "./runtime/home-power-state";
-import { bindLocale, resolveLocale, translateMessage, type LanguagePreference } from "./i18n";
+import { bindLocale, resolveLocale, t, translateMessage, type LanguagePreference } from "./i18n";
 import { voiceProviderLabel } from "./ui/doubao-voices";
 import { clearDynamicFaceRecipe, registerDynamicFaceRecipe } from "./ui/face-recipes";
 import type { PluginViewContext } from "./ui/plugins/ui-contracts";
@@ -368,7 +368,11 @@ export function createAppStore() {
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
   const plugins = signal<PluginSnapshot[]>([]);
-  const activeStage = signal<{ pluginId: string; presentation: PluginStagePresentation } | null>(null);
+  const activeStage = signal<{
+    pluginId: string;
+    revision?: number;
+    presentation: PluginStagePresentation;
+  } | null>(null);
   const inspectedPluginId = signal<string | null>(null);
   const pluginBusyById = signal<Record<string, boolean>>({});
   const pluginUiErrorById = signal<Record<string, string>>({});
@@ -402,7 +406,6 @@ export function createAppStore() {
       if (alive) {
         if (runtime) {
           plugins.set(runtime.pluginsSnapshot());
-          activeStage.set(runtime.activeStagePresentation());
         }
         setPluginBusy(id, false);
       }
@@ -1007,7 +1010,11 @@ export function createAppStore() {
         if (event.type === "stage_changed") {
           activeStage.set(
             event.pluginId && event.presentation
-              ? { pluginId: event.pluginId, presentation: event.presentation }
+              ? {
+                  pluginId: event.pluginId,
+                  ...(event.revision !== undefined ? { revision: event.revision } : {}),
+                  presentation: event.presentation,
+                }
               : null,
           );
         }
@@ -1270,9 +1277,38 @@ export function createAppStore() {
       activeStage.set(runtime.activeStagePresentation());
       plugins.set(runtime.pluginsSnapshot());
     },
+    reportPluginStageCrash(
+      pluginId: string,
+      slot: "StageCanvas" | "StageCapsule" | "StageDrawer",
+      error: unknown,
+    ) {
+      if (runtime) {
+        const failure = runtime.reportPluginStageCrash(pluginId, slot, error);
+        const code = failure.code !== undefined ? String(failure.code) : "ERR_PLUGIN_STAGE_CRASH";
+        setPluginUiError(pluginId, `[stage=${failure.stage} code=${code}] ${failure.reason}`);
+        activeStage.set(runtime.activeStagePresentation());
+        plugins.set(runtime.pluginsSnapshot());
+        notify(`${t("pluginStageCrashedReset")} ([${code}] ${pluginId}.${slot}: ${failure.reason})`);
+        return;
+      }
+      const baseReason = error instanceof Error ? error.message : String(error);
+      const causeObj = error && typeof error === "object" && "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+      const causeText = causeObj instanceof Error ? causeObj.message : causeObj ? String(causeObj) : "";
+      const reason = causeText && !baseReason.includes(causeText) ? `${baseReason} (cause: ${causeText})` : baseReason;
+      const stage =
+        error && typeof error === "object" && "stage" in error && typeof (error as { stage?: unknown }).stage === "string" && (error as { stage: string }).stage
+          ? (error as { stage: string }).stage
+          : `plugin:${pluginId}:ui.${slot}`;
+      const code =
+        error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code
+          ? String((error as { code?: unknown }).code)
+          : "ERR_PLUGIN_STAGE_CRASH";
+      setPluginUiError(pluginId, `[stage=${stage} code=${code}] ${reason}`);
+      api.exitPluginStage(pluginId);
+      notify(`${t("pluginStageCrashedReset")} ([${code}] ${pluginId}.${slot}: ${reason})`);
+    },
     inspectedPluginId: () => inspectedPluginId(),
     setInspectedPluginId(id: string | null) {
-      if (id) setPluginUiError(id, "");
       inspectedPluginId.set(id);
     },
     pluginBusy: () => {
@@ -1392,7 +1428,13 @@ export function createAppStore() {
     },
     goBack(): boolean {
       const space = activeSpace();
-      if (space === "face") return false;
+      if (space === "face") {
+        if (activeStage() !== null) {
+          api.exitPluginStage();
+          return true;
+        }
+        return false;
+      }
       if (space === "plugins" && inspectedPluginId() !== null) {
         inspectedPluginId.set(null);
         return true;

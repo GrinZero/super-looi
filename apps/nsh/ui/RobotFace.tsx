@@ -414,6 +414,47 @@ export function drawRobotFace(
 }
 
 /**
+ * Renders the full-screen OLED ambient backdrop (39x21 subtle dot matrix + bottom horizon glow)
+ * independently so MorphableStage keeps background depth anchored when LOOI's face scales/glides.
+ */
+export function drawStageAmbientBackdrop(
+  cx: CanvasRenderingContext2D,
+  size: { width: number; height: number },
+  resolveToken: TokenResolver = token,
+  insets: FaceInsets = ZERO_INSETS,
+): void {
+  const faceWidth = Math.max(0, size.width - insets.left - insets.right);
+  const faceHeight = Math.max(0, size.height - insets.top - insets.bottom);
+  const faceCenterX = insets.left + faceWidth / 2;
+
+  cx.fillStyle = resolveToken("face-texture");
+  for (let row = 0; row < 21; row++) {
+    for (let col = 0; col < 39; col++) {
+      cx.fillRect(
+        ((col + 0.5) * size.width) / 39,
+        ((row + 0.5) * size.height) / 21,
+        1.4,
+        1.4,
+      );
+    }
+  }
+
+  const horizonRadiusX = Math.min(220, size.width * 0.39);
+  if (horizonRadiusX > 10) {
+    cx.save();
+    cx.translate(faceCenterX, insets.top + faceHeight);
+    cx.scale(1, 28 / horizonRadiusX);
+    const horizon = cx.createRadialGradient(0, 0, 0, 0, 0, horizonRadiusX);
+    horizon.addColorStop(0, resolveToken("horizon-core"));
+    horizon.addColorStop(0.48, resolveToken("horizon-mid"));
+    horizon.addColorStop(1, resolveToken("horizon-zero"));
+    cx.fillStyle = horizon;
+    fillCircle(cx, 0, 0, horizonRadiusX);
+    cx.restore();
+  }
+}
+
+/**
  * Pure transition renderer interpolating continuously between `fromState` and `toState`
  * across `progress` in [0, 1] (kinematic eye/brow/eyelid/mouth glide + micro-blink shape morph),
  * plus optional `timeSec` for continuous ambient micro-animations.
@@ -428,6 +469,7 @@ export function drawRobotFaceTransition(
   resolveToken: TokenResolver = token,
   insets: FaceInsets = ZERO_INSETS,
   timeSec = 0,
+  skipBackdrop = false,
 ): void {
   const u = clamp(progress, 0, 1);
   const safeTime = Number.isFinite(timeSec) && timeSec > 0 ? timeSec : 0;
@@ -475,32 +517,8 @@ export function drawRobotFaceTransition(
 
   cx.clearRect(0, 0, size.width, size.height);
 
-  // 1. Subtle 39 x 21 dot matrix texture across the full viewport
-  cx.fillStyle = resolveToken("face-texture");
-  for (let row = 0; row < 21; row++) {
-    for (let col = 0; col < 39; col++) {
-      cx.fillRect(
-        ((col + 0.5) * size.width) / 39,
-        ((row + 0.5) * size.height) / 21,
-        1.4,
-        1.4,
-      );
-    }
-  }
-
-  // 2. Bottom horizon glow (radial-gradient ellipse centered in safe area)
-  const horizonRadiusX = Math.min(220, size.width * 0.39);
-  if (horizonRadiusX > 10) {
-    cx.save();
-    cx.translate(faceCenterX, insets.top + faceHeight);
-    cx.scale(1, 28 / horizonRadiusX);
-    const horizon = cx.createRadialGradient(0, 0, 0, 0, 0, horizonRadiusX);
-    horizon.addColorStop(0, resolveToken("horizon-core"));
-    horizon.addColorStop(0.48, resolveToken("horizon-mid"));
-    horizon.addColorStop(1, resolveToken("horizon-zero"));
-    cx.fillStyle = horizon;
-    fillCircle(cx, 0, 0, horizonRadiusX);
-    cx.restore();
+  if (!skipBackdrop) {
+    drawStageAmbientBackdrop(cx, size, resolveToken, insets);
   }
 
   // 3. 620 x 340 safe-area-centered face coordinate space
@@ -2124,6 +2142,8 @@ export function RobotFace(props: {
   active?: boolean;
   state: FaceVisualState;
   shift: { dx: number; dy: number };
+  skipBackdrop?: boolean;
+  insets?: FaceInsets;
 }) {
   const pageActive = computed(() => props.active !== false);
   const breath = createMotion();
@@ -2313,7 +2333,7 @@ export function RobotFace(props: {
       accessibilityLabel={t("looisRoundeyeExpression")}
       role="image"
       class="absolute inset-0"
-      style={{ minHeight: 180, opacity: breath.opacity }}
+      style={{ minHeight: 180, opacity: breath.opacity, pointerEvents: "none" }}
       draw={(cx, size) => {
         if (!pageActive()) return;
         const currentFrame = frame();
@@ -2325,8 +2345,9 @@ export function RobotFace(props: {
           currentFrame.progress,
           props.shift,
           token,
-          safeArea(),
+          props.insets ?? safeArea(),
           currentFrame.timeSec,
+          props.skipBackdrop === true,
         );
       }}
     />

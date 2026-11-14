@@ -9,6 +9,7 @@ import { PluginKernelError } from "./errors.js";
 
 interface StageStackEntry {
   readonly pluginId: string;
+  readonly revision: number;
   presentation: PluginStagePresentation;
 }
 
@@ -18,11 +19,13 @@ interface StageStackEntry {
  */
 export class PluginStageManager {
   private readonly stack: StageStackEntry[] = [];
+  private nextRevision = 1;
 
   constructor(
     private readonly onChanged?: (
       pluginId: string | null,
       presentation: PluginStagePresentation | null,
+      revision?: number,
     ) => void,
   ) {}
 
@@ -35,11 +38,16 @@ export class PluginStageManager {
     return null;
   }
 
-  activePresentation(): { pluginId: string; presentation: PluginStagePresentation } | null {
+  activePresentation(): {
+    pluginId: string;
+    revision: number;
+    presentation: PluginStagePresentation;
+  } | null {
     for (let i = this.stack.length - 1; i >= 0; i--) {
       if (this.stack[i].presentation.active) {
         return {
           pluginId: this.stack[i].pluginId,
+          revision: this.stack[i].revision,
           presentation: structuredClone(this.stack[i].presentation),
         };
       }
@@ -82,6 +90,7 @@ export class PluginStageManager {
         }
         const entry: StageStackEntry = {
           pluginId: manifest.id,
+          revision: this.nextRevision++,
           presentation: structuredClone(presentation),
         };
         this.stack.push(entry);
@@ -109,6 +118,10 @@ export class PluginStageManager {
 
   private emitChange(): void {
     const current = this.activePresentation();
-    this.onChanged?.(current?.pluginId ?? null, current?.presentation ?? null);
+    this.onChanged?.(
+      current?.pluginId ?? null,
+      current?.presentation ?? null,
+      current?.revision,
+    );
   }
 }

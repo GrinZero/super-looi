@@ -117,3 +117,28 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
    - 同一决策区域最多保留 **1 个 `primary` 主提交按钮**；进行中的异步保存或授权操作必须锁定重复提交并保留用户输入。
    - 文案遵循上下文精简原则：导航目的地只用精准名词（`模型`、`语音`、`家居`、`任务`），按钮直接写明动作结果（`保存配置`、`刷新设备`、`退出账号`）。
    - 模态 `Dialog` 仅保留给短促关键决策（高危工具单次允许 `approval`、Agent 追问 `question`、完整长回复查看）；高危审批必须明确列出操作类型、目标路径或命令参数（文件写入需展示完整待写入内容），单次允许仅对当前当次点击生成的会话有效。
+---
+
+## 5. 横屏可变形首屏舞台规范（Morphable First-Screen Stage · `ui/stage/MorphableStage.tsx`）
+
+当具身前台插件（如桌游裁判、视觉伴随、空间协作）通过 `ctx.stage.usePresentation(...)` 请求首屏舞台租约时，前台主页在不卸载单实例 `<RobotFace />` 的前提下完成空间连续变形：
+
+1. **五种姿态（`FaceStagePosture`）与单实例连续性**：
+   - `full`：默认全屏陪伴态，圆眼居中铺满安全区。
+   - `floating_top`：缩放至 `0.22–0.36`（默认 `0.32`）悬浮于顶部安全净空区，自动避让右上角主控胶囊组，支持 `pill`（`elevated-glass` + `stage-pill-border`）或 `frameless` 外框。
+   - `docked_corner`：缩放至 `0.20–0.42`（默认 `0.28`）停靠于顶栏下方的 `top_left` 或 `top_right` 安全区角落，绝不与顶栏系统控制柄重叠。
+   - `split_left`：左栏保留伴随表情（比例 `0.28–0.52`，默认 `0.38`），右栏让渡给插件 `StageCanvas` 交互画布。
+   - `minimized_pill`：极简胶囊态（缩放 `0.22`）悬浮于顶部中央，为底部大抽屉或画布留出最大纵向交互空间。
+2. **三类插件插槽与故障熔断隔离**：
+   - `StageCanvas`（`zIndex: 10`）、`StageCapsule` 与四档位 `StageDrawer`（`closed` / `peek` / `medium` / `large`，`zIndex: 25`）分别包裹在独立 `<ErrorBoundary>` 内；任一插件视图抛错立即触发 `exitPluginStage` 自动复位至 `{ kind: "full" }` 并弹出轻量提示，保障 LOOI 主表情永不崩溃。
+3. **宿主安全不变量（Unblockable Host Safety Bar）**：
+   - 顶栏右侧主控胶囊组（`退出舞台`、`LIVE 语音`、`对话`、`连接设置`）固定处于最高栈层（`zIndex: 40`），外层布局容器统一使用 `pointerEvents: "box-none"`，确保插件画布可正常点按且任何插件视图均无法遮挡或拦截宿主退出与安全控制。
+
+### 5.1 首屏舞台动效清单（Motion Inventory）
+
+| 触发场景（Trigger） | 动画属性（Animated Channels） | 曲线 / 弹簧参数（Curve / Spring） | 无障碍降级（`reduceMotion()`） |
+| :--- | :--- | :--- | :--- |
+| `FaceStagePosture` 五态空间切换 | 单实例表情层 `translateX`、`translateY`、`scale` 与胶囊外框（零宽高重排） | 位移与缩放使用原生 `AnimatedValue.spring`（`stiffness: 280, damping: 30, mass: 1`，近似临界阻尼无回弹）；胶囊外框 `opacity` 使用 `AnimatedValue.timing (180ms easeOut)` | 跳过动画直接 `.set(target)` 瞬时到位 |
+| `StageDrawer` 档位切换与手势松手吸附 | 抽屉 FLIP `translateY` + 底部同色连续延展裙边（结合 `PanEvent.velocity.y` 速度投射与 `cancelled` 回弹） | 原生 `AnimatedValue.spring`（`stiffness: 320, damping: 32, mass: 1`） | 跳过弹簧直接 `.set(0)` 瞬时吸附 |
+| `StageCanvas` / `StageCapsule` 挂载入场 | 容器 `opacity` | `createMotion({ enter: "fadeIn", duration: 180 })` 原生淡入 | 自动跳过淡入瞬时呈现 `opacity: 1` |
+| 顶栏 `退出舞台` 胶囊点击反馈 | 按压态透明度 `active:opacity-75` | 系统即时触控反馈 | 保留即时明度对比反馈 |

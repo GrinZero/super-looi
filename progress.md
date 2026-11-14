@@ -18,10 +18,10 @@
   - [x] Step 2.2：升级 `BodyRuntime` 支持 `acquireServo` 连续伺服租约、同层互斥、并发 Epoch 保护与用户／语音指令实时抢占回调（`stopNonPluginMotion` 隔离自动 VAD 收尾与插件伺服）
   - [x] Step 2.3：将 `DualLoopAiBus` 完整接入 `VoiceRuntime`（`80ms` 组装预算、`transcriptionFinal` 轮次短路与重复话语序号保护、等待播放完毕的 `speak`、动态工具热更新与凭据脱敏）与 `PiTaskRunner`（`1500ms` 多模态组装、QuickJS 无 WASM 原生 JPEG 直通与后台插件任务并发解耦）
   - [x] Step 2.4：完成 Milestone 2 自动化验证、独立子 agent review（修复全部 10 项审阅问题并补充专项回归测试）与隔离提交
-- [ ] Step 3（Milestone 3）：横屏首屏“可变形舞台（Morphable Stage）”合成器
-  - [ ] Step 3.1：重构 `App.tsx` 首屏舞台层支持 `FaceStagePosture`（`full` / `floating_top` / `docked_corner` / `split_left` / `minimized_pill`）单实例弹簧变形
-  - [ ] Step 3.2：实现 `StageCapsule`、四档位 `StageDrawer`、`StageCanvas` 与最高层级不可遮挡宿主安全控制柄
-  - [ ] Step 3.3：完成 Milestone 3 无头 UI 变形／异常熔断回归、独立子 agent review 与隔离提交
+- [x] Step 3（Milestone 3）：横屏首屏“可变形舞台（Morphable Stage）”合成器
+  - [x] Step 3.1：重构 `App.tsx` 首屏舞台层支持 `FaceStagePosture`（`full` / `floating_top` / `docked_corner` / `split_left` / `minimized_pill`）单实例弹簧变形与刘海安全区透传
+  - [x] Step 3.2：实现 `StageCapsule`、四档位 `StageDrawer`（含 FLIP 位移、无缝延展底裙与上下双向吸附手势）、`StageCanvas` 与最高层级不可遮挡宿主安全控制柄
+  - [x] Step 3.3：完成 Milestone 3 无头 UI 变形／异常熔断恢复回归、独立子 agent review（修复全部 10 项审阅问题并补齐回归断言）、`docs/arch/index.html` 更新与隔离提交
 - [ ] Step 4（Milestone 4）：手机本机前／后置摄像头原生模块（`DeviceCameraHost`）与跨插件生态闭环
   - [ ] Step 4.1：实现 Rust `DeviceCameraHost`（iOS `AVCaptureSession` / Android `Camera2` / `<DeviceCameraPreview />`）与 TS `VisionBroker`
   - [ ] Step 4.2：落地跨插件示范组合与 `.nshpkg` 签名市场包验证入口，完成自动化验证与独立 review
