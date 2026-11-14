@@ -2642,3 +2642,10 @@
 - [x] Step 1：读取 OpenAI 官方降噪／WebRTC 文档及 Apple／Android 原生 AEC 契约。
 - [x] Step 2：核对源码与当前宿主：iOS 已启用并读回 Voice Processing；Android 只有通信模式，尚未显式绑定音效并读取 AEC 状态。
 - [x] Step 3：修正既有 AEC 文档中已过时的 iOS 缺口描述，区分系统启用、云端降噪与实际回声抑制效果。
+
+## GPT-Live 与可替换前后台边界核查（2026-11-14）
+
+- [x] Step 1：读取用户指定的 Live WebRTC、委派模式与开源 SDK 文档，区分托管模型和客户端框架。
+- [x] Step 2：核验 Console／Toolkit 源码与许可声明，以及三家当前公开媒体接入契约。
+- [x] Step 3：独立复核 API／SDK 的替换边界，保存调研结论并隔离提交。
+  - [x] 独立复核通过；结论见 docs/gpt-live-and-realtime-sdk-boundaries-2026-11-14.md。

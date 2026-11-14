@@ -2,6 +2,8 @@
 
 ## Realtime 开源会话层
 
+- [ ] 若采用统一 WebRTC 媒体路径，先向豆包 Seeduplex／MOSS 确认直接 WebRTC／SDP 能力；当前公开直接接口只核实 WebSocket，边界见 [GPT-Live 与 SDK](docs/gpt-live-and-realtime-sdk-boundaries-2026-11-14.md)。
+
 - [ ] 连接横屏开发真机，验收 SDK 会话下的 MOSS／豆包／OpenAI 麦克风、扬声器、明确打断、实际播放回执、家居工具与后台任务回播；MOSS／OpenAI 还需真实云端 E2E。SDK 已接入，20 项故障／语义测试、QuickJS 全语音链路和真实豆包约 10 秒云端音频通过，见 [接入记录](docs/openai-agents-sdk-integration-2026-11-14.md)。当前 devicectl 与 ADB 均无连接设备。
 
 ## MOSS-Live 真机验收
