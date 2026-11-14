@@ -1,0 +1,18 @@
+{
+  "provider": "doubao",
+  "sdk": "0.22.0",
+  "playback": "simulated-port",
+  "pcmBytes": 479906,
+  "durationMs": 9998.041666666666,
+  "frames": 110,
+  "phase": "speaking",
+  "transcript": "你好，我是 LOOI。现在使用 OpenAI Agents SDK 管理实时会话。我们会完整播放这句话，直到最后一个字，再结束试听。",
+  "responses": [
+    [
+      {
+        "role": "assistant",
+        "content": "你好，我是 LOOI。现在使用 OpenAI Agents SDK 管理实时会话。我们会完整播放这句话，直到最后一个字，再结束试听。"
+      }
+    ]
+  ]
+}

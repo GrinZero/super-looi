@@ -2,6 +2,8 @@
 
 核验日期：2026-11-14。研究对象：`@openai/agents-realtime@0.22.0`；固定源码 `openai/openai-agents-js@8aeac0eb255dbdff9adcdc65a0eae638cbcea74f`，对应 `v0.22.0`，MIT。
 
+实际接入与验证结果见 [接入记录](openai-agents-sdk-integration-2026-11-14.md)。
+
 ## 结论与采用边界
 
 **建议采用 SDK 的 `RealtimeSession` 作为公共会话核心，以其 transport 接口承接三家服务，取代继续扩展自有公共会话协议的方向。** 官方明确允许其他 speech-to-speech（语音到语音）API 实现 `RealtimeTransportLayer`。现有 QuickJS 宿主的隔离探针已通过 20 项离线行为检查，无需修改 SDK 源码。[官方 transport 指南](https://openai.github.io/openai-agents-js/guides/voice-agents/transport/)

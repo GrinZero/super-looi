@@ -2,13 +2,12 @@
 
 ## Realtime 开源会话层
 
-- [ ] 将 OpenAI Agents SDK 接入 App 原生 socket／采播，在横屏真机完成 MOSS 长回复、明确打断、工具与后台任务回播，再覆盖豆包／OpenAI；现有 QuickJS runner 的 20 项离线探针通过，三家 transport 与实际播放回执接线见 [SDK 调研](docs/openai-agents-sdk-realtime-research-2026-11-14.md)。
+- [ ] 连接横屏开发真机，验收 SDK 会话下的 MOSS／豆包／OpenAI 麦克风、扬声器、明确打断、实际播放回执、家居工具与后台任务回播；MOSS／OpenAI 还需真实云端 E2E。SDK 已接入，20 项故障／语义测试、QuickJS 全语音链路和真实豆包约 10 秒云端音频通过，见 [接入记录](docs/openai-agents-sdk-integration-2026-11-14.md)。当前 devicectl 与 ADB 均无连接设备。
 
 ## MOSS-Live 真机验收
 
 - [ ] 定位间歇性 TLS 握手断开：系统解析路径曾返回 curl 35，随后相同 IP 与 CDN 地址均成功到达 WebSocket 鉴权阶段；复现时关联 mihomo 路由与连接日志。证据见 [TLS 诊断](docs/moss-live-tls-diagnosis.md)。
 - [ ] 连接开发真机，横屏安装 NSH 0.5.0 开发包，验收内置 WebSocket 的 MOSS-Live 实际鉴权、试听与对话。 已有横屏宿主的主页截断修复及 41.44 秒／19.36 秒完整播放通过，见 [主页 E2E](docs/moss-home-realtime-e2e-2026-11-14.md)；外放回录继续由下方 AEC 条目跟踪。
-- [ ] 对齐 MOSS 协议已有用例：`packages/looi-runtime/test/realtime-protocol.test.ts:101` 期待 `session.attach/resume=false`，实现发送 `attach_session/session_id=null`；同时核对事件字段、音频上下文与降采样断言。
 
 ## QuickJS 家居恢复用例
 
