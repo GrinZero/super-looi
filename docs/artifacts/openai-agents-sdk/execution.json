@@ -1,0 +1,30 @@
+{
+  "react-native-build": {
+    "exitCode": 0,
+    "bundle": {
+      "conditions": [
+        "react-native",
+        "import"
+      ],
+      "bytes": 1489918,
+      "inputs": 371
+    }
+  },
+  "react-native-run": {
+    "exitCode": 0
+  },
+  "browser-build": {
+    "exitCode": 0,
+    "bundle": {
+      "conditions": [
+        "browser",
+        "import"
+      ],
+      "bytes": 1489563,
+      "inputs": 370
+    }
+  },
+  "browser-run": {
+    "exitCode": 1
+  }
+}

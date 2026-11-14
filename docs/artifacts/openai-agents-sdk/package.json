@@ -1,0 +1,10 @@
+{
+  "name": "looi-openai-agents-research",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@openai/agents-realtime": "0.22.0",
+    "@openai/agents-core": "0.22.0",
+    "zod": "^4.0.0"
+  }
+}

@@ -16,7 +16,7 @@
 - 官方文档明确允许其他 speech-to-speech API 实现该 transport 接口。接口包含音频输入、函数结果、配置更新、手动中断和历史同步。[扩展接口](https://github.com/openai/openai-agents-js/blob/8aeac0eb255dbdff9adcdc65a0eae638cbcea74f/packages/agents-realtime/src/transportLayer.ts)、[官方 transport 指南](https://openai.github.io/openai-agents-js/guides/voice-agents/transport/)
 - package 提供 browser／react-native 条件导出；官方说明 React Native 自有原生媒体实现通过 transport 接入，浏览器默认 WebRTC 类不能直接视为原生实现。[包清单](https://github.com/openai/openai-agents-js/blob/8aeac0eb255dbdff9adcdc65a0eae638cbcea74f/packages/agents-realtime/package.json)
 
-对本项目的判断：这是复用 TypeScript 公共会话核心的可行候选接口；NSH／QuickJS 兼容性尚无运行证据。工作量主要是现有原生音频及 WebSocket 接线、豆包／MOSS 的 transport，以及原生实际播放进度如何回传。它不能被描述为内置了三家支持。
+对本项目的判断：这是复用 TypeScript 公共会话核心的可行接口；[后续调研](openai-agents-sdk-realtime-research-2026-11-14.md)已在项目 QuickJS runner 通过 20 项离线行为检查，使用 react-native 条件导出，无需 SDK 补丁。工作量主要是现有原生音频及 WebSocket 接线、豆包／MOSS 的 transport，以及原生实际播放进度如何回传。SDK 没有内置三家协议支持。
 
 ## 多模型框架与现成运行时
 
@@ -58,6 +58,6 @@ TEN 固定提交 `619abefc1bb0865be681aa531a4d5dfe2bece868`。其根 LICENSE 在
 
 ## 验证方向
 
-优先通过独立原生探针验证 `RealtimeSession` 在 QuickJS 中的加载、原生 PCM 输入输出、工具往返与实际播放中断。验证的决策依据是能删除多少自有公共状态机，以及新增 transport 的规模；不以编译通过或可以传入自定义 base URL 代表多 provider 已兼容。
+QuickJS 加载、受控音频事件、工具往返和中断的离线结果见上述后续调研。下一项验证是 App 自有 socket 与原生 PCM 采播的真实接线，再覆盖三家 provider。决策依据是能删除多少自有公共状态机，以及新增 transport 的规模；真实播放回执、明确打断和工具续答均需有 E2E 证据。
 
 如选用 LiveKit，应比较其核心复用收益与端内运行移植、或引入服务端部署的成本。既有手机本地工具、KWS 与 MOSS 播放回执均需有实际接线。上述研究没有改变 App 自身承载运行能力的要求。

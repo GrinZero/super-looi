@@ -2609,3 +2609,12 @@
   - [x] 复核 LiveKit、Pipecat、TEN 与中文 Seeduplex 插件；独立 primary-source 调研确认公共核心可复用，插件覆盖与端内运行成本需分别判断。
 - [x] Step 3：整理可复用层、适配工作量与首选验证方向，保存 primary-source 证据笔记。
   - [x] 结论保存至 docs/realtime-open-source-selection-2026-11-14.md；优先验证开源公共会话核心，NSH 兼容性未实测。
+
+## OpenAI Agents SDK 端内接入调研（2026-11-14）
+
+- [x] Step 1：核对已发布版本、官方 transport／session 契约和现有宿主边界。
+  - [x] 明确 SDK 可替代的会话职责，以及豆包／MOSS 仍需实现的适配。
+- [x] Step 2：在隔离临时目录验证打包和当前 QuickJS 运行时的基础能力。
+  - [x] 20 项 QuickJS 离线行为探针通过；browser 导出因 EventTarget 失败，react-native 导出无需 SDK 补丁，保留失败栈与可复现源码。
+- [x] Step 3：汇总证据与接入建议，完成独立审查并隔离提交调研文档。
+  - [x] 可复现探针、发布依赖锁定与失败栈已保存；全新临时目录重跑通过，独立审查通过。结论见 docs/openai-agents-sdk-realtime-research-2026-11-14.md。

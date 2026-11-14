@@ -1,0 +1,88 @@
+{
+  "sdk": "0.22.0",
+  "network": "offline",
+  "tests": 20,
+  "results": [
+    {
+      "name": "custom_transport_connect_and_tools"
+    },
+    {
+      "name": "pcm_input_forwarded"
+    },
+    {
+      "name": "history_revisions_replace_item"
+    },
+    {
+      "name": "raw_moss_vad_does_not_force_interruption"
+    },
+    {
+      "name": "audio_stopped_is_generation_done_not_player_drained",
+      "details": {
+        "stopped": 1,
+        "nativeQueuedMs": 100
+      }
+    },
+    {
+      "name": "manual_interruption_forwarded"
+    },
+    {
+      "name": "sdk_executes_tool_and_returns_result"
+    },
+    {
+      "name": "duplicate_call_does_not_reexecute_tool",
+      "details": {
+        "calls": 1
+      }
+    },
+    {
+      "name": "background_result_waits_for_execute_promise"
+    },
+    {
+      "name": "audio_keeps_flowing_during_pending_tool"
+    },
+    {
+      "name": "background_result_suppresses_followup_generation"
+    },
+    {
+      "name": "default_tool_error_is_generic"
+    },
+    {
+      "name": "custom_error_function_preserves_stage_code_reason_cause",
+      "details": {
+        "stage": "fixture.read",
+        "code": "EACCES",
+        "reason": "fixture permission rejected",
+        "cause": {
+          "code": "EPERM",
+          "message": "fixture native read denied"
+        }
+      }
+    },
+    {
+      "name": "transport_failure_preserves_original_error"
+    },
+    {
+      "name": "proactive_message_is_transport_operation"
+    },
+    {
+      "name": "late_tool_result_not_delivered_after_close"
+    },
+    {
+      "name": "no_unexpected_session_errors",
+      "details": {
+        "errors": [
+          "Error: fixture read rejected"
+        ]
+      }
+    },
+    {
+      "name": "openai_upstream_transport_accepts_injected_socket"
+    },
+    {
+      "name": "openai_upstream_encodes_audio_with_injected_socket"
+    },
+    {
+      "name": "openai_websocket_requires_app_owned_mute"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 ## Realtime 开源会话层
 
-- [ ] 验证 OpenAI Agents SDK 的 RealtimeSession／自定义 transport 在 NSH QuickJS 中的加载、原生 PCM、工具往返与实际播放中断，再比较豆包／MOSS 插件成本；候选和固定源码见 [开源选型](docs/realtime-open-source-selection-2026-11-14.md)。
+- [ ] 将 OpenAI Agents SDK 接入 App 原生 socket／采播，在横屏真机完成 MOSS 长回复、明确打断、工具与后台任务回播，再覆盖豆包／OpenAI；现有 QuickJS runner 的 20 项离线探针通过，三家 transport 与实际播放回执接线见 [SDK 调研](docs/openai-agents-sdk-realtime-research-2026-11-14.md)。
 
 ## MOSS-Live 真机验收
 
