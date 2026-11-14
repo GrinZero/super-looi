@@ -151,7 +151,7 @@ export function createDoubaoDuplexV3Protocol(options: { instructions?: string; m
         case "response.cancelled": return { kind: "response_cancelled", responseId: id };
         case "response.done": return object(event.response).status === "cancelled" ? { kind: "response_cancelled", responseId: id } : { kind: "response_done", responseId: id };
         case "error":
-        case "session.error": return { kind: "error", message: string(object(event.error).message) || "Provider error" };
+        case "session.error": return { kind: "error", message: string(object(event.error).message) || "Provider error", code: string(object(event.error).code) || undefined, clientEventId: string(object(event.error).event_id) || undefined };
         default: return { kind: "ignored", rawType: type };
       }
     },

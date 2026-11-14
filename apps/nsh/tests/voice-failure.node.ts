@@ -268,6 +268,7 @@ test("stopping during connect ignores its late rejection", async (t) => {
   let reject!: (error: Error) => void;
   const h = setup(t, () => new Promise((_resolve, fail) => { reject = fail; }));
   const opened = h.session.open();
+  await flush(); // SDK prepares its agent before opening the transport.
   h.session.dispose("immediate");
   reject(Object.assign(new Error("Connect cancelled"), { code: "ECANCELED" }));
   await opened;
@@ -282,6 +283,7 @@ test("only the elapsed connection deadline reports ETIMEDOUT and closes a late s
   let closed = false;
   const h = setup(t, () => new Promise((done) => { resolve = done; }));
   const opened = h.session.open();
+  await flush();
   t.mock.timers.tick(15_000);
   assert.equal(h.failure().stage, "websocket.connect");
   assert.match(h.failure().detail, /ETIMEDOUT/);

@@ -1006,6 +1006,7 @@ async function verifyReconnectedVoiceHistory() {
         }
         check(window.current() === firstId, "reconnection changed the logical conversation");
         voice.endSession();
+        await wait(0); // The final session frame drains before its trace is finalized.
         if (tracer) {
           const roots = observations.filter((item) => item.name === "voice.session" && item.endedAt !== undefined);
           check(roots.length === 2 && roots.every((item) => item.attributes["session.id"] === firstId), "Langfuse split a warm voice conversation");

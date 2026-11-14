@@ -1,4 +1,6 @@
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import type { Plugin } from "esbuild";
 const shimNames: Record<string, string> = {
   http: "http",
@@ -86,6 +88,11 @@ export function nshNodeCompatPlugin(): Plugin {
     name: "nsh-node-compat",
     setup(build) {
       const aliases = getNshNodeCompatAliases();
+      // Only the Agents SDK needs its React Native emitter in the QuickJS host.
+      // Preserve browser conditions for all other dependencies.
+      build.onResolve({ filter: /^@openai\/agents-core\/_shims$/ }, (args) => ({
+        path: resolve(dirname(createRequire(args.importer).resolve(args.path)), "shims-react-native.mjs"),
+      }));
       build.onResolve({ filter: /^__nsh_native\// }, (args) => ({
         path: args.path.slice("__nsh_native/".length),
         external: true,

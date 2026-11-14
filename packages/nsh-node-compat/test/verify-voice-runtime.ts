@@ -1,3 +1,10 @@
 import { verifyVoiceRuntime } from "../../../apps/nsh/tests/voice-runtime-cases.js";
+import { verifyWakeRuntime } from "../../../apps/nsh/tests/voice-wake-cases.js";
+import { verifyOpenAiVoiceRuntime, verifyVoiceTraceFinalization } from "../../../apps/nsh/tests/voice-openai-cases.js";
+import { verifyAsyncVoiceTasks } from "../../../apps/nsh/tests/voice-async-task-cases.js";
 await verifyVoiceRuntime();
-console.log("PASS voice runtime: explicit permission, provider handshake, PCM, mute/barge-in, duplicate tools and late-close isolation");
+await verifyWakeRuntime();
+await verifyOpenAiVoiceRuntime();
+await verifyVoiceTraceFinalization();
+await verifyAsyncVoiceTasks();
+console.log("PASS SDK voice runtime: provider handshakes, PCM, interruption, tools, history, background results, wake and trace finalization");

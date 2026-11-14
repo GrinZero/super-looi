@@ -97,7 +97,7 @@ export async function verifyVoiceTraceFinalization() {
   for (const action of ["endSession", "close"] as const) {
     const exported: any[] = [];
     const tracer = createLangfuseTracer({ baseUrl: "http://localhost:3000", publicKey: "pk", secretKey: "sk", flushIntervalMs: 60_000,
-      fetch: async (_url, options) => { exported.push(JSON.parse(String(options?.body))); return new Response("", { status: 200 }); } });
+      fetch: async (_url, options) => { exported.push(JSON.parse(String(options?.body))); return { ok: true, status: 200 } as Response; } });
     let releaseClose!: () => void;
     const raw: VoiceSocket = {
       read: () => new Promise(() => {}), write: async () => {},
@@ -111,6 +111,7 @@ export async function verifyVoiceTraceFinalization() {
     });
     await voice.start();
     voice[action]();
+    await wait(0); // Flush graceful writes; raw socket.close is still unresolved.
     await tracer.shutdown();
     const spans = exported.flatMap((batch) => batch.resourceSpans.flatMap((resource: any) => resource.scopeSpans.flatMap((scope: any) => scope.spans)));
     check(spans.some((span: any) => span.name === "voice.session"), `${action} lost the root span before socket.close`);

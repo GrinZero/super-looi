@@ -1,52 +1,49 @@
+import { tool } from "@openai/agents-realtime";
 import { createControlLooiBody } from "./control-looi-body.js";
 import { createManageAgentTask } from "./manage-agent-task.js";
 import { createRunAgentTask } from "./run-agent-task.js";
-import type { VoiceToolDefinition, VoiceToolHost } from "./types.js";
-import type { RealtimeProtocolAdapter } from "../protocol.js";
+import type { VoiceToolHost } from "./types.js";
 
-export function createVoiceTools(host: VoiceToolHost, protocol: RealtimeProtocolAdapter) {
-  const context = {
-    ...host,
-    async reply(callId: string, output: unknown) {
-      for (const message of protocol.encodeToolReply(callId, output)) {
-        await host.send(message);
-      }
-    },
-  };
-  const task = createRunAgentTask(context);
-  const manageTask = createManageAgentTask(context);
-  const body = createControlLooiBody(context);
-  const definitions: VoiceToolDefinition[] = [
-    task,
-    ...(host.taskBridge ? [manageTask] : []),
-    ...(host.controlBody ? [body] : []),
+export function createVoiceTools(host: VoiceToolHost, apiKey: string) {
+  const definitions = [
+    createRunAgentTask(host),
+    ...(host.taskBridge ? [createManageAgentTask(host)] : []),
+    ...(host.controlBody ? [createControlLooiBody(host)] : []),
   ];
-  const calls = new Set<string>();
-
-  return {
-    schemas: definitions.map(({ schema }) => schema),
-    get busy() {
-      return definitions.some((definition) => Boolean(definition.busy));
-    },
-    handle(item: Record<string, unknown>): void {
-      const callId = typeof item.call_id === "string" ? item.call_id : "";
-      if (!callId || callId.length > 256 || calls.has(callId)) return;
-      if (calls.size >= 128) {
-        host.fail("@looi:voiceTaskLimit");
-        return;
-      }
-      calls.add(callId);
-      const definition =
-        definitions.find(({ schema }) => schema.name === item.name) ?? task;
-      definition.execute(item, callId);
-    },
-    reset(): void {
-      calls.clear();
-      for (const definition of definitions) {
-        definition.reset();
-      }
-    },
-  };
+  return definitions.map(({ schema, execute }) =>
+    tool({
+      name: schema.name,
+      description: schema.description,
+      parameters: schema.parameters,
+      // Preserve the provider/native failure in the model-visible receipt as well
+      // as the socket observer's execution record.
+      errorFunction: (_context, error) =>
+        JSON.stringify({
+          error: toolFailure(`tool.${schema.name}`, error),
+        }).replaceAll(apiKey, "[redacted]"),
+      execute: (args, _context, details) =>
+        execute(
+          args as Record<string, unknown>,
+          details?.toolCall?.callId ?? "",
+        ),
+    }),
+  );
 }
 
-export type VoiceTools = ReturnType<typeof createVoiceTools>;
+function toolFailure(stage: string, error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== "object")
+    return { stage, message: String(error) };
+  const info = error as Record<string, unknown>;
+  return {
+    stage: typeof info.stage === "string" ? info.stage : stage,
+    message: typeof info.message === "string" ? info.message : String(error),
+    ...Object.fromEntries(
+      ["code", "errno", "domain", "status", "statusCode"]
+        .filter((key) => info[key] !== undefined)
+        .map((key) => [key, info[key]]),
+    ),
+    ...(info.cause !== undefined
+      ? { cause: toolFailure(stage, info.cause) }
+      : {}),
+  };
+}

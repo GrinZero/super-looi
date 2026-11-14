@@ -28,13 +28,8 @@ function parseOptionalNumber(raw: unknown): number | undefined {
 }
 
 export function createControlLooiBody(
-  context: Pick<
-    VoiceToolContext,
-    "active" | "controlBody" | "reply" | "taskFinished" | "fail"
-  >,
+  context: Pick<VoiceToolContext, "controlBody">,
 ) {
-  let runs = 0;
-
   const schema: VoiceToolSchema = {
     type: "function",
     name: "control_looi_body",
@@ -57,7 +52,8 @@ export function createControlLooiBody(
         },
         brightness: {
           type: "string",
-          description: "底座自带补光灯亮度（0..255，配合 light_set 或 light_on）",
+          description:
+            "底座自带补光灯亮度（0..255，配合 light_set 或 light_on）",
         },
         speed: {
           type: "string",
@@ -75,55 +71,32 @@ export function createControlLooiBody(
 
   return {
     schema,
-    get busy() {
-      return runs > 0;
-    },
-    reset() {
-      runs = 0;
-    },
-    execute(item: Record<string, unknown>, callId: string): void {
-      runs++;
-      void (async () => {
-        let output: unknown;
-        try {
-          if (
-            item.name !== schema.name ||
-            typeof item.arguments !== "string" ||
-            item.arguments.length > 4096 ||
-            !context.controlBody
-          ) {
-            throw new Error();
-          }
-          const args = JSON.parse(item.arguments);
-          const action = typeof args.action === "string" ? args.action.trim() : "";
-          if (!VALID_BODY_ACTIONS.has(action)) {
-            throw new Error();
-          }
-          const durationMs = parseOptionalNumber(args.duration_ms);
-          const headDegrees = parseOptionalNumber(args.head_degrees);
-          const brightness = parseOptionalNumber(args.brightness);
-          const speed = parseOptionalNumber(args.speed);
-          const turn = parseOptionalNumber(args.turn);
-          const extra: VoiceBodyControlOptions = {
-            ...(headDegrees !== undefined ? { headDegrees } : {}),
-            ...(brightness !== undefined ? { brightness } : {}),
-            ...(speed !== undefined ? { speed } : {}),
-            ...(turn !== undefined ? { turn } : {}),
-          };
-          output =
-            Object.keys(extra).length > 0
-              ? await context.controlBody(action, durationMs, extra)
-              : await context.controlBody(action, durationMs);
-        } catch {
-          output = { error: "底座动作未完成，请确认底座已连接。" };
-        }
-        if (!context.active()) return;
-        await context.reply(callId, output);
-        runs--;
-        context.taskFinished();
-      })().catch(() => {
-        if (context.active()) context.fail("@looi:voiceTaskReplyFailed");
-      });
+    async execute(args: Record<string, unknown>): Promise<unknown> {
+      if (!context.controlBody)
+        throw new Error("Body control is not connected");
+      let output: unknown;
+      const action = typeof args.action === "string" ? args.action.trim() : "";
+      if (!VALID_BODY_ACTIONS.has(action)) {
+        throw Object.assign(new Error(`Unsupported body action: ${action}`), {
+          code: "INVALID_ARGUMENT",
+        });
+      }
+      const durationMs = parseOptionalNumber(args.duration_ms);
+      const headDegrees = parseOptionalNumber(args.head_degrees);
+      const brightness = parseOptionalNumber(args.brightness);
+      const speed = parseOptionalNumber(args.speed);
+      const turn = parseOptionalNumber(args.turn);
+      const extra: VoiceBodyControlOptions = {
+        ...(headDegrees !== undefined ? { headDegrees } : {}),
+        ...(brightness !== undefined ? { brightness } : {}),
+        ...(speed !== undefined ? { speed } : {}),
+        ...(turn !== undefined ? { turn } : {}),
+      };
+      output =
+        Object.keys(extra).length > 0
+          ? await context.controlBody(action, durationMs, extra)
+          : await context.controlBody(action, durationMs);
+      return output;
     },
   };
 }

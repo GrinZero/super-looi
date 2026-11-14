@@ -305,6 +305,7 @@ export async function verifyVoiceRuntime() {
   });
   switching.configureVoiceId("S_First");
   const connecting = switching.start();
+  await settle();
   switching.configureVoiceId("S_Second");
   resolveVoiceConnect({
     read: async () => JSON.stringify({ type: "session.error", error: { message: "speaker permission denied" } }),
@@ -332,6 +333,7 @@ export async function verifyVoiceRuntime() {
     cancelTask: () => {},
   });
   const opening = late.start();
+  await settle();
   late.stop();
   finishConnect({
     read: async () => null,

@@ -1,0 +1,45 @@
+import type { VoiceSessionFailure } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
+
+export function describeVoiceFailure(
+  stage: string,
+  error: unknown,
+  secret = "",
+): VoiceSessionFailure {
+  const details: string[] = [];
+  let code: string | undefined;
+  const seen = new Set<unknown>();
+  for (let cause = error; cause !== undefined && !seen.has(cause); ) {
+    seen.add(cause);
+    if (cause && typeof cause === "object") {
+      const info = cause as Record<string, unknown>;
+      const fields = [
+        "code",
+        "errno",
+        "domain",
+        "status",
+        "statusCode",
+        "responseId",
+        "turnId",
+      ]
+        .filter((key) => info[key] !== undefined)
+        .map((key) => `${key}=${String(info[key])}`);
+      if (!code && info.code !== undefined) code = String(info.code);
+      const reason =
+        typeof info.message === "string" ? info.message : JSON.stringify(cause);
+      details.push([fields.join(" "), reason].filter(Boolean).join(": "));
+      cause = info.cause;
+    } else {
+      details.push(String(cause));
+      break;
+    }
+  }
+  const redact = (value: string) =>
+    secret ? value.replaceAll(secret, "[redacted]") : value;
+  return {
+    stage,
+    ...(code ? { code: redact(code) } : {}),
+    message: redact(
+      details.length ? details.join("; caused by: ") : String(error),
+    ),
+  };
+}
