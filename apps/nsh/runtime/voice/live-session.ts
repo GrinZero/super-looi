@@ -24,6 +24,12 @@ import {
 import { NativeRealtimeTransport } from "./sdk-transport.js";
 import { describeVoiceFailure } from "./failure.js";
 import type {
+  AiTurnDraft,
+  PluginVoiceTool,
+  ToolCallBailResult,
+  UserTurnBailResult,
+} from "../plugins/contracts.js";
+import type {
   VoiceAudioPort,
   VoiceProactiveNotice,
   VoiceSocket,
@@ -44,6 +50,16 @@ export interface LiveVoiceSessionOptions {
   previewText?: string;
   initialLanguage: ConversationLanguage;
   initialContextNote?: string;
+  initialPluginContext?: string;
+  pluginVoiceTools?: readonly PluginVoiceTool[];
+  evaluateVoiceToolCall?: (call: {
+    toolName: string;
+    arguments: Record<string, unknown>;
+  }) => Promise<(Exclude<ToolCallBailResult, undefined> & { readonly pluginId?: string }) | undefined>;
+  evaluateVoiceUserTurn?: (
+    text: string,
+  ) => Promise<(Exclude<UserTurnBailResult, undefined> & { readonly pluginId?: string }) | undefined>;
+  assembleVoiceTurn?: (text: string) => Promise<AiTurnDraft>;
   sessionId?: string;
   history?: VoiceConversationMessage[];
   onConversation?: (messages: VoiceConversationMessage[]) => void;
@@ -72,6 +88,8 @@ export interface LiveVoiceSessionOptions {
       turn?: number;
     },
   ) => Promise<unknown>;
+  stopVoiceMotion?: () => Promise<unknown>;
+  redactSecrets?: (text: string) => string;
   onStatePatch: (
     patch: Partial<
       Pick<
@@ -110,6 +128,10 @@ export class LiveVoiceSession {
   private conversationLanguage: ConversationLanguage;
   private continuingLanguage = false;
   private contextNote: string;
+  private pluginContextNote: string;
+  private turnWaterfallNote = "";
+  private activeSpokenNotice?: VoiceProactiveNotice;
+  private readonly resolvedNoticeCallbacks = new WeakSet<VoiceProactiveNotice>();
   private phase: "connecting" | "listening" | "speaking" = "connecting";
   private muted = false;
   private transcript = "";
@@ -120,6 +142,11 @@ export class LiveVoiceSession {
   private turnActivity: "waiting_user" | "user_speaking" | "awaiting_reply" =
     "waiting_user";
   private silenceSince = 0;
+  private currentUtteranceTranscript = "";
+  private utteranceSeq = 0;
+  private evaluatedUtteranceSeq = -1;
+  private lastEvaluatedItemId = "";
+  private pendingAutoResponseCancel = false;
 
   private get socket(): VoiceSocket | undefined {
     return this.transport.socket;
@@ -155,6 +182,7 @@ export class LiveVoiceSession {
     this.purpose = options.purpose ?? "conversation";
     this.conversationLanguage = options.initialLanguage;
     this.contextNote = (options.initialContextNote ?? "").trim();
+    this.pluginContextNote = (options.initialPluginContext ?? "").trim();
     this.transport = new NativeRealtimeTransport({
       protocol: options.protocol,
       voiceId: options.voiceId,
@@ -173,19 +201,7 @@ export class LiveVoiceSession {
     this.agent = new RealtimeAgent({
       name: "LOOI",
       instructions: this.renderInstructions(),
-      tools:
-        this.purpose === "preview"
-          ? []
-          : createVoiceTools(
-              {
-                requestTask: options.requestTask,
-                taskBridge: options.taskBridge,
-                controlBody: options.controlBody,
-                toolTraceContext: (callId) =>
-                  this.socket?.getToolTraceContext?.(callId),
-              },
-              options.apiKey,
-            ),
+      tools: this.buildSessionTools(options.pluginVoiceTools),
     });
     this.session = new RealtimeSession(this.agent, {
       transport: this.transport,
@@ -224,16 +240,88 @@ export class LiveVoiceSession {
     return this.purpose;
   }
 
+  private buildSessionTools(pluginTools?: readonly PluginVoiceTool[]) {
+    if (this.purpose === "preview") return [];
+    return createVoiceTools(
+      {
+        sessionId: this.sessionId,
+        requestTask: this.options.requestTask,
+        taskBridge: this.options.taskBridge,
+        controlBody: this.options.controlBody,
+        pluginTools,
+        evaluateToolCall: this.options.evaluateVoiceToolCall,
+        redactSecrets: this.options.redactSecrets,
+        toolTraceContext: (callId) =>
+          this.socket?.getToolTraceContext?.(callId),
+      },
+      this.options.apiKey,
+    );
+  }
+
+  private resolveSpokenNotice(
+    notice: VoiceProactiveNotice | undefined,
+    result: { readonly completed: boolean; readonly interruptedReason?: string },
+  ): void {
+    if (!notice || !notice.onResult || this.resolvedNoticeCallbacks.has(notice)) return;
+    this.resolvedNoticeCallbacks.add(notice);
+    try {
+      notice.onResult(result);
+    } catch {
+      // Isolate plugin callback exceptions.
+    }
+  }
+
   enqueueNotice(notice: VoiceProactiveNotice): void {
-    if (this.disposed || !notice.spokenText.trim()) return;
-    if (this.seenNoticeIds.has(notice.id)) return;
+    if (this.disposed || !notice.spokenText.trim()) {
+      this.resolveSpokenNotice(notice, {
+        completed: false,
+        interruptedReason: this.disposed ? "session_disposed" : "empty_speech",
+      });
+      return;
+    }
+    if (this.seenNoticeIds.has(notice.id)) {
+      this.resolveSpokenNotice(notice, {
+        completed: false,
+        interruptedReason: "duplicate_notice_id",
+      });
+      return;
+    }
     if (this.seenNoticeIds.size >= 128) {
       const oldest = this.seenNoticeIds.values().next().value;
       if (oldest !== undefined) this.seenNoticeIds.delete(oldest);
     }
     this.seenNoticeIds.add(notice.id);
     if (this.noticeQueue.length >= MAX_NOTICE_QUEUE) {
-      this.noticeQueue.shift();
+      const evicted = this.noticeQueue.shift();
+      this.resolveSpokenNotice(evicted, {
+        completed: false,
+        interruptedReason: "queue_overflow",
+      });
+    }
+    if (notice.delivery === "interrupt") {
+      this.noticeQueue.unshift(notice);
+      const wasAwaitingUnstartedResponse =
+        this.turnActivity === "awaiting_reply" &&
+        !this.responseInProgress &&
+        !this.dispatchingNotice;
+      if (
+        this.phase === "speaking" ||
+        this.responseInProgress ||
+        this.dispatchingNotice ||
+        wasAwaitingUnstartedResponse ||
+        this.audioPipeline.bufferedOutputBytes > 0 ||
+        this.options.audio.status().queuedPlaybackMs > 0
+      ) {
+        this.applyInterrupt("manual", { preservePluginServo: true });
+      }
+      if (wasAwaitingUnstartedResponse) {
+        this.pendingAutoResponseCancel = true;
+      }
+      if (!this.discardOutput && this.turnActivity !== "user_speaking" && this.toolsRunning === 0) {
+        this.turnActivity = "waiting_user";
+        this.flushNoticeIfIdle();
+      }
+      return;
     }
     this.noticeQueue.push(notice);
     this.flushNoticeIfIdle();
@@ -251,6 +339,28 @@ export class LiveVoiceSession {
     if (syncImmediately && this.socket && this.phase !== "connecting") {
       void this.syncInstructions().catch((error) => {
         this.failWithCause("context.update", error);
+      });
+    }
+  }
+
+  updatePluginContext(note: string, syncImmediately = false): void {
+    if (this.disposed) return;
+    const next = note.trim();
+    if (next === this.pluginContextNote) return;
+    this.pluginContextNote = next;
+    if (syncImmediately && this.socket && this.phase !== "connecting") {
+      void this.syncInstructions().catch((error) => {
+        this.failWithCause("context.update", error);
+      });
+    }
+  }
+
+  updatePluginVoiceTools(pluginTools: readonly PluginVoiceTool[], syncImmediately = true): void {
+    if (this.disposed || this.purpose === "preview") return;
+    this.agent.tools = this.buildSessionTools(pluginTools);
+    if (syncImmediately && this.socket && this.phase !== "connecting") {
+      void this.syncInstructions().catch((error) => {
+        this.failWithCause("tools.update", error);
       });
     }
   }
@@ -321,13 +431,32 @@ export class LiveVoiceSession {
     else this.session.interrupt();
   }
 
-  private applyInterrupt(trigger: "manual" | "server_vad" = "manual"): void {
+  private applyInterrupt(
+    trigger: "manual" | "server_vad" = "manual",
+    options?: { preservePluginServo?: boolean },
+  ): void {
     if (
       this.disposed ||
       (this.phase !== "listening" && this.phase !== "speaking")
     )
       return;
-    void this.options.controlBody?.("stop").catch(() => {});
+    if (this.activeSpokenNotice) {
+      const active = this.activeSpokenNotice;
+      this.activeSpokenNotice = undefined;
+      this.resolveSpokenNotice(active, {
+        completed: false,
+        interruptedReason: trigger,
+      });
+    }
+    if (trigger === "server_vad" || options?.preservePluginServo) {
+      void (
+        this.options.stopVoiceMotion
+          ? this.options.stopVoiceMotion()
+          : (this.options.controlBody?.("stop") ?? Promise.resolve())
+      ).catch(() => {});
+    } else {
+      void this.options.controlBody?.("stop").catch(() => {});
+    }
     if (this.discardOutput) return;
 
     const queuedMs = this.options.audio.status().queuedPlaybackMs;
@@ -427,6 +556,21 @@ export class LiveVoiceSession {
     if (this.disposed) return;
     this.disposed = true;
 
+    if (this.activeSpokenNotice) {
+      const active = this.activeSpokenNotice;
+      this.activeSpokenNotice = undefined;
+      this.resolveSpokenNotice(active, {
+        completed: false,
+        interruptedReason: "session_disposed",
+      });
+    }
+    for (const queued of this.noticeQueue) {
+      this.resolveSpokenNotice(queued, {
+        completed: false,
+        interruptedReason: "session_disposed",
+      });
+    }
+
     this.clearTimers();
     this.noticeQueue.length = 0;
     this.seenNoticeIds.clear();
@@ -463,7 +607,15 @@ ${JSON.stringify(this.previewSample())}`;
     const history = this.options.history?.length
       ? `[Previous Voice Conversation]\n以下是重连前可见的语音对话，按发生顺序排列。回答历史追问时同时参考这些对话与任务回执，保留日期、时间和数字原文。\n${JSON.stringify(this.options.history)}`
       : "";
-    return [base, history, this.contextNote].filter(Boolean).join("\n\n");
+    return [
+      base,
+      history,
+      this.pluginContextNote,
+      this.turnWaterfallNote,
+      this.contextNote,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   private async syncInstructions(): Promise<void> {
@@ -501,7 +653,9 @@ ${JSON.stringify(this.previewSample())}`;
     });
     if (frames.length === 0) return false;
 
+    this.activeSpokenNotice = notice;
     this.dispatchingNotice = true;
+    this.pendingAutoResponseCancel = false;
     this.pauseTurnTimers();
     this.turnActivity = "awaiting_reply";
     this.silenceSince = Date.now();
@@ -531,8 +685,23 @@ ${JSON.stringify(this.previewSample())}`;
           this.turnActivity !== "awaiting_reply" ||
           this.discardOutput
         ) {
-          if (!this.disposed && !speechTriggered) {
+          if (this.activeSpokenNotice === notice) {
+            this.activeSpokenNotice = undefined;
+          }
+          if (
+            !this.disposed &&
+            !speechTriggered &&
+            !notice.onResult &&
+            !this.resolvedNoticeCallbacks.has(notice)
+          ) {
             this.noticeQueue.unshift(notice);
+          } else {
+            this.resolveSpokenNotice(notice, {
+              completed: false,
+              interruptedReason: this.disposed
+                ? "session_disposed"
+                : "interrupted_during_send",
+            });
           }
           delivery?.end({
             "langfuse.observation.output": {
@@ -568,6 +737,13 @@ ${JSON.stringify(this.previewSample())}`;
       });
     })()
       .catch((error) => {
+        if (this.activeSpokenNotice === notice) {
+          this.activeSpokenNotice = undefined;
+        }
+        this.resolveSpokenNotice(notice, {
+          completed: false,
+          interruptedReason: "send_failed",
+        });
         if (delivery) this.socket?.setResponseTraceContext?.();
         delivery?.end({
           "langfuse.observation.level": "ERROR",
@@ -716,6 +892,14 @@ ${JSON.stringify(this.previewSample())}`;
     }
 
     if (normalized.kind === "response_cancelled") {
+      if (this.activeSpokenNotice) {
+        const cancelled = this.activeSpokenNotice;
+        this.activeSpokenNotice = undefined;
+        this.resolveSpokenNotice(cancelled, {
+          completed: false,
+          interruptedReason: "response_cancelled",
+        });
+      }
       if (this.purpose === "preview" && !this.discardOutput) {
         this.failWithCause("provider.response_cancelled", {
           message: normalized.reason || "Provider cancelled preview response",
@@ -744,6 +928,13 @@ ${JSON.stringify(this.previewSample())}`;
         this.responseId = "";
         this.turnId = "";
         if (responseId) this.cancelledResponses.delete(responseId);
+        if (
+          this.toolsRunning === 0 &&
+          !this.dispatchingNotice &&
+          this.turnActivity !== "user_speaking"
+        ) {
+          this.resumeWaiting();
+        }
         return false;
       }
       if (this.options.protocol.encodePlaybackStopped) {
@@ -793,6 +984,13 @@ ${JSON.stringify(this.previewSample())}`;
     ) {
       this.cancelEventId = "";
       this.discardOutput = false;
+      if (
+        this.toolsRunning === 0 &&
+        !this.dispatchingNotice &&
+        this.turnActivity !== "user_speaking"
+      ) {
+        this.resumeWaiting();
+      }
       return false;
     }
     if (
@@ -863,9 +1061,33 @@ ${JSON.stringify(this.previewSample())}`;
       }
       this.tick();
     } else if (normalized.kind === "response_started") {
+      if (
+        this.pendingAutoResponseCancel &&
+        !this.dispatchingNotice &&
+        !this.activeSpokenNotice
+      ) {
+        this.pendingAutoResponseCancel = false;
+        this.responseInProgress = true;
+        this.serverResponseDone = false;
+        this.responseId = responseId;
+        this.applyInterrupt("manual", { preservePluginServo: true });
+        return false;
+      }
       this.responseInProgress = true;
       this.serverResponseDone = false;
     } else if (normalized.kind === "audio_started") {
+      if (
+        this.pendingAutoResponseCancel &&
+        !this.dispatchingNotice &&
+        !this.activeSpokenNotice
+      ) {
+        this.pendingAutoResponseCancel = false;
+        this.responseInProgress = true;
+        this.serverResponseDone = false;
+        this.responseId = responseId;
+        this.applyInterrupt("manual", { preservePluginServo: true });
+        return false;
+      }
       this.responseInProgress = true;
       this.serverResponseDone = false;
       this.audioPipeline.trackAudioItem(
@@ -874,6 +1096,18 @@ ${JSON.stringify(this.previewSample())}`;
       );
       this.enterSpeaking(responseId);
     } else if (normalized.kind === "audio_delta" && !this.discardOutput) {
+      if (
+        this.pendingAutoResponseCancel &&
+        !this.dispatchingNotice &&
+        !this.activeSpokenNotice
+      ) {
+        this.pendingAutoResponseCancel = false;
+        this.responseInProgress = true;
+        this.serverResponseDone = false;
+        this.responseId = responseId;
+        this.applyInterrupt("manual", { preservePluginServo: true });
+        return false;
+      }
       this.responseInProgress = true;
       this.serverResponseDone = false;
       if (
@@ -931,6 +1165,14 @@ ${JSON.stringify(this.previewSample())}`;
         }
       }
     } else if (normalized.kind === "audio_stop") {
+      if (this.activeSpokenNotice) {
+        const stoppedNotice = this.activeSpokenNotice;
+        this.activeSpokenNotice = undefined;
+        this.resolveSpokenNotice(stoppedNotice, {
+          completed: false,
+          interruptedReason: "audio_stop",
+        });
+      }
       if (this.purpose === "preview") {
         this.failWithCause("provider.audio_stop", {
           message: normalized.reason || "Provider stopped preview audio",
@@ -986,6 +1228,20 @@ ${JSON.stringify(this.previewSample())}`;
       normalized.kind === "user_speech_started" ||
       normalized.kind === "user_transcription_started"
     ) {
+      if (
+        normalized.kind === "user_speech_started" ||
+        this.turnActivity !== "user_speaking"
+      ) {
+        ++this.utteranceSeq;
+        this.currentUtteranceTranscript = "";
+        this.pendingAutoResponseCancel = false;
+        if (this.turnWaterfallNote) {
+          this.turnWaterfallNote = "";
+          void this.syncInstructions().catch((error) => {
+            this.failWithCause("context.update", error);
+          });
+        }
+      }
       this.turnActivity = "user_speaking";
       this.pauseTurnTimers();
       // MOSS is full duplex; only its explicit interruption events stop playback.
@@ -999,17 +1255,89 @@ ${JSON.stringify(this.previewSample())}`;
       }
     } else if (normalized.kind === "user_transcription_update") {
       this.userTranscript = normalized.text.slice(-1024);
+      this.currentUtteranceTranscript = normalized.text.trim().slice(-1024);
       this.publish({ userTranscript: this.userTranscript });
     } else if (normalized.kind === "user_speech_stopped") {
       this.options.onConversationActivity?.();
       if (normalized.transcript && normalized.transcript.trim()) {
-        this.userTranscript = normalized.transcript.trim().slice(-1024);
+        this.currentUtteranceTranscript = normalized.transcript.trim().slice(-1024);
+        this.userTranscript = this.currentUtteranceTranscript;
         this.publish({ userTranscript: this.userTranscript });
       }
-      if (this.turnActivity === "user_speaking") this.silenceSince = Date.now();
-      this.turnActivity = "awaiting_reply";
-      this.pauseTurnTimers();
-      this.startAwaitingTimer();
+      if (
+        this.purpose === "conversation" &&
+        normalized.transcriptionFinal === true
+      ) {
+        const isDuplicateItem = Boolean(
+          normalized.itemId && normalized.itemId === this.lastEvaluatedItemId,
+        );
+        if (!isDuplicateItem) {
+          if (normalized.itemId) {
+            this.lastEvaluatedItemId = normalized.itemId;
+          }
+          if (this.evaluatedUtteranceSeq === this.utteranceSeq) {
+            ++this.utteranceSeq;
+          }
+          const utterance = this.currentUtteranceTranscript;
+          if (utterance && this.evaluatedUtteranceSeq !== this.utteranceSeq) {
+            const seq = this.utteranceSeq;
+            this.evaluatedUtteranceSeq = seq;
+            if (this.options.evaluateVoiceUserTurn) {
+              const guard = await this.options.evaluateVoiceUserTurn(utterance);
+              if (this.disposed || seq !== this.utteranceSeq) return false;
+              if (guard) {
+                if (this.turnWaterfallNote) {
+                  this.turnWaterfallNote = "";
+                  void this.syncInstructions().catch((error) => {
+                    this.failWithCause("context.update", error);
+                  });
+                }
+                const hadActiveResponse =
+                  this.responseInProgress ||
+                  this.phase === "speaking" ||
+                  this.audioPipeline.bufferedOutputBytes > 0 ||
+                  this.options.audio.status().queuedPlaybackMs > 0;
+                this.silenceSince = Date.now();
+                this.turnActivity = "waiting_user";
+                this.applyInterrupt("manual", { preservePluginServo: true });
+                const spokenReply = guard.spokenReply?.trim();
+                if (!hadActiveResponse && !spokenReply) {
+                  this.pendingAutoResponseCancel = true;
+                }
+                if (spokenReply) {
+                  this.enqueueNotice({
+                    id: `guard_${randomUUID()}`,
+                    spokenText: spokenReply,
+                    delivery: "interrupt",
+                  });
+                } else if (!this.discardOutput && this.toolsRunning === 0) {
+                  this.resumeWaiting();
+                }
+                return false;
+              }
+            }
+            if (this.options.assembleVoiceTurn) {
+              const draft = await this.options.assembleVoiceTurn(utterance);
+              if (this.disposed || seq !== this.utteranceSeq) return false;
+              const nextWaterfall = draft.contextBlocks
+                .map((block) => block.text.trim())
+                .filter(Boolean)
+                .join("\n");
+              if (nextWaterfall !== this.turnWaterfallNote) {
+                this.turnWaterfallNote = nextWaterfall;
+                await this.syncInstructions();
+                if (this.disposed || seq !== this.utteranceSeq) return false;
+              }
+            }
+          }
+        }
+      }
+      if (this.turnActivity === "user_speaking") {
+        this.silenceSince = Date.now();
+        this.turnActivity = "awaiting_reply";
+        this.pauseTurnTimers();
+        this.startAwaitingTimer();
+      }
     } else if (normalized.kind === "user_transcription_failed") {
       if (this.turnActivity === "user_speaking") {
         this.silenceSince = Date.now();
@@ -1035,13 +1363,20 @@ ${JSON.stringify(this.previewSample())}`;
       if (this.phase === "speaking") {
         // Guarantees `tick()` drains back to `listening` even if `audio_done` was omitted.
         this.outputStreamDone = true;
-      } else if (
-        this.toolsRunning === 0 &&
-        !this.dispatchingNotice &&
-        this.turnActivity !== "user_speaking" &&
-        !wasToolCallTurn
-      ) {
-        this.resumeWaiting();
+      } else {
+        if (this.activeSpokenNotice && !this.dispatchingNotice) {
+          const completedNotice = this.activeSpokenNotice;
+          this.activeSpokenNotice = undefined;
+          this.resolveSpokenNotice(completedNotice, { completed: true });
+        }
+        if (
+          this.toolsRunning === 0 &&
+          !this.dispatchingNotice &&
+          this.turnActivity !== "user_speaking" &&
+          !wasToolCallTurn
+        ) {
+          this.resumeWaiting();
+        }
       }
     } else if (normalized.kind === "tool_calls") {
       if (responseId) {
@@ -1167,6 +1502,11 @@ ${JSON.stringify(this.previewSample())}`;
         this.responseInProgress = false;
         this.responseId = "";
         this.turnId = "";
+        if (this.activeSpokenNotice) {
+          const completedNotice = this.activeSpokenNotice;
+          this.activeSpokenNotice = undefined;
+          this.resolveSpokenNotice(completedNotice, { completed: true });
+        }
         if (this.purpose === "preview") {
           void this.writeQueue.then(() => {
             if (!this.disposed) this.options.onSessionComplete();

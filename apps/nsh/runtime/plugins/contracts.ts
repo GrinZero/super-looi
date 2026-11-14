@@ -4,6 +4,7 @@ import type { BodyActionReceipt, BodyControlInput, BodyStatusSnapshot } from "..
 import {
   HOST_PLUGIN_API_VERSION,
   PLUGIN_CATEGORIES,
+  type AiTurnDraft,
   type CliReceipt,
   type FaceStagePosture,
   type LocalizedText,
@@ -20,12 +21,16 @@ import {
   type PluginServiceId,
   type PluginSnapshot,
   type PluginStagePresentation,
+  type PluginVoiceTool,
   type StageDrawerDetent,
+  type ToolCallBailResult,
+  type UserTurnBailResult,
 } from "./shared-types.js";
 
 export {
   HOST_PLUGIN_API_VERSION,
   PLUGIN_CATEGORIES,
+  type AiTurnDraft,
   type CliReceipt,
   type FaceStagePosture,
   type LocalizedText,
@@ -42,7 +47,10 @@ export {
   type PluginServiceId,
   type PluginSnapshot,
   type PluginStagePresentation,
+  type PluginVoiceTool,
   type StageDrawerDetent,
+  type ToolCallBailResult,
+  type UserTurnBailResult,
 };
 
 export type Dispose = () => void | Promise<void>;
@@ -149,48 +157,6 @@ export interface PluginVisionCapability {
     options: { facing: "front" | "back"; maxDimension?: 320 | 640 | 1280; maxFps?: number; scope?: EffectScope },
     onFrame: (frame: DeviceCameraFrame) => Promise<void> | void,
   ): Promise<{ readonly previewSessionId: string; close(): void }>;
-}
-
-export type UserTurnBailResult =
-  | undefined
-  | {
-      readonly decision: "block";
-      readonly reason: string;
-      readonly code?: string;
-      readonly stage?: string;
-      readonly spokenReply?: string;
-      readonly cause?: unknown;
-    }
-  | {
-      readonly decision: "handled";
-      readonly spokenReply?: string;
-      readonly answer?: string;
-    };
-
-export type ToolCallBailResult =
-  | undefined
-  | { readonly decision: "allow" }
-  | { readonly decision: "ask"; readonly promptPayload: Record<string, unknown> }
-  | {
-      readonly decision: "deny";
-      readonly code: string;
-      readonly reason: string;
-      readonly stage?: string;
-      readonly cause?: unknown;
-    };
-
-export interface AiTurnDraft {
-  readonly channel: "voice" | "task";
-  readonly userText: string;
-  readonly contextBlocks: Array<{ pluginId: string; priority: number; text: string }>;
-  readonly ephemeralImages: Array<{ pluginId: string; mimeType: "image/jpeg"; bytes: Uint8Array }>;
-}
-
-export interface PluginVoiceTool<TParams = Record<string, unknown>> {
-  readonly name: string;
-  readonly description: string;
-  readonly parametersJsonSchema: Record<string, unknown>;
-  execute(params: TParams, context: { sessionId: string; signal: AbortSignal }): Promise<unknown>;
 }
 
 export interface PluginAiCapability {

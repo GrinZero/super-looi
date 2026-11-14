@@ -23,7 +23,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     export {VoiceRuntime, VoiceTaskCoordinator} from "./runtime/voice.ts";
     export {MiotLoginFlow} from "./runtime/miot-login.ts";
     export {resolveApplianceCardView, packBentoTiles} from "@super-looi/home-devices";
-    export {RobotFaceController, FACE_EXPRESSION_IDS, isFaceExpression, getFaceExpressionBehavior} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
+    export {RobotFaceController, FACE_EXPRESSION_IDS, FACE_PRIORITY, isFaceExpression, getFaceExpressionBehavior} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
     export async function openRuntime(host,vault) {
       const release=installNshNativeCompat(host);
       try {const {MobileRuntime}=await import("./runtime/application.ts");return new MobileRuntime(vault,release);}
@@ -89,7 +89,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     resolve(root, "generated/looi-runtime.d.ts"),
     `
 export interface VoiceState {phase:"idle"|"standby"|"permission"|"connecting"|"listening"|"speaking"|"error";muted:boolean;wakeEnabled:boolean;transcript:string;userTranscript?:string;purpose?:"conversation"|"preview";activeVoiceId?:string;error:string}
-export interface VoiceProactiveNotice {id:string;taskId?:string;traceContext?:TraceContext;spokenText:string;contextNote?:string}
+export interface VoiceProactiveNotice {id:string;taskId?:string;traceContext?:TraceContext;spokenText:string;contextNote?:string;delivery?:"when_idle"|"interrupt";onResult?:(result:{readonly completed:boolean;readonly interruptedReason?:string})=>void}
 export type VoiceTaskSubmissionResult = {status:"completed";taskId:string;answer:string}|{status:"running_in_background";taskId:string;latestSummary:string}|{status:"waiting_user_confirmation";taskId:string;interactionKind:"approval"|"question";latestSummary:string}|{status:"busy";taskId:string;latestSummary:string}|{status:"failed";taskId?:string;error:string};
 export interface VoiceTaskStatusSnapshot {taskId:string;prompt:string;state:"running"|"waiting_user"|"completed"|"failed"|"cancelled";latestSummary:string;answer?:string;error?:string}
 export interface VoiceTaskBridge {submit(prompt:string,traceContext?:TraceContext):Promise<VoiceTaskSubmissionResult>;inspect(taskId?:string):VoiceTaskStatusSnapshot|null;cancel(taskId?:string):Promise<{cancelled:boolean;taskId?:string}>;sendMessage?(message:string,behavior:"steer"|"followUp",taskId?:string):Promise<{status:"queued"|"handled";taskId:string}>}
@@ -103,8 +103,8 @@ export class VoiceTaskCoordinator implements VoiceTaskBridge {
  markExternallyCancelled():void;
 }
 export class VoiceRuntime {
- constructor(options:{defaultLanguage?:()=>"zh-CN"|"en-US";isExternalBusy?:()=>boolean;runTask:(prompt:string,hooks:{onStep:(event:NativeStep)=>void},traceContext?:TraceContext)=>Promise<{answer:string;taskId?:string}>;cancelRunningTask:()=>Promise<boolean>;sendRunningTaskMessage?:(taskId:string,message:string,behavior:"steer"|"followUp")=>Promise<"queued"|"handled">;onNotice?:(notice:VoiceProactiveNotice)=>void;onContextNote?:(note:string)=>void});
- configuration():{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};selectProvider(providerId:string):{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};refreshCredentials(autoStandby?:boolean):{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};configure(value:string):void;configureVoiceId(value:string):void;clearCredentials():void;preview(options?:{voiceId?:string;sampleText?:string}):Promise<void>;restartSession():Promise<void>;setWakeEnabled(enabled:boolean,options?:{autoStandby?:boolean}):void;snapshot():VoiceState;enqueueNotice(notice:VoiceProactiveNotice):void;setContextNote(note:string,syncActiveSession?:boolean):void;enterStandby():Promise<void>;start(options?:{fromWakeWord?:boolean}):Promise<void>;endSession():void;mute(value:boolean):void;interrupt():void;playDockCue(docked:boolean):void;stopIdleCue():void;stopStandby():void;stop():void;close():void;
+ constructor(options:{previewInput?:()=>Promise<Uint8Array>;conversationId?:()=>string;defaultLanguage?:()=>"zh-CN"|"en-US";vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;beginWake():number;startWake(ticket:number):Promise<boolean>;stop():void;setCaptureMode(mode:string):void;playReadyCue():void;playDockCue?(docked:boolean):void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number;captureMode:string;wakeWord:string;kwsReady:boolean}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string|Uint8Array):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;onAudioLevel?:(level:number)=>void;onConversationActivity?:()=>void;requestTask?:(prompt:string,traceContext?:TraceContext)=>Promise<string>;taskBridge?:VoiceTaskBridge;controlBody?:(action:string,durationMs?:number,options?:{headDegrees?:number;brightness?:number;speed?:number;turn?:number})=>Promise<unknown>;stopVoiceMotion?:()=>Promise<unknown>;redactSecrets?:(text:string)=>string;onSessionEnd?:()=>void;cancelTask?:()=>void;tracer?:unknown;initialPluginContext?:()=>string;pluginVoiceTools?:()=>readonly PluginVoiceTool[];evaluateVoiceToolCall?:(call:{toolName:string;arguments:Record<string,unknown>})=>Promise<(Exclude<ToolCallBailResult,undefined>&{readonly pluginId?:string})|undefined>;evaluateVoiceUserTurn?:(text:string)=>Promise<(Exclude<UserTurnBailResult,undefined>&{readonly pluginId?:string})|undefined>;assembleVoiceTurn?:(text:string)=>Promise<AiTurnDraft>});
+ configuration():{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};selectProvider(providerId:string):{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};refreshCredentials(autoStandby?:boolean):{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};configure(value:string):void;configureVoiceId(value:string):void;clearCredentials():void;preview(options?:{voiceId?:string;sampleText?:string}):Promise<void>;restartSession():Promise<void>;setWakeEnabled(enabled:boolean,options?:{autoStandby?:boolean}):void;snapshot():VoiceState;enqueueNotice(notice:VoiceProactiveNotice):void;setContextNote(note:string,syncActiveSession?:boolean):void;setPluginContext(note:string,syncActiveSession?:boolean):void;refreshPluginVoiceTools():void;speak(options:{spokenText:string;contextNote?:string;delivery?:"when_idle"|"interrupt"}):Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;enterStandby():Promise<void>;start(options?:{fromWakeWord?:boolean}):Promise<void>;endSession():void;mute(value:boolean):void;interrupt():void;playDockCue(docked:boolean):void;stopIdleCue():void;stopStandby():void;stop():void;close():void;
 }
 export type TraceContext = {traceId:string;parentSpanId?:string;traceName:string;sessionId?:string};
 export interface UiAction {event_id:string;ui_session_id:string;kind:"tap"|"gesture"|"voice_command";captured_at:string;expires_at:string}
@@ -176,12 +176,19 @@ export type LlmOAuthUiEvent =
  | {kind:"auth_url";url:string;instructions?:string}
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
-import type {PluginSnapshot,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent} from "../runtime/plugins/shared-types.js";
-export type {PluginSnapshot,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent} from "../runtime/plugins/shared-types.js";
+import type {PluginSnapshot,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft} from "../runtime/plugins/shared-types.js";
+export type {PluginSnapshot,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft} from "../runtime/plugins/shared-types.js";
 export interface NativeRuntime {
  pluginsSnapshot():PluginSnapshot[];
  activeStagePresentation():{pluginId:string;presentation:PluginStagePresentation}|null;
  exitPluginStage(id:string):void;
+ attachFaceController(controller:RobotFaceController|undefined):void;
+ setPluginAiBridge(bridge:{speak?:(options:{pluginId:string;spokenText:string;contextNote?:string;delivery:"when_idle"|"interrupt"})=>Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;runBackgroundTask?:(options:{pluginId:string;prompt:string})=>Promise<{readonly taskId:string;readonly answer:string}>;onVoiceContextUpdated?:(summaryPrompt:string)=>void;onVoiceToolsUpdated?:()=>void}):void;
+ pluginAmbientVoiceContext():string;
+ pluginVoiceTools():readonly PluginVoiceTool[];
+ evaluateVoiceToolCall(call:{toolName:string;arguments:Record<string,unknown>}):Promise<(Exclude<ToolCallBailResult,undefined>&{readonly pluginId:string})|undefined>;
+ evaluateVoiceUserTurn(text:string):Promise<(Exclude<UserTurnBailResult,undefined>&{readonly pluginId:string})|undefined>;
+ assembleVoiceTurn(text:string):Promise<AiTurnDraft>;
  subscribePlugins(listener:(event:PluginEvent)=>void):()=>void;
  refreshPlugin(id:string):Promise<PluginSnapshot[]>;
  setPluginEnabled(id:string,enabled:boolean,action:UiAction):Promise<PluginSnapshot>;
@@ -222,6 +229,8 @@ export interface NativeRuntime {
  setSimulatedDock(docked:boolean):BodyStatusSnapshot;
  controlBody(input:{action:BodyControlAction;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number},holder?:string):Promise<BodyActionReceipt>;
  stopBody():Promise<BodyStatusSnapshot>;
+ stopVoiceMotion():Promise<BodyStatusSnapshot>;
+ redactSecrets(text:string):string;
  startBodyDrive(action:"forward"|"backward"|"turn_left"|"turn_right"):Promise<BodyStatusSnapshot>;
  renewBodyDrive():boolean;
  setBodyDriveVector(speed:number,turn:number):Promise<BodyStatusSnapshot>;
@@ -249,12 +258,17 @@ export interface NativeRuntime {
  cancelProviderOAuth():void;
 }
 export const FACE_EXPRESSION_IDS: readonly ["neutral","listening","thinking","speaking","curious","sleeping","alarmed","wake_spark","aha_eureka","confused","interrupted","wave_bye","happy_squint","laughing","wink","love_eyes","shy_blush","starry_eyed","smug_proud","kitty_playful","touched_warm","kissy","excited_bounce","zen_content","pouty","sad_droop","teary_cry","grumpy_puff","angry_glare","speechless","side_eye","shocked","dizzy_spiral","nervous_sweat","mischievous","relieved_sigh","sleepy_drowsy","yawning","deep_snore","coffee_sip","munching","sipping_straw","music_vibe","focus_glasses","reading_scan","pomodoro_timer","celebrate_party","bored_sigh","coding_terminal","searching_radar","approval_ask","task_verified","task_warning","memory_recall","memory_saved","sync_pulse","privacy_shield","rate_limited","offline_lost","night_watch","dock_snap","undock_float","drive_forward","turn_peek","head_up_sky","head_down_floor","charging_pulse","low_battery","fill_light_glow","home_command","weather_sunny","weather_rain_chill"];
-export type FaceExpression = (typeof FACE_EXPRESSION_IDS)[number];
+export type CanonicalFaceExpression = (typeof FACE_EXPRESSION_IDS)[number];
+export type PluginFaceExpressionId = \`plugin:\${string}:\${string}\`;
+export type FaceExpression = CanonicalFaceExpression | PluginFaceExpressionId;
+export const FACE_PRIORITY: {readonly SYSTEM_CRITICAL:0;readonly DOCK_TRANSIENT:1;readonly PLUGIN_FOREGROUND:2;readonly CONVERSATIONAL:3;readonly PLUGIN_BACKGROUND:4;readonly DEFAULT_IDLE:5};
+export type FacePriorityLevel = 0|1|2|3|4|5;
+export interface FaceLayerLease {setExpression(expression:FaceExpression|null):void;setGaze(gaze:{x:number;y:number}|null):void;triggerBlink():void;release():void}
 export function isFaceExpression(value:unknown):value is FaceExpression;
 export function getFaceExpressionBehavior(expression:FaceExpression):{closedRest:boolean;allowsBlink:boolean;allowsAudioResonance:boolean};
 export interface FaceState {expression:FaceExpression;gaze:{x:number;y:number};blinkProgress:number;waveformBars:number[]}
 export class RobotFaceController {
- constructor(options?:{onStateChange?:()=>void});getState():FaceState;setExpression(value:FaceExpression):void;setGaze(x:number,y:number):void;updateAudioLevel(rms:number):void;triggerBlink():void;dispose():void;
+ constructor(options?:{onStateChange?:()=>void});getState():FaceState;attachRecipeSyncBridge(bridge:((id:PluginFaceExpressionId,recipe:Record<string,unknown>|null)=>void)|undefined):void;registerDynamicExpression(id:PluginFaceExpressionId,recipe:Record<string,unknown>,behavior?:Partial<{closedRest:boolean;allowsBlink:boolean;allowsAudioResonance:boolean}>):()=>void;acquireLayerLease(priority:FacePriorityLevel,initial?:{expression?:FaceExpression|null;gaze?:{x:number;y:number}|null}):FaceLayerLease;setHostPresence(presence:{systemCritical?:FaceExpression|null;dockTransient?:FaceExpression|null;conversational?:FaceExpression|null;idle?:FaceExpression}):void;setExpression(value:FaceExpression):void;setGaze(x:number,y:number):void;updateAudioLevel(rms:number):void;triggerBlink():void;dispose():void;
 }
 export function openRuntime(host:{request(raw:string):string;begin(kind:string,raw:string):string;wait(ticket:string):Promise<string>;close():void},vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void}):Promise<NativeRuntime>;
 `,

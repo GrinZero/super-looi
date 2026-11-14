@@ -28,6 +28,7 @@ export interface DualLoopAiBusBridge {
     prompt: string;
   }) => Promise<{ readonly taskId: string; readonly answer: string }>;
   onVoiceContextUpdated?: (summaryPrompt: string) => void;
+  onVoiceToolsUpdated?: () => void;
 }
 
 interface RegisteredSlice {
@@ -156,7 +157,24 @@ export class DualLoopAiBus {
   }
 
   voiceTools(): PluginVoiceTool[] {
-    return [...this.contributions].flatMap((entry) => [...(entry.voiceTools ?? [])]);
+    return [...this.contributions].flatMap((entry) =>
+      (entry.voiceTools ?? []).map((rawTool): PluginVoiceTool => ({
+        name: rawTool.name,
+        description: rawTool.description,
+        parametersJsonSchema: rawTool.parametersJsonSchema,
+        execute: async (params, context) => {
+          if (!this.contributions.has(entry)) {
+            throw new PluginKernelError({
+              stage: `plugin:${entry.pluginId}:voice_tool`,
+              code: "ERR_PLUGIN_TOOL_INACTIVE",
+              pluginId: entry.pluginId,
+              reason: `Voice tool "${rawTool.name}" belongs to an inactive plugin or disposed scope`,
+            });
+          }
+          return rawTool.execute(params, context);
+        },
+      })),
+    );
   }
 
   /**
@@ -244,28 +262,33 @@ export class DualLoopAiBus {
     channel: "voice" | "task";
     userText: string;
     budgetMs?: number;
+    includeAmbientBase?: boolean;
     onAssemblerSkipped?: (info: { pluginId: string; stage: string; reason: string }) => void;
   }): Promise<AiTurnDraft> {
     const budgetMs =
       options.budgetMs ??
       (options.channel === "voice" ? VOICE_WATERFALL_BUDGET_MS : TASK_WATERFALL_BUDGET_MS);
+    const includeAmbientBase = options.includeAmbientBase ?? (options.channel === "task");
 
-    const fg = this.getForegroundStagePluginId();
-    const personaBlocks: Array<{ pluginId: string; priority: number; text: string }> = [];
-    for (const persona of this.sortByPriority(this.personas)) {
-      if (persona.mode === "stage_persona" && persona.pluginId !== fg) continue;
-      personaBlocks.push({
-        pluginId: persona.pluginId,
-        priority: persona.pluginId === fg ? 2000 : 1000,
-        text: persona.instructions,
-      });
+    let baseBlocks: Array<{ pluginId: string; priority: number; text: string }> = [];
+    if (includeAmbientBase) {
+      const fg = this.getForegroundStagePluginId();
+      const personaBlocks: Array<{ pluginId: string; priority: number; text: string }> = [];
+      for (const persona of this.sortByPriority(this.personas)) {
+        if (persona.mode === "stage_persona" && persona.pluginId !== fg) continue;
+        personaBlocks.push({
+          pluginId: persona.pluginId,
+          priority: persona.pluginId === fg ? 2000 : 1000,
+          text: persona.instructions,
+        });
+      }
+
+      const sliceBlocks = [...this.slices]
+        .sort((a, b) => b.priority - a.priority)
+        .map((s) => ({ pluginId: s.pluginId, priority: s.priority, text: s.summary }));
+
+      baseBlocks = [...personaBlocks, ...sliceBlocks];
     }
-
-    const sliceBlocks = [...this.slices]
-      .sort((a, b) => b.priority - a.priority)
-      .map((s) => ({ pluginId: s.pluginId, priority: s.priority, text: s.summary }));
-
-    const baseBlocks = [...personaBlocks, ...sliceBlocks];
 
     const initialDraft: AiTurnDraft = {
       channel: options.channel,
@@ -473,9 +496,19 @@ export class DualLoopAiBus {
           taskTools: contribution.taskTools,
           skillPaths: contribution.skillPaths,
         };
+        const hasVoiceTools = Boolean(contribution.voiceTools && contribution.voiceTools.length > 0);
         this.contributions.add(record);
+        if (hasVoiceTools) {
+          this.bridge.onVoiceToolsUpdated?.();
+        }
+        let removed = false;
         const remove = () => {
+          if (removed) return;
+          removed = true;
           this.contributions.delete(record);
+          if (hasVoiceTools) {
+            this.bridge.onVoiceToolsUpdated?.();
+          }
         };
         const detach = scope.onDispose(remove);
         return () => {

@@ -1,4 +1,5 @@
 import type { TraceContext } from "../../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { PluginVoiceTool, ToolCallBailResult } from "../../plugins/contracts.js";
 import type { VoiceTaskBridge } from "../types.js";
 
 export type VoiceToolSchema = {
@@ -32,5 +33,12 @@ export interface VoiceToolHost {
     options?: VoiceBodyControlOptions,
   ): Promise<unknown>;
   toolTraceContext?(callId: string): TraceContext | undefined;
+  redactSecrets?(text: string): string;
+  sessionId?: string;
+  pluginTools?: readonly PluginVoiceTool[];
+  evaluateToolCall?(call: {
+    toolName: string;
+    arguments: Record<string, unknown>;
+  }): Promise<(Exclude<ToolCallBailResult, undefined> & { readonly pluginId?: string }) | undefined>;
 }
 export type VoiceToolContext = VoiceToolHost;

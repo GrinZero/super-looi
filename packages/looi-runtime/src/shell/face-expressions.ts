@@ -80,7 +80,9 @@ export const FACE_EXPRESSION_IDS = [
   "weather_rain_chill",
 ] as const;
 
-export type FaceExpression = (typeof FACE_EXPRESSION_IDS)[number];
+export type CanonicalFaceExpression = (typeof FACE_EXPRESSION_IDS)[number];
+export type PluginFaceExpressionId = `plugin:${string}:${string}`;
+export type FaceExpression = CanonicalFaceExpression | PluginFaceExpressionId;
 
 export interface FaceExpressionBehavior {
   /** Closed-eye resting state: locks blinkProgress at 1.0 and silences waveform bars. */
@@ -92,14 +94,16 @@ export interface FaceExpressionBehavior {
 }
 
 const FACE_EXPRESSION_SET: ReadonlySet<string> = new Set(FACE_EXPRESSION_IDS);
+const DYNAMIC_FACE_BEHAVIORS = new Map<PluginFaceExpressionId, FaceExpressionBehavior>();
+const DYNAMIC_FACE_BEHAVIOR_REFS = new Map<PluginFaceExpressionId, number>();
 
-const CLOSED_REST_EXPRESSIONS: ReadonlySet<FaceExpression> = new Set([
+const CLOSED_REST_EXPRESSIONS: ReadonlySet<CanonicalFaceExpression> = new Set([
   "sleeping",
   "deep_snore",
   "privacy_shield",
 ]);
 
-const NON_BLINK_EXPRESSIONS: ReadonlySet<FaceExpression> = new Set([
+const NON_BLINK_EXPRESSIONS: ReadonlySet<CanonicalFaceExpression> = new Set([
   "sleeping",
   "wave_bye",
   "happy_squint",
@@ -124,17 +128,63 @@ const NON_BLINK_EXPRESSIONS: ReadonlySet<FaceExpression> = new Set([
   "weather_sunny",
 ]);
 
+export function registerDynamicFaceBehavior(
+  id: PluginFaceExpressionId,
+  options: Partial<FaceExpressionBehavior> = {},
+): () => void {
+  if (!/^plugin:[a-z0-9][a-z0-9._-]{1,62}:[a-z0-9_-]{1,64}$/.test(id)) {
+    throw Object.assign(new Error(`Invalid scoped expression ID: ${id}`), {
+      stage: "face.registerExpression",
+      code: "ERR_INVALID_SCOPED_EXPRESSION_ID",
+    });
+  }
+  const closedRest = Boolean(options.closedRest);
+  DYNAMIC_FACE_BEHAVIORS.set(id, {
+    closedRest,
+    allowsBlink: closedRest ? false : (options.allowsBlink ?? true),
+    allowsAudioResonance: closedRest ? false : (options.allowsAudioResonance ?? true),
+  });
+  DYNAMIC_FACE_BEHAVIOR_REFS.set(id, (DYNAMIC_FACE_BEHAVIOR_REFS.get(id) ?? 0) + 1);
+  let unregistered = false;
+  return () => {
+    if (unregistered) return;
+    unregistered = true;
+    const remaining = (DYNAMIC_FACE_BEHAVIOR_REFS.get(id) ?? 1) - 1;
+    if (remaining <= 0) {
+      DYNAMIC_FACE_BEHAVIOR_REFS.delete(id);
+      DYNAMIC_FACE_BEHAVIORS.delete(id);
+    } else {
+      DYNAMIC_FACE_BEHAVIOR_REFS.set(id, remaining);
+    }
+  };
+}
+
 export function isFaceExpression(value: unknown): value is FaceExpression {
-  return typeof value === "string" && FACE_EXPRESSION_SET.has(value);
+  return (
+    typeof value === "string" &&
+    (FACE_EXPRESSION_SET.has(value) || DYNAMIC_FACE_BEHAVIORS.has(value as PluginFaceExpressionId))
+  );
 }
 
 export function getFaceExpressionBehavior(
   expression: FaceExpression,
 ): FaceExpressionBehavior {
-  const closedRest = CLOSED_REST_EXPRESSIONS.has(expression);
+  const dynamic = DYNAMIC_FACE_BEHAVIORS.get(expression as PluginFaceExpressionId);
+  if (dynamic) {
+    return { ...dynamic };
+  }
+  if (!FACE_EXPRESSION_SET.has(expression)) {
+    return {
+      closedRest: false,
+      allowsBlink: true,
+      allowsAudioResonance: true,
+    };
+  }
+  const canonical = expression as CanonicalFaceExpression;
+  const closedRest = CLOSED_REST_EXPRESSIONS.has(canonical);
   return {
     closedRest,
-    allowsBlink: !NON_BLINK_EXPRESSIONS.has(expression),
-    allowsAudioResonance: !closedRest && expression !== "night_watch",
+    allowsBlink: !NON_BLINK_EXPRESSIONS.has(canonical),
+    allowsAudioResonance: !closedRest && canonical !== "night_watch",
   };
 }

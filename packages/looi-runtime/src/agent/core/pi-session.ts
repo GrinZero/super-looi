@@ -36,7 +36,19 @@ export interface PiSessionConfig extends ModelStreamConfig {
     taskId: string;
     sessionId: string;
     prompt: string;
-  }) => Promise<{ readonly contextText?: string } | undefined> | { readonly contextText?: string } | undefined;
+  }) =>
+    | Promise<
+        | {
+            readonly contextText?: string;
+            readonly images?: Array<{ type: "image"; data: string; mimeType: string }>;
+          }
+        | undefined
+      >
+    | {
+        readonly contextText?: string;
+        readonly images?: Array<{ type: "image"; data: string; mimeType: string }>;
+      }
+    | undefined;
   customTools?: AgentTool<any>[];
   agentDirectory?: string;
   credentialStore?: CredentialStore;
@@ -61,6 +73,11 @@ export async function createPiSession(input: {
   const settingsManager = config.settings
     ? SettingsManager.inMemory(config.settings, { projectTrusted: true })
     : SettingsManager.create(input.workspaceRoot, agentDir, { projectTrusted: true });
+  if (typeof WebAssembly === "undefined" && config.settings?.images?.autoResize === undefined) {
+    // QuickJS mobile runtimes do not expose WebAssembly for Photon image resizing;
+    // native camera frames are already downscaled by DeviceCameraHost.
+    settingsManager.applyOverrides({ images: { autoResize: false } });
+  }
   const { model, streamFn, models } = resolvePiModelAndStream(config);
   const modelRuntime = await ModelRuntime.create({
     credentials: config.credentialStore ?? new InMemoryCredentialStore(),

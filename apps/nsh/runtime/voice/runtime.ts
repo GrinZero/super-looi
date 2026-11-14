@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   VoiceCredentialStore,
   type VoiceConfigurationSnapshot,
@@ -29,6 +30,7 @@ export class VoiceRuntime {
   private state: VoiceState;
   private session?: LiveVoiceSession;
   private latestContextNote = "";
+  private pluginContextNote = "";
   private readonly conversationWindow = new VoiceConversationWindow();
   private conversation?: { id: string; messages: VoiceConversationMessage[] };
   private readonly pendingNotices: VoiceProactiveNotice[] = [];
@@ -41,6 +43,7 @@ export class VoiceRuntime {
   private closed = false;
 
   constructor(private readonly options: VoiceRuntimeOptions) {
+    this.pluginContextNote = (options.initialPluginContext?.() ?? "").trim();
     this.credentials = new VoiceCredentialStore(options.vault);
     this.protocol =
       options.protocol ??
@@ -149,14 +152,17 @@ export class VoiceRuntime {
    * always persists `notice.contextNote` so subsequent sessions retain the receipt.
    */
   enqueueNotice(notice: VoiceProactiveNotice): void {
-    if (this.closed) return;
+    if (this.closed) {
+      this.settleNotice(notice, "runtime_closed");
+      return;
+    }
     if (notice.contextNote) {
       this.latestContextNote = notice.contextNote.trim();
     }
     if (this.session?.sessionPurpose === "conversation") {
       this.session.enqueueNotice(notice);
     } else {
-      this.pendingNotices.push(notice);
+      this.pushPendingNotice(notice);
     }
   }
 
@@ -165,6 +171,74 @@ export class VoiceRuntime {
     if (this.closed) return;
     this.latestContextNote = note.trim();
     this.session?.updateContextNote(this.latestContextNote, syncActiveSession);
+  }
+
+  /** Updates ambient plugin persona and context slices independently from task receipts. */
+  setPluginContext(note: string, syncActiveSession = true): void {
+    if (this.closed) return;
+    this.pluginContextNote = note.trim();
+    if (this.session?.sessionPurpose === "conversation") {
+      this.session.updatePluginContext(this.pluginContextNote, syncActiveSession);
+    }
+  }
+
+  /** Refreshes plugin-contributed voice tools on an active conversation session. */
+  refreshPluginVoiceTools(): void {
+    if (this.closed) return;
+    if (this.session?.sessionPurpose === "conversation") {
+      this.session.updatePluginVoiceTools(this.options.pluginVoiceTools?.() ?? [], true);
+    }
+  }
+
+  /**
+   * Speaks proactive plugin text with playback-completion synchronization.
+   * Resolves `{ completed: true }` only when hardware audio playback drains,
+   * or `{ completed: false, interruptedReason }` if interrupted, closed, or inactive.
+   */
+  async speak(options: {
+    spokenText: string;
+    contextNote?: string;
+    delivery?: "when_idle" | "interrupt";
+  }): Promise<{ readonly completed: boolean; readonly interruptedReason?: string }> {
+    const text = options.spokenText.trim();
+    if (this.closed) {
+      return { completed: false, interruptedReason: "voice_closed" };
+    }
+    if (!text) {
+      return { completed: false, interruptedReason: "empty_speech" };
+    }
+    if (options.contextNote) {
+      this.latestContextNote = options.contextNote.trim();
+    }
+
+    if (!this.session || this.session.sessionPurpose !== "conversation" || this.session.isDisposed) {
+      const canAutoOpen =
+        Boolean(this.credentials.resolveApiKey(this.protocol.providerId)) &&
+        this.options.audio.status().permission === "granted" &&
+        ["idle", "standby"].includes(this.state.phase);
+      if (canAutoOpen) {
+        try {
+          await this.start();
+        } catch {
+          return { completed: false, interruptedReason: "session_start_failed" };
+        }
+      }
+    }
+
+    const active = this.session;
+    if (!active || active.sessionPurpose !== "conversation" || active.isDisposed) {
+      return { completed: false, interruptedReason: "session_inactive" };
+    }
+
+    return new Promise((resolve) => {
+      active.enqueueNotice({
+        id: `plugin_speak_${randomUUID()}`,
+        spokenText: text,
+        contextNote: options.contextNote,
+        delivery: options.delivery ?? "when_idle",
+        onResult: resolve,
+      });
+    });
   }
 
   async enterStandby(options: { preserveError?: string } = {}): Promise<void> {
@@ -284,6 +358,13 @@ export class VoiceRuntime {
       purpose: "conversation",
       initialLanguage,
       initialContextNote: this.latestContextNote,
+      initialPluginContext: this.options.initialPluginContext
+        ? this.options.initialPluginContext()
+        : this.pluginContextNote,
+      pluginVoiceTools: this.options.pluginVoiceTools?.(),
+      evaluateVoiceToolCall: this.options.evaluateVoiceToolCall,
+      evaluateVoiceUserTurn: this.options.evaluateVoiceUserTurn,
+      assembleVoiceTurn: this.options.assembleVoiceTurn,
       sessionId: conversationId,
       history,
       onConversation: (messages) => {
@@ -305,6 +386,8 @@ export class VoiceRuntime {
         this.options.onConversationActivity?.();
       },
       controlBody: this.options.controlBody,
+      stopVoiceMotion: this.options.stopVoiceMotion,
+      redactSecrets: this.options.redactSecrets,
       onStatePatch: (patch) => {
         if (this.session === session) this.publish(patch);
       },
@@ -476,7 +559,13 @@ export class VoiceRuntime {
     this.prePreviewTranscript = undefined;
     this.session = undefined;
     if (active) {
-      this.pendingNotices.push(...active.takePendingNotices());
+      for (const pending of active.takePendingNotices()) {
+        if (pending.onResult) {
+          this.settleNotice(pending, "session_ended");
+        } else {
+          this.pushPendingNotice(pending);
+        }
+      }
       active.dispose("graceful");
     } else {
       this.options.audio.clearPlayback();
@@ -528,7 +617,13 @@ export class VoiceRuntime {
     this.prePreviewTranscript = undefined;
     this.session = undefined;
     if (active) {
-      this.pendingNotices.push(...active.takePendingNotices());
+      for (const pending of active.takePendingNotices()) {
+        if (pending.onResult) {
+          this.settleNotice(pending, "session_stopped");
+        } else {
+          this.pushPendingNotice(pending);
+        }
+      }
       active.dispose("immediate");
     }
     this.options.audio.stop();
@@ -547,6 +642,25 @@ export class VoiceRuntime {
   close(): void {
     this.closed = true;
     this.stop();
+    for (const pending of this.pendingNotices.splice(0)) {
+      this.settleNotice(pending, "runtime_closed");
+    }
+  }
+
+  private settleNotice(notice: VoiceProactiveNotice, reason: string): void {
+    try {
+      notice.onResult?.({ completed: false, interruptedReason: reason });
+    } catch {
+      // Isolate notice settlement listener errors from VoiceRuntime teardown.
+    }
+  }
+
+  private pushPendingNotice(notice: VoiceProactiveNotice): void {
+    while (this.pendingNotices.length >= 16) {
+      const evicted = this.pendingNotices.shift();
+      if (evicted) this.settleNotice(evicted, "queue_overflow");
+    }
+    this.pendingNotices.push(notice);
   }
 
   private pollStandby(generation: number): void {

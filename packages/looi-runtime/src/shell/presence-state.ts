@@ -7,16 +7,22 @@ import {
   FACE_EXPRESSION_IDS,
   getFaceExpressionBehavior,
   isFaceExpression,
+  registerDynamicFaceBehavior,
+  type CanonicalFaceExpression,
   type FaceExpression,
   type FaceExpressionBehavior,
+  type PluginFaceExpressionId,
 } from "./face-expressions.js";
 
 export {
   FACE_EXPRESSION_IDS,
   getFaceExpressionBehavior,
   isFaceExpression,
+  registerDynamicFaceBehavior,
+  type CanonicalFaceExpression,
   type FaceExpression,
   type FaceExpressionBehavior,
+  type PluginFaceExpressionId,
 };
 
 export type CaptureMode = "off" | "foreground_explicit" | "docked_context";

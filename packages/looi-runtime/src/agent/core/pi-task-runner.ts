@@ -349,15 +349,33 @@ export class PiTaskRunner {
           additionalTools: [...(config.additionalTools ?? []), ...(contribution?.tools ?? [])],
         });
 
+      let initialAssembledConsumed = false;
+      let initialAssembledReady = false;
+      let initialAssembled: Awaited<ReturnType<NonNullable<PiSessionConfig["assembleTurnContext"]>>> | undefined;
+
       const extension: ExtensionFactory = (pi) => {
         pi.on("before_agent_start", async (event, ctx) => {
           this.resolveSession(this.session);
           const turnPrompt = event.messageType === "user" ? event.prompt : prompt;
-          const assembled = await config.assembleTurnContext?.({
-            taskId: task.id,
-            sessionId: task.sessionId,
-            prompt: turnPrompt,
-          });
+          let assembled: Awaited<ReturnType<NonNullable<PiSessionConfig["assembleTurnContext"]>>> | undefined;
+          if (!initialAssembledConsumed) {
+            initialAssembledConsumed = true;
+            assembled = initialAssembledReady
+              ? initialAssembled
+              : event.messageType === "user"
+                ? await config.assembleTurnContext?.({
+                    taskId: task.id,
+                    sessionId: task.sessionId,
+                    prompt: turnPrompt,
+                  })
+                : undefined;
+          } else if (event.messageType === "user") {
+            assembled = await config.assembleTurnContext?.({
+              taskId: task.id,
+              sessionId: task.sessionId,
+              prompt: turnPrompt,
+            });
+          }
           const extraContext = assembled?.contextText?.trim() ? `\n${assembled.contextText.trim()}` : "";
           const { systemPrompt } = buildAgentTurnPrompts({
             baseSystemPrompt:
@@ -526,7 +544,19 @@ export class PiTaskRunner {
       task.state = "running";
       host.updateTask(task);
 
-      await session.prompt(prompt, { preflightResult: disposition => { promptHandled = disposition === "handled"; } });
+      if (config.assembleTurnContext) {
+        initialAssembled = await config.assembleTurnContext({
+          taskId: task.id,
+          sessionId: task.sessionId,
+          prompt,
+        });
+        initialAssembledReady = true;
+      }
+
+      await session.prompt(prompt, {
+        ...(initialAssembled?.images?.length ? { images: initialAssembled.images } : {}),
+        preflightResult: disposition => { promptHandled = disposition === "handled"; },
+      });
       await session.waitForIdle();
 
       if (this.stopped) throw new Error(task.error ?? "Task cancelled");

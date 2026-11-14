@@ -46,8 +46,15 @@ import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemet
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import { VoiceConversationWindow } from "./voice/conversation-window.js";
 import { PluginHost } from "./plugins/host.js";
+import type { DualLoopAiBusBridge } from "./plugins/ai-bus.js";
+import {
+  FaceDriverHub,
+  createBodyCapability,
+  uint8ArrayToBase64,
+} from "./plugins/embodied-drivers.js";
 import { createBuiltinPluginDefinitions } from "../plugins/registry.js";
 import type { PluginEvent } from "./plugins/contracts.js";
+import type { RobotFaceController } from "../../../packages/looi-runtime/src/ui/robot-face-controller.js";
 
 type MutableModels = ReturnType<typeof createLooiModelsRegistry>;
 type Credential = ModelVaultEnvelope["credentials"][string];
@@ -149,6 +156,7 @@ export class MobileRuntime {
   });
   private readonly home: HomeRuntime;
   private readonly body: BodyRuntime;
+  private readonly faceHub = new FaceDriverHub();
   private readonly plugins: PluginHost;
   private readonly credentialStore: VaultCredentialStore;
   private readonly modelsRegistry: MutableModels;
@@ -159,6 +167,7 @@ export class MobileRuntime {
   private conversationId = `session_${randomUUID()}`;
   private conversationPersisted = false;
   private taskId?: string;
+  private readonly activePluginTaskIds = new Set<string>();
   private closed = false;
   private busy = false;
   private loginPending = false;
@@ -198,6 +207,14 @@ export class MobileRuntime {
             },
           },
         }),
+        {
+          createFaceCapability: (manifest, scope) => this.faceHub.createCapability(manifest, scope),
+          createBodyCapability: (manifest, scope) => createBodyCapability(manifest, scope, this.body),
+          aiBridge: {
+            runBackgroundTask: ({ pluginId, prompt: bgPrompt }) =>
+              this.runPluginBackgroundTask(pluginId, bgPrompt),
+          },
+        },
       );
       this.credentialStore = new VaultCredentialStore(vault, {
         conversationId: () => this.conversationId,
@@ -242,6 +259,104 @@ export class MobileRuntime {
   pluginsSnapshot() { return this.plugins.snapshots(); }
   activeStagePresentation() { return this.plugins.stage.activePresentation(); }
   exitPluginStage(id: string) { this.plugins.stage.exitPluginStage(id); }
+  attachFaceController(controller: RobotFaceController | undefined) { this.faceHub.attachController(controller); }
+  setPluginAiBridge(bridge: DualLoopAiBusBridge) { this.plugins.ai.setBridge(bridge); }
+  pluginAmbientVoiceContext() { return this.plugins.ai.renderAmbientInstructions(); }
+  pluginVoiceTools() { return this.plugins.ai.voiceTools(); }
+  evaluateVoiceToolCall(call: { toolName: string; arguments: Record<string, unknown> }) {
+    return this.plugins.ai.evaluateToolCall({
+      channel: "voice",
+      toolName: call.toolName,
+      approvalMode: "ask",
+      arguments: call.arguments,
+    });
+  }
+  evaluateVoiceUserTurn(text: string) {
+    return this.plugins.ai.evaluateUserTurn({ channel: "voice", text });
+  }
+  assembleVoiceTurn(text: string) {
+    return this.plugins.ai.assembleTurn({ channel: "voice", userText: text });
+  }
+  private async runPluginBackgroundTask(
+    pluginId: string,
+    prompt: string,
+  ): Promise<{ readonly taskId: string; readonly answer: string }> {
+    const text = prompt.trim();
+    if (!text) {
+      throw Object.assign(new Error("@looi:runtimeEnterAMessage"), {
+        stage: `plugin:${pluginId}:ai.runBackgroundTask`,
+        code: "ERR_PLUGIN_EMPTY_PROMPT",
+      });
+    }
+    if (this.closed || this.loginPending || Boolean(this.llmOAuthAbort)) {
+      throw Object.assign(new Error("@looi:runtimeATaskOrSigninIsActiveStopIt"), {
+        stage: `plugin:${pluginId}:ai.runBackgroundTask`,
+        code: "ERR_PLUGIN_RUNTIME_BUSY",
+      });
+    }
+    if (this.activePluginTaskIds.size >= 1) {
+      throw Object.assign(new Error("Another plugin background task is already running"), {
+        stage: `plugin:${pluginId}:ai.runBackgroundTask`,
+        code: "ERR_PLUGIN_BACKGROUND_TASK_BUSY",
+      });
+    }
+    const turnGuard = await this.plugins.ai.evaluateUserTurn({
+      channel: "task",
+      text,
+    });
+    if (turnGuard?.decision === "block") {
+      const message =
+        turnGuard.spokenReply && turnGuard.spokenReply !== turnGuard.reason
+          ? `${turnGuard.spokenReply} (${turnGuard.reason})`
+          : turnGuard.reason;
+      throw Object.assign(new Error(message), {
+        stage: turnGuard.stage ?? `${turnGuard.pluginId}:ai.interceptUserTurn`,
+        code: turnGuard.code ?? "ERR_PLUGIN_USER_TURN_BLOCKED",
+        ...(turnGuard.spokenReply ? { spokenReply: turnGuard.spokenReply } : {}),
+        ...(turnGuard.cause !== undefined ? { cause: turnGuard.cause } : {}),
+      });
+    }
+    if (turnGuard?.decision === "handled") {
+      return {
+        taskId: "",
+        answer: turnGuard.answer ?? turnGuard.spokenReply ?? "",
+      };
+    }
+    if (!this.executor) {
+      throw Object.assign(new Error("@looi:runtimeConfigureAChatModelInConnectionsFirst"), {
+        stage: `plugin:${pluginId}:ai.runBackgroundTask`,
+        code: "ERR_PLUGIN_MODEL_UNCONFIGURED",
+      });
+    }
+    const bgTaskId = `task_plugin_${randomUUID()}`;
+    this.activePluginTaskIds.add(bgTaskId);
+    try {
+      const result = await this.executor.run(text, {
+        taskId: bgTaskId,
+        sessionId: `plugin_${pluginId}_${randomUUID()}`,
+        mode: "text",
+        approvalMode: "ask",
+        onStep: (event) => {
+          if (event.interaction) {
+            try {
+              this.executor?.respond(
+                bgTaskId,
+                event.interaction.id,
+                event.interaction.kind === "approval"
+                  ? { outcome: "rejected" }
+                  : { cancelled: true },
+              );
+            } catch {
+              // Interaction already settled or task cancelled.
+            }
+          }
+        },
+      });
+      return { taskId: result.taskId, answer: result.answer };
+    } finally {
+      this.activePluginTaskIds.delete(bgTaskId);
+    }
+  }
   subscribePlugins(listener: (event: PluginEvent) => void) { return this.plugins.subscribe(listener); }
   async refreshPlugin(id: string) { await this.plugins.get(id).auth?.refresh(); return this.pluginsSnapshot(); }
   private assertPluginAction(action: UserActionRef) {
@@ -541,6 +656,49 @@ export class MobileRuntime {
 
   async stopBody(): Promise<BodyStatusSnapshot> {
     return this.body.stop("user_stop");
+  }
+
+  async stopVoiceMotion(): Promise<BodyStatusSnapshot> {
+    return this.body.stopNonPluginMotion();
+  }
+
+  redactSecrets(text: string): string {
+    if (!text) return text;
+    let scrubbed = text;
+    try {
+      const envelope = this.credentialStore.readEnvelope();
+      for (const cred of Object.values(envelope.credentials)) {
+        if (!cred) continue;
+        if (cred.type === "api_key" && cred.key && cred.key.length >= 4) {
+          scrubbed = scrubbed.replaceAll(cred.key, "[redacted]");
+        } else if (cred.type === "oauth") {
+          const oauth = cred as unknown as { access?: string; refresh?: string };
+          if (oauth.access && oauth.access.length >= 4) {
+            scrubbed = scrubbed.replaceAll(oauth.access, "[redacted]");
+          }
+          if (oauth.refresh && oauth.refresh.length >= 4) {
+            scrubbed = scrubbed.replaceAll(oauth.refresh, "[redacted]");
+          }
+        }
+      }
+      for (const slot of ["home", "voice"]) {
+        const rawSlot = this.vault.get(slot);
+        if (!rawSlot) continue;
+        try {
+          const parsed = JSON.parse(rawSlot) as Record<string, unknown>;
+          for (const val of Object.values(parsed)) {
+            if (typeof val === "string" && val.length >= 8 && !val.startsWith("http")) {
+              scrubbed = scrubbed.replaceAll(val, "[redacted]");
+            }
+          }
+        } catch {
+          // Non-JSON slot or empty.
+        }
+      }
+    } catch {
+      // Never throw during error redaction.
+    }
+    return scrubbed;
   }
 
   async startBodyDrive(action: "forward" | "backward" | "turn_left" | "turn_right"): Promise<BodyStatusSnapshot> {
@@ -853,7 +1011,7 @@ export class MobileRuntime {
       taskPersistence: this.storage.tasks,
       approvalUiSessionId: this.uiSessionId,
       requireApprovalForAllWrites: true,
-      maxConcurrentTasks: 1,
+      maxConcurrentTasks: 2,
       deadlineMs: 600_000,
       systemPrompt: deviceControlInstructions + "\n家居查询使用 list_home_devices；仅在用户要求控制时，再用返回的 entity_id 和 connectionId 调用 control_home_device。不要先检查底座状态。工具未提供时，说明当前未启用对应能力。",
       additionalTools: [
@@ -877,7 +1035,16 @@ export class MobileRuntime {
           .map(block => block.text.trim())
           .filter(Boolean)
           .join("\n");
-        return contextText ? { contextText } : undefined;
+        const images = draft.ephemeralImages.map(img => ({
+          type: "image" as const,
+          data: uint8ArrayToBase64(img.bytes),
+          mimeType: img.mimeType,
+        }));
+        if (!contextText && images.length === 0) return undefined;
+        return {
+          ...(contextText ? { contextText } : {}),
+          ...(images.length > 0 ? { images } : {}),
+        };
       },
       approvalRequiredTools: homeEnabled ? ["control_home_device"] : [],
     });
@@ -931,7 +1098,7 @@ export class MobileRuntime {
       : this.conversationId;
     try {
       const turnGuard = await this.plugins.ai.evaluateUserTurn({
-        channel: options.mode === "voice" ? "voice" : "task",
+        channel: "task",
         text,
       });
       if (turnGuard?.decision === "block") {
@@ -1017,8 +1184,12 @@ export class MobileRuntime {
     if (this.closing) return this.closing;
     this.closed = true;
     this.cancelProviderOAuth();
+    this.faceHub.attachController(undefined);
     this.home.close();
     this.body.close();
+    for (const bgTaskId of this.activePluginTaskIds) {
+      void this.executor?.cancel(bgTaskId).catch(() => {});
+    }
     this.closing = (async () => {
       try {
         await this.executor?.close();

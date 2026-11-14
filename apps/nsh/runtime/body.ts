@@ -11,6 +11,28 @@ import {
   type NativeBleAdapter,
 } from "../../../packages/looi-driver/src/index.js";
 import type { Vault } from "./application.js";
+import type { BodyServoLease, EffectScope } from "./plugins/contracts.js";
+import { PluginKernelError } from "./plugins/errors.js";
+
+export type BodyServoPreemptReason =
+  | "user_stop"
+  | "user_panel"
+  | "voice_command"
+  | "undocked"
+  | "higher_plugin";
+
+interface ActivePluginServoState {
+  readonly id: number;
+  readonly pluginId: string;
+  readonly priority: "foreground_stage" | "background_companion";
+  motorLease: BodyActionLease | null;
+  renewTimer: ReturnType<typeof setInterval> | null;
+  motion: BodyMotionVector;
+  driveQueue: Promise<void>;
+  preemptedReason: BodyServoPreemptReason | null;
+  released: boolean;
+  readonly preemptListeners: Set<(reason: BodyServoPreemptReason) => void>;
+}
 
 export type BodyConnectionMode = "disabled" | "real_ble" | "simulation";
 
@@ -606,6 +628,10 @@ export class BodyRuntime {
   private activeStop: Promise<void> | null = null;
   private inFlightPowerRead: Promise<LooiPowerStatus> | null = null;
   private readonly selfEventListeners = new Set<(window: SelfEventWindow) => void>();
+  private readonly statusListeners = new Set<(status: BodyStatusSnapshot) => void>();
+  private activePluginServo: ActivePluginServoState | null = null;
+  private nextServoId = 1;
+  private servoClaimEpoch = 0;
 
   constructor(options: BodyRuntimeOptions) {
     this.vault = options.vault;
@@ -965,6 +991,7 @@ export class BodyRuntime {
     const events = {
       onStateChange: (state: BodySupervisorState) => {
         if (state === "disconnected" || state === "fault") {
+          void this.preemptActiveServo("undocked", false);
           this.clearHeldDriveState();
           this.cancelDockGreeting();
           this.greetedInCurrentDockSession = false;
@@ -975,25 +1002,45 @@ export class BodyRuntime {
         } else if (state === "ready") {
           this.maybeTriggerDockGreeting();
         }
+        this.notifyStatusListeners();
       },
       onDockChange: (docked: boolean) => {
         if (docked) {
           this.maybeTriggerDockGreeting();
         } else {
+          void this.preemptActiveServo("undocked", false);
           this.cancelDockGreeting();
           this.greetedInCurrentDockSession = false;
         }
+        this.notifyStatusListeners();
       },
       onStop: (req: BodyStopRequest) => {
         if (req.reason === "user_stop" || req.reason === "lease_expired") {
           if (this.heldDrive !== null && this.heldDrive.lease_epoch <= req.revoke_through_lease_epoch) {
             this.clearHeldDriveState();
           }
+          if (
+            req.reason === "lease_expired" &&
+            this.activePluginServo?.motorLease &&
+            this.activePluginServo.motorLease.lease_epoch <= req.revoke_through_lease_epoch
+          ) {
+            if (this.activePluginServo.renewTimer !== null) {
+              clearInterval(this.activePluginServo.renewTimer);
+              this.activePluginServo.renewTimer = null;
+            }
+            this.activePluginServo.motorLease = null;
+            this.activePluginServo.motion = { speed: 0, turn: 0 };
+          }
+          this.notifyStatusListeners();
           return;
+        }
+        if (req.reason === "undocked" || req.reason === "fault") {
+          void this.preemptActiveServo("undocked", false);
         }
         ++this.driveGeneration;
         this.driveFlushPromise = null;
         this.clearHeldDriveState();
+        this.notifyStatusListeners();
       },
       onSelfEvent: (win: SelfEventWindow) => {
         for (const listener of this.selfEventListeners) listener(win);
@@ -1039,6 +1086,65 @@ export class BodyRuntime {
     };
   }
 
+  public subscribeStatus(listener: (status: BodyStatusSnapshot) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
+    };
+  }
+
+  private notifyStatusListeners(): void {
+    if (this.closed || this.statusListeners.size === 0) return;
+    const snap = this.status();
+    for (const listener of this.statusListeners) {
+      try {
+        listener(snap);
+      } catch {
+        // Isolate subscriber exceptions so hardware state propagation never halts.
+      }
+    }
+  }
+
+  private async preemptActiveServo(
+    reason: BodyServoPreemptReason,
+    stopSupervisorLease: boolean,
+    preserveClaimEpoch = false,
+  ): Promise<void> {
+    if (!preserveClaimEpoch) {
+      ++this.servoClaimEpoch;
+    }
+    const current = this.activePluginServo;
+    if (!current) return;
+    this.activePluginServo = null;
+    if (current.renewTimer !== null) {
+      clearInterval(current.renewTimer);
+      current.renewTimer = null;
+    }
+    const heldMotorLease = current.motorLease;
+    current.motorLease = null;
+    current.motion = { speed: 0, turn: 0 };
+    current.preemptedReason = reason;
+    current.released = true;
+
+    if (stopSupervisorLease && heldMotorLease) {
+      const active = this.supervisor.getActiveLease();
+      if (active && active.lease_id === heldMotorLease.lease_id) {
+        await this.supervisor.stop("lease_expired").catch(() => {});
+      }
+    }
+
+    const listeners = [...current.preemptListeners];
+    current.preemptListeners.clear();
+    for (const listener of listeners) {
+      try {
+        listener(reason);
+      } catch {
+        // Isolate plugin preemption callback errors.
+      }
+    }
+    this.notifyStatusListeners();
+  }
+
   public configuration(): BodyConfiguration {
     return { ...this.config };
   }
@@ -1068,7 +1174,12 @@ export class BodyRuntime {
       lightBrightness: connected ? snap.lightBrightness : 0,
       powerStatus: connected ? snap.powerStatus : null,
       powerReading: connected && this.inFlightPowerRead !== null,
-      motion: connected && this.heldDrive ? { ...this.activeMotion } : { speed: 0, turn: 0 },
+      motion:
+        connected && this.heldDrive
+          ? { ...this.activeMotion }
+          : connected && this.activePluginServo?.motorLease
+            ? { ...this.activePluginServo.motion }
+            : { speed: 0, turn: 0 },
       headPose: snap.headPose,
       headDegrees: snap.headDegrees,
       deviceId: connected ? this.connectedDeviceId : (this.config.savedDeviceId || null),
@@ -1289,6 +1400,7 @@ export class BodyRuntime {
     if (holdAutoConnect) {
       this.manualDisconnectHold = true;
     }
+    void this.preemptActiveServo("undocked", false);
     this.cancelDockGreeting();
     this.greetedInCurrentDockSession = false;
     ++this.driveGeneration;
@@ -1374,6 +1486,8 @@ export class BodyRuntime {
   }
 
   public async stop(reason: BodyStopRequest["reason"] = "user_stop"): Promise<BodyStatusSnapshot> {
+    ++this.servoClaimEpoch;
+    void this.preemptActiveServo(reason === "undocked" ? "undocked" : "user_stop", false, true);
     const stopGeneration = ++this.driveGeneration;
     this.driveFlushPromise = null;
     this.clearHeldDriveState();
@@ -1398,11 +1512,30 @@ export class BodyRuntime {
   }
 
   /**
+   * Stops transient voice/pulse motion on automatic VAD interruption or idle voice teardown
+   * without preempting an unrelated active plugin `BodyServoLease`.
+   */
+  public async stopNonPluginMotion(): Promise<BodyStatusSnapshot> {
+    if (this.activePluginServo !== null || this.heldDrive !== null) {
+      return this.status();
+    }
+    const activeLease = this.supervisor.getActiveLease();
+    if (!activeLease || activeLease.holder.startsWith("plugin:")) {
+      return this.status();
+    }
+    return this.stop("lease_expired");
+  }
+
+  /**
    * Stepless 2D continuous drive session: acquires/renews a single motor lease,
    * coalesces high-frequency joystick updates to the latest signed `(speed, turn)`,
    * and maintains lease renewal while the thumb holds a non-zero vector.
    */
   public async setDriveVector(speed: number, turn: number): Promise<BodyStatusSnapshot> {
+    ++this.servoClaimEpoch;
+    if (this.activePluginServo !== null) {
+      await this.preemptActiveServo("user_panel", true, true);
+    }
     const nextSpeed = clampSignedAxis(speed);
     const nextTurn = clampSignedAxis(turn);
 
@@ -1579,6 +1712,37 @@ export class BodyRuntime {
     }
 
     if (action === "stop") {
+      if (this.activePluginServo !== null) {
+        if (
+          holder === "voice_realtime" ||
+          holder === "voice_tool" ||
+          holder === "pi_agent"
+        ) {
+          await this.preemptActiveServo("voice_command", false);
+        } else if (holder === "user_panel") {
+          await this.preemptActiveServo("user_panel", false);
+        } else if (holder.startsWith("plugin:")) {
+          const callerPluginId = holder.slice("plugin:".length);
+          if (callerPluginId !== this.activePluginServo.pluginId) {
+            return this.buildReceipt(
+              action,
+              "rejected",
+              recordedAt,
+              {
+                reason:
+                  this.activePluginServo.priority === "foreground_stage"
+                    ? "ERR_BODY_SERVO_BUSY_FOREGROUND"
+                    : "ERR_BODY_SERVO_BUSY_COMPANION",
+              },
+            );
+          }
+          await this.preemptActiveServo("user_stop", true);
+          return this.buildReceipt(action, "verified", recordedAt, {
+            durationMs: 0,
+            stopCommandAt: new Date().toISOString(),
+          });
+        }
+      }
       await this.stop("user_stop");
       return this.buildReceipt(action, "verified", recordedAt, {
         durationMs: 0,
@@ -1596,6 +1760,48 @@ export class BodyRuntime {
         isDocked: false,
         reason: "@looi:body_not_connected",
       });
+    }
+
+    if (action !== "read_power" && this.activePluginServo !== null) {
+      if (holder === "user_panel") {
+        await this.preemptActiveServo("user_panel", true);
+      } else if (
+        holder === "voice_realtime" ||
+        holder === "voice_tool" ||
+        holder === "pi_agent"
+      ) {
+        await this.preemptActiveServo("voice_command", true);
+      } else if (holder.startsWith("plugin:")) {
+        const callerPluginId = holder.slice("plugin:".length);
+        if (callerPluginId === this.activePluginServo.pluginId) {
+          if (
+            this.activePluginServo.motorLease &&
+            (action === "forward" ||
+              action === "backward" ||
+              action === "turn_left" ||
+              action === "turn_right" ||
+              action === "move")
+          ) {
+            if (this.activePluginServo.renewTimer !== null) {
+              clearInterval(this.activePluginServo.renewTimer);
+              this.activePluginServo.renewTimer = null;
+            }
+            const held = this.activePluginServo.motorLease;
+            this.activePluginServo.motorLease = null;
+            this.activePluginServo.motion = { speed: 0, turn: 0 };
+            if (this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
+              await this.supervisor.stop("lease_expired").catch(() => {});
+            }
+          }
+        } else {
+          return this.buildReceipt(action, "rejected", recordedAt, {
+            reason:
+              this.activePluginServo.priority === "foreground_stage"
+                ? "ERR_BODY_SERVO_BUSY_FOREGROUND"
+                : "ERR_BODY_SERVO_BUSY_COMPANION",
+          });
+        }
+      }
     }
 
     try {
@@ -1694,11 +1900,340 @@ export class BodyRuntime {
       const message = normalizeBodyErrorMessage(rawMessage);
       if (rawMessage !== "Pulse preempted by stop: user_stop") this.lastError = message;
       return this.buildReceipt(action, "failed", recordedAt, { reason: message });
+    } finally {
+      this.notifyStatusListeners();
     }
+  }
+
+  /**
+   * Acquires a continuous preemptible servo lease for visual tracking or game choreography.
+   * Priority hierarchy: `user_stop > undocked > user_panel > voice_command > foreground_stage > background_companion`.
+   */
+  public async acquireServo(options: {
+    pluginId: string;
+    priority: "foreground_stage" | "background_companion";
+    scope?: EffectScope;
+  }): Promise<BodyServoLease> {
+    const assertEligibility = () => {
+      if (this.closed || this.config.mode === "disabled") {
+        throw new PluginKernelError({
+          stage: "body.servo.acquire",
+          code: "ERR_BODY_DISABLED",
+          pluginId: options.pluginId,
+          reason: "@looi:body_disabled",
+        });
+      }
+      const currentStatus = this.status();
+      if (!currentStatus.connected) {
+        throw new PluginKernelError({
+          stage: "body.servo.acquire",
+          code: "ERR_BODY_NOT_CONNECTED",
+          pluginId: options.pluginId,
+          reason: "@looi:body_not_connected",
+        });
+      }
+      if (!currentStatus.isDocked) {
+        throw new PluginKernelError({
+          stage: "body.servo.acquire",
+          code: "ERR_BODY_NOT_DOCKED",
+          pluginId: options.pluginId,
+          reason: "@looi:body_not_docked",
+        });
+      }
+      if (
+        this.heldDrive !== null &&
+        (this.activeMotion.speed !== 0 ||
+          this.activeMotion.turn !== 0 ||
+          this.pendingDriveWrite)
+      ) {
+        throw new PluginKernelError({
+          stage: "body.servo.acquire",
+          code: "ERR_BODY_USER_DRIVING",
+          pluginId: options.pluginId,
+          reason: "@looi:body_write_busy",
+        });
+      }
+      if (this.activePluginServo !== null && this.activePluginServo.pluginId !== options.pluginId) {
+        if (this.activePluginServo.priority === "foreground_stage") {
+          throw new PluginKernelError({
+            stage: "body.servo.acquire",
+            code: "ERR_BODY_SERVO_BUSY_FOREGROUND",
+            pluginId: options.pluginId,
+            reason: `Foreground stage plugin "${this.activePluginServo.pluginId}" holds body servo lease`,
+          });
+        }
+        if (options.priority === "background_companion") {
+          throw new PluginKernelError({
+            stage: "body.servo.acquire",
+            code: "ERR_BODY_SERVO_BUSY_COMPANION",
+            pluginId: options.pluginId,
+            reason: `Companion plugin "${this.activePluginServo.pluginId}" already holds body servo lease`,
+          });
+        }
+      }
+    };
+
+    if (this.activeStop) {
+      await this.activeStop;
+    }
+    assertEligibility();
+
+    const claimEpoch = ++this.servoClaimEpoch;
+
+    if (this.heldDrive !== null) {
+      const held = this.heldDrive;
+      this.clearHeldDriveState();
+      if (this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
+        await this.supervisor.stop("lease_expired").catch(() => {});
+      }
+    }
+
+    if (this.activePluginServo !== null) {
+      assertEligibility();
+      if (this.activePluginServo.pluginId === options.pluginId) {
+        const previous = this.activePluginServo;
+        this.activePluginServo = null;
+        previous.released = true;
+        if (previous.renewTimer !== null) {
+          clearInterval(previous.renewTimer);
+          previous.renewTimer = null;
+        }
+        const held = previous.motorLease;
+        previous.motorLease = null;
+        previous.motion = { speed: 0, turn: 0 };
+        previous.preemptListeners.clear();
+        if (held && this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
+          await this.supervisor.stop("lease_expired").catch(() => {});
+        }
+      } else {
+        await this.preemptActiveServo("higher_plugin", true, true);
+      }
+    }
+
+    assertEligibility();
+    if (claimEpoch !== this.servoClaimEpoch) {
+      throw new PluginKernelError({
+        stage: "body.servo.acquire",
+        code: "ERR_BODY_SERVO_PREEMPTED",
+        pluginId: options.pluginId,
+        reason: "Body servo acquisition was preempted by a concurrent command",
+      });
+    }
+
+    const servoState: ActivePluginServoState = {
+      id: this.nextServoId++,
+      pluginId: options.pluginId,
+      priority: options.priority,
+      motorLease: null,
+      renewTimer: null,
+      motion: { speed: 0, turn: 0 },
+      driveQueue: Promise.resolve(),
+      preemptedReason: null,
+      released: false,
+      preemptListeners: new Set(),
+    };
+    this.activePluginServo = servoState;
+
+    const ensureActive = (stage: string) => {
+      if (servoState.preemptedReason !== null) {
+        throw new PluginKernelError({
+          stage,
+          code: "ERR_BODY_SERVO_PREEMPTED",
+          pluginId: options.pluginId,
+          reason: `Body servo lease preempted by ${servoState.preemptedReason}`,
+        });
+      }
+      if (servoState.released || this.activePluginServo !== servoState) {
+        throw new PluginKernelError({
+          stage,
+          code: "ERR_BODY_SERVO_RELEASED",
+          pluginId: options.pluginId,
+          reason: "Body servo lease has already been released",
+        });
+      }
+      const snap = this.supervisor.getSnapshot();
+      if (snap.state === "disconnected" || snap.state === "fault" || !snap.isDocked) {
+        void this.preemptActiveServo("undocked", false);
+        throw new PluginKernelError({
+          stage,
+          code: "ERR_BODY_SERVO_PREEMPTED",
+          pluginId: options.pluginId,
+          reason: "Body servo lease preempted by undocked",
+        });
+      }
+    };
+
+    const ensureServoRenewTimer = () => {
+      if (servoState.renewTimer !== null) return;
+      const timer = setInterval(() => {
+        if (
+          servoState.released ||
+          this.activePluginServo !== servoState ||
+          !servoState.motorLease
+        ) {
+          if (servoState.renewTimer !== null) {
+            clearInterval(servoState.renewTimer);
+            servoState.renewTimer = null;
+          }
+          return;
+        }
+        try {
+          this.supervisor.renewLease(servoState.motorLease, 1500);
+        } catch {
+          if (servoState.renewTimer !== null) {
+            clearInterval(servoState.renewTimer);
+            servoState.renewTimer = null;
+          }
+          servoState.motorLease = null;
+          servoState.motion = { speed: 0, turn: 0 };
+          this.notifyStatusListeners();
+        }
+      }, 450);
+      (timer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
+      servoState.renewTimer = timer;
+    };
+
+    const enqueueDrive = <T>(fn: () => Promise<T>): Promise<T> => {
+      const next = servoState.driveQueue.then(fn, fn);
+      servoState.driveQueue = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    };
+
+    const lease: BodyServoLease = {
+      setDriveVector: (speed, turn) =>
+        enqueueDrive(async () => {
+          ensureActive("body.servo.setDriveVector");
+          const nextSpeed = clampSignedAxis(speed);
+          const nextTurn = clampSignedAxis(turn);
+
+          if (nextSpeed === 0 && nextTurn === 0) {
+            if (servoState.renewTimer !== null) {
+              clearInterval(servoState.renewTimer);
+              servoState.renewTimer = null;
+            }
+            const held = servoState.motorLease;
+            servoState.motorLease = null;
+            servoState.motion = { speed: 0, turn: 0 };
+            if (held && this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
+              await this.supervisor.stop("lease_expired");
+            }
+            this.notifyStatusListeners();
+            return;
+          }
+
+          const activeLease = this.supervisor.getActiveLease();
+          const hasValidLease =
+            servoState.motorLease !== null &&
+            activeLease !== null &&
+            activeLease.lease_id === servoState.motorLease.lease_id &&
+            activeLease.lease_epoch === servoState.motorLease.lease_epoch;
+
+          if (!hasValidLease) {
+            if (servoState.renewTimer !== null) {
+              clearInterval(servoState.renewTimer);
+              servoState.renewTimer = null;
+            }
+            servoState.motorLease = null;
+            const acquired = await this.supervisor.acquireLease({
+              holder: `plugin:${options.pluginId}`,
+              primitive: dominantPrimitive(nextSpeed, nextTurn),
+              durationMs: 1500,
+            });
+            if (servoState.released || this.activePluginServo !== servoState) {
+              if (this.supervisor.getActiveLease()?.lease_id === acquired.lease_id) {
+                await this.supervisor.stop("lease_expired").catch(() => {});
+              }
+              ensureActive("body.servo.setDriveVector");
+            }
+            servoState.motorLease = acquired;
+          } else {
+            this.supervisor.renewLease(servoState.motorLease!, 1500);
+          }
+
+          await this.supervisor.setMotion(servoState.motorLease!, nextSpeed, nextTurn);
+          ensureActive("body.servo.setDriveVector");
+          servoState.motion = { speed: nextSpeed, turn: nextTurn };
+          ensureServoRenewTimer();
+          this.notifyStatusListeners();
+        }),
+
+      setHeadDegrees: async (degrees) => {
+        ensureActive("body.servo.setHeadDegrees");
+        if (typeof degrees !== "number" || !Number.isFinite(degrees)) {
+          throw new PluginKernelError({
+            stage: "body.servo.setHeadDegrees",
+            code: "ERR_BODY_HEAD_INVALID",
+            pluginId: options.pluginId,
+            reason: "@looi:body_head_invalid",
+          });
+        }
+        this.cancelDockGreeting();
+        await this.supervisor.setHeadDegrees(degrees);
+        this.notifyStatusListeners();
+      },
+
+      setLight: async (on, brightness) => {
+        ensureActive("body.servo.setLight");
+        if (!on) {
+          await this.supervisor.setLight(false);
+        } else if (typeof brightness === "number" && Number.isFinite(brightness)) {
+          await this.supervisor.setLightBrightness(Math.max(1, Math.min(255, Math.round(brightness))));
+        } else {
+          await this.supervisor.setLight(true);
+        }
+        this.notifyStatusListeners();
+      },
+
+      onPreempted: (listener) => {
+        if (servoState.preemptedReason !== null) {
+          try {
+            listener(servoState.preemptedReason);
+          } catch {
+            // Isolate listener errors.
+          }
+          return () => {};
+        }
+        servoState.preemptListeners.add(listener);
+        return () => {
+          servoState.preemptListeners.delete(listener);
+        };
+      },
+
+      release: async () => {
+        if (servoState.released) return;
+        servoState.released = true;
+        if (this.activePluginServo === servoState) {
+          this.activePluginServo = null;
+        }
+        if (servoState.renewTimer !== null) {
+          clearInterval(servoState.renewTimer);
+          servoState.renewTimer = null;
+        }
+        servoState.preemptListeners.clear();
+        await servoState.driveQueue;
+        const held = servoState.motorLease;
+        servoState.motorLease = null;
+        servoState.motion = { speed: 0, turn: 0 };
+        if (held && this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
+          await this.supervisor.stop("lease_expired").catch(() => {});
+        }
+        this.notifyStatusListeners();
+      },
+    };
+
+    if (options.scope) {
+      options.scope.onDispose(() => lease.release());
+    }
+
+    return lease;
   }
 
   public close(): void {
     this.closed = true;
+    void this.preemptActiveServo("undocked", false);
     this.clearAutoReconnectTimer();
     this.cancelDockGreeting();
     ++this.driveGeneration;
@@ -1707,5 +2242,6 @@ export class BodyRuntime {
     this.bleTransport?.dispose();
     this.nativeAdapter?.dispose();
     this.selfEventListeners.clear();
+    this.statusListeners.clear();
   }
 }

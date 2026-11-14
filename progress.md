@@ -13,11 +13,11 @@
   - [x] Step 1.4：将 `codex` 迁移至双面结构 `apps/nsh/plugins/codex/`（分离插件版本与 CLI 版本，将 `application.ts` 硬编码审批规则收归插件 `ctx.ai.interceptToolCall`）
   - [x] Step 1.5：建立 `ui/plugins/ui-contracts.ts` 与 `registry.ts`，重构 `PluginsSpaceView.tsx`（多分类筛选胶囊、依赖状态展示、`<ErrorBoundary>` 动态挂载插件自定义 `SettingsView`）
   - [x] Step 1.6：完成 Milestone 1 单元测试、Rust UI 回归、类型与构建验证、独立子 agent review（修复全部 11 项安全边界与并发竞态问题）、`docs/arch/index.html` 更新与隔离提交
-- [ ] Step 2（Milestone 2）：表情动态注册栈、躯体伺服抢占与双环语音／任务深度接线
-  - [ ] Step 2.1：升级 `RobotFaceController` 与 `RobotFace.tsx` 支持命名空间动态配方注册与 P0–P5 表情／视线 `gaze` 正交合成
-  - [ ] Step 2.2：升级 `BodyRuntime` 支持 `acquireServo` 连续伺服租约与用户／语音指令实时抢占回调
-  - [ ] Step 2.3：将 `DualLoopAiBus` 完整接入 `VoiceRuntime`（`80ms` 组装预算、语音轮次短路、等待播放完毕的 `speak`）与 `PiTaskRunner`（`1500ms` 多模态组装）
-  - [ ] Step 2.4：完成 Milestone 2 自动化验证、独立子 agent review 与隔离提交
+- [x] Step 2（Milestone 2）：表情动态注册栈、躯体伺服抢占与双环语音／任务深度接线
+  - [x] Step 2.1：升级 `RobotFaceController` 与 `RobotFace.tsx` 支持命名空间动态配方注册（`plugin:<id>:<localId>`，支持带 `.` 插件 ID 与引用计数回滚）与 P0–P5 表情／视线 `gaze` 正交合成
+  - [x] Step 2.2：升级 `BodyRuntime` 支持 `acquireServo` 连续伺服租约、同层互斥、并发 Epoch 保护与用户／语音指令实时抢占回调（`stopNonPluginMotion` 隔离自动 VAD 收尾与插件伺服）
+  - [x] Step 2.3：将 `DualLoopAiBus` 完整接入 `VoiceRuntime`（`80ms` 组装预算、`transcriptionFinal` 轮次短路与重复话语序号保护、等待播放完毕的 `speak`、动态工具热更新与凭据脱敏）与 `PiTaskRunner`（`1500ms` 多模态组装、QuickJS 无 WASM 原生 JPEG 直通与后台插件任务并发解耦）
+  - [x] Step 2.4：完成 Milestone 2 自动化验证、独立子 agent review（修复全部 10 项审阅问题并补充专项回归测试）与隔离提交
 - [ ] Step 3（Milestone 3）：横屏首屏“可变形舞台（Morphable Stage）”合成器
   - [ ] Step 3.1：重构 `App.tsx` 首屏舞台层支持 `FaceStagePosture`（`full` / `floating_top` / `docked_corner` / `split_left` / `minimized_pill`）单实例弹簧变形
   - [ ] Step 3.2：实现 `StageCapsule`、四档位 `StageDrawer`、`StageCanvas` 与最高层级不可遮挡宿主安全控制柄

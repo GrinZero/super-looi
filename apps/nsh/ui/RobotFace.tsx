@@ -14,6 +14,7 @@ import {
 } from "nsh";
 import {
   FACE_EXPRESSION_RECIPES,
+  resolveFaceExpressionRecipe,
   type EyeSpec,
   type FaceExpression,
   type FaceExpressionRecipe,
@@ -78,8 +79,7 @@ const ZERO_KINEMATICS: AmbientKinematics = {
  * return false so the JS ticker stops completely (0% JS CPU at rest).
  */
 export function hasAmbientMotion(expression: FaceExpression): boolean {
-  const recipe =
-    FACE_EXPRESSION_RECIPES[expression] ?? FACE_EXPRESSION_RECIPES.neutral;
+  const recipe = resolveFaceExpressionRecipe(expression);
   for (const eye of recipe.eyes) {
     const shape = eye.shape ?? "orb";
     if (shape === "spiral" || shape === "heart" || shape === "star4") {
@@ -105,8 +105,7 @@ export function hasAmbientMotion(expression: FaceExpression): boolean {
  * when transitions are interpolated or interrupted mid-flight.
  */
 export function normalizeBlinkProgress(state: FaceVisualState): number {
-  const recipe =
-    FACE_EXPRESSION_RECIPES[state.expression] ?? FACE_EXPRESSION_RECIPES.neutral;
+  const recipe = resolveFaceExpressionRecipe(state.expression);
   const allowsBlink = recipe.eyes.every((eye) => (eye.shape ?? "orb") === "orb");
   return allowsBlink ? clamp(state.blinkProgress, 0, 1) : 0;
 }
@@ -432,10 +431,8 @@ export function drawRobotFaceTransition(
 ): void {
   const u = clamp(progress, 0, 1);
   const safeTime = Number.isFinite(timeSec) && timeSec > 0 ? timeSec : 0;
-  const fromRecipe =
-    FACE_EXPRESSION_RECIPES[fromState.expression] ?? FACE_EXPRESSION_RECIPES.neutral;
-  const toRecipe =
-    FACE_EXPRESSION_RECIPES[toState.expression] ?? FACE_EXPRESSION_RECIPES.neutral;
+  const fromRecipe = resolveFaceExpressionRecipe(fromState.expression);
+  const toRecipe = resolveFaceExpressionRecipe(toState.expression);
   const fromKin = computeAmbientKinematics(fromState.expression, safeTime);
   const toKin =
     fromState.expression === toState.expression
@@ -2131,9 +2128,7 @@ export function RobotFace(props: {
   const pageActive = computed(() => props.active !== false);
   const breath = createMotion();
   const activeBreath = computed(() => {
-    const recipe =
-      FACE_EXPRESSION_RECIPES[props.state.expression] ??
-      FACE_EXPRESSION_RECIPES.neutral;
+    const recipe = resolveFaceExpressionRecipe(props.state.expression);
     return (
       pageActive() &&
       lifecycle() === "active" &&

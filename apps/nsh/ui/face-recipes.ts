@@ -1,6 +1,11 @@
-import type { FaceExpression } from "../generated/looi-runtime.js";
+import type {
+  CanonicalFaceExpression,
+  FaceExpression,
+  PluginFaceExpressionId,
+} from "../generated/looi-runtime.js";
+import { validateDynamicFaceRecipeIssue } from "../runtime/plugins/shared-types.js";
 
-export type { FaceExpression };
+export type { CanonicalFaceExpression, FaceExpression, PluginFaceExpressionId };
 
 export type FaceTint =
   | "warm"
@@ -167,7 +172,7 @@ function slantedEyes(
  * Zero pupils and zero glossy eyeball glints: every eye is a solid luminous primitive or clean stroke.
  */
 export const FACE_EXPRESSION_RECIPES: Record<
-  FaceExpression,
+  CanonicalFaceExpression,
   FaceExpressionRecipe
 > = {
   // ---------------- Group 1: Core Presence & Voice (#01-#12) ----------------
@@ -621,5 +626,47 @@ export const FACE_EXPRESSION_RECIPES: Record<
 };
 
 export const FACE_EXPRESSION_IDS = Object.freeze(
-  Object.keys(FACE_EXPRESSION_RECIPES) as FaceExpression[],
+  Object.keys(FACE_EXPRESSION_RECIPES) as CanonicalFaceExpression[],
 );
+
+const DYNAMIC_FACE_RECIPES = new Map<PluginFaceExpressionId, FaceExpressionRecipe>();
+
+/**
+ * Validates and registers a plugin-scoped flat primitive face recipe.
+ * Preserves `FACE_EXPRESSION_RECIPES` immutability (72 canonical expressions) while allowing runtime extension.
+ */
+export function registerDynamicFaceRecipe(
+  id: PluginFaceExpressionId,
+  rawRecipe: Record<string, unknown> | FaceExpressionRecipe,
+): () => void {
+  const issue = validateDynamicFaceRecipeIssue(id, rawRecipe);
+  if (issue) {
+    throw Object.assign(new Error(issue), {
+      stage: "face.registerRecipe",
+      code: "ERR_INVALID_FACE_RECIPE",
+    });
+  }
+  DYNAMIC_FACE_RECIPES.set(id, rawRecipe as FaceExpressionRecipe);
+  return () => {
+    DYNAMIC_FACE_RECIPES.delete(id);
+  };
+}
+
+export function clearDynamicFaceRecipe(id: PluginFaceExpressionId): void {
+  DYNAMIC_FACE_RECIPES.delete(id);
+}
+
+export function resolveFaceExpressionRecipe(
+  expression: FaceExpression,
+): FaceExpressionRecipe {
+  if (expression.startsWith("plugin:")) {
+    return (
+      DYNAMIC_FACE_RECIPES.get(expression as PluginFaceExpressionId) ??
+      FACE_EXPRESSION_RECIPES.neutral
+    );
+  }
+  return (
+    FACE_EXPRESSION_RECIPES[expression as CanonicalFaceExpression] ??
+    FACE_EXPRESSION_RECIPES.neutral
+  );
+}

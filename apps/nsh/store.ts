@@ -6,6 +6,7 @@ import { uiMessage } from "./runtime/messages";
 import { HomePowerState } from "./runtime/home-power-state";
 import { bindLocale, resolveLocale, translateMessage, type LanguagePreference } from "./i18n";
 import { voiceProviderLabel } from "./ui/doubao-voices";
+import { clearDynamicFaceRecipe, registerDynamicFaceRecipe } from "./ui/face-recipes";
 import type { PluginViewContext } from "./ui/plugins/ui-contracts";
 import {
   cleanup,
@@ -356,7 +357,13 @@ export function createAppStore() {
   let voice: VoiceRuntime | undefined;
   let voiceTaskCoordinator: VoiceTaskCoordinator | undefined;
   const stopVoiceSessionMotion = () => {
-    void stopBodyNow();
+    if (!alive || !runtime) return;
+    void runtime
+      .stopVoiceMotion()
+      .then((next) => {
+        if (alive) syncBodyStatus(next);
+      })
+      .catch(() => {});
   };
   const configuration = signal({ baseUrl: "", model: "", hasKey: false });
   const activeSpace = signal<AppSpace>("face");
@@ -731,6 +738,13 @@ export function createAppStore() {
   const driver = new RobotFaceController({
     onStateChange: () => face.set(driver.getState()),
   });
+  driver.attachRecipeSyncBridge((id, recipe) => {
+    if (recipe) {
+      registerDynamicFaceRecipe(id, recipe);
+    } else {
+      clearDynamicFaceRecipe(id);
+    }
+  });
   const face = signal(driver.getState());
   let unsubscribeTrace: (() => void) | undefined;
   let runtime: NativeRuntime | undefined,
@@ -832,8 +846,8 @@ export function createAppStore() {
   effect(() => {
     const active = lifecycle() === "active";
     runtime?.setBodyForegroundActive(active);
-    const next = !active
-      ? "sleeping"
+    const conversational = !active
+      ? null
       : voiceState().phase === "speaking"
         ? "speaking"
         : voiceState().phase === "listening"
@@ -842,19 +856,28 @@ export function createAppStore() {
             ? "curious"
             : foregroundBusy()
               ? "thinking"
-              : (transientDockExpression() ?? "neutral");
+              : null;
+    const dockTransient = active ? transientDockExpression() : null;
     if (!active) {
       clearDockExpression();
       homeLogin?.cancel();
       void stopBodyNow();
       if (voiceState().phase !== "idle") voice?.stop();
       else voice?.stopIdleCue();
-      if (driver.getState().expression !== "sleeping") {
-        driver.setExpression("sleeping");
-      }
+      driver.setHostPresence({
+        systemCritical: "sleeping",
+        dockTransient: null,
+        conversational: null,
+        idle: "neutral",
+      });
       if (lifecycle() === "background" && busy()) void stop();
-    } else if (driver.getState().expression !== next) {
-      driver.setExpression(next);
+    } else {
+      driver.setHostPresence({
+        systemCritical: null,
+        dockTransient,
+        conversational,
+        idle: "neutral",
+      });
     }
   });
   effect(() => {
@@ -967,6 +990,7 @@ export function createAppStore() {
         return;
       }
       runtime = opened;
+      opened.attachFaceController(driver);
       plugins.set(opened.pluginsSnapshot());
       activeStage.set(opened.activeStagePresentation());
       unsubscribePlugins = opened.subscribePlugins(event => {
@@ -1123,6 +1147,11 @@ export function createAppStore() {
         taskBridge: voiceTaskCoordinator,
         onConversationActivity: () => opened.touchVoiceConversation(),
         onSessionEnd: stopVoiceSessionMotion,
+        initialPluginContext: () => opened.pluginAmbientVoiceContext(),
+        pluginVoiceTools: () => opened.pluginVoiceTools(),
+        evaluateVoiceToolCall: (call) => opened.evaluateVoiceToolCall(call),
+        evaluateVoiceUserTurn: (text) => opened.evaluateVoiceUserTurn(text),
+        assembleVoiceTurn: (text) => opened.assembleVoiceTurn(text),
         controlBody: async (actionName, durationMs, extra) => {
           if (!alive || !runtime) {
             throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
@@ -1140,6 +1169,24 @@ export function createAppStore() {
           );
           if (alive) syncBodyStatus(runtime.bodyStatus());
           return receipt;
+        },
+        stopVoiceMotion: async () => {
+          if (!alive || !runtime) return;
+          const next = await runtime.stopVoiceMotion();
+          if (alive) syncBodyStatus(next);
+        },
+        redactSecrets: (text) => (runtime ? runtime.redactSecrets(text) : text),
+      });
+      opened.setPluginAiBridge({
+        speak: ({ spokenText, contextNote, delivery }) =>
+          voice
+            ? voice.speak({ spokenText, contextNote, delivery })
+            : Promise.resolve({ completed: false, interruptedReason: "voice_unavailable" }),
+        onVoiceContextUpdated: (summaryPrompt) => {
+          if (alive) voice?.setPluginContext(summaryPrompt, true);
+        },
+        onVoiceToolsUpdated: () => {
+          if (alive) voice?.refreshPluginVoiceTools();
         },
       });
       if (wakePreferenceTouched) {
@@ -1203,6 +1250,8 @@ export function createAppStore() {
     voiceTaskCoordinator?.markExternallyCancelled();
     homeLogin?.cancel();
     runtime?.cancelProviderOAuth();
+    runtime?.attachFaceController(undefined);
+    driver.attachRecipeSyncBridge(undefined);
     voice?.close();
     driver.dispose();
     void runtime?.close().catch(() => {});

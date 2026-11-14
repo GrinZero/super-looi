@@ -1,4 +1,10 @@
 import type { Vault } from "../application.js";
+import type {
+  AiTurnDraft,
+  PluginVoiceTool,
+  ToolCallBailResult,
+  UserTurnBailResult,
+} from "../plugins/contracts.js";
 import type { RealtimeProtocolAdapter } from "./protocol.js";
 import type { VoiceSessionFailure } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 import type {
@@ -69,6 +75,8 @@ export interface VoiceProactiveNotice {
   traceContext?: TraceContext;
   spokenText: string;
   contextNote?: string;
+  delivery?: "when_idle" | "interrupt";
+  onResult?: (result: { readonly completed: boolean; readonly interruptedReason?: string }) => void;
 }
 
 export type VoiceTaskSubmissionResult =
@@ -132,9 +140,21 @@ export interface VoiceRuntimeOptions {
       turn?: number;
     },
   ) => Promise<unknown>;
+  stopVoiceMotion?: () => Promise<unknown>;
+  redactSecrets?: (text: string) => string;
   onSessionEnd?: () => void;
   /** Legacy alias for `onSessionEnd` retained for backward compatibility. */
   cancelTask?: () => void;
   protocol?: RealtimeProtocolAdapter;
   tracer?: LangfuseTracer;
+  initialPluginContext?: () => string;
+  pluginVoiceTools?: () => readonly PluginVoiceTool[];
+  evaluateVoiceToolCall?: (call: {
+    toolName: string;
+    arguments: Record<string, unknown>;
+  }) => Promise<(Exclude<ToolCallBailResult, undefined> & { readonly pluginId?: string }) | undefined>;
+  evaluateVoiceUserTurn?: (
+    text: string,
+  ) => Promise<(Exclude<UserTurnBailResult, undefined> & { readonly pluginId?: string }) | undefined>;
+  assembleVoiceTurn?: (text: string) => Promise<AiTurnDraft>;
 }
