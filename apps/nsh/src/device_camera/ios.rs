@@ -52,6 +52,15 @@ unsafe extern "C" {
     fn looi_device_camera_bytes_free(bytes: *mut c_void);
     pub fn looi_device_camera_view_create() -> *mut c_void;
     pub fn looi_device_camera_view_bind(view: *mut c_void, session: *mut c_void);
+    pub fn looi_device_camera_view_present_sample(
+        view: *mut c_void,
+        facing: i32,
+        seq: u64,
+        offset_x: f32,
+        offset_y: f32,
+        face_w: f32,
+        face_h: f32,
+    );
     pub fn looi_device_camera_view_release(view: *mut c_void);
 }
 

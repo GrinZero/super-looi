@@ -19,7 +19,7 @@ export const visionPersonTrackerManifest: PluginManifest = {
     name: "Super LOOI",
     verified: true,
   },
-  permissions: ["camera.front"],
+  permissions: ["camera.front", "face.control", "body.motion"],
   activation: "startup",
   provides: [
     {

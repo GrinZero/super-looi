@@ -1,7 +1,12 @@
 import type {
+  BodyServoLease,
   DeviceCameraFrame,
+  Dispose,
+  FaceLease,
+  PluginBodyCapability,
   PluginContext,
   PluginDefinition,
+  PluginFaceCapability,
   PluginFailure,
   PluginRuntime,
   PluginStorage,
@@ -10,6 +15,8 @@ import {
   PERSON_TRACKER_SERVICE_ID,
   type AcquirePersonTrackingOptions,
   type CapturedPersonPortrait,
+  type CompanionActuatorMode,
+  type CompanionTrackingStatus,
   type DetectedCameraFace,
   type PersonTrackerDispose,
   type PersonTrackerScopeLike,
@@ -26,6 +33,8 @@ export { PERSON_TRACKER_SERVICE_ID, visionPersonTrackerManifest };
 export type {
   AcquirePersonTrackingOptions,
   CapturedPersonPortrait,
+  CompanionActuatorMode,
+  CompanionTrackingStatus,
   DetectedCameraFace,
   PersonTrackerService,
   PersonTrackingFrame,
@@ -47,6 +56,13 @@ const MAX_SMOOTHING_ALPHA = 1.0;
 const MIN_TRACKER_FPS = 1;
 const MAX_TRACKER_FPS = 15;
 const TRACK_CONTINUITY_WINDOW_MS = 1500;
+const FOLLOW_DEADZONE_X = 0.12;
+const FOLLOW_TURN_GAIN = 55;
+const MAX_FOLLOW_TURN = 45;
+const BASE_HEAD_PITCH_DEGREES = 58;
+const MIN_HEAD_PITCH_DEGREES = 32;
+const MAX_HEAD_PITCH_DEGREES = 78;
+const SERVO_RENEW_INTERVAL_MS = 160;
 const BASE64_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -302,10 +318,474 @@ interface ActiveStreamRecord {
   readonly close: () => void;
 }
 
+const SERVO_BUSY_OR_UNAVAILABLE_CODES = new Set([
+  "ERR_BODY_DISABLED",
+  "ERR_BODY_NOT_CONNECTED",
+  "ERR_BODY_NOT_DOCKED",
+  "ERR_BODY_USER_DRIVING",
+  "ERR_BODY_SERVO_BUSY_FOREGROUND",
+  "ERR_BODY_SERVO_BUSY_COMPANION",
+]);
+
+const SERVO_PREEMPTED_OR_RELEASED_CODES = new Set([
+  "ERR_BODY_SERVO_PREEMPTED",
+  "ERR_BODY_SERVO_RELEASED",
+]);
+
+const SERVO_RETRY_COOLDOWN_FRAMES = 8;
+
+function extractErrorCode(error: unknown): string | undefined {
+  const code =
+    typeof error === "object" && error !== null
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return typeof code === "string" || typeof code === "number" ? String(code) : undefined;
+}
+
+function isExpectedServoBusyOrUnavailable(error: unknown): boolean {
+  const code = extractErrorCode(error);
+  return code !== undefined && SERVO_BUSY_OR_UNAVAILABLE_CODES.has(code);
+}
+
+function isServoPreemptedOrReleasedError(error: unknown): boolean {
+  const code = extractErrorCode(error);
+  return code !== undefined && SERVO_PREEMPTED_OR_RELEASED_CODES.has(code);
+}
+
+type ServoFailureChannel = "servo_acquire" | "servo_drive" | "servo_head";
+
+interface CompanionTelemetrySnapshot {
+  readonly trackingStatus: CompanionTrackingStatus;
+  readonly actuatorMode: CompanionActuatorMode;
+  readonly commandedTurn: number;
+  readonly commandedPitchDegrees: number | null;
+}
+
+interface CompanionActuatorHost {
+  readonly scope: PluginContext<VisionPersonTrackerState>["scope"];
+  readonly getFaceCap: () => PluginFaceCapability | undefined;
+  readonly getBodyCap: () => PluginBodyCapability | undefined;
+  readonly shouldEngage: () => boolean;
+  readonly isYieldedToConsumer: () => boolean;
+  readonly onUnexpectedFailure: (channel: ServoFailureChannel, failure: PluginFailure) => void;
+  readonly onServoRecovered?: (channel: ServoFailureChannel) => void;
+  readonly onTelemetry: (telemetry: CompanionTelemetrySnapshot) => void;
+}
+
+/**
+ * Coordinates background ambient gaze and docked servo alignment while cleanly
+ * yielding actuator leases to foreground consumer plugins (e.g. Werewolf Judge).
+ */
+function createCompanionActuatorController(host: CompanionActuatorHost) {
+  let faceLease: FaceLease | null = null;
+  let servoLease: BodyServoLease | null = null;
+  let servoAcquireInFlight: Promise<void> | null = null;
+  let servoPreemptedUnsub: Dispose | null = null;
+  let bodyStatusUnsub: Dispose | null = null;
+  let preempted = false;
+  let disposed = false;
+  let servoRetryCooldownFrames = 0;
+
+  let trackingStatus: CompanionTrackingStatus = "idle";
+  let commandedTurn = 0;
+  let commandedPitchDegrees: number | null = null;
+  let lastSentTurn: number | null = null;
+  let lastSentPitch: number | null = null;
+  let lastSentServoAtMs = 0;
+
+  const computeActuatorMode = (): CompanionActuatorMode => {
+    if (host.isYieldedToConsumer()) return "yielded_to_consumer";
+    if (!host.shouldEngage()) return "idle";
+    if (preempted) return "preempted";
+    if (servoLease) return "servo_and_gaze";
+    if (faceLease) return "gaze_only";
+    return "idle";
+  };
+
+  const computeStatusSnapshot = (): CompanionTelemetrySnapshot => {
+    if (host.isYieldedToConsumer()) {
+      return {
+        trackingStatus: "yielded_to_consumer",
+        actuatorMode: "yielded_to_consumer",
+        commandedTurn: 0,
+        commandedPitchDegrees: null,
+      };
+    }
+    if (!host.shouldEngage()) {
+      return {
+        trackingStatus: "idle",
+        actuatorMode: "idle",
+        commandedTurn: 0,
+        commandedPitchDegrees: null,
+      };
+    }
+    if (preempted) {
+      return {
+        trackingStatus: "preempted",
+        actuatorMode: "preempted",
+        commandedTurn: 0,
+        commandedPitchDegrees: null,
+      };
+    }
+    return {
+      trackingStatus,
+      actuatorMode: computeActuatorMode(),
+      commandedTurn,
+      commandedPitchDegrees,
+    };
+  };
+
+  const publishTelemetry = () => {
+    host.onTelemetry(computeStatusSnapshot());
+  };
+
+  const detachPreempted = () => {
+    const unsub = servoPreemptedUnsub;
+    servoPreemptedUnsub = null;
+    if (unsub) {
+      try {
+        void unsub();
+      } catch {}
+    }
+  };
+
+  const handleServoCommandError = (
+    channel: ServoFailureChannel,
+    error: unknown,
+    stage: string,
+    fallbackCode: string,
+  ) => {
+    if (disposed) return;
+    if (isServoPreemptedOrReleasedError(error)) {
+      return;
+    }
+    if (isExpectedServoBusyOrUnavailable(error)) {
+      servoRetryCooldownFrames = SERVO_RETRY_COOLDOWN_FRAMES;
+      publishTelemetry();
+      return;
+    }
+    host.onUnexpectedFailure(channel, extractFailure(error, stage, fallbackCode));
+  };
+
+  const releaseServo = () => {
+    detachPreempted();
+    const activeServo = servoLease;
+    servoLease = null;
+    lastSentTurn = null;
+    lastSentPitch = null;
+    if (!activeServo) return;
+    // BodyRuntime.acquireServo release() synchronously clears activePluginServo and stops motors.
+    void activeServo.release().catch((error) => {
+      if (
+        disposed ||
+        isServoPreemptedOrReleasedError(error) ||
+        isExpectedServoBusyOrUnavailable(error)
+      ) {
+        return;
+      }
+      host.onUnexpectedFailure(
+        "servo_acquire",
+        extractFailure(
+          error,
+          "vision.tracker.companion_servo.release",
+          "ERR_COMPANION_SERVO_RELEASE_FAILED",
+        ),
+      );
+    });
+  };
+
+  const releaseFace = () => {
+    const activeFace = faceLease;
+    faceLease = null;
+    if (!activeFace) return;
+    try {
+      activeFace.setGaze(null);
+      activeFace.release();
+    } catch {}
+  };
+
+  const releaseAll = () => {
+    releaseFace();
+    releaseServo();
+    commandedTurn = 0;
+    commandedPitchDegrees = null;
+    trackingStatus = host.isYieldedToConsumer() ? "yielded_to_consumer" : "idle";
+    publishTelemetry();
+  };
+
+  const enterPreemptedState = () => {
+    servoPreemptedUnsub = null;
+    servoLease = null;
+    lastSentTurn = null;
+    lastSentPitch = null;
+    preempted = true;
+    commandedTurn = 0;
+    commandedPitchDegrees = null;
+    trackingStatus = "preempted";
+    releaseFace();
+    publishTelemetry();
+  };
+
+  const ensureFaceLease = () => {
+    if (faceLease || preempted || !host.shouldEngage()) return;
+    const faceCap = host.getFaceCap();
+    if (!faceCap) return;
+    try {
+      faceLease = faceCap.acquireLease("background_ambient", host.scope);
+    } catch (error) {
+      host.onUnexpectedFailure(
+        "servo_acquire",
+        extractFailure(
+          error,
+          "vision.tracker.companion_face",
+          "ERR_COMPANION_FACE_FAILED",
+        ),
+      );
+    }
+  };
+
+  const ensureServoLease = () => {
+    if (
+      servoLease ||
+      servoAcquireInFlight ||
+      preempted ||
+      servoRetryCooldownFrames > 0 ||
+      !host.shouldEngage()
+    ) {
+      return;
+    }
+    const bodyCap = host.getBodyCap();
+    if (!bodyCap) return;
+    const bodyStatus = bodyCap.status();
+    if (!bodyStatus.connected || !bodyStatus.isDocked) return;
+
+    const pending = bodyCap
+      .acquireServo("background_companion", host.scope)
+      .then((lease) => {
+        if (disposed || preempted || !host.shouldEngage()) {
+          void lease.release().catch(() => {});
+          return;
+        }
+        servoRetryCooldownFrames = 0;
+        servoLease = lease;
+        host.onServoRecovered?.("servo_acquire");
+        servoPreemptedUnsub = lease.onPreempted((reason) => {
+          servoPreemptedUnsub = null;
+          servoLease = null;
+          lastSentTurn = null;
+          lastSentPitch = null;
+          if (reason === "undocked") {
+            publishTelemetry();
+            return;
+          }
+          enterPreemptedState();
+        });
+        publishTelemetry();
+      })
+      .catch((error) => {
+        if (disposed) return;
+        const code = extractErrorCode(error);
+        if (code === "ERR_BODY_SERVO_PREEMPTED") {
+          enterPreemptedState();
+          return;
+        }
+        if (isExpectedServoBusyOrUnavailable(error)) {
+          servoRetryCooldownFrames = SERVO_RETRY_COOLDOWN_FRAMES;
+          publishTelemetry();
+          return;
+        }
+        servoRetryCooldownFrames = SERVO_RETRY_COOLDOWN_FRAMES;
+        host.onUnexpectedFailure(
+          "servo_acquire",
+          extractFailure(
+            error,
+            "vision.tracker.companion_servo",
+            "ERR_COMPANION_SERVO_FAILED",
+          ),
+        );
+      })
+      .finally(() => {
+        if (servoAcquireInFlight === pending) {
+          servoAcquireInFlight = null;
+        }
+      });
+    servoAcquireInFlight = pending;
+  };
+
+  const reconcile = (reconcileOpts?: { readonly resetPreempt?: boolean }) => {
+    if (disposed) return;
+    if (reconcileOpts?.resetPreempt) {
+      preempted = false;
+      servoRetryCooldownFrames = 0;
+    }
+    if (!host.shouldEngage()) {
+      if (host.isYieldedToConsumer()) {
+        preempted = false;
+        servoRetryCooldownFrames = 0;
+      }
+      releaseAll();
+      return;
+    }
+    if (preempted) {
+      publishTelemetry();
+      return;
+    }
+    ensureFaceLease();
+    ensureServoLease();
+    if (trackingStatus === "idle" || trackingStatus === "yielded_to_consumer") {
+      trackingStatus = "searching";
+    }
+    publishTelemetry();
+  };
+
+  const init = () => {
+    disposed = false;
+    const bodyCap = host.getBodyCap();
+    if (bodyCap && !bodyStatusUnsub) {
+      bodyStatusUnsub = bodyCap.subscribeStatus((status) => {
+        if (disposed) return;
+        servoRetryCooldownFrames = 0;
+        if (!status.connected || !status.isDocked) {
+          if (servoLease) {
+            releaseServo();
+            publishTelemetry();
+          }
+          return;
+        }
+        if (host.shouldEngage() && !preempted) {
+          ensureServoLease();
+        }
+      }, host.scope);
+    }
+  };
+
+  const applyFrame = (target: SmoothedPersonTarget | null, capturedAtMs: number) => {
+    if (disposed) return;
+    if (servoRetryCooldownFrames > 0) {
+      servoRetryCooldownFrames -= 1;
+    }
+    reconcile();
+    if (!host.shouldEngage() || preempted) return;
+
+    if (!target) {
+      faceLease?.setGaze(null);
+      commandedTurn = 0;
+      commandedPitchDegrees = null;
+      trackingStatus = "searching";
+      if (servoLease && lastSentTurn !== 0) {
+        lastSentTurn = 0;
+        lastSentServoAtMs = capturedAtMs;
+        void servoLease.setDriveVector(0, 0).then(
+          () => {
+            if (!disposed) host.onServoRecovered?.("servo_drive");
+          },
+          (error) => {
+            if (lastSentTurn === 0) lastSentTurn = null;
+            handleServoCommandError(
+              "servo_drive",
+              error,
+              "vision.tracker.companion_servo.drive",
+              "ERR_COMPANION_SERVO_DRIVE_FAILED",
+            );
+          },
+        );
+      }
+      publishTelemetry();
+      return;
+    }
+
+    faceLease?.setGaze({
+      x: clamp(-target.offsetX * 0.75, -1, 1),
+      y: clamp(target.offsetY * 0.6, -1, 1),
+    });
+
+    const inDeadzone = Math.abs(target.offsetX) <= FOLLOW_DEADZONE_X;
+    const nextTurn = inDeadzone
+      ? 0
+      : clamp(Math.round(-target.offsetX * FOLLOW_TURN_GAIN), -MAX_FOLLOW_TURN, MAX_FOLLOW_TURN);
+    const nextPitch = clamp(
+      Math.round(BASE_HEAD_PITCH_DEGREES - target.offsetY * 12),
+      MIN_HEAD_PITCH_DEGREES,
+      MAX_HEAD_PITCH_DEGREES,
+    );
+
+    trackingStatus = inDeadzone
+      ? "centered"
+      : target.offsetX < 0
+        ? "turning_left"
+        : "turning_right";
+    commandedTurn = nextTurn;
+    commandedPitchDegrees = nextPitch;
+
+    if (servoLease) {
+      const turnChanged = lastSentTurn !== nextTurn;
+      const renewDue =
+        nextTurn !== 0 && capturedAtMs - lastSentServoAtMs >= SERVO_RENEW_INTERVAL_MS;
+      if (turnChanged || renewDue) {
+        lastSentTurn = nextTurn;
+        lastSentServoAtMs = capturedAtMs;
+        void servoLease.setDriveVector(0, nextTurn).then(
+          () => {
+            if (!disposed) host.onServoRecovered?.("servo_drive");
+          },
+          (error) => {
+            if (lastSentTurn === nextTurn) lastSentTurn = null;
+            handleServoCommandError(
+              "servo_drive",
+              error,
+              "vision.tracker.companion_servo.drive",
+              "ERR_COMPANION_SERVO_DRIVE_FAILED",
+            );
+          },
+        );
+      }
+      if (lastSentPitch === null || Math.abs(nextPitch - lastSentPitch) >= 2) {
+        lastSentPitch = nextPitch;
+        void servoLease.setHeadDegrees(nextPitch).then(
+          () => {
+            if (!disposed) host.onServoRecovered?.("servo_head");
+          },
+          (error) => {
+            if (lastSentPitch === nextPitch) lastSentPitch = null;
+            handleServoCommandError(
+              "servo_head",
+              error,
+              "vision.tracker.companion_servo.head",
+              "ERR_COMPANION_SERVO_HEAD_FAILED",
+            );
+          },
+        );
+      }
+    }
+
+    publishTelemetry();
+  };
+
+  const dispose = () => {
+    disposed = true;
+    const unsubBody = bodyStatusUnsub;
+    bodyStatusUnsub = null;
+    if (unsubBody) {
+      try {
+        void unsubBody();
+      } catch {}
+    }
+    releaseAll();
+  };
+
+  return {
+    init,
+    reconcile,
+    applyFrame,
+    snapshot: computeStatusSnapshot,
+    dispose,
+  };
+}
+
 function readStoredSettings(
   storage: PluginStorage,
   options: VisionPersonTrackerPluginOptions,
-): { smoothingAlpha: number; maxFps: number } {
+): { smoothingAlpha: number; maxFps: number; companionFollowEnabled: boolean } {
   return {
     smoothingAlpha: normalizeSmoothingAlpha(
       storage.get("smoothingAlpha"),
@@ -315,6 +795,7 @@ function readStoredSettings(
       storage.get("maxFps"),
       options.defaultMaxFps ?? DEFAULT_MAX_FPS,
     ),
+    companionFollowEnabled: Boolean(storage.get("companionFollowEnabled")),
   };
 }
 
@@ -332,11 +813,17 @@ export function visionPersonTrackerDefinition(
         activeSubscribers: 0,
         previewSessionId: null,
         calibrationPreviewOpen: false,
+        companionFollowEnabled: settings.companionFollowEnabled,
+        trackingStatus: "idle",
+        actuatorMode: "idle",
+        commandedTurn: 0,
+        commandedPitchDegrees: null,
         smoothingAlpha: settings.smoothingAlpha,
         maxFps: settings.maxFps,
         faceCount: 0,
         primaryTarget: null,
         lastFrameAtMs: null,
+        lastPortrait: null,
         lastError: null,
       };
     },
@@ -348,10 +835,13 @@ export function visionPersonTrackerDefinition(
       const primaryFilter = new EmaTargetFilter();
       let nextConsumerId = 1;
       let calibrationOpen = false;
+      let companionFollowEnabled = Boolean(ctx.storage.get("companionFollowEnabled"));
       let activeStream: ActiveStreamRecord | null = null;
       let reconcileInFlight: Promise<ActiveStreamRecord | null> | null = null;
       let latestFrameSnapshot: PersonTrackingFrame | null = null;
       let stopped = false;
+      type FailureSource = "camera" | "command" | ServoFailureChannel;
+      let activeFailureSource: FailureSource | null = null;
 
       const requireVision = (stage: string) => {
         if (!ctx.vision) {
@@ -373,31 +863,80 @@ export function visionPersonTrackerDefinition(
           activeSubscribers: consumers.size,
           previewSessionId: activeStream?.previewSessionId ?? null,
           calibrationPreviewOpen: calibrationOpen,
+          companionFollowEnabled,
           ...patch,
         }));
+      };
+
+      const applyFailure = (
+        source: FailureSource,
+        error: unknown,
+        fallbackStage: string,
+        fallbackCode: string,
+      ): PluginFailure => {
+        const failure = extractFailure(error, fallbackStage, fallbackCode);
+        activeFailureSource = source;
+        ctx.setLastError(failure);
+        syncSnapshotState({ lastError: formatFailureMessage(failure) });
+        return failure;
       };
 
       const recordFailure = (
         error: unknown,
         fallbackStage: string,
         fallbackCode: string,
+        source: FailureSource = "command",
       ): never => {
-        const failure = extractFailure(error, fallbackStage, fallbackCode);
-        ctx.setLastError(failure);
-        syncSnapshotState({ lastError: formatFailureMessage(failure) });
+        const failure = applyFailure(source, error, fallbackStage, fallbackCode);
         throw createStructuredError(failure, error);
       };
 
-      const clearError = () => {
+      const clearError = (source?: FailureSource) => {
+        if (source !== undefined && activeFailureSource !== source) {
+          return;
+        }
+        if (activeFailureSource === null && !ctx.getLastError() && !ctx.getState().lastError) {
+          return;
+        }
+        activeFailureSource = null;
         ctx.setLastError(undefined);
+        syncSnapshotState({ lastError: null });
       };
+
+      const companion = createCompanionActuatorController({
+        scope: ctx.scope,
+        getFaceCap: () => ctx.face,
+        getBodyCap: () => ctx.body,
+        shouldEngage: () =>
+          !stopped &&
+          consumers.size === 0 &&
+          (calibrationOpen || companionFollowEnabled),
+        isYieldedToConsumer: () => !stopped && consumers.size > 0,
+        onUnexpectedFailure: (channel, failure) => {
+          applyFailure(
+            channel,
+            failure,
+            failure.stage,
+            String(failure.code ?? "ERR_COMPANION_SERVO_FAILED"),
+          );
+        },
+        onServoRecovered: (channel) => {
+          clearError(channel);
+        },
+        onTelemetry: (telemetry) => {
+          syncSnapshotState(telemetry);
+        },
+      });
 
       const desiredStreamParameters = (): {
         needed: boolean;
         maxFps: number;
         maxDimension: 320 | 640;
       } => {
-        if (stopped || (consumers.size === 0 && !calibrationOpen)) {
+        if (
+          stopped ||
+          (consumers.size === 0 && !calibrationOpen && !companionFollowEnabled)
+        ) {
           return {
             needed: false,
             maxFps: ctx.getState().maxFps,
@@ -405,7 +944,8 @@ export function visionPersonTrackerDefinition(
           };
         }
         const st = ctx.getState();
-        let maxFps = calibrationOpen ? st.maxFps : MIN_TRACKER_FPS;
+        let maxFps =
+          calibrationOpen || companionFollowEnabled ? st.maxFps : MIN_TRACKER_FPS;
         let maxDimension: 320 | 640 = calibrationOpen ? 640 : 320;
         for (const consumer of consumers.values()) {
           if (consumer.maxFps > maxFps) maxFps = consumer.maxFps;
@@ -428,16 +968,22 @@ export function visionPersonTrackerDefinition(
             current.close();
           } catch {}
         }
+        companion.reconcile();
+        const telemetry = companion.snapshot();
         syncSnapshotState({
           streaming: false,
           previewSessionId: null,
           faceCount: 0,
           primaryTarget: null,
+          ...telemetry,
         });
       };
 
       const handleIncomingCameraFrame = (rawFrame: DeviceCameraFrame) => {
-        if (stopped || (consumers.size === 0 && !calibrationOpen)) {
+        if (
+          stopped ||
+          (consumers.size === 0 && !calibrationOpen && !companionFollowEnabled)
+        ) {
           return;
         }
         const faces = sanitizeFaces(
@@ -458,12 +1004,17 @@ export function visionPersonTrackerDefinition(
           faces,
         };
         latestFrameSnapshot = trackingFrame;
+        clearError("camera");
+        clearError("command");
         syncSnapshotState({
           faceCount: faces.length,
           primaryTarget,
           lastFrameAtMs: rawFrame.capturedAtMs,
-          lastError: null,
         });
+
+        if (consumers.size === 0 && (calibrationOpen || companionFollowEnabled)) {
+          companion.applyFrame(primaryTarget, rawFrame.capturedAtMs);
+        }
 
         for (const consumer of [...consumers.values()]) {
           if (consumer.released) continue;
@@ -568,8 +1119,9 @@ export function visionPersonTrackerDefinition(
                 previous.close();
               } catch {}
             }
-            clearError();
-            syncSnapshotState({ lastError: null });
+            clearError("camera");
+            clearError("command");
+            syncSnapshotState();
 
             if (
               activeStream.maxFps === postOpenTarget.maxFps &&
@@ -602,11 +1154,11 @@ export function visionPersonTrackerDefinition(
           try {
             const vision = requireVision("vision.tracker.permission");
             const perm = await vision.requestPermission();
-            if (perm === "granted") clearError();
-            syncSnapshotState({
-              permission: perm,
-              ...(perm === "granted" ? { lastError: null } : {}),
-            });
+            if (perm === "granted") {
+              clearError("camera");
+              clearError("command");
+            }
+            syncSnapshotState({ permission: perm });
             return perm;
           } catch (error) {
             return recordFailure(
@@ -673,7 +1225,7 @@ export function visionPersonTrackerDefinition(
                 void fn();
               } catch {}
             }
-            if (consumers.size === 0 && !calibrationOpen) {
+            if (consumers.size === 0 && !calibrationOpen && !companionFollowEnabled) {
               closeActiveStreamSync();
               if (reconcileInFlight) {
                 return reconcileStream().then(
@@ -683,6 +1235,7 @@ export function visionPersonTrackerDefinition(
               }
               return;
             }
+            companion.reconcile({ resetPreempt: true });
             return reconcileStream().then(
               () => {},
               () => {},
@@ -694,6 +1247,7 @@ export function visionPersonTrackerDefinition(
           }
 
           consumers.set(consumerId, record);
+          companion.reconcile();
           syncSnapshotState();
 
           try {
@@ -746,15 +1300,16 @@ export function visionPersonTrackerDefinition(
                     ctx.getState().smoothingAlpha,
                   )
                 : latestFrameSnapshot?.primaryTarget ?? null;
-            clearError();
-            syncSnapshotState({ lastError: null });
-            return {
+            const portrait: CapturedPersonPortrait = {
               dataUri: encodeJpegDataUri(raw.jpeg),
               width: raw.width,
               height: raw.height,
               primaryTarget: target,
               capturedAtMs: raw.capturedAtMs,
             };
+            clearError("command");
+            syncSnapshotState({ lastPortrait: portrait });
+            return portrait;
           } catch (error) {
             return recordFailure(
               error,
@@ -786,8 +1341,25 @@ export function visionPersonTrackerDefinition(
           maxFps: nextFps,
         });
 
-        if (activeStream !== null) {
-          await reconcileStream();
+        try {
+          if (activeStream !== null) {
+            await reconcileStream();
+          }
+          clearError("command");
+        } catch (error) {
+          if (stopped) {
+            const failure = extractFailure(
+              error,
+              "vision.tracker.settings",
+              "ERR_SETTINGS_UPDATE_FAILED",
+            );
+            throw createStructuredError(failure, error);
+          }
+          return recordFailure(
+            error,
+            "vision.tracker.settings",
+            "ERR_SETTINGS_UPDATE_FAILED",
+          );
         }
       };
 
@@ -795,19 +1367,25 @@ export function visionPersonTrackerDefinition(
         async start() {
           stopped = false;
           calibrationOpen = false;
+          activeFailureSource = null;
+          companionFollowEnabled = Boolean(ctx.storage.get("companionFollowEnabled"));
           consumers.clear();
           primaryFilter.reset();
           latestFrameSnapshot = null;
+          companion.init();
 
           ctx.scope.onDispose(() => {
             stopped = true;
             calibrationOpen = false;
+            activeFailureSource = null;
             for (const c of consumers.values()) {
               c.released = true;
               c.filter.reset();
             }
             consumers.clear();
+            companion.dispose();
             closeActiveStreamSync();
+            syncSnapshotState({ lastPortrait: null });
           });
 
           ctx.services.provide(PERSON_TRACKER_SERVICE_ID, service, ctx.scope);
@@ -816,21 +1394,43 @@ export function visionPersonTrackerDefinition(
             activeSubscribers: 0,
             previewSessionId: null,
             calibrationPreviewOpen: false,
+            companionFollowEnabled,
+            trackingStatus: "idle",
+            actuatorMode: "idle",
+            commandedTurn: 0,
+            commandedPitchDegrees: null,
             faceCount: 0,
             primaryTarget: null,
+            lastPortrait: null,
             lastError: null,
           });
+
+          if (companionFollowEnabled) {
+            companion.reconcile({ resetPreempt: true });
+            void reconcileStream().catch((error) => {
+              if (stopped) return;
+              applyFailure(
+                "camera",
+                error,
+                "vision.tracker.startup",
+                "ERR_COMPANION_START_FAILED",
+              );
+            });
+          }
         },
 
         async stop() {
           stopped = true;
           calibrationOpen = false;
+          activeFailureSource = null;
           for (const c of consumers.values()) {
             c.released = true;
             c.filter.reset();
           }
           consumers.clear();
+          companion.dispose();
           closeActiveStreamSync();
+          syncSnapshotState({ lastPortrait: null });
         },
 
         async configure(values) {
@@ -848,8 +1448,9 @@ export function visionPersonTrackerDefinition(
             }
             case "set_calibration_preview": {
               calibrationOpen = Boolean(command.open);
+              companion.reconcile({ resetPreempt: calibrationOpen });
               syncSnapshotState({ calibrationPreviewOpen: calibrationOpen });
-              if (!calibrationOpen && consumers.size === 0) {
+              if (!calibrationOpen && !companionFollowEnabled && consumers.size === 0) {
                 closeActiveStreamSync();
                 if (reconcileInFlight) {
                   await reconcileStream().catch(() => {});
@@ -863,14 +1464,72 @@ export function visionPersonTrackerDefinition(
                   previewSessionId: opened?.previewSessionId ?? null,
                 };
               } catch (error) {
+                if (stopped) {
+                  const failure = extractFailure(
+                    error,
+                    "vision.tracker.calibration",
+                    "ERR_CALIBRATION_PREVIEW_FAILED",
+                  );
+                  throw createStructuredError(failure, error);
+                }
                 calibrationOpen = false;
+                companion.reconcile();
                 syncSnapshotState({ calibrationPreviewOpen: false });
                 return recordFailure(
                   error,
                   "vision.tracker.calibration",
                   "ERR_CALIBRATION_PREVIEW_FAILED",
+                  "camera",
                 );
               }
+            }
+            case "set_companion_follow": {
+              const previous = companionFollowEnabled;
+              companionFollowEnabled = Boolean(command.enabled);
+              ctx.storage.set("companionFollowEnabled", companionFollowEnabled);
+              companion.reconcile({ resetPreempt: companionFollowEnabled });
+              syncSnapshotState({ companionFollowEnabled });
+              if (!companionFollowEnabled && !calibrationOpen && consumers.size === 0) {
+                closeActiveStreamSync();
+                if (reconcileInFlight) {
+                  await reconcileStream().catch(() => {});
+                }
+                return {
+                  companionFollowEnabled: false,
+                  streaming: false,
+                  previewSessionId: null,
+                };
+              }
+              try {
+                const opened = await reconcileStream();
+                return {
+                  companionFollowEnabled,
+                  streaming: opened !== null,
+                  previewSessionId: opened?.previewSessionId ?? null,
+                };
+              } catch (error) {
+                if (stopped) {
+                  const failure = extractFailure(
+                    error,
+                    "vision.tracker.companion_follow",
+                    "ERR_COMPANION_FOLLOW_FAILED",
+                  );
+                  throw createStructuredError(failure, error);
+                }
+                companionFollowEnabled = previous;
+                ctx.storage.set("companionFollowEnabled", previous);
+                companion.reconcile();
+                syncSnapshotState({ companionFollowEnabled: previous });
+                return recordFailure(
+                  error,
+                  "vision.tracker.companion_follow",
+                  "ERR_COMPANION_FOLLOW_FAILED",
+                  "camera",
+                );
+              }
+            }
+            case "capture_portrait": {
+              return service.capturePortrait({ maxDimension: 320 });
             }
             case "update_settings": {
               await applySettingsUpdate({

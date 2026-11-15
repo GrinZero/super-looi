@@ -93,16 +93,23 @@ fn encode_dc_diff(writer: &mut BitWriter, diff: i16, dc_lut: &[(u16, u8); 12]) {
     writer.write_bits(amplitude, category);
 }
 
-/// Generates a valid landscape 16:9 baseline JFIF image bounded by `max_dimension`.
-pub fn encode_sample_jpeg(facing: &str, max_dimension: i32, seq: u64) -> (Vec<u8>, u32, u32) {
+/// Computes 8px MCU-aligned landscape 16:9 sample dimensions bounded by `max_dimension`.
+pub fn sample_dimensions(max_dimension: i32) -> (u32, u32) {
     let clamped_max = max_dimension.clamp(160, 1920) as u32;
     let width = ((clamped_max / 8) * 8).max(160);
     let raw_height = ((width * 9) / 16).max(96);
     let height = (((raw_height + 4) / 8) * 8).min(width);
+    (width, height)
+}
+
+/// Generates a valid landscape 16:9 baseline JFIF image bounded by `max_dimension`.
+pub fn encode_sample_jpeg(facing: &str, max_dimension: i32, seq: u64) -> (Vec<u8>, u32, u32) {
+    let (width, height) = sample_dimensions(max_dimension);
 
     let mcu_cols = width / 8;
     let mcu_rows = height / 8;
     let facing_seed: u64 = if facing == "back" { 97 } else { 31 };
+    let sample_face = super::build_sample_faces(facing, seq).into_iter().next();
 
     let dc_lut = build_dc_huffman_lut();
     let mut scan = BitWriter::new((mcu_cols * mcu_rows * 2) as usize + 64);
@@ -110,10 +117,52 @@ pub fn encode_sample_jpeg(facing: &str, max_dimension: i32, seq: u64) -> (Vec<u8
 
     // Quantization step = 8 across all 64 DCT positions -> DC coefficient = (luma - 128)
     for row in 0..mcu_rows {
+        let ny = ((row as f64 + 0.5) / mcu_rows as f64) * 2.0 - 1.0;
         for col in 0..mcu_cols {
-            let phase = (u64::from(col) * 7 + u64::from(row) * 11 + seq * 13 + facing_seed) % 180;
-            let luma = (38 + phase) as i16; // [38..217]
-            let dc = luma - 128; // [-90..89], fits easily in DC category <= 7
+            let nx = ((col as f64 + 0.5) / mcu_cols as f64) * 2.0 - 1.0;
+            let luma: i16 = if let Some(face) = sample_face.as_ref() {
+                let fx = face.offset_x;
+                let fy = face.offset_y;
+                let fw = face.width.max(0.12);
+                let fh = face.height.max(0.18);
+
+                let head_dx = (nx - fx) / (fw * 0.78);
+                let head_dy = (ny - fy) / (fh * 0.88);
+                let in_head = (head_dx * head_dx + head_dy * head_dy) <= 1.0;
+
+                let shoulder_dx = (nx - fx) / (fw * 1.65);
+                let shoulder_dy = (ny - (fy + fh * 1.15)) / (fh * 0.72);
+                let in_shoulders =
+                    ny >= fy + fh * 0.52 && (shoulder_dx * shoulder_dx + shoulder_dy * shoulder_dy) <= 1.0;
+
+                let left_eye = ((nx - (fx - fw * 0.28)) / (fw * 0.14)).powi(2)
+                    + ((ny - (fy - fh * 0.16)) / (fh * 0.14)).powi(2)
+                    <= 1.0;
+                let right_eye = ((nx - (fx + fw * 0.28)) / (fw * 0.14)).powi(2)
+                    + ((ny - (fy - fh * 0.16)) / (fh * 0.14)).powi(2)
+                    <= 1.0;
+                let on_hair = in_head && ny < fy - fh * 0.42;
+                let on_grid = nx.abs() < 0.03 || ny.abs() < 0.04;
+
+                if left_eye || right_eye {
+                    54
+                } else if on_hair {
+                    68
+                } else if in_head {
+                    198
+                } else if in_shoulders {
+                    132
+                } else if on_grid {
+                    76
+                } else {
+                    let vignette = ((1.0 - (nx * nx + ny * ny) * 0.3).clamp(0.0, 1.0) * 18.0) as i16;
+                    38 + vignette
+                }
+            } else {
+                let phase = (u64::from(col) * 7 + u64::from(row) * 11 + seq * 13 + facing_seed) % 160;
+                (40 + phase) as i16
+            };
+            let dc = luma.clamp(32, 220) - 128; // [-96..92], fits easily in DC category <= 7
             let diff = dc - prev_dc;
             prev_dc = dc;
             encode_dc_diff(&mut scan, diff, &dc_lut);

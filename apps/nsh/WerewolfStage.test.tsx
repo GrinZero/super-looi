@@ -106,14 +106,72 @@ async function runFullLandscapeMatch(variant: {
     await app.press("id:plugin-vision-person-tracker");
     await app.waitFor("id:vision-person-tracker-settings");
     expect(app.shows("id:vision-stream-status")).toBe(true);
+    expect(app.shows("id:vision-companion-follow")).toBe(true);
+    expect(app.shows("id:vision-actuator-mode")).toBe(true);
+    expect(app.shows("id:vision-tracking-status")).toBe(true);
+    expect(app.shows("id:vision-capture-portrait")).toBe(true);
+    await app.press("id:vision-toggle-calibration");
+    await app.waitFor("id:vision-camera-preview");
+    await app.press("id:vision-capture-portrait");
+    await app.waitFor("id:vision-captured-portrait");
+    await app.press("id:vision-companion-follow");
+    await app.waitUntil(
+      () => app.shows("id:vision-commanded-turn") && app.shows("id:vision-commanded-pitch"),
+      { timeout: 3000 },
+    );
+
+    // Leaving settings with both companion follow & calibration active closes calibration while keeping companion streaming
+    await app.press("id:plugin-back-to-list");
+    await app.waitFor("id:plugin-vision-person-tracker");
+    await app.press("id:plugin-vision-person-tracker");
+    await app.waitFor("id:vision-person-tracker-settings");
+    expect(app.shows("id:vision-camera-preview")).toBe(false);
+    expect(app.shows("id:vision-error-banner")).toBe(false);
+    expect(app.texts()).toContain("纯眼神跟随");
+
+    await app.press("id:vision-companion-follow");
     await app.press("id:vision-alpha-025");
     await app.press("id:vision-alpha-045");
     await app.press("id:plugin-back-to-list");
 
-    // 2. Open werewolf-judge settings & launch onto MorphableStage ("登上首屏开局")
+    // 2. Open werewolf-judge settings, verify tap-to-enlarge QR modal in SettingsView, then launch onto MorphableStage ("登上首屏开局")
     await app.waitFor("id:plugin-werewolf-judge");
     await app.press("id:plugin-werewolf-judge");
     await app.waitFor("id:werewolf-settings-view");
+
+    await app.press("id:werewolf-settings-toggle-lan");
+    await app.waitFor("id:werewolf-settings-qr");
+    await app.waitUntil(
+      () => app.texts().some((txt) => txt.includes("http://")),
+      { timeout: 5000 },
+    );
+    expect(app.shows("id:werewolf-settings-qr-canvas")).toBe(true);
+    await app.press("id:werewolf-settings-qr");
+    await app.waitFor("id:werewolf-settings-qr-zoom-card");
+    expect(app.shows("id:werewolf-settings-qr-zoom-canvas")).toBe(true);
+    await app.press("id:werewolf-settings-qr-zoom-copy");
+    await app.waitUntil(
+      () => app.texts().includes("已复制链接"),
+      { timeout: 3000 },
+    );
+    await app.press("id:werewolf-settings-qr-zoom-qr");
+    await app.waitUntil(
+      () => !app.shows("id:werewolf-settings-qr-zoom-card"),
+      { timeout: 3000 },
+    );
+    await app.press("id:werewolf-settings-qr");
+    await app.waitFor("id:werewolf-settings-qr-zoom-card");
+    expect(app.texts().includes("已复制链接")).toBe(false);
+    await app.press("id:werewolf-settings-qr-zoom-close");
+    await app.waitUntil(
+      () => !app.shows("id:werewolf-settings-qr-zoom-card"),
+      { timeout: 3000 },
+    );
+    await app.press("id:werewolf-settings-toggle-lan");
+    await app.waitUntil(() => !app.shows("id:werewolf-settings-qr"), {
+      timeout: 3000,
+    });
+
     await app.press("id:werewolf-launch-stage-btn");
 
     // Verify MorphableStage lobby mounted in landscape with persistent RobotFace
@@ -133,7 +191,7 @@ async function runFullLandscapeMatch(variant: {
     await app.wait(120);
     expect(app.shows("id:werewolf-stage-capsule")).toBe(false);
 
-    // 3. Select 6p_joy, toggle LAN Companion QR on to verify native LanRoomHost + QrCodeCanvas, then switch back to on_device
+    // 3. Select 6p_joy, toggle LAN Companion QR on to verify native LanRoomHost + QrCodeCanvas + tap-to-enlarge modal, then switch back to on_device
     await app.press("id:werewolf-preset-6p_joy");
     await app.press("id:werewolf-surface-lan_companion");
     await app.waitFor("id:werewolf-qr-card");
@@ -142,6 +200,15 @@ async function runFullLandscapeMatch(variant: {
       { timeout: 5000 },
     );
     expect(app.shows("id:werewolf-qr-canvas")).toBe(true);
+
+    await app.press("id:werewolf-qr-card");
+    await app.waitFor("id:werewolf-qr-card-zoom-card");
+    expect(app.shows("id:werewolf-qr-card-zoom-canvas")).toBe(true);
+    await app.press("id:werewolf-qr-card-zoom-close");
+    await app.waitUntil(
+      () => !app.shows("id:werewolf-qr-card-zoom-card"),
+      { timeout: 3000 },
+    );
 
     await app.press("id:werewolf-surface-on_device");
     await app.wait(120);

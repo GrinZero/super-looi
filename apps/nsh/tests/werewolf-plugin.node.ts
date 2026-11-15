@@ -1305,6 +1305,338 @@ test("vision-person-tracker strictly enforces 0-subscriber camera OFF, ref-count
   visionBroker.close();
 });
 
+test("vision-person-tracker standalone companion drives gaze + docked servo (speed=0), captures portrait, yields cleanly, and persists state", async () => {
+  const cameraPort = new FakeTrackingCameraPort();
+  cameraPort.facesQueue.push(
+    [{ trackId: 21, offsetX: -0.5, offsetY: -0.2, width: 0.28, height: 0.36, confidence: 0.96 }],
+    [{ trackId: 21, offsetX: -0.5, offsetY: -0.2, width: 0.28, height: 0.36, confidence: 0.96 }],
+    [{ trackId: 21, offsetX: 0.04, offsetY: 0.0, width: 0.28, height: 0.36, confidence: 0.96 }],
+    [{ trackId: 21, offsetX: 0.48, offsetY: 0.2, width: 0.28, height: 0.36, confidence: 0.96 }],
+  );
+
+  const visionBroker = new VisionBroker();
+  visionBroker.attachNativePort(cameraPort);
+
+  const hub = new FaceDriverHub();
+  const faceController = new RobotFaceController();
+  hub.attachController(faceController);
+
+  const bodyRuntime = await createSimulatedDockedBody();
+  const driveVectors: Array<{ speed: number; turn: number }> = [];
+  const headDegrees: number[] = [];
+
+  let resolvedService: PersonTrackerService | undefined;
+  const consumerProbeDef: PluginDefinition = {
+    manifest: {
+      id: "tracker-consumer-yield-probe",
+      version: "1.0.0",
+      minHostApiVersion: 2,
+      category: "utilities",
+      icon: "eye",
+      name: { "zh-CN": "Probe", "en-US": "Probe" },
+      summary: { "zh-CN": "Probe", "en-US": "Probe" },
+      author: { name: "Test" },
+      permissions: [],
+      dependencies: [{ service: PERSON_TRACKER_SERVICE_ID, versionRange: "^1.0.0", optional: false }],
+    },
+    initialState: () => ({}),
+    create: (ctx) => ({
+      start: async () => {
+        resolvedService = ctx.services.get<PersonTrackerService>(PERSON_TRACKER_SERVICE_ID);
+      },
+    }),
+  };
+
+  const db = new DatabaseSync(":memory:");
+  const buildHost = () =>
+    new PluginHost(db, [visionPersonTrackerDefinition({ defaultSmoothingAlpha: 1 }), consumerProbeDef], {
+      createVisionCapability: (manifest, scope) =>
+        createVisionCapability(manifest, scope, visionBroker),
+      createFaceCapability: (manifest, scope) =>
+        hub.createCapability(manifest, scope),
+      createBodyCapability: (manifest, scope) => {
+        const realBody = createBodyCapability(manifest, scope, bodyRuntime);
+        if (!realBody) return undefined;
+        return {
+          ...realBody,
+          acquireServo: async (priority, callerScope) => {
+            const lease = await realBody.acquireServo(priority, callerScope);
+            return {
+              ...lease,
+              setDriveVector: async (speed, turn) => {
+                driveVectors.push({ speed, turn });
+                return lease.setDriveVector(speed, turn);
+              },
+              setHeadDegrees: async (deg) => {
+                headDegrees.push(deg);
+                return lease.setHeadDegrees(deg);
+              },
+            };
+          },
+        };
+      },
+    });
+
+  const host = buildHost();
+  try {
+    await host.startAll();
+
+    const idleState = host.snapshot("vision-person-tracker").state as any;
+    assert.equal(idleState.streaming, false);
+    assert.equal(idleState.companionFollowEnabled, false);
+    assert.equal(idleState.actuatorMode, "idle");
+    assert.equal(idleState.trackingStatus, "idle");
+
+    await host.sendCommand("vision-person-tracker", {
+      type: "set_companion_follow",
+      enabled: true,
+    });
+
+    const deadline = Date.now() + 800;
+    while (
+      Date.now() < deadline &&
+      (driveVectors.length === 0 ||
+        (host.snapshot("vision-person-tracker").state as any).actuatorMode !== "servo_and_gaze")
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const activeState = host.snapshot("vision-person-tracker").state as any;
+    assert.equal(activeState.streaming, true);
+    assert.equal(activeState.companionFollowEnabled, true);
+    assert.equal(activeState.actuatorMode, "servo_and_gaze");
+    assert.equal(driveVectors.length > 0, true, "Expected servo drive vector updates");
+    assert.equal(headDegrees.length > 0, true, "Expected head pitch updates");
+    for (const vec of driveVectors) {
+      assert.equal(vec.speed, 0, "Tabletop companion invariant: linear speed must stay 0");
+    }
+
+    const portraitResult = (await host.sendCommand("vision-person-tracker", {
+      type: "capture_portrait",
+    })) as { dataUri: string };
+    assert.equal(portraitResult.dataUri.startsWith("data:image/jpeg;base64,"), true);
+    assert.equal(
+      (host.snapshot("vision-person-tracker").state as any).lastPortrait?.dataUri,
+      portraitResult.dataUri,
+    );
+
+    // Yield to upper consumer plugin cleanly
+    const consumerScope = createEffectScope("upper-consumer");
+    const sub = await resolvedService!.acquireTracking(
+      { maxFps: 8 },
+      () => {},
+      consumerScope,
+    );
+    const yieldedState = host.snapshot("vision-person-tracker").state as any;
+    assert.equal(yieldedState.actuatorMode, "yielded_to_consumer");
+    assert.equal(yieldedState.trackingStatus, "yielded_to_consumer");
+
+    await sub.release();
+    await consumerScope.dispose();
+    const resumedState = host.snapshot("vision-person-tracker").state as any;
+    assert.equal(resumedState.streaming, true);
+    assert.notEqual(resumedState.actuatorMode, "yielded_to_consumer");
+
+    // Preemption via user panel stop pauses companion actuator cleanly
+    await bodyRuntime.control({ action: "stop" }, "user_panel");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const preemptedState = host.snapshot("vision-person-tracker").state as any;
+    assert.equal(preemptedState.actuatorMode, "preempted");
+    assert.equal(preemptedState.trackingStatus, "preempted");
+
+    // Turning companion follow OFF drops stream to 0 and returns to idle
+    await host.sendCommand("vision-person-tracker", {
+      type: "set_companion_follow",
+      enabled: false,
+    });
+    const offState = host.snapshot("vision-person-tracker").state as any;
+    assert.equal(offState.streaming, false);
+    assert.equal(offState.actuatorMode, "idle");
+    assert.equal(offState.trackingStatus, "idle");
+    assert.equal(cameraPort.activeSessions.size, 0);
+
+    // Re-enable before closing and verify persistence across PluginHost restart
+    await host.sendCommand("vision-person-tracker", {
+      type: "set_companion_follow",
+      enabled: true,
+    });
+  } finally {
+    await host.close();
+  }
+
+  const host2 = buildHost();
+  try {
+    await host2.startAll();
+    const waitStart = Date.now() + 500;
+    while (
+      Date.now() < waitStart &&
+      !(host2.snapshot("vision-person-tracker").state as any).streaming
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const rebootState = host2.snapshot("vision-person-tracker").state as any;
+    assert.equal(rebootState.companionFollowEnabled, true);
+    assert.equal(rebootState.streaming, true);
+  } finally {
+    await host2.close();
+    bodyRuntime.close();
+    faceController.dispose();
+    visionBroker.close();
+  }
+});
+
+test("vision-person-tracker cooldowns expected servo contention without error spam while surfacing real servo and startup camera failures", async () => {
+  const cameraPort = new FakeTrackingCameraPort();
+  cameraPort.defaultFaces = [
+    { trackId: 33, offsetX: -0.45, offsetY: 0.25, width: 0.28, height: 0.36, confidence: 0.95 },
+  ];
+  const visionBroker = new VisionBroker();
+  visionBroker.attachNativePort(cameraPort);
+
+  const hub = new FaceDriverHub();
+  const faceController = new RobotFaceController();
+  hub.attachController(faceController);
+
+  const bodyRuntime = await createSimulatedDockedBody();
+  let acquireAttempts = 0;
+  let injectHeadFailure = false;
+
+  const db = new DatabaseSync(":memory:");
+  const buildHost = () =>
+    new PluginHost(db, [visionPersonTrackerDefinition({ defaultSmoothingAlpha: 1, defaultMaxFps: 10 })], {
+      createVisionCapability: (manifest, scope) =>
+        createVisionCapability(manifest, scope, visionBroker),
+      createFaceCapability: (manifest, scope) =>
+        hub.createCapability(manifest, scope),
+      createBodyCapability: (manifest, scope) => {
+        const realBody = createBodyCapability(manifest, scope, bodyRuntime);
+        if (!realBody) return undefined;
+        return {
+          ...realBody,
+          acquireServo: async (priority, callerScope) => {
+            acquireAttempts += 1;
+            const lease = await realBody.acquireServo(priority, callerScope);
+            return {
+              ...lease,
+              setHeadDegrees: async (deg) => {
+                if (injectHeadFailure) {
+                  throw Object.assign(new Error("Simulated head out-of-range"), {
+                    stage: "body.head",
+                    code: "ERR_BODY_HEAD_INVALID",
+                  });
+                }
+                return lease.setHeadDegrees(deg);
+              },
+            };
+          },
+        };
+      },
+    });
+
+  // Hold a higher-priority foreground drive lease so background companion receives ERR_BODY_SERVO_BUSY_FOREGROUND
+  const fgScope = createEffectScope("fg-servo-blocker");
+  const fgCap = createBodyCapability(
+    {
+      ...visionPersonTrackerDefinition().manifest,
+      id: "fg-servo-blocker",
+      permissions: ["body.motion", "stage.ui"],
+    },
+    fgScope,
+    bodyRuntime,
+  )!;
+  const fgLease = await fgCap.acquireServo("foreground_stage", fgScope);
+
+  const host = buildHost();
+  try {
+    await host.startAll();
+    await host.sendCommand("vision-person-tracker", {
+      type: "set_companion_follow",
+      enabled: true,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    const contestedSnap = host.snapshot("vision-person-tracker");
+    assert.equal((contestedSnap.state as any).actuatorMode, "gaze_only");
+    assert.equal((contestedSnap.state as any).lastError, null);
+    assert.equal(contestedSnap.lastError, undefined);
+    assert.equal(
+      acquireAttempts <= 3,
+      true,
+      `Expected frame cooldown to prevent 10Hz acquireServo storm (got ${acquireAttempts})`,
+    );
+
+    // Inject real head hardware error and release foreground lease so companion acquires servo and hits it
+    injectHeadFailure = true;
+    await fgLease.release();
+    await fgScope.dispose();
+
+    const deadline = Date.now() + 1800;
+    while (
+      Date.now() < deadline &&
+      !(host.snapshot("vision-person-tracker").state as any).lastError
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    const errSnap = host.snapshot("vision-person-tracker");
+    assert.equal(
+      ((errSnap.state as any).lastError as string | null)?.includes("ERR_BODY_HEAD_INVALID"),
+      true,
+    );
+    assert.equal(String(errSnap.lastError?.code), "ERR_BODY_HEAD_INVALID");
+
+    // Subsequent camera frames must NOT wipe active servo hardware failure
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const persistedErrSnap = host.snapshot("vision-person-tracker");
+    assert.equal(
+      ((persistedErrSnap.state as any).lastError as string | null)?.includes("ERR_BODY_HEAD_INVALID"),
+      true,
+    );
+    assert.equal(String(persistedErrSnap.lastError?.code), "ERR_BODY_HEAD_INVALID");
+
+    // Once hardware recovers on a subsequent frame, servo error clears cleanly
+    injectHeadFailure = false;
+    cameraPort.facesQueue.push([
+      { trackId: 33, offsetX: 0.35, offsetY: -0.35, width: 0.28, height: 0.36, confidence: 0.95 },
+    ]);
+    const recoverDeadline = Date.now() + 800;
+    while (
+      Date.now() < recoverDeadline &&
+      (host.snapshot("vision-person-tracker").state as any).lastError !== null
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    assert.equal((host.snapshot("vision-person-tracker").state as any).lastError, null);
+    assert.equal(host.snapshot("vision-person-tracker").lastError, undefined);
+  } finally {
+    await host.close();
+  }
+
+  // Reboot with persisted companionFollowEnabled=true while camera permission is denied -> startup error must surface
+  cameraPort.permissionState = "denied";
+  const host2 = buildHost();
+  try {
+    await host2.startAll();
+    const failDeadline = Date.now() + 600;
+    while (
+      Date.now() < failDeadline &&
+      !(host2.snapshot("vision-person-tracker").state as any).lastError
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const bootErrSnap = host2.snapshot("vision-person-tracker");
+    assert.equal(
+      ((bootErrSnap.state as any).lastError as string | null)?.includes("ERR_CAMERA_PERMISSION_DENIED"),
+      true,
+    );
+    assert.equal(String(bootErrSnap.lastError?.code), "ERR_CAMERA_PERMISSION_DENIED");
+  } finally {
+    await host2.close();
+    bodyRuntime.close();
+    faceController.dispose();
+    visionBroker.close();
+  }
+});
+
 test("LanRoomBroker + LanCompanionController enforce seatToken secret isolation, wolf-pack night consensus, and revision notifications", async () => {
   const nativeLan = new FakeNativeLanRoomPort();
   const lanBroker = new LanRoomBroker();

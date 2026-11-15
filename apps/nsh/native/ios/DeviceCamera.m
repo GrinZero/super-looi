@@ -4,6 +4,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ImageIO/ImageIO.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -718,7 +719,10 @@ didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)metadataObjects
 
 @end
 
-@interface LCDeviceCameraView : UIView
+@interface LCDeviceCameraView : UIView {
+@public
+    _Atomic(uint64_t) _sampleEpoch;
+}
 @property(nonatomic, strong) LCDeviceCameraSession *session;
 @end
 
@@ -957,18 +961,175 @@ void looi_device_camera_view_bind(void *view, void *handle) {
     @autoreleasepool {
         LCDeviceCameraView *surface = (__bridge LCDeviceCameraView *)view;
         LCDeviceCameraSession *target = handle ? (__bridge LCDeviceCameraSession *)handle : nil;
-        if (NSThread.isMainThread) {
+        atomic_fetch_add_explicit(&surface->_sampleEpoch, 1, memory_order_acq_rel);
+        dispatch_block_t apply = ^{
             surface.session = target;
+            if (!target) {
+                LCFlushDisplayLayer((AVSampleBufferDisplayLayer *)surface.layer, YES);
+            }
+        };
+        if (NSThread.isMainThread) {
+            apply();
         } else {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                surface.session = target;
-            });
+            dispatch_async(dispatch_get_main_queue(), apply);
         }
+    }
+}
+
+void looi_device_camera_view_present_sample(
+    void *view,
+    int32_t facing,
+    uint64_t seq,
+    float offset_x,
+    float offset_y,
+    float face_w,
+    float face_h
+) {
+    if (!view) return;
+    @autoreleasepool {
+        LCDeviceCameraView *surface = (__bridge LCDeviceCameraView *)view;
+        uint64_t expectedEpoch = atomic_load_explicit(&surface->_sampleEpoch, memory_order_acquire);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            @autoreleasepool {
+                AVSampleBufferDisplayLayer *display = (AVSampleBufferDisplayLayer *)surface.layer;
+                if (!display || surface.session != nil) return;
+                if (atomic_load_explicit(&surface->_sampleEpoch, memory_order_acquire) != expectedEpoch) {
+                    return;
+                }
+
+                const size_t w = 320;
+                const size_t h = 180;
+                NSDictionary *attrs = @{
+                    (id)kCVPixelBufferCGImageCompatibilityKey : @YES,
+                    (id)kCVPixelBufferCGBitmapContextCompatibilityKey : @YES,
+                    (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
+                };
+                CVPixelBufferRef pixel = NULL;
+                if (CVPixelBufferCreate(kCFAllocatorDefault, w, h, kCVPixelFormatType_32BGRA, (__bridge CFDictionaryRef)attrs, &pixel) != kCVReturnSuccess || !pixel) {
+                    return;
+                }
+
+                if (CVPixelBufferLockBaseAddress(pixel, 0) == kCVReturnSuccess) {
+                    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+                    CGContextRef cg = CGBitmapContextCreate(
+                        CVPixelBufferGetBaseAddress(pixel),
+                        w,
+                        h,
+                        8,
+                        CVPixelBufferGetBytesPerRow(pixel),
+                        cs,
+                        kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst
+                    );
+                    if (cg) {
+                        // Flip Y so normalized offset_y < 0 maps cleanly to the top of the frame.
+                        CGContextTranslateCTM(cg, 0.0, (CGFloat)h);
+                        CGContextScaleCTM(cg, 1.0, -1.0);
+
+                        // Dark studio background + subtle grid lines.
+                        CGContextSetRGBFillColor(cg, 0.08, 0.10, 0.14, 1.0);
+                        CGContextFillRect(cg, CGRectMake(0, 0, w, h));
+
+                        CGContextSetRGBStrokeColor(cg, 1.0, 1.0, 1.0, 0.09);
+                        CGContextSetLineWidth(cg, 1.0);
+                        for (size_t gx = 40; gx < w; gx += 40) {
+                            CGContextMoveToPoint(cg, (CGFloat)gx, 0.0);
+                            CGContextAddLineToPoint(cg, (CGFloat)gx, (CGFloat)h);
+                        }
+                        for (size_t gy = 30; gy < h; gy += 30) {
+                            CGContextMoveToPoint(cg, 0.0, (CGFloat)gy);
+                            CGContextAddLineToPoint(cg, (CGFloat)w, (CGFloat)gy);
+                        }
+                        CGContextStrokePath(cg);
+
+                        if (facing == 0 && face_w > 0.0f && face_h > 0.0f) {
+                            CGFloat cx = ((CGFloat)offset_x + 1.0) * 0.5 * (CGFloat)w;
+                            CGFloat cy = ((CGFloat)offset_y + 1.0) * 0.5 * (CGFloat)h;
+                            CGFloat fw = MAX(28.0, (CGFloat)face_w * (CGFloat)w);
+                            CGFloat fh = MAX(32.0, (CGFloat)face_h * (CGFloat)h);
+
+                            // Soft halo behind the subject.
+                            CGContextSetRGBFillColor(cg, 0.22, 0.34, 0.48, 0.28);
+                            CGContextFillEllipseInRect(cg, CGRectMake(cx - fw * 1.1, cy - fh * 0.9, fw * 2.2, fh * 2.1));
+
+                            // Shoulders & neck.
+                            CGContextSetRGBFillColor(cg, 0.27, 0.36, 0.49, 1.0);
+                            CGContextFillEllipseInRect(cg, CGRectMake(cx - fw * 0.95, cy + fh * 0.42, fw * 1.9, fh * 1.25));
+                            CGContextSetRGBFillColor(cg, 0.85, 0.71, 0.61, 1.0);
+                            CGContextFillRect(cg, CGRectMake(cx - fw * 0.14, cy + fh * 0.26, fw * 0.28, fh * 0.24));
+
+                            // Head.
+                            CGRect headRect = CGRectMake(cx - fw * 0.40, cy - fh * 0.48, fw * 0.80, fh * 0.88);
+                            CGContextSetRGBFillColor(cg, 0.93, 0.80, 0.69, 1.0);
+                            CGContextFillEllipseInRect(cg, headRect);
+
+                            // Hair crown.
+                            CGContextSetRGBFillColor(cg, 0.16, 0.19, 0.26, 1.0);
+                            CGContextFillEllipseInRect(cg, CGRectMake(cx - fw * 0.41, cy - fh * 0.52, fw * 0.82, fh * 0.34));
+
+                            // Eyes (periodic quick blink on simulator stream).
+                            BOOL blinking = (seq % 28) == 0;
+                            CGFloat eyeH = blinking ? 1.5 : 4.5;
+                            CGFloat eyeY = cy - fh * 0.08 - eyeH * 0.5;
+                            CGContextSetRGBFillColor(cg, 0.14, 0.16, 0.20, 1.0);
+                            CGContextFillEllipseInRect(cg, CGRectMake(cx - fw * 0.18 - 2.5, eyeY, 5.0, eyeH));
+                            CGContextFillEllipseInRect(cg, CGRectMake(cx + fw * 0.18 - 2.5, eyeY, 5.0, eyeH));
+
+                            // Smile arc.
+                            CGContextSetRGBStrokeColor(cg, 0.58, 0.36, 0.32, 1.0);
+                            CGContextSetLineWidth(cg, 1.8);
+                            CGContextAddArc(cg, cx, cy + fh * 0.10, fw * 0.14, 0.25, M_PI - 0.25, 0);
+                            CGContextStrokePath(cg);
+                        } else {
+                            // Back camera moving calibration stripe.
+                            CGFloat barX = fmod((CGFloat)(seq * 18), (CGFloat)w);
+                            CGContextSetRGBFillColor(cg, 0.28, 0.52, 0.72, 0.45);
+                            CGContextFillRect(cg, CGRectMake(barX, 0, 28, h));
+                        }
+                        CGContextRelease(cg);
+                    }
+                    CGColorSpaceRelease(cs);
+                    CVPixelBufferUnlockBaseAddress(pixel, 0);
+                }
+
+                CMVideoFormatDescriptionRef format = NULL;
+                CMSampleBufferRef previewSample = NULL;
+                if (CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixel, &format) == noErr) {
+                    CMSampleTimingInfo timing = {
+                        CMTimeMake(1, 15),
+                        CMTimeMake((int64_t)(seq + 1), 15),
+                        kCMTimeInvalid
+                    };
+                    if (CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault, pixel, format, &timing, &previewSample) == noErr) {
+                        CFArrayRef attachments = CMSampleBufferGetSampleAttachmentsArray(previewSample, YES);
+                        if (attachments && CFArrayGetCount(attachments) > 0) {
+                            CFMutableDictionaryRef sampleAttrs = (CFMutableDictionaryRef)CFArrayGetValueAtIndex(attachments, 0);
+                            CFDictionarySetValue(sampleAttrs, kCMSampleAttachmentKey_DisplayImmediately, kCFBooleanTrue);
+                        }
+                        if (@available(iOS 18.0, *)) {
+                            AVSampleBufferVideoRenderer *renderer = display.sampleBufferRenderer;
+                            if (renderer.status == AVQueuedSampleBufferRenderingStatusFailed) [renderer flush];
+                            if (renderer.readyForMoreMediaData) [renderer enqueueSampleBuffer:previewSample];
+                        } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                            if (display.status == AVQueuedSampleBufferRenderingStatusFailed) [display flush];
+                            if (display.readyForMoreMediaData) [display enqueueSampleBuffer:previewSample];
+#pragma clang diagnostic pop
+                        }
+                        CFRelease(previewSample);
+                    }
+                    CFRelease(format);
+                }
+                CVPixelBufferRelease(pixel);
+            }
+        });
     }
 }
 
 void looi_device_camera_view_release(void *view) {
     if (!view) return;
+    LCDeviceCameraView *unretained = (__bridge LCDeviceCameraView *)view;
+    atomic_fetch_add_explicit(&unretained->_sampleEpoch, 1, memory_order_acq_rel);
     if (NSThread.isMainThread) {
         @autoreleasepool {
             LCDeviceCameraView *surface = CFBridgingRelease(view);

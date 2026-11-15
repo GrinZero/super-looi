@@ -1,3 +1,23 @@
+## 「视觉座位追踪」取景频闪修复与具身跟脸伴随增强（2026-11-15）
+
+方案见 [`docs/plans/vision-person-tracker-fix-plan.md`](docs/plans/vision-person-tracker-fix-plan.md)。
+
+- [x] Step 1：编写修复与增强计划文档 `docs/plans/vision-person-tracker-fix-plan.md` 并建立 `progress.md` 清单
+- [x] Step 2：修复 iOS 模拟器 `<DeviceCameraPreview />` 合成画面渲染与动态人脸轨迹
+  - [x] Step 2.1：`apps/nsh/src/device_camera/mod.rs` 动态模拟人脸往返轨迹与 `displayed` 状态上报
+  - [x] Step 2.2：`apps/nsh/native/ios/DeviceCamera.m`、`apps/nsh/src/device_camera/ios.rs` 与 `apps/nsh/src/device_camera/view_ios.rs` 模拟器实时合成取景帧送显
+  - [x] Step 2.3：`apps/nsh/src/device_camera/sample_jpeg.rs` 根据同步人脸位置渲染头肩明暗轮廓
+- [x] Step 3：为 `vision-person-tracker` 补齐独立实时跟脸伴随与头像抓拍能力
+  - [x] Step 3.1：`manifest.ts` 权限扩展与 `contracts.ts` 状态/指令契约扩展
+  - [x] Step 3.2：`runtime/index.ts` 接入 `face.control` 眼神跟随、`body.motion` 后台伴随伺服（含消费插件让渡与被抢占处理）及 `capture_portrait`
+- [x] Step 4：修复 `SettingsView.tsx` 6Hz 频闪并完善校准/伴随/抓拍 UI
+  - [x] Step 4.1：引入 `computed` 与会话去重消除 `previewReveal` 重复重置频闪
+  - [x] Step 4.2：新增常驻跟脸伴随开关、抓拍头像按钮、伺服遥测卡与头像缩略图预览
+- [x] Step 5：全量自动化校验、iOS 模拟器横屏实测、独立子 agent 复审与提交
+  - [x] Step 5.1：独立 `research` 子 agent 复审并完成修复（`DeviceCamera.m` `_sampleEpoch` 防旧帧、 `view_ios.rs` `bound_session_ptr` 同 ID 重绑、`sample_jpeg.rs`/`mod.rs` 尺寸单源化、`runtime/index.ts` `ServoFailureChannel` 正交失败通道、`SettingsView.tsx` 校准预览门控与卸载防抖）
+  - [x] Step 5.2：全量校验通过：`pnpm typecheck`、`cargo test --lib`（29/29）、`pnpm test:werewolf`（21/21）、`pnpm test:ecosystem`（6/6）、`pnpm test:plugin-host`（8/8）、`pnpm test:embodied`（5/5）、`DeviceCameraBridge.test.tsx`（2/2）与 `WerewolfStage.test.tsx`（3/3，含横屏亮暗双主题）
+  - [x] Step 5.3：完成 iOS Simulator 目标构建、`Super LOOI.app` 打包安装与启动验证（横屏真/模拟机画面与动作已校验），并隔离提交本次改动
+
 ## 狼人杀法官插件容灾、语音抗中断与舞台重入升级（2026-11-15）
 
 方案见 [`docs/plans/werewolf-resilience-and-recovery-plan.md`](docs/plans/werewolf-resilience-and-recovery-plan.md)。

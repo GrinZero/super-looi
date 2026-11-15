@@ -71,14 +71,36 @@ function createProbeVisionCapability(
     requestPermission: async () => "granted",
     subscribeFrames: async (options, onFrame) => {
       const targetScope = options.scope ?? defaultScope;
+      if (!targetScope.active) {
+        throw new Error("[stage=vision.subscribeFrames code=ERR_PLUGIN_SCOPE_DISPOSED] Scope already disposed");
+      }
       const sessionId = `probe_cam_${++seqCounter}`;
       const maxDim = options.maxDimension ?? 320;
       const maxFps = options.maxFps ?? 25;
       await nativeCamera.openSample(options.facing, maxDim, maxFps, sessionId);
+      if (!targetScope.active) {
+        try {
+          nativeCamera.closeSession(sessionId);
+        } catch {}
+        throw new Error("[stage=vision.subscribeFrames code=ERR_PLUGIN_SCOPE_DISPOSED] Scope disposed while opening sample stream");
+      }
       let active = true;
       let lastSeq = 0;
-      const emitSample = () => {
+      let inFlight = false;
+      let timerLoop: ReturnType<typeof setTimeout> | undefined;
+      const intervalMs = Math.max(80, Math.round(1000 / Math.max(1, maxFps)));
+
+      const scheduleNext = () => {
         if (!active) return;
+        timerLoop = setTimeout(() => {
+          emitSample();
+          scheduleNext();
+        }, intervalMs);
+      };
+
+      const emitSample = () => {
+        if (!active || inFlight) return;
+        inFlight = true;
         void nativeCamera
           .captureFrame(sessionId, maxDim, lastSeq)
           .then((raw) => {
@@ -106,16 +128,21 @@ function createProbeVisionCapability(
               faces,
             });
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => {
+            inFlight = false;
+          });
       };
       const timerA = setTimeout(emitSample, 15);
       const timerB = setTimeout(emitSample, 45);
+      scheduleNext();
 
       const stop = () => {
         if (!active) return;
         active = false;
         clearTimeout(timerA);
         clearTimeout(timerB);
+        if (timerLoop !== undefined) clearTimeout(timerLoop);
         try {
           nativeCamera.closeSession(sessionId);
         } catch {}
@@ -164,8 +191,17 @@ function createProbeLanCapability(
   return {
     openRoom: async (options) => {
       const targetScope = options.scope ?? defaultScope;
+      if (!targetScope.active) {
+        throw new Error("[stage=lan.openRoom code=ERR_PLUGIN_SCOPE_DISPOSED] Scope already disposed");
+      }
       const requestedId = `probe_lan_${++roomCounter}`;
       let info = await nativeLan.openRoom(requestedId);
+      if (!targetScope.active) {
+        try {
+          nativeLan.closeRoom(info.roomId);
+        } catch {}
+        throw new Error("[stage=lan.openRoom code=ERR_PLUGIN_SCOPE_DISPOSED] Scope disposed while opening LAN room");
+      }
       let closed = false;
 
       void (async () => {
@@ -440,13 +476,17 @@ function WerewolfStageProbeApp() {
   }
   rebuildSnapshots();
 
+  let probeDisposed = false;
+
   void (async () => {
     for (const id of topology.bootOrder) {
+      if (probeDisposed) break;
       await mountAndStartEntry(entries.get(id)!);
     }
   })();
 
   cleanup(() => {
+    probeDisposed = true;
     for (const id of [...topology.bootOrder].reverse()) {
       const entry = entries.get(id);
       void entry?.runtime?.stop?.();

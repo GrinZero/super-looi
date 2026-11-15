@@ -187,13 +187,21 @@ pub struct DeviceCameraNativeFrame {
     pub faces: Vec<DetectedCameraNativeFace>,
 }
 
-fn build_sample_faces(facing: &str, seq: u64) -> Vec<DetectedCameraNativeFace> {
+pub(super) fn build_sample_faces(facing: &str, seq: u64) -> Vec<DetectedCameraNativeFace> {
     if facing != "front" {
         return Vec::new();
     }
-    let phase = seq as f64 * 0.35;
-    let offset_x = ((phase.sin() * 0.08) * 10_000.0).round() / 10_000.0;
-    let offset_y = (((phase * 0.7).cos() * 0.05 - 0.02) * 10_000.0).round() / 10_000.0;
+    let (offset_x, offset_y) = if seq <= 3 {
+        let phase = seq as f64 * 0.35;
+        let ox = ((phase.sin() * 0.08) * 10_000.0).round() / 10_000.0;
+        let oy = (((phase * 0.7).cos() * 0.05 - 0.02) * 10_000.0).round() / 10_000.0;
+        (ox, oy)
+    } else {
+        let phase = (seq - 3) as f64 * 0.18;
+        let ox = ((phase.sin() * 0.42) * 10_000.0).round() / 10_000.0;
+        let oy = (((phase * 0.65).cos() * 0.16 - 0.02) * 10_000.0).round() / 10_000.0;
+        (ox, oy)
+    };
     vec![DetectedCameraNativeFace {
         track_id: 1,
         offset_x,
@@ -370,16 +378,14 @@ impl Session {
         match &self.backend {
             SessionBackend::Platform(p) => p.status(),
             SessionBackend::Sample(st) => {
-                let dim = st.max_dimension.load(Ordering::Acquire).clamp(160, 1920) as u32;
-                let w = ((dim / 8) * 8).max(160) as i32;
-                let h = ((((w as u32 * 9) / 16 + 4) / 8) * 8) as i32;
+                let (w, h) = sample_jpeg::sample_dimensions(st.max_dimension.load(Ordering::Acquire));
                 NativeSessionStatus {
                     frames: st.frames.load(Ordering::Acquire),
-                    width: w,
-                    height: h,
+                    width: w as i32,
+                    height: h as i32,
                     captured_at_ms: st.captured_at_ms.load(Ordering::Acquire) as i64,
                     error: 0,
-                    displayed: Some(false),
+                    displayed: Some(st.frames.load(Ordering::Acquire) > 0),
                     failure: None,
                 }
             }
@@ -400,6 +406,22 @@ impl Session {
             "closed": self.closed.load(Ordering::Acquire),
             "failure": s.failure,
         })
+    }
+
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    pub(super) fn sample_preview_snapshot(
+        &self,
+    ) -> Option<(i32, u64, Option<DetectedCameraNativeFace>)> {
+        let SessionBackend::Sample(st) = &self.backend else {
+            return None;
+        };
+        if self.closed.load(Ordering::Acquire) {
+            return None;
+        }
+        let seq = st.frames.load(Ordering::Acquire);
+        let facing_code = if self.facing == "back" { 1 } else { 0 };
+        let face = build_sample_faces(&self.facing, seq).into_iter().next();
+        Some((facing_code, seq, face))
     }
 
     fn close(&self) {

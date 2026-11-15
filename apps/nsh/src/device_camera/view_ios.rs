@@ -63,6 +63,27 @@ impl NativeComponent for DeviceCameraPreviewView {
         unsafe {
             looi_device_camera_view_bind(self.view.0, initial_handle);
         }
+        let mut initial_sample_seq: Option<u64> = None;
+        if let Some((facing, seq, face)) = initial_session
+            .as_deref()
+            .and_then(Session::sample_preview_snapshot)
+        {
+            let (ox, oy, fw, fh) = face
+                .as_ref()
+                .map(|f| {
+                    (
+                        f.offset_x as f32,
+                        f.offset_y as f32,
+                        f.width as f32,
+                        f.height as f32,
+                    )
+                })
+                .unwrap_or((0.0, 0.0, 0.0, 0.0));
+            unsafe {
+                looi_device_camera_view_present_sample(self.view.0, facing, seq, ox, oy, fw, fh);
+            }
+            initial_sample_seq = Some(seq);
+        }
 
         let Some(target_id) = session_id else {
             return;
@@ -74,15 +95,21 @@ impl NativeComponent for DeviceCameraPreviewView {
         else {
             return;
         };
+        let mut bound_session_ptr = initial_session
+            .as_ref()
+            .map(|s| Arc::as_ptr(s) as usize)
+            .unwrap_or(0);
         drop(initial_session);
 
         let weak_view = Arc::downgrade(&self.view);
         let context = self.context.clone();
         let mut bound_addr = initial_handle as usize;
         let mut last_closed_ptr: usize = 0;
+        let mut last_sample_seq = initial_sample_seq;
 
         self.observer = Some(runtime.spawn(async move {
             loop {
+                let mut is_sample_active = false;
                 {
                     let Some(view_handle) = weak_view.upgrade() else {
                         return;
@@ -90,13 +117,51 @@ impl NativeComponent for DeviceCameraPreviewView {
                     let current = lookup_session(&target_id);
                     let next_handle = active_platform_handle(current.as_deref());
                     let next_addr = next_handle as usize;
-                    if next_addr != bound_addr {
+                    let next_session_ptr = current
+                        .as_ref()
+                        .map(|s| Arc::as_ptr(s) as usize)
+                        .unwrap_or(0);
+                    if next_addr != bound_addr || next_session_ptr != bound_session_ptr {
                         unsafe {
                             looi_device_camera_view_bind(view_handle.0, next_handle);
                         }
                         bound_addr = next_addr;
+                        bound_session_ptr = next_session_ptr;
+                        last_sample_seq = None;
                     }
                     if let Some(session) = &current {
+                        if let Some((facing, seq, face)) = session.sample_preview_snapshot() {
+                            is_sample_active = true;
+                            if last_sample_seq != Some(seq) {
+                                let (ox, oy, fw, fh) = face
+                                    .as_ref()
+                                    .map(|f| {
+                                        (
+                                            f.offset_x as f32,
+                                            f.offset_y as f32,
+                                            f.width as f32,
+                                            f.height as f32,
+                                        )
+                                    })
+                                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                                unsafe {
+                                    looi_device_camera_view_present_sample(
+                                        view_handle.0,
+                                        facing,
+                                        seq,
+                                        ox,
+                                        oy,
+                                        fw,
+                                        fh,
+                                    );
+                                }
+                                last_sample_seq = Some(seq);
+                            }
+                        } else if last_sample_seq.take().is_some() {
+                            unsafe {
+                                looi_device_camera_view_bind(view_handle.0, next_handle);
+                            }
+                        }
                         let session_ptr = Arc::as_ptr(session) as usize;
                         let is_closed = session.closed.load(Ordering::Acquire);
                         if !is_closed || last_closed_ptr != session_ptr {
@@ -105,9 +170,14 @@ impl NativeComponent for DeviceCameraPreviewView {
                             }
                             context.emit("state", session.status_json());
                         }
+                    } else if last_sample_seq.take().is_some() {
+                        unsafe {
+                            looi_device_camera_view_bind(view_handle.0, std::ptr::null_mut());
+                        }
                     }
                 }
-                tokio::time::sleep(Duration::from_millis(250)).await;
+                let interval_ms = if is_sample_active { 120 } else { 250 };
+                tokio::time::sleep(Duration::from_millis(interval_ms)).await;
             }
         }));
     }

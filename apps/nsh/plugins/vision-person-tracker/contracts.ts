@@ -67,23 +67,47 @@ export interface PersonTrackerService {
   capturePortrait(options?: { readonly maxDimension?: 320 | 640 }): Promise<CapturedPersonPortrait>;
 }
 
+export type CompanionTrackingStatus =
+  | "idle"
+  | "searching"
+  | "centered"
+  | "turning_left"
+  | "turning_right"
+  | "preempted"
+  | "yielded_to_consumer";
+
+export type CompanionActuatorMode =
+  | "idle"
+  | "gaze_only"
+  | "servo_and_gaze"
+  | "preempted"
+  | "yielded_to_consumer";
+
 export interface VisionPersonTrackerState {
   readonly permission: "granted" | "denied" | "undetermined" | "unavailable";
   readonly streaming: boolean;
   readonly activeSubscribers: number;
   readonly previewSessionId: string | null;
   readonly calibrationPreviewOpen: boolean;
+  readonly companionFollowEnabled: boolean;
+  readonly trackingStatus: CompanionTrackingStatus;
+  readonly actuatorMode: CompanionActuatorMode;
+  readonly commandedTurn: number;
+  readonly commandedPitchDegrees: number | null;
   readonly smoothingAlpha: number;
   readonly maxFps: number;
   readonly faceCount: number;
   readonly primaryTarget: SmoothedPersonTarget | null;
   readonly lastFrameAtMs: number | null;
+  readonly lastPortrait: CapturedPersonPortrait | null;
   readonly lastError: string | null;
 }
 
 export type VisionPersonTrackerCommand =
   | { readonly type: "request_permission" }
   | { readonly type: "set_calibration_preview"; readonly open: boolean }
+  | { readonly type: "set_companion_follow"; readonly enabled: boolean }
+  | { readonly type: "capture_portrait" }
   | {
       readonly type: "update_settings";
       readonly smoothingAlpha?: number;
