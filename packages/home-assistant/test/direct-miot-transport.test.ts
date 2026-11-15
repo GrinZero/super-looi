@@ -34,6 +34,19 @@ function fixture() {
     setOnline(value: boolean) { online = value; }, setApplyWrites(value: boolean) { applyWrites = value; }, setFailedWrite(value: boolean) { failedWrite = value; } };
 }
 
+it("publishes fresh device availability after failed reads and recovery", async () => {
+  const test = fixture();
+  const entities = await test.transport.discover();
+  assert.ok(entities.every((entity) => entity.online === true));
+  for (const piid of [1, 2, 3]) test.failedReads.add(piid);
+  const offline = await test.transport.listStates();
+  assert.ok(offline.length > 0);
+  assert.ok(offline.every((state) => state.attributes.miot_device_online === false));
+  test.failedReads.clear();
+  const recovered = await test.transport.listStates();
+  assert.ok(recovered.every((state) => state.attributes.miot_device_online === true));
+});
+
 it("resets readable filter usage to zero while preserving explicit action arguments", async () => {
   const actions: unknown[] = [];
   const urn = "urn:miot-spec-v2:device:air-purifier:0000A007:zhimi-va2:1";

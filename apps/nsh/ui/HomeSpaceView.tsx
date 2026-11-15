@@ -1265,6 +1265,9 @@ export function HomeSpaceView(props: {
       if (editingThisRoom()) {
         return "rounded-2xl border border-dashed border-primary bg-card p-3 justify-between";
       }
+      if (!app().online) {
+        return "rounded-2xl border border-border/70 bg-card/65 p-3 justify-between";
+      }
       return "rounded-2xl border border-border bg-card p-3 justify-between";
     };
 
@@ -1345,12 +1348,16 @@ export function HomeSpaceView(props: {
             >
               <ApplianceIcon
                 kind={app().icon}
-                active={app().isActive}
+                active={app().online && app().isActive}
                 size="md"
               />
               <View class="flex-1 gap-0.5" style={{ minWidth: 0 }}>
                 <Text
-                  class="text-foreground text-sm font-semibold"
+                  class={
+                    app().online
+                      ? "text-foreground text-sm font-semibold"
+                      : "text-foreground/75 text-sm font-semibold"
+                  }
                   style={{ numberOfLines: 2 }}
                 >
                   {cardView().header.title}
@@ -1389,16 +1396,23 @@ export function HomeSpaceView(props: {
               <If when={trailing().kind === "badge"}>
                 <View
                   class={
-                    trailing().kind === "badge" && (trailing() as { tone: string }).tone === "warning"
-                      ? "px-2 py-0.5 rounded-full bg-destructive/15 border border-destructive"
-                      : "px-2 py-0.5 rounded-full bg-muted border border-border"
+                    trailing().kind === "badge" && (trailing() as { tone: string }).tone === "offline"
+                      ? "px-2 py-0.5 rounded-full bg-warning/10 border border-warning/70 flex-row items-center gap-1"
+                      : trailing().kind === "badge" && (trailing() as { tone: string }).tone === "warning"
+                        ? "px-2 py-0.5 rounded-full bg-destructive/15 border border-destructive"
+                        : "px-2 py-0.5 rounded-full bg-muted border border-border"
                   }
                 >
+                  <If when={trailing().kind === "badge" && (trailing() as { tone: string }).tone === "offline"}>
+                    <ActionIcon name="cloud_off" tone="warning" size={12} />
+                  </If>
                   <Text
                     class={
-                      trailing().kind === "badge" && (trailing() as { tone: string }).tone === "warning"
-                        ? "text-destructive text-xs font-semibold"
-                        : "text-muted-foreground text-xs"
+                      trailing().kind === "badge" && (trailing() as { tone: string }).tone === "offline"
+                        ? "text-warning text-xs font-semibold"
+                        : trailing().kind === "badge" && (trailing() as { tone: string }).tone === "warning"
+                          ? "text-destructive text-xs font-semibold"
+                          : "text-muted-foreground text-xs"
                     }
                   >
                     {trailing().kind === "badge" ? (trailing() as { label: string }).label : ""}
@@ -1410,55 +1424,96 @@ export function HomeSpaceView(props: {
 
           {/* Domain-specific card body (disabled during layout edit mode) */}
           <View style={{ pointerEvents: editingThisRoom() ? "none" : "auto" }}>
-            <If when={app().icon === "camera"}>
-              {renderCameraCardBody(room, app, cardView)}
+            <If when={Boolean(cardView().offlineBody)}>
+              <If when={app().icon === "camera"}>
+                <View class="gap-2 mt-1">
+                  <View
+                    class="w-full rounded-xl bg-secondary/70 border border-border/60 items-center justify-center p-3 gap-1.5"
+                    style={{
+                      minHeight:
+                        cardView().span === "2x2" || cardView().span === "1x2" ? 112 : 64,
+                    }}
+                  >
+                    <ActionIcon name="cloud_off" tone="muted" size={26} />
+                    <Text class="text-foreground/85 text-sm font-semibold">
+                      {cardView().offlineBody?.title}
+                    </Text>
+                    <Text class="text-muted-foreground text-xs">
+                      {cardView().offlineBody?.subtitle}
+                    </Text>
+                  </View>
+                  <If when={Boolean(cardView().offlineBody?.footnote)}>
+                    <View class="flex-row items-center gap-1.5 px-0.5">
+                      <ActionIcon name="video" tone="muted" size={13} />
+                      <Text class="text-muted-foreground text-xs">
+                        {cardView().offlineBody?.footnote}
+                      </Text>
+                    </View>
+                  </If>
+                </View>
+              </If>
+              <If when={app().icon !== "camera"}>
+                <View class="items-center justify-center py-2 gap-0.5">
+                  <Text class="text-muted-foreground text-sm font-medium">
+                    {cardView().offlineBody?.title}
+                  </Text>
+                  <Text class="text-muted-foreground/75 text-xs">
+                    {cardView().offlineBody?.subtitle}
+                  </Text>
+                </View>
+              </If>
             </If>
-            <If when={app().archetype === "cycle_appliance"}>
-              {renderCycleCardBody(cardView)}
-            </If>
-            <If when={app().archetype === "climate"}>
-              {renderClimateCardBody(app, cardView)}
-            </If>
-            <If when={app().archetype === "lighting_power"}>
-              {renderLightCardBody(app, cardView)}
-            </If>
-            <If when={app().icon === "switch_gang"}>
-              {renderMultiGangCardBody(cardView)}
-            </If>
-            <If when={(cardView().quickActions?.length ?? 0) > 0}>
-              <View class="flex-row items-center gap-1.5 mt-1 flex-wrap">
-                <Each
-                  of={cardView().quickActions ?? []}
-                  key={(act) => act.id}
-                >
-                  {(act) => (
-                    <Button
-                      testID={`home-pet-act-${act().id}`}
-                      onPress={() => triggerAction(act())}
-                      class={
-                        act().tone === "primary"
-                          ? "min-h-8 px-3 rounded-lg bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
-                          : "min-h-8 px-2.5 rounded-lg bg-muted border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
-                      }
-                    >
-                      <ActionIcon
-                        name={resolveActionIconName(act())}
-                        tone={act().tone === "primary" ? "primaryFg" : "foreground"}
-                        size={13}
-                      />
-                      <Text
+            <If when={!cardView().offlineBody}>
+              <If when={app().icon === "camera"}>
+                {renderCameraCardBody(room, app, cardView)}
+              </If>
+              <If when={app().archetype === "cycle_appliance"}>
+                {renderCycleCardBody(cardView)}
+              </If>
+              <If when={app().archetype === "climate"}>
+                {renderClimateCardBody(app, cardView)}
+              </If>
+              <If when={app().archetype === "lighting_power"}>
+                {renderLightCardBody(app, cardView)}
+              </If>
+              <If when={app().icon === "switch_gang"}>
+                {renderMultiGangCardBody(cardView)}
+              </If>
+              <If when={(cardView().quickActions?.length ?? 0) > 0}>
+                <View class="flex-row items-center gap-1.5 mt-1 flex-wrap">
+                  <Each
+                    of={cardView().quickActions ?? []}
+                    key={(act) => act.id}
+                  >
+                    {(act) => (
+                      <Button
+                        testID={`home-pet-act-${act().id}`}
+                        onPress={() => triggerAction(act())}
                         class={
                           act().tone === "primary"
-                            ? "text-primary-foreground text-xs font-semibold"
-                            : "text-foreground text-xs font-medium"
+                            ? "min-h-8 px-3 rounded-lg bg-primary flex-row items-center justify-center gap-1.5 active:opacity-75"
+                            : "min-h-8 px-2.5 rounded-lg bg-muted border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
                         }
                       >
-                        {act().label}
-                      </Text>
-                    </Button>
-                  )}
-                </Each>
-              </View>
+                        <ActionIcon
+                          name={resolveActionIconName(act())}
+                          tone={act().tone === "primary" ? "primaryFg" : "foreground"}
+                          size={13}
+                        />
+                        <Text
+                          class={
+                            act().tone === "primary"
+                              ? "text-primary-foreground text-xs font-semibold"
+                              : "text-foreground text-xs font-medium"
+                          }
+                        >
+                          {act().label}
+                        </Text>
+                      </Button>
+                    )}
+                  </Each>
+                </View>
+              </If>
             </If>
           </View>
         </View>

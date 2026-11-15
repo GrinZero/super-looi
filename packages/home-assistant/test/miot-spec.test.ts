@@ -76,3 +76,12 @@ it("keeps IDs stable and collision-free and omits arbitrary string telemetry", (
   assert.ok(!a.some((binding) => binding.primary.name === "token"));
   assert.ok(a.every((binding) => !binding.definition.is_whitelisted));
 });
+
+it("propagates device online status onto mapped entity definitions", () => {
+  const spec = parseMiotSpec(lightSpec(), lightUrn);
+  const onlineEntities = mapMiotDevice({ ...device, online: true }, spec, new Set(["*"]));
+  const offlineEntities = mapMiotDevice({ ...device, online: false }, spec, new Set(["*"]));
+  assert.ok(onlineEntities.length > 0);
+  assert.ok(onlineEntities.every((binding) => binding.definition.online === true));
+  assert.ok(offlineEntities.every((binding) => binding.definition.online === false));
+});

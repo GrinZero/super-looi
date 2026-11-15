@@ -88,19 +88,19 @@ export function resolveApplianceCardView(
   const power = appliance.capabilities.power;
 
   const trailing: ResolvedApplianceCardView["header"]["trailing"] =
-    power && power.controllable
+    !appliance.online
       ? {
-          kind: "power",
-          entityId: power.entityId,
-          domain: power.domain,
-          isOn: power.isOn,
-          controllable: power.controllable,
+          kind: "badge",
+          label: "离线",
+          tone: "offline",
         }
-      : !appliance.online
+      : power && power.controllable
         ? {
-            kind: "badge",
-            label: "离线",
-            tone: "muted",
+            kind: "power",
+            entityId: power.entityId,
+            domain: power.domain,
+            isOn: power.isOn,
+            controllable: power.controllable,
           }
         : appliance.capabilities.vacuum?.statusCode === "error" ||
             /故障|错误|异常/.test(appliance.statusBadge)
@@ -122,15 +122,33 @@ export function resolveApplianceCardView(
     },
   };
 
+  if (!appliance.online) {
+    if (!isExpanded) {
+      out.header.subtitle = appliance.sourceLabel;
+      return finalizeCardHeader(out, appliance);
+    }
+    out.header.subtitle = appliance.room
+      ? `${appliance.sourceLabel} · ${appliance.room}`
+      : appliance.sourceLabel;
+    out.offlineBody =
+      appliance.icon === "camera"
+        ? {
+            title: "设备离线",
+            subtitle: "连接后恢复实时画面",
+            footnote: "实时画面不可用",
+          }
+        : {
+            title: "设备离线",
+            subtitle: "暂不可控制",
+          };
+    return finalizeCardHeader(out, appliance);
+  }
+
   // 1. Multi-gang switch (channels are rendered in body at all spans)
   if (appliance.icon === "switch_gang" && appliance.capabilities.multiGang) {
     const channels = appliance.capabilities.multiGang.channels;
     const onCount = channels.filter((c) => c.isOn).length;
-    out.header.subtitle = !appliance.online
-      ? "离线"
-      : onCount > 0
-        ? `已开 ${onCount} 路`
-        : "全部关闭";
+    out.header.subtitle = onCount > 0 ? `已开 ${onCount} 路` : "全部关闭";
     out.multiGangChannels = channels;
     return finalizeCardHeader(out, appliance);
   }
@@ -140,19 +158,11 @@ export function resolveApplianceCardView(
     const vs = appliance.capabilities.visionStream;
     const statusPillText = vs.statusText || appliance.statusBadge;
     if (!isExpanded) {
-      out.header.subtitle = !appliance.online
-        ? "设备离线"
-        : appliance.isActive
-          ? statusPillText
-          : "镜头物理遮蔽中";
+      out.header.subtitle = appliance.isActive ? statusPillText : "镜头物理遮蔽中";
       return finalizeCardHeader(out, appliance);
     }
 
-    out.header.subtitle = !appliance.online
-      ? "设备离线"
-      : appliance.isActive
-        ? "监控守护中"
-        : "镜头物理遮蔽中";
+    out.header.subtitle = appliance.isActive ? "监控守护中" : "镜头物理遮蔽中";
 
     const footnoteCandidate = vs.storageStatusText ?? vs.lastMotionText ?? "移动侦测看护中";
     const footnoteText =
@@ -419,6 +429,11 @@ export function collectCardVisibleTexts(view: ResolvedApplianceCardView): string
   }
   if (view.header.trailing.kind === "badge") {
     texts.push(view.header.trailing.label);
+  }
+  if (view.offlineBody) {
+    texts.push(view.offlineBody.title);
+    texts.push(view.offlineBody.subtitle);
+    if (view.offlineBody.footnote) texts.push(view.offlineBody.footnote);
   }
   if (view.cycleBody) {
     if (view.cycleBody.primaryReadout) {

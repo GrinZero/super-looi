@@ -146,14 +146,15 @@ export interface HomeRoomSection {id:string;name:string;totalCount:number;active
 export interface HomeDashboardModel {homeName:string;totalAppliances:number;activeAppliances:number;rooms:HomeRoomSection[];allAppliances:HomeAppliance[]}
 export interface PackedBentoTile {id:string;colStart:number;colSpan:1|2;rowStart:number;rowSpan:1|2}
 export function packBentoTiles(items:ReadonlyArray<{id:string;span:TileSpan}>,columns:number):PackedBentoTile[];
-export type CardHeaderTrailing = {kind:"power";entityId:string;domain:string;isOn:boolean;controllable:boolean}|{kind:"badge";label:string;tone:"warning"|"muted"}|{kind:"none"};
+export type CardHeaderTrailing = {kind:"power";entityId:string;domain:string;isOn:boolean;controllable:boolean}|{kind:"badge";label:string;tone:"warning"|"muted"|"offline"}|{kind:"none"};
 export interface CycleStageStepView {label:string;state:"completed"|"current"|"upcoming"}
 export interface ResolvedCycleCardBody {primaryReadout?:{value:string;caption:string};stages:CycleStageStepView[];actions:ApplianceActionTrigger[]}
 export interface ResolvedClimateCardBody {thermostat?:{entityId:string;domain:string;targetTemp:number;minTemp:number;maxTemp:number;step:number;unit:string;controllable:boolean;readoutText:string};modeBar?:ModeBarCapability;fanControl?:Extract<ApplianceControlPrimitive,{kind:"choice"}>;swingToggle?:Extract<ApplianceControlPrimitive,{kind:"toggle"}>;showModeBar:boolean;showFanLevel:boolean;showSwingToggle:boolean}
 export interface ResolvedVacuumCardBody {actions:ApplianceActionTrigger[];consumables:VacuumConsumableMetric[];fallbackStages?:CycleStageStepView[]}
 export interface ResolvedCameraCardBody {statusPillText:string;resolutionBadge?:string;footnoteText:string;storageBadge?:string;featureToggles:Array<{id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}>}
 export interface ResolvedLightCardBody {brightnessPercent:number;controllable:boolean;entityId:string;colorTempPresets:number[];activeColorTempKelvin?:number}
-export interface ResolvedApplianceCardView {span:TileSpan;isExpanded:boolean;header:{title:string;subtitle:string;trailing:CardHeaderTrailing};cycleBody?:ResolvedCycleCardBody;vacuumBody?:ResolvedVacuumCardBody;climateBody?:ResolvedClimateCardBody;cameraBody?:ResolvedCameraCardBody;lightBody?:ResolvedLightCardBody;multiGangChannels?:MultiGangChannel[];quickActions?:ApplianceActionTrigger[]}
+export interface ResolvedOfflineCardBody {title:string;subtitle:string;footnote?:string}
+export interface ResolvedApplianceCardView {span:TileSpan;isExpanded:boolean;header:{title:string;subtitle:string;trailing:CardHeaderTrailing};offlineBody?:ResolvedOfflineCardBody;cycleBody?:ResolvedCycleCardBody;vacuumBody?:ResolvedVacuumCardBody;climateBody?:ResolvedClimateCardBody;cameraBody?:ResolvedCameraCardBody;lightBody?:ResolvedLightCardBody;multiGangChannels?:MultiGangChannel[];quickActions?:ApplianceActionTrigger[]}
 export function resolveApplianceCardView(appliance:HomeAppliance,span?:TileSpan):ResolvedApplianceCardView;
 export type BodyConnectionMode = "disabled" | "real_ble" | "simulation";
 export interface BodyConfiguration {mode:BodyConnectionMode;savedDeviceId:string;savedDeviceName:string;autoConnect:boolean}
@@ -165,7 +166,7 @@ export type BodyControlAction = "head_up" | "head_center" | "head_down" | "head_
 export interface BodyActionReceipt {action:BodyControlAction;status:"verified"|"rejected"|"failed";simulation:boolean;isDocked:boolean;headDegrees:number;lightOn:boolean;lightBrightness:number;powerStatus:BodyPowerStatus|null;speed?:number;turn?:number;durationMs:number|null;stopCommandAt:string|null;recordedAt:string;reason?:string}
 export interface NativeBlePort {permission():string;requestPermission():string;startScan():void;stopScan():void;scannedDevices():Array<{id:string;name:string;rssi:number}>;connect(deviceId:string):void;disconnect():void;subscribe(characteristic:string):void;write(characteristic:string,hexPayload:string,withResponse:boolean):void;read(characteristic:string):void;drainEvents():Array<{kind:string;characteristic:string;payload:string}>;status():{state:string;permission:string;deviceId:string;deviceName:string;error:string}}
 export class MiotLoginFlow {
- constructor(options:{defaultLanguage?:()=>"zh-CN"|"en-US";isExternalBusy?:()=>boolean;runTask:(prompt:string,hooks:{onStep:(event:NativeStep)=>void},traceContext?:TraceContext)=>Promise<{answer:string;taskId?:string}>;cancelRunningTask:()=>Promise<boolean>;sendRunningTaskMessage?:(taskId:string,message:string,behavior:"steer"|"followUp")=>Promise<"queued"|"handled">;onNotice?:(notice:VoiceProactiveNotice)=>void;onContextNote?:(note:string)=>void});
+ constructor(options:{runtime:NativeRuntime;browser:()=>{open(authorization:string,redirect:string):void;status():string;takeCallback():string;cancel():void};active:()=>boolean;onRunning:(value:boolean)=>void});
  start(region:HomeConfiguration["region"],action:UiAction):Promise<HomeConnection>;
  cancel():void;
 }

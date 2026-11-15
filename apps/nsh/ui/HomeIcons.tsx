@@ -40,6 +40,7 @@ export type ActionIconName =
   | "video"
   | "eye"
   | "eye_off"
+  | "cloud_off"
   | "sidebar_collapse"
   | "sidebar_expand";
 
@@ -566,6 +567,21 @@ export function ActionIcon(props: {
             cx.moveTo(13, 9.5);
             cx.lineTo(16, 12);
             cx.lineTo(13, 14.5);
+            cx.stroke();
+            break;
+          }
+          case "cloud_off": {
+            // Cloud outline with diagonal slash
+            cx.beginPath();
+            cx.moveTo(7.2, 17.5);
+            cx.lineTo(17.5, 17.5);
+            cx.arc(17.5, 14, 3.5, Math.PI * 0.5, -Math.PI * 0.45, true);
+            cx.arc(12.2, 10, 4.6, -Math.PI * 0.1, -Math.PI * 0.92, true);
+            cx.arc(6.8, 13.8, 3.7, -Math.PI * 0.75, Math.PI * 0.5, true);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(4, 4);
+            cx.lineTo(20, 20);
             cx.stroke();
             break;
           }

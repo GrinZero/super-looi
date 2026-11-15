@@ -100,6 +100,7 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
   const base = `miot_${deviceKey(device.did)}`;
   const definition = (entityId: string, domain: string, name: string, originalName?: string): HomeEntityDefinition => ({
     entity_id: entityId, domain, friendly_name: name, device_id: device.did, device_name: device.name,
+    online: device.online,
     ...(device.model ? { device_model: device.model } : {}),
     ...(originalName ? { original_name: originalName } : {}),
     room: device.room ?? device.home, supported_features: ["read"],

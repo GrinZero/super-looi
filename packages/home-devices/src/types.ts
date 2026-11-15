@@ -380,7 +380,7 @@ export type CardHeaderTrailing =
   | {
       kind: "badge";
       label: string;
-      tone: "warning" | "muted";
+      tone: "warning" | "muted" | "offline";
     }
   | {
       kind: "none";
@@ -442,6 +442,12 @@ export interface ResolvedLightCardBody {
   activeColorTempKelvin?: number;
 }
 
+export interface ResolvedOfflineCardBody {
+  title: string;
+  subtitle: string;
+  footnote?: string;
+}
+
 export interface ResolvedApplianceCardView {
   span: TileSpan;
   isExpanded: boolean;
@@ -450,6 +456,7 @@ export interface ResolvedApplianceCardView {
     subtitle: string;
     trailing: CardHeaderTrailing;
   };
+  offlineBody?: ResolvedOfflineCardBody;
   cycleBody?: ResolvedCycleCardBody;
   vacuumBody?: ResolvedVacuumCardBody;
   climateBody?: ResolvedClimateCardBody;

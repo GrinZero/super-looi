@@ -816,4 +816,119 @@ describe("@super-looi/home-devices: Real Home Snapshot ('源心锁的家') & Ben
       }
     }
   });
+
+  it("prioritizes device-level online=false over entity snapshots and controllable power buttons", () => {
+    const now = "2026-04-12T10:00:00.000Z";
+    const records: RawHomeEntityRecord[] = [
+      {
+        entity_id: "fan.miot_fan_s2",
+        domain: "fan",
+        friendly_name: "风扇",
+        device_id: "did_fan_offline",
+        device_name: "风扇",
+        device_model: "dmaker.fan.p18",
+        room: "大厅",
+        source: "direct_miot",
+        online: false,
+        supported_features: ["turn_on", "turn_off"],
+        is_whitelisted: true,
+        snapshot: {
+          entity_id: "fan.miot_fan_s2",
+          state: "on",
+          attributes: {},
+          last_changed: now,
+          last_updated: now,
+        },
+      },
+      {
+        entity_id: "button.miot_fan_reset",
+        domain: "button",
+        friendly_name: "重置",
+        device_id: "did_fan_offline",
+        device_name: "风扇",
+        device_model: "dmaker.fan.p18",
+        room: "大厅",
+        source: "direct_miot",
+        online: false,
+        supported_features: ["press"],
+        is_whitelisted: true,
+        snapshot: {
+          entity_id: "button.miot_fan_reset",
+          state: "idle",
+          attributes: {},
+          last_changed: now,
+          last_updated: now,
+        },
+      },
+      {
+        entity_id: "switch.miot_cam_s2",
+        domain: "switch",
+        friendly_name: "监控",
+        device_id: "did_cam_offline",
+        device_name: "监控",
+        device_model: "isa.camera.hlc7",
+        room: "大厅",
+        source: "direct_miot",
+        online: false,
+        supported_features: ["turn_on", "turn_off"],
+        is_whitelisted: true,
+        snapshot: {
+          entity_id: "switch.miot_cam_s2",
+          state: "on",
+          attributes: {},
+          last_changed: now,
+          last_updated: now,
+        },
+      },
+    ];
+
+    const model = buildHomeDashboardModel(records);
+    const fan = model.allAppliances.find((a) => a.deviceId === "did_fan_offline")!;
+    const cam = model.allAppliances.find((a) => a.deviceId === "did_cam_offline")!;
+
+    assert.equal(fan.online, false);
+    assert.equal(fan.isActive, false);
+    assert.equal(cam.online, false);
+    assert.equal(cam.isActive, false);
+
+    // Expanded fan card shows offline badge in trailing slot instead of power button, and offlineBody
+    const fan2x1 = resolveApplianceCardView(fan, "2x1");
+    assert.deepEqual(fan2x1.header.trailing, { kind: "badge", label: "离线", tone: "offline" });
+    assert.equal(fan2x1.header.subtitle, "米家 · 大厅");
+    assert.deepEqual(fan2x1.offlineBody, { title: "设备离线", subtitle: "暂不可控制" });
+    assert.equal(fan2x1.climateBody, undefined);
+
+    // 1x1 fan card folds offline into subtitle
+    const fan1x1 = resolveApplianceCardView(fan, "1x1");
+    assert.equal(fan1x1.header.trailing.kind, "none");
+    assert.equal(fan1x1.header.subtitle, "离线 · 米家");
+    assert.equal(fan1x1.offlineBody, undefined);
+
+    // Expanded camera card shows offline badge and camera-specific offline placeholder
+    const cam2x2 = resolveApplianceCardView(cam, "2x2");
+    assert.deepEqual(cam2x2.header.trailing, { kind: "badge", label: "离线", tone: "offline" });
+    assert.equal(cam2x2.header.subtitle, "米家 · 大厅");
+    assert.deepEqual(cam2x2.offlineBody, {
+      title: "设备离线",
+      subtitle: "连接后恢复实时画面",
+      footnote: "实时画面不可用",
+    });
+    assert.equal(cam2x2.cameraBody, undefined);
+
+    // Fresh property reads override discovery flags in both directions, and
+    // synthetic idle action snapshots cannot keep an unavailable device online.
+    const observed = (online: boolean) => records.map((record) => ({
+      ...record,
+      online: !online,
+      snapshot: {
+        ...record.snapshot!,
+        state: record.domain === "button" ? "idle" : online ? "on" : "unavailable",
+        attributes: { miot_device_online: online },
+      },
+    }));
+    assert.ok(buildHomeDashboardModel(observed(false)).allAppliances.every((a) => !a.online));
+    assert.ok(buildHomeDashboardModel(observed(true)).allAppliances.every((a) => a.online));
+    const unavailable = { ...records[0]!, online: true, snapshot: { ...records[0]!.snapshot!, state: "unavailable" } };
+    assert.equal(buildHomeDashboardModel([unavailable]).allAppliances[0]!.online, false);
+  });
 });

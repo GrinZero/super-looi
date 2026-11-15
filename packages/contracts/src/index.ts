@@ -459,6 +459,7 @@ export interface HomeControlCommand {
 export interface HomeEntityDefinition extends HomeEntityCapability {
   device_id?: string;
   device_name?: string;
+  online?: boolean;
   entity_category?: string;
   room?: string;
   allowed_range?: Record<string, [number, number]>;

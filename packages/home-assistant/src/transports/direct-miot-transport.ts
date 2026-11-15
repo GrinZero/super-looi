@@ -70,8 +70,15 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
     try {
       const requested = bindings.flatMap(bindingProperties);
       const result = requested.length ? await this.options.client.getProperties(requested) : [];
+      // Directory availability is a discovery-time value. Publish fresh device
+      // availability with each read, including synthetic action-button snapshots.
+      const deviceOnline = new Map<string, boolean>();
+      for (const property of requested) {
+        if (!deviceOnline.has(property.did)) deviceOnline.set(property.did, false);
+      }
       for (const property of result) {
         if (property.code === 0 && property.value !== undefined) {
+          deviceOnline.set(property.did, true);
           this.latestReadValues.set(miotPropertyKey(property), property.value);
         }
       }
@@ -88,6 +95,9 @@ export class DirectMiotTransportAdapter implements HaTransportAdapter {
       this.lastVerifiedAt = observedAt; this.healthy = true; this.error = null;
       return bindings.map((binding) => {
         const snapshot = miotSnapshot(binding, values, observedAt);
+        if (deviceOnline.has(binding.did)) {
+          snapshot.attributes.miot_device_online = deviceOnline.get(binding.did)!;
+        }
         const failures = bindingProperties(binding).flatMap((property) => {
           const result = values.get(miotPropertyKey(property));
           const is = (candidate: MiotEntityBinding["primary"] | undefined) => candidate?.siid === property.siid && candidate.piid === property.piid;

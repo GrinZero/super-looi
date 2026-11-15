@@ -1858,7 +1858,11 @@ export function buildHomeDashboardModel(
     }
 
     const capabilities: ApplianceCapabilities = { telemetry };
-    const online = deviceRecords.some(isEntityOnline);
+    const observedOnline = deviceRecords.find(
+      (r) => typeof r.snapshot?.attributes.miot_device_online === "boolean",
+    )?.snapshot?.attributes.miot_device_online as boolean | undefined;
+    const explicitOnline = deviceRecords.find((r) => typeof r.online === "boolean")?.online;
+    const online = observedOnline ?? (explicitOnline !== false && deviceRecords.some(isEntityOnline));
     let isActive = false;
     let statusBadge = online ? (lang === "en-US" ? "Standby" : "待机") : lang === "en-US" ? "Offline" : "离线";
     let conciseSubtitle = sourceLabel;
@@ -2778,6 +2782,11 @@ export function buildHomeDashboardModel(
           .slice(0, 2)
           .map((m) => `${m.label} ${m.value}`)
           .join(" · ") || sourceLabel;
+    }
+
+    if (!online) {
+      isActive = false;
+      statusBadge = lang === "en-US" ? "Offline" : "离线";
     }
 
     capabilities.controls = buildUnifiedControls(icon, capabilities, deviceRecords);
