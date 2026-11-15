@@ -8,19 +8,21 @@ globalThis.LOOI_ARCH = {
     { id: "voice", label: "语音唤醒", description: "Rust 本地 KWS 待机；语音委派立即受理，结果空闲时交付；后台 LLM 在 15 分钟活跃窗口内复用上下文，待交付结果跨语音连接保留。", nodes: ["app", "store", "runtime", "agent", "models", "voice", "audio", "doubao", "native", "body"] },
     { id: "telemetry", label: "可观测性", description: "Voice Socket、Agent Loop 与模型请求共用 observation；开始和结束写入本机 SQLite，同一 trace/span ID 可导出至 Langfuse，任务页展示真实输入、工具回执与跨连接语音交付。", nodes: ["voice", "store", "runtime", "agent", "doubao"] },
     { id: "home", label: "家居控制", description: "管理界面与 Agent 家居工具共用 HomeRuntime，经网关访问 HA 或 MIoT。", nodes: ["app", "store", "runtime", "agent", "home", "gateway", "services", "contracts"] },
-    { id: "plugins", label: "具身插件生态", description: "PluginHost v2 按 DAG 拓扑编排插件；vision-person-tracker 基于原生相机 ISP 人脸元数据提供按需引用计数追人服务，werewolf-judge 组合 MorphableStage、具身对脸／声学掩护与进程内 LanRoomHost 防窥副屏完成 6–12 人狼人杀主持。", nodes: ["app", "store", "runtime", "voice", "face", "native", "body"] },
+    { id: "plugins", label: "具身插件生态", description: "PluginHost v2 按 DAG 拓扑编排插件；PluginStageManager 通过 resumableSessions 支撑舞台双按返回收起与重入，vision-person-tracker 提供按需引用计数追人服务，werewolf-judge 结合 match_checkpoint_v1 断点续局、JudgeSpeechCoordinator 闭麦原词播报／字幕降级与 LanRoomHost preferred_port 重连恢复完成 6–12 人狼人杀主持。", nodes: ["app", "store", "runtime", "voice", "face", "native", "body"] },
   ],
   nodes: [
     {
       id: "app", x: 28, y: 86, title: "应用界面", symbol: "window", category: "TSX · 交互入口", detail: "可变形首屏舞台 / 六个管理空间", path: "apps/nsh/App.tsx",
-      description: "App 创建响应式 store，在横屏可变形首屏舞台（MorphableStage：单实例 RobotFace 五姿态弹簧变形、StageCanvas、StageCapsule、四档位 StageDrawer 与不可遮挡顶栏宿主控制柄）与模型、语音、底座、家居、插件、任务六个管理空间之间切换；插件 UI 模块（如 werewolf-judge 桌游舞台与纯算法 QrCodeCanvas、vision-person-tracker 相机校准页）通过 ui/plugins/registry 按边界隔离挂载。mount(App) 是界面启动入口。",
+      description: "App 创建响应式 store，在横屏可变形首屏舞台（MorphableStage：单实例 RobotFace 五姿态弹簧变形、StageCanvas、StageCapsule、四档位 StageDrawer、不可遮挡顶栏宿主控制柄与双按返回 resumableSessions 重入胶囊）与模型、语音、底座、家居、插件、任务六个管理空间之间切换；插件 UI 模块（如 werewolf-judge 桌游舞台／播报静音重播胶囊／退局二次确认与纯算法 QrCodeCanvas、vision-person-tracker 相机校准页）通过 ui/plugins/registry 按边界隔离挂载。mount(App) 是界面启动入口。",
       files: [
         { path: "apps/nsh/App.tsx", entry: "function App()", anchors: [{ label: "组件入口", match: "function App()" }, { label: "挂载应用", match: "mount(App)" }] },
         { path: "apps/nsh/ui/stage/MorphableStage.tsx", entry: "export function MorphableStage" },
         { path: "apps/nsh/ui/stage/posture-geometry.ts", entry: "export function computeStageLayout" },
         { path: "apps/nsh/ui/plugins/registry.ts", entry: "export function registerPluginUiModule" },
         { path: "apps/nsh/plugins/werewolf-judge/ui/StageCanvas.tsx", entry: "export function WerewolfStageCanvas" },
+        { path: "apps/nsh/plugins/werewolf-judge/ui/StageCapsule.tsx", entry: "export function WerewolfStageCapsule" },
         { path: "apps/nsh/plugins/werewolf-judge/ui/StageDrawer.tsx", entry: "export function WerewolfStageDrawer" },
+        { path: "apps/nsh/plugins/werewolf-judge/ui/SettingsView.tsx", entry: "export function WerewolfSettingsView" },
         { path: "apps/nsh/plugins/werewolf-judge/ui/QrCodeCanvas.tsx", entry: "export function QrCodeCanvas" },
         { path: "apps/nsh/plugins/vision-person-tracker/ui/SettingsView.tsx", entry: "export function VisionPersonTrackerSettingsView" },
         { path: "apps/nsh/ui/DeviceCameraPreview.tsx", entry: "export const DeviceCameraPreview" },
@@ -35,7 +37,7 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "runtime", x: 280, y: 86, title: "MobileRuntime", symbol: "layers", category: "TypeScript · 本机业务", detail: "会话 / 任务 / 插件 / 家居 / 底座", path: "apps/nsh/runtime/application.ts",
-      description: "本机业务入口，维护任务与会话，创建共享 observation 记录器、Pi 执行器、PluginHost v2（含 DAG 服务拓扑、.nshpkg Ed25519 验签装载、DualLoopAiBus、VisionBroker、LanRoomBroker 与 PluginStageManager）、内置双面插件（codex、vision-person-tracker、werewolf-judge 规则状态机与反作弊具身编排）、模型目录、HomeRuntime 与 BodyRuntime。任务保存根 span 引用，模型输入与输出、工具回执、语音转写和交付记录保存在 SQLite，Langfuse 导出使用相同 ID。",
+      description: "本机业务入口，维护任务与会话，创建共享 observation 记录器、Pi 执行器、PluginHost v2（含 DAG 服务拓扑、.nshpkg Ed25519 验签装载、DualLoopAiBus、VisionBroker、支持 preferred_port 重绑的 LanRoomBroker 与带 resumableSessions 可恢复舞台队列的 PluginStageManager）、内置双面插件（codex、vision-person-tracker、werewolf-judge 规则状态机／match_checkpoint_v1 检查点续局／JudgeSpeechCoordinator 播报协调与单通道互斥队列）、模型目录、HomeRuntime 与 BodyRuntime。任务保存根 span 引用，模型输入与输出、工具回执、语音转写和交付记录保存在 SQLite，Langfuse 导出使用相同 ID。",
       files: [
         { path: "apps/nsh/runtime/application.ts", entry: "export class MobileRuntime", anchors: [{ label: "运行时入口", match: "export class MobileRuntime" }, { label: "创建执行器", match: "private createExecutorForSelection(" }] },
         { path: "apps/nsh/runtime/plugins/host.ts", entry: "export class PluginHost" },
@@ -43,6 +45,7 @@ globalThis.LOOI_ARCH = {
         { path: "apps/nsh/plugins/vision-person-tracker/runtime/index.ts", entry: "export function visionPersonTrackerDefinition" },
         { path: "apps/nsh/plugins/werewolf-judge/runtime/index.ts", entry: "export class WerewolfJudgePluginRuntime" },
         { path: "apps/nsh/plugins/werewolf-judge/runtime/engine.ts", entry: "export class WerewolfEngine" },
+        { path: "apps/nsh/plugins/werewolf-judge/runtime/speech-coordinator.ts", entry: "export class JudgeSpeechCoordinator" },
         { path: "apps/nsh/plugins/werewolf-judge/runtime/choreography.ts", entry: "export class WerewolfChoreographer" },
         { path: "apps/nsh/plugins/werewolf-judge/runtime/lan-companion.ts", entry: "export class LanCompanionController" },
         { path: "apps/nsh/runtime/plugins/package-loader.ts", entry: "export function verifyNshPackage" },
@@ -98,7 +101,7 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "voice", x: 280, y: 274, title: "VoiceRuntime", symbol: "wave", category: "TypeScript · 语音编排", detail: "待机唤醒 / 会话对象 / 异步协同", path: "apps/nsh/runtime/voice/runtime.ts",
-      description: "VoiceRuntime 负责麦克风权限、本地 KWS 待机与跨连接待交付通知；RealtimeSession 管理工具执行、去重与历史，NativeRealtimeTransport 接三家协议和原生 WebSocket；LiveVoiceSession 驱动原生播放、回执与空闲播报。VoiceTaskCoordinator 立即受理委派，统一回传结果；VoiceConversationWindow 让后台 LLM 在 15 分钟活跃窗口内复用历史，运行中保留，结束后续期。",
+      description: "VoiceRuntime 负责麦克风权限、本地 KWS 待机、muted_broadcast 闭麦播报（verbatim 原词朗读与完成后自动回退待机）及 error 态自愈恢复与跨连接待交付通知；RealtimeSession 管理工具执行、去重与历史，NativeRealtimeTransport 接三家协议和原生 WebSocket；LiveVoiceSession 驱动原生播放、回执与空闲播报。VoiceTaskCoordinator 立即受理委派，统一回传结果；VoiceConversationWindow 让后台 LLM 在 15 分钟活跃窗口内复用历史，运行中保留，结束后续期。",
       files: [
         { path: "apps/nsh/runtime/voice.ts", entry: "export { VoiceRuntime }" },
         { path: "apps/nsh/runtime/voice/runtime.ts", entry: "export class VoiceRuntime", anchors: [{ label: "语音监管", match: "export class VoiceRuntime" }, { label: "本地待机", match: "async enterStandby(" }, { label: "建立会话", match: "async start(" }, { label: "休眠收尾", match: "endSession()" }] },

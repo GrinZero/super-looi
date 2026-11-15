@@ -1,3 +1,31 @@
+## 狼人杀法官插件容灾、语音抗中断与舞台重入升级（2026-11-15）
+
+方案见 [`docs/plans/werewolf-resilience-and-recovery-plan.md`](docs/plans/werewolf-resilience-and-recovery-plan.md)。
+
+- [x] Step 0：初始化容灾升级进度清单并核对规范、技能与基线工作区状态
+- [x] Step 1：微内核生命周期、前后台同步、可恢复舞台与抽屉/返回键保护
+  - [x] Step 1.1：`shared-types.ts`、`contracts.ts`、`ui-contracts.ts`（`ResumableStageView`、`setResumableSession`、`onAppForegroundChange`、`confirmSystemBackExit`、`requestDetent`、`PluginSpeakOptions`）
+  - [x] Step 1.2：`stage-manager.ts`、`host.ts`、`ai-bus.ts`（`sendCommand` 对 `registered` 插件先激活、`setForegroundActive`、`resumableSessions` 维护与透传广播参数）
+  - [x] Step 1.3：`application.ts`、`build-runtime.ts`、`MorphableStage.tsx`、`store.ts`、`App.tsx`（`stage-resumable-pill`、`stage-drawer-reopen`、抽屉回退与 3200ms 双击返回确认）
+- [x] Step 2：桌面静音广播（`muted_broadcast`）、逐字提示与 `VoiceRuntime` 错误自愈
+  - [x] Step 2.1：`realtime-protocol.ts`（`verbatim?: boolean` 与 OpenAI 严格逐字播报提示词）
+  - [x] Step 2.2：`types.ts`、`live-session.ts`、`runtime.ts`（`initialMuted`、`muted_broadcast` 静音广播隔离与白天自动回休眠、`"error"` 态自愈及精准失败阶段/原因保留）
+- [x] Step 3：法官语音协调器、单通道互斥锁、对局断点快照、`step_back_deal` 与舵机自愈
+  - [x] Step 3.1：`manifest.ts`（`activation: "startup"`）与 `contracts.ts`（`WerewolfJudgeVoiceStatus`、重播/静音/回退发牌/单座解绑/终止本局指令）
+  - [x] Step 3.2：新建 `speech-coordinator.ts`（`speakBarrier`、`speakSequential`、手动静音/重播与降级诊断）
+  - [x] Step 3.3：`engine.ts` 与 `choreography.ts`（`WerewolfMatchCheckpointV1`、`stepBackDeal`、`BodyServoLease.onPreempted` 清理、`confirmSystemBackExit: true`）
+  - [x] Step 3.4：`runtime/index.ts`（`enqueueOperation` 互斥锁、`syncStagePresentation` 宿主检查、`resumeActivePhaseSideEffects`、按需 `speakerInterval`、快照恢复与 `werewolf_open_lobby` 保护）
+- [x] Step 4：LAN 房间 `preferred_port` 自愈与手机副屏令牌韧性
+  - [x] Step 4.1：`lan_room.rs` 与 `lan-room.ts`（优先复用端口绑定与前后台自动重连恢复 `revision`）
+  - [x] Step 4.2：`lan-companion.ts`（`seatTokens` 导出恢复与单座释放；网页端仅 `401` 清凭证、断网/`503` 保留重连提示并同步刷新）
+- [x] Step 5：舞台 UI 与设置页容灾交互控件落地（横屏合规）
+  - [x] Step 5.1：`StageCapsule.tsx`（语音状态指示、重播与静音按钮）与 `StageCanvas.tsx`（全阶段法官字幕与降级指示、发牌回退、LAN 本机查牌）
+  - [x] Step 5.2：`StageDrawer.tsx`（LAN 应急操作 `requestDetent("large")`、单座解绑、双点确认终止本局）与 `SettingsView.tsx`（双点确认重置本局）
+- [x] Step 6：自动化测试、全量构建校验、架构文档检查、独立子 agent 复审与隔离提交
+  - [x] Step 6.1：新增 `werewolf-resilience.node.ts`（9 个韧性场景含静默持活 >12s、逐字播报上下文隔离与断点头像剥离）并扩展横屏 UI 回归（`app_ui`）与 Rust `lan_room`（`5/5`）单元测试
+  - [x] Step 6.2：独立复审修复后全量顺次校验通过：`@super-looi/runtime`（`112/112`）、`@super-looi/nsh-node-compat`（全部 14 项 QuickJS 兼容与恢复校验）、`@super-looi/nsh build` + `typecheck`、`test:werewolf`（`19/19`）、`test:plugin-host`（`8/8`）、`test:voice-runtime`（`20/20`）、`cargo test lan_room`（`5/5`）与 `nsh.ts test`（`59/59` 全横屏及原生探针通过）
+  - [x] Step 6.3：同步更新 `docs/arch/index.html`、`architecture.js` 与 `sources.js`（`129` 个源码文件），通过独立子 agent 复审并完成规范修复与隔离提交
+
 ## 工作区改动提交与推送（2026-11-15）
 
 - [x] Step 1：核对工作区、远端分支及已有 24 个未推送提交，按家居、语音和文档划分提交。
@@ -2774,3 +2802,9 @@
 - [x] Step 1：沿试听按钮、Store、VoiceRuntime 和协议追踪默认文本及 MOSS 预录输入。
 - [x] Step 2：只读关联 App SQLite 原始 trace，确认关灯请求、任务答案、通知朗读及随后同文用户转写的顺序。
 - [x] Step 3：独立 review 确认旧字幕保留和恢复路径；将待机字幕展示问题记入 todo.md，区分已确认的转写来源与外放回录推断。
+
+## 狼人杀功能审阅（2026-11-15）
+
+- [x] Step 1：以当前工作区源码和留存横屏截图核查大厅、发牌、夜间、发言、投票和终局界面。
+- [x] Step 2：运行狼人杀专项测试（19／19 通过），临时引擎探针复现零领牌确认即可进入首夜，并完成独立运行时审阅。
+- [x] Step 3：将技术、产品和玩家体验优化方案保存至 `docs/plans/werewolf-review-and-optimization-2026-11-15.md`，将已确认问题记入 `todo.md`。
