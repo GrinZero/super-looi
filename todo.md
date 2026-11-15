@@ -151,6 +151,7 @@
 
 ## iOS 模拟器语音回灌（2026-11-08）
 
+- [ ] 语音页待机仍显示旧对话：`VoiceSpaceView` 在非试听时直接显示非空字幕；`VoiceRuntime.preview` 保存助手字幕，`endSession`／`stop` 恢复，用户字幕也未清除。截图中的关灯确认来自 2026-11-14 12:57 的豆包会话 `8f7b076c70a84642b150736b6b75c814`：关灯任务结果经 `voice.notice` → `voice.delivery` → `speech_text_buffer.commit` 播报；MOSS 默认试听文本实际为「你好，我是 LOOI。我们可以开始聊天了。」。调整待机字幕展示及试听结束的字幕处理。
 - [ ] iPhone 16e 外放回录与自动休眠：助手「大厅的灯已关闭，状态已确认」之后又开启近似同文用户话轮，约 65 秒后才在会话关闭时收尾；核对原始 VAD／转写活动与计时恢复，处理 AEC 回录。12 秒阈值未变，聚合记录尚不能确定具体未终结的阶段，见 [自动关闭核查](docs/voice-auto-sleep-diagnosis-2026-11-14.md)。
 
 ## NSH 自动语音唤醒 → 豆包 Realtime 对话（2026-11-07 规划）
@@ -224,12 +225,25 @@
 - [ ] 连接开发真机，横屏复测大厅台灯开关与亮度 255；核对真实米家返回码、操作后的回读及任务详情错误数据。当前 `devicectl` 和 ADB 均无连接真机。历史 11:04 回执没有保存底层码，无法追溯当次失败原因；新链路已保留 HTTP 状态、米家返回码、属性结果和网络原因。
 - [ ] 明确 `list_home_devices.query` 的原始名称／房间关键词契约；无匹配后扩大只读查询并结合 `room` 选择设备，回执区分无匹配与未连接。13:20 的 `hall 台灯 lamp` 被整段子串匹配过滤，13:21 的 `台灯` 查询成功并回读到关灯；诊断与重放证据见 [大厅台灯首次查询漏检](docs/home-device-query-diagnosis.md)。
 
+## 家居设备离线卡片
+
+- [ ] 连接开发真机，在横屏家居页核对设备断电与恢复后卡片、离线占位和控制入口随属性读取结果更新。
+
+## 语音服务文档入口
+
+- [ ] 连接开发真机，横屏核对「官方文档 ↗」在浅色／深色下的标题对齐与点击区域，并确认切换豆包、MOSS-Live、OpenAI 后系统浏览器打开对应文档；当前 devicectl 与 ADB 均未发现真机。
+
+
 ## 语音配置页模拟器 E2E 问题（2026-11-13）
 
-- [ ] 修复开启自动唤醒时停止试听／切换音色后的假对话状态：`VoiceRuntime.endSession()` 清除 purpose 后保留 speaking，异步 startWake 期间页面显示“对话中／正在回复”。实际 UI 与独立运行时探针均复现，见 [E2E 证据](docs/voice-preview-e2e-2026-11-13.md)。
+- [x] 修复开启自动唤醒时停止试听／切换音色后的假对话状态：`VoiceRuntime.endSession()` 清除 purpose 后保留 speaking，异步 startWake 期间页面显示“对话中／正在回复”。实际 UI 与独立运行时探针均复现，见 [E2E 证据](docs/voice-preview-e2e-2026-11-13.md)。
 - [ ] 听音复核切换音色后的实际听感与快速重播叠音；本轮已完成真实云端音频返回、UI 收尾及豆包连续五轮验收，未采集扬声器录音。
+
+- [ ] 真机验证 MOSS 完整试听与唤醒交接；当前无连接设备，尚不能确定抢占是否为音频截断的唯一原因。若仍中断，读取 provider.response_cancelled / provider.audio_stop 的实际原因及播放回执失败记录。
+
 
 ## NSH 开发宿主热重载（2026-11-14）
 
+- [ ] 修复公共 `nsh-dev` 客户端的接收容量与错误链，并重建开发宿主：普通包 32,873,600 字节触发 `Capacity(MessageTooLong { size: 32873600, max_size: 16777216 })`；独立探针只把帧上限设为现有消息上限 64 MiB 后，完整收到字节码和 14,215,726 字节 source map。NSH 0.5.1 仍未修复；现有 CLI 补丁不会更新已安装宿主。方案、分帧成本和验证范围见 [调研](docs/nsh-dev-transport-research.md)。8790 以 7.7 MB release 开发包恢复连接，修改后整包重载。
 
 - [ ] NSH 开发热重载死锁：主线程在 Engine::drop 等待 VM join，VM 在 VoiceAudio.status → iOS Audio.refresh 同步等待主线程；本轮采样确认，重启宿主恢复。仅热重载复现，栈见本轮 `/tmp/moss-host-sample.txt`。
