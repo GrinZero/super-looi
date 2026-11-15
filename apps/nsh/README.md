@@ -64,7 +64,7 @@ pnpm --filter @super-looi/nsh ios --device "<IPHONE_UDID>"
 
 十组测试及凭据 CRUD 已在 iOS 26.3 / iPhone 16e 与 Android 14 / API 34 ARM64 模拟器通过。NSH hardened engine 配私有临时目录、256 MiB 配额。`App.tsx` 整页测试在 `tests/app_ui.rs` 中通过 Rust `Headless` 配置私有临时目录；普通 TSX headless `open()` 不提供数据目录，`App.test.tsx` 仅测试不依赖原生存储的国际化格式化。Android 固定 test driver 忽略 Dialog 的焦点，UI 验证采用独立系统 UiAutomation instrumentation，实际点击、中文输入和回读已通过。
 
-当前应用不依赖 Hub 或 Expo。旧端归档于 `archive/legacy-hub-and-expo`。LOOI 底座已通过 iOS / Android 原生 BLE 桥接接入；双端媒体/AEC、相机与商店签名等后续工作见根目录 [todo.md](../../todo.md)。模拟器 Release 冷启动和持久化记录见 [原生网络与版本复验](../../docs/nsh-native-live-verification.md)。
+当前应用不依赖 Hub 或 Expo。旧端归档于 `archive/legacy-hub-and-expo`。LOOI 底座已通过 iOS / Android 原生 BLE 桥接接入；双端媒体/AEC、相机与商店签名等后续工作见根目录 [todo.md](../../todo.md)。模块与数据归属见 [NSH 运行时](../../docs/nsh-runtime.md)；模拟器阶段 Release 冷启动和持久化证据见其中的 [验证记录](../../docs/nsh-runtime.md#验证入口与历史证据)。
 
 ## 家居连接
 
@@ -74,7 +74,7 @@ pnpm --filter @super-looi/nsh ios --device "<IPHONE_UDID>"
 - **Home Assistant**：填写手机可访问的 **HTTPS** 实例地址，以及在 Home Assistant「个人资料 → 安全」创建的长期访问令牌，点击连接。地址和令牌在应用内保存。
 - **离线演示**：启用演示设备后即可体验房间分类与设备卡片；操作改变本地演示状态。
 
-如需在本机部署 Home Assistant，可运行 `docker compose -f docker-compose.home.yml up -d`，并为手机提供可访问的 HTTPS 入口。使用 HA 接入米家时，在 HA 中添加 Xiaomi Home 集成。米家直连与 HA 的设备由应用聚合到家居空间。
+如需在本机部署 Home Assistant，可运行 `docker compose -f docker-compose.home.yml up -d`，并为手机提供可访问的 HTTPS 入口。使用 HA 接入米家时，在 HA 中添加 Xiaomi Home 集成。米家直连与 HA 的设备由应用聚合到家居空间。设备能力、命令分层与卡片布局见 [家居能力说明](../../docs/home-device-capabilities.md)。
 
 ## 开发观测
 

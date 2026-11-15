@@ -1,6 +1,6 @@
 # Phase 6 Hub Presence v2.1 控制台
 
-本轮依据 `docs/design-v2/ui-v2.1-redesign-spec.md` 和 `progress.md` Step 6.4，完成 Hub 内嵌 Web 控制台升级及工作区四包验证。移动端 UI 联网验收、iOS 模拟器逐屏交互和物理硬件验收继续独立跟踪；不将 Step 6.4 整体标为完成。
+本轮依据 `docs/archive/design-v2/ui-v2.1-redesign-spec.md` 和 `progress.md` Step 6.4，完成 Hub 内嵌 Web 控制台升级及工作区四包验证。移动端 UI 联网验收、iOS 模拟器逐屏交互和物理硬件验收继续独立跟踪；不将 Step 6.4 整体标为完成。
 
 ## Hub 实时接口与可信状态
 
@@ -77,7 +77,7 @@
 | 390×844 响应式布局 | 四空间无水平溢出；[首屏](artifacts/phase6/hub-mobile-face.png)、[回忆册](artifacts/phase6/hub-mobile-memories.png)、[任务](artifacts/phase6/hub-mobile-tasks.png)、[家居](artifacts/phase6/hub-mobile-home.png)、[维修舱](artifacts/phase6/hub-mobile-cabin.png) |
 | Web UI 运行完整验收 | 通过 UI 实际 HTTP 请求 Hub，48/48、96/96、四门禁全部 0；组名修正后重跑，[验收看板](artifacts/phase6/hub-acceptance.png) |
 
-以上 19 张 Web 截图保存在 `docs/artifacts/phase6/hub-*.png`，与历史 iOS 首屏截图分开。窄屏 Web 不等同于原生 iOS/Android 验收。
+以上 19 张 Web 截图保存在 `docs/archive/artifacts/phase6/hub-*.png`，与历史 iOS 首屏截图分开。窄屏 Web 不等同于原生 iOS/Android 验收。
 
 浏览器高危审批按钮“批准本次”（`task_demo_push` 对应 `git push --force`）的点击被自动审批审查拒绝：用户未授权具体破坏性命令，且演示环境不足以证明不会执行。没有点击或绕过。审批面板布局与作用域已渲染检查；审批 API 集成、授权归属拒绝、HTTP 失败测试与浏览器成功点击属于不同证据，不能互相冒充。
 

@@ -210,6 +210,7 @@ See the [NSH app guide](apps/nsh/README.md) for platform probes, packaging, and 
 
 | Topic | Start here |
 | --- | --- |
+| Documentation index and historical records | [Documentation](docs/README.md) |
 | Native builds, physical devices, and verification commands | [NSH app guide](apps/nsh/README.md) |
 | Module relationships and source call paths | [Architecture diagram](docs/arch/index.html) |
 | Layout, themes, and interaction rules | [NSH design guide](apps/nsh/DESIGN.md) |
@@ -220,7 +221,7 @@ See the [NSH app guide](apps/nsh/README.md) for platform probes, packaging, and 
 | Expressions and visual design | [72-expression design](docs/super-looi-72-expressions-design.md) |
 | Remaining features and device testing | [todo.md](todo.md) |
 
-The former Expo / React Native app and Hub source are archived on the `archive/legacy-hub-and-expo` branch. Their phase reports remain in `docs/` as historical records.
+The former Expo / React Native app and Hub source are archived on the `archive/legacy-hub-and-expo` branch. Their designs, phase reports, and migration records are collected in the [documentation archive](docs/archive/README.md).
 
 ## License
 

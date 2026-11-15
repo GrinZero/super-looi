@@ -6,8 +6,8 @@
 
 审查中确认并关闭了两项问题：
 
-- **P1 · Cabin 默认汇总超宽、需要滚动。** 原生验证发现，独立审查查看[修复前截图](artifacts/phase9/ios-cabin-before-grid-fix.png)后确认：844×390 横屏下，原百分比 `flexBasis` 配合 `flexGrow` 的布局实际显示为单列，四项策略占四行、Hard Gate 数值越出右边界、A–H 仅 A–F 首屏可见。原预算测试直接假设两列，无法证明真实布局。最终 [CabinSpaceView.tsx](../apps/mobile/src/ui/spaces/CabinSpaceView.tsx#L79) 按所属 panel 的实宽扣除 padding、border 和 gap，分别计算 policy、gate、group 的数值宽度，并关闭这些单元格的伸缩。[回归测试](../apps/mobile/test/rsi-cabin-interactions.test.ts) 覆盖 320、390、519、520、639、640、646、732pt 实宽。独立查看修后[默认待验证态](artifacts/phase9/ios-cabin.png)及[原生验收态截图](artifacts/phase9/ios-cabin-acceptance.png)，确认两种状态下策略 2×2、Hard Gate 2×2 且四个数值完整、A–H 2×4 均在首屏；无报告时显示待验证，报告返回后显示 48/48，问题关闭。
-- **P2 · 删除说明后模拟链路与真实连接边界不清。** 初稿将本地 controller 状态直接显示为“已连接”，删除原说明段落后没有可见演示标记。最终 [连接卡](../apps/mobile/src/ui/spaces/CabinSpaceView.tsx#L124) 保留“演示 · 状态”，双脑面板保留“演示策略”，Hub 验收区域仍由真实报告驱动。代码、测试及修后截图均已复核，问题关闭。
+- **P1 · Cabin 默认汇总超宽、需要滚动。** 原生验证发现，独立审查查看[修复前截图](artifacts/phase9/ios-cabin-before-grid-fix.png)后确认：844×390 横屏下，原百分比 `flexBasis` 配合 `flexGrow` 的布局实际显示为单列，四项策略占四行、Hard Gate 数值越出右边界、A–H 仅 A–F 首屏可见。原预算测试直接假设两列，无法证明真实布局。最终 [CabinSpaceView.tsx](https://github.com/GrinZero/super-looi/blob/archive/legacy-hub-and-expo/apps/mobile/src/ui/spaces/CabinSpaceView.tsx#L79) 按所属 panel 的实宽扣除 padding、border 和 gap，分别计算 policy、gate、group 的数值宽度，并关闭这些单元格的伸缩。[回归测试](https://github.com/GrinZero/super-looi/blob/archive/legacy-hub-and-expo/apps/mobile/test/rsi-cabin-interactions.test.ts) 覆盖 320、390、519、520、639、640、646、732pt 实宽。独立查看修后[默认待验证态](artifacts/phase9/ios-cabin.png)及[原生验收态截图](artifacts/phase9/ios-cabin-acceptance.png)，确认两种状态下策略 2×2、Hard Gate 2×2 且四个数值完整、A–H 2×4 均在首屏；无报告时显示待验证，报告返回后显示 48/48，问题关闭。
+- **P2 · 删除说明后模拟链路与真实连接边界不清。** 初稿将本地 controller 状态直接显示为“已连接”，删除原说明段落后没有可见演示标记。最终 [连接卡](https://github.com/GrinZero/super-looi/blob/archive/legacy-hub-and-expo/apps/mobile/src/ui/spaces/CabinSpaceView.tsx#L124) 保留“演示 · 状态”，双脑面板保留“演示策略”，Hub 验收区域仍由真实报告驱动。代码、测试及修后截图均已复核，问题关闭。
 
 具体核查结果：
 

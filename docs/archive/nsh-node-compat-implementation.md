@@ -10,7 +10,7 @@
 
 Shell 使用 Deno parser 和自有能力执行器，没有链接 Deno 默认执行器的外部进程回退。所有重定向与内置文件操作仍受沙盒控制。解析前结构总量限制防止原生栈溢出；命令选项先解析验证，未知选项不进入写入，`--` 后内容保持操作数。异步 Shell 在 Rust 作业执行，取消使用独立 token，环境 cleanup 等待 close 回执；输出仍在执行完成后交付，不能声称实时输出或硬实时取消。
 
-Buffer/crypto/URL/压缩复用同版本原生 stdlib；额外实现 crc32、虚拟 POSIX path、文件与 Promise 包装、事件/流/readline、UTF-8 跨块解码、保留环/日期/集合/二进制的数据克隆。notify 使用有界队列，忽略读取事件，溢出或覆盖不确定时显式失败。Node API 是验证过的子集，具体限制见 [包说明](../packages/nsh-node-compat/README.md)。
+Buffer/crypto/URL/压缩复用同版本原生 stdlib；额外实现 crc32、虚拟 POSIX path、文件与 Promise 包装、事件/流/readline、UTF-8 跨块解码、保留环/日期/集合/二进制的数据克隆。notify 使用有界队列，忽略读取事件，溢出或覆盖不确定时显式失败。Node API 是验证过的子集，具体限制见 [包说明](../../packages/nsh-node-compat/README.md)。
 
 ## 已执行的验证
 
@@ -40,7 +40,7 @@ Buffer/crypto/URL/压缩复用同版本原生 stdlib；额外实现 crc32、虚�
 
 ### 完整 coding-agent SDK
 
-仅使用透明 Node 别名构建桌面根 barrel 的审计仍单独保留：`pnpm --filter @super-looi/nsh-node-compat audit:transparent-sdk`，历史明细见 [full-sdk-audit.json](artifacts/nsh-node-compat/full-sdk-audit.json)。该路径不属于可运行的移动 SDK 模式。
+仅使用透明 Node 别名构建桌面根 barrel 的审计仍单独保留：`pnpm --filter @super-looi/nsh-node-compat audit:transparent-sdk`，历史明细见 [full-sdk-audit.json](../artifacts/nsh-node-compat/full-sdk-audit.json)。该路径不属于可运行的移动 SDK 模式。
 
 新增 `nshPiSdkPlugin` 选择 upstream 实际 programmatic exports，隔离 CLI/TUI barrel。显式适配为：平台 HTTP 全局 dispatcher 设置拒绝（请求本身使用宿主 fetch）；jiti 仅加载已注册预编译扩展；OAuth 使用宿主深链回调而非本机 TCP；photon 图片处理明确拒绝；内置 renderers 退出非可视 agent 路径；fd/rg 使用沙盒 Rust 命令。`verify:full-sdk` 同时执行该模式构建与实际 createAgentSession 七工具测试，已通过。默认凭据、图片、NSH 原生网络与深链仍须在手机宿主验证。
 
@@ -52,7 +52,7 @@ Buffer/crypto/URL/压缩复用同版本原生 stdlib；额外实现 crc32、虚�
 
 ### NSH 手机应用与 Hub 移除
 
-已通过 NSH 原生 class、hardened engine 与 iOS 模拟器真实运行。原生 class 使用官方 [native_module / module / class 注册](https://github.com/longbridge/nsh/blob/e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3/crates/nsh-cli/src/templates/mixed/lib.rs)，没有直接修改 Expo prebuild。`apps/nsh/App.tsx` 已迁为本机大脸、文字/离线记忆、完整回复与审批界面，系统凭据与双端 UI 证据见 [移动基础记录](nsh-mobile-foundation.md)；媒体与完整业务迁移仍未完成。签名发行、真实模型网络、PCM/AEC、安全凭据、BLE/相机及任务/审批/记忆数据迁入仍待完成。证据见 [native-host-audit.json](artifacts/nsh-node-compat/native-host-audit.json) 与 [iOS 日志](artifacts/nsh-node-compat/ios-native-probe.log)、[Android 日志](artifacts/nsh-node-compat/android-native-probe.log)。
+已通过 NSH 原生 class、hardened engine 与 iOS 模拟器真实运行。原生 class 使用官方 [native_module / module / class 注册](https://github.com/longbridge/nsh/blob/e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3/crates/nsh-cli/src/templates/mixed/lib.rs)，没有直接修改 Expo prebuild。`apps/nsh/App.tsx` 已迁为本机大脸、文字/离线记忆、完整回复与审批界面，系统凭据与双端 UI 证据见 [移动基础记录](nsh-mobile-foundation.md)；媒体与完整业务迁移仍未完成。签名发行、真实模型网络、PCM/AEC、安全凭据、BLE/相机及任务/审批/记忆数据迁入仍待完成。证据见 [native-host-audit.json](../artifacts/nsh-node-compat/native-host-audit.json) 与 [iOS 日志](../artifacts/nsh-node-compat/ios-native-probe.log)、[Android 日志](../artifacts/nsh-node-compat/android-native-probe.log)。
 
 Hub 与 Expo 旧端已归档到 `archive/legacy-hub-and-expo` 并移出工作区。当前应用采用 NSH 最简 Agent Loop；签名发行、真机媒体与硬件接线见根目录 `todo.md`。
 

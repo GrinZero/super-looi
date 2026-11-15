@@ -67,4 +67,4 @@ pnpm --filter @super-looi/hub verify:local-center
 
 独立子 agent review 的阻断问题均已修复，增量终审通过。React Doctor 对最后增量扫描未报告问题；首次全分支扫描的既有复杂度 / 可维护性告警仍存在，挂载 effect 的 timer/subscription 清理已人工核对，未为消除告警改变无关界面。
 
-剩余需要本人授权或实际硬件的项目继续保留在 [todo.md](../todo.md)：米家登录后 Keychain 凭据写入 / 恢复、真实设备读控与断网恢复、手机 LIVE 录放音及无桌面服务的完整物理闭环、Android 原生 / 真机验证。当前 App 在进入后台时暂停语音，前台重新开始 LIVE；长时间后台连续语音不在本次已验收范围。
+剩余需要本人授权或实际硬件的项目继续保留在 [todo.md](../../todo.md)：米家登录后 Keychain 凭据写入 / 恢复、真实设备读控与断网恢复、手机 LIVE 录放音及无桌面服务的完整物理闭环、Android 原生 / 真机验证。当前 App 在进入后台时暂停语音，前台重新开始 LIVE；长时间后台连续语音不在本次已验收范围。

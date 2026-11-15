@@ -2,7 +2,7 @@
 
 ## 一、 现状视觉对比：为什么目前效果不佳？
 
-以下为当前 iOS 模拟器实机运行截图与产品原始目标设计稿（提取自仓库 `archive/legacy-v1:design/` 与 `docs/design-v2/ui_manifest.json`）的直观对比：
+以下为当前 iOS 模拟器实机运行截图与产品原始目标设计稿（提取自仓库 `archive/legacy-v1:design/` 与 `docs/archive/design-v2/ui_manifest.json`）的直观对比：
 
 ````carousel
 ![重构后 iOS 模拟器实拍：纯净深邃点阵设备屏、饱满青蓝发光大眼、零 Emoji 豆腐块](../artifacts/phase6/ios-firstscreen-2026-11-04.png)

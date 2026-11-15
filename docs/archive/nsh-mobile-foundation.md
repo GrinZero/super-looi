@@ -10,7 +10,7 @@ iPhone 16e / iOS 26.3 横屏真实 UI 已完成设置打开/关闭、中文输�
 
 固定 NSH Android TestAgent 的 `type/key` 从底层 `host.getRootView().findFocus()` 取焦点，漏掉 Dialog 窗口，不能据它的输入失败判定业务失败。独立 `com.superlooi.nsh.uitest` instrumentation APK 使用 Android 系统输入/可访问性 API验证真实窗口；它不进入产品 APK，不调用 app 的业务私有方法。`pnpm --filter @super-looi/nsh test:ui:android` 自动构建测试 APK、启动当前设备上的开发宿主，结束只停止自己创建的进程组。
 
-截图：[iOS 首页](artifacts/nsh-node-compat/ios-face.png)、[iOS 连接](artifacts/nsh-node-compat/ios-settings.png)、[Android 首页](artifacts/nsh-node-compat/android-face.png)、[Android 离线记忆](artifacts/nsh-node-compat/android-offline-memory.png)。
+截图：[iOS 首页](../artifacts/nsh-node-compat/ios-face.png)、[iOS 连接](../artifacts/nsh-node-compat/ios-settings.png)、[Android 首页](../artifacts/nsh-node-compat/android-face.png)、[Android 离线记忆](../artifacts/nsh-node-compat/android-offline-memory.png)。
 
 ## 系统安全存储与构建插件
 

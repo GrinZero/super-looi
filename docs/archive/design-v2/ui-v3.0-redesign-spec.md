@@ -1,7 +1,7 @@
 # Super-LOOI Presence v3.0 新版具身硬件 UI 设计规范
 ## 「Luminous Hardware & Media-Rich Conformal Bento（灵动光感硬件与富媒体共形空间）」
 
-本规范基于对 Presence v2.1 的深度视觉与代码走查，以及与原始目标设计稿（`archive/legacy-v1:design/首屏示例.png`、`archive/legacy-v1:design/记忆示例.png`、`page-design.md`、`docs/design-v2/ui_manifest.json`）的逐帧对齐制定。
+本规范基于对 Presence v2.1 的深度视觉与代码走查，以及与原始目标设计稿（`archive/legacy-v1:design/首屏示例.png`、`archive/legacy-v1:design/记忆示例.png`、`page-design.md`、`docs/archive/design-v2/ui_manifest.json`）的逐帧对齐制定。
 
 ## 本轮执行边界与原生运行约束（2026-11-04）
 

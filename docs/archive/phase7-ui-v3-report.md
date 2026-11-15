@@ -70,7 +70,7 @@ Step 7.3 的实现、指定三命令与独立审查已完成；上述 smoke 是�
   - **书房家居**：移除重复大标题块，2×2 设备能力 Bento 卡片（发光 `ToggleSwitch`、水平/垂直防冲突 `BrightnessSliderBar` + 五档快捷胶囊、`3000K/4000K/5500K` 冷暖色点胶囊、大字号温湿度/CO₂ 仪表）一屏完整呈现。
   - **约定与任务**：横屏三列并排呈现任务流、琥珀金 `高危作用域 · 单次审批` 安全盾牌卡与自然中文 `我们的日常约定`。
   - **维修舱**：顶部三列独立连接健康卡（BLE / Hub / HA）与下方双脑引擎热切换 + 四阶热状态槽 + `[-6, +6]px` OLED 防烧屏位移十字雷达同屏呈现。
-- **截图归档**：`docs/artifacts/phase7/landscape-polish/ios-{firstscreen,quickdrawer,lab,memories,tasks,home,cabin}.png`。
+- **截图归档**：`docs/archive/artifacts/phase7/landscape-polish/ios-{firstscreen,quickdrawer,lab,memories,tasks,home,cabin}.png`。
 
 ### 2. Hub Web 控制台（`apps/hub/src/console-html.ts`）Presence v3.0 升级
 - **Layer 0 & Layer 1**：220×200 渐变发光大眼 + `#0051FF` 立体底缘折射、移除 `.orb:after` 顶部灰白月牙带与默认悬空细眉、SVG 圆弧微笑、对称 7 柱声波括号唤醒栏 `··|┃|·· ( 说 Hey LOOI 唤醒我 · 轻触屏幕展开 ) ··|┃|··`；修复 `.drawer-open .wake` CSS 层叠顺序文字穿透 Bug。
@@ -79,7 +79,7 @@ Step 7.3 的实现、指定三命令与独立审查已完成；上述 smoke 是�
   - 全面接入自然中文语义转译层（消除卡片正面 `REV 1`、英文枚举与原始 JSON 规则裸露）。
   - 回忆册配备 4 幅 16:9 深色 SVG 场景光影插画与随选中记忆位置动态聚焦的桌面 SVG 脉冲靶心。
   - 任务簿配备琥珀安全盾牌审批面板与已回读产物芯片；家居空间配备发光拨动开关、流光滑轨（含防轮询回跳保护）与 `.selected` 高亮色温胶囊；维修舱配备三路连接卡、双脑切换、OLED 位移十字雷达、四大硬门禁盾牌卡、A–H 八组进度条与可折叠 48 项用例明细。
-- **截图归档**：`docs/artifacts/phase7/web-console/hub-v3-{desktop,narrow,short}-*.png`。
+- **截图归档**：`docs/archive/artifacts/phase7/web-console/hub-v3-{desktop,narrow,short}-*.png`。
 
 ### 3. 全仓自动化门禁与独立子 Agent 终审结论
 - `pnpm typecheck`：4 个 workspace 包全部 0 错误通过。

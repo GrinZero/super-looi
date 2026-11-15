@@ -51,4 +51,4 @@ const gateway = new HomeAssistantGateway({ transport, initialEntities: await tra
 
 独立子 agent review 发现的认证尾部并发问题已修复并补回归，最终审查无剩余可确认问题。真实账号登录、iOS / Android 原生集成及物理设备控制仍在 H3 验收。云端属性响应没有统一设备源时间戳，本适配器的快照时间记录本次查询观察时间；软件回读匹配不替代物理台架验收。UDP / MQTT 通路及更多品类能力仍属后续扩展。
 
-协议依据：[官方 miot_cloud.py](https://github.com/XiaoMi/ha_xiaomi_home/blob/main/custom_components/xiaomi_home/miot/miot_cloud.py) 和本地已部署的同名源码；规格接口依据本地 `miot_spec.py` 的 `/miot-spec-v2/instance` 调用。总体路线见 [调研文档](home-assistant-mobile-runtime-research.md)，下一阶段待办见 [todo.md](../todo.md)。
+协议依据：[官方 miot_cloud.py](https://github.com/XiaoMi/ha_xiaomi_home/blob/main/custom_components/xiaomi_home/miot/miot_cloud.py) 和本地已部署的同名源码；规格接口依据本地 `miot_spec.py` 的 `/miot-spec-v2/instance` 调用。总体路线见 [调研文档](../home-assistant-mobile-runtime-research.md)，下一阶段待办见 [todo.md](../../todo.md)。

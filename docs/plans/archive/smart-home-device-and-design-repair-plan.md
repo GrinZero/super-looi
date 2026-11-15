@@ -1,15 +1,17 @@
 # 智能家居修复方案：真机能力、拖边布局与设计还原
 
+历史实施记录；家居能力与布局见 [家居能力与布局](../../home-device-capabilities.md)。
+
 ## 1. 调研结论与依据
 
 修复要同时打通设备能力链路和界面组合方式。仅增加风速按钮不能解决 MIoT 参数不可写、HA 参数被裁掉、能力未组装及详情页空白的问题。
 
 2026-11-10 在魅族 20 Pro 真机上检查现有 Android 开发宿主，横屏分辨率为 2400×1080，屏幕密度为 440dpi。通过临时只读探针，使用手机当前米家账号读取 46 台设备的规格与属性，并读取当前应用组装出的 44 张设备卡片。没有发送家电控制命令。探针已撤除，原开发会话与跟随系统的外观设置已恢复。
 
-- [真机深色首页](../artifacts/home-repair-audit/05-home-dark.png)、[浅色首页](../artifacts/home-repair-audit/02-home.png)
-- [真机布局编辑](../artifacts/home-repair-audit/03-layout-edit.png)、[风扇详情](../artifacts/home-repair-audit/04-fan-detail.png)、[深色风扇详情](../artifacts/home-repair-audit/06-fan-detail-dark.png)
-- [设备能力清单](../artifacts/home-repair-audit/capability-inventory.json)：去除设备唯一标识、凭据及设备信息服务；保留型号、服务/属性编号、读写性、范围、枚举、读取结果、现有映射和卡片能力。清单包含 370 个数值/布尔属性，其中 358 个读取返回 `code=0`；262 个动作来自规格声明，未执行。
-- agy `a9061a4d-7a3f-4899-a8ee-179e59a17aea`：[房间分组原图](../artifacts/home-repair-audit/reference-grouped-dark.jpg)、[可调整大小的 Bento 原图](../artifacts/home-repair-audit/reference-bento-dark.jpg)、[本次用户指出的细节](../artifacts/home-repair-audit/reference-user-detail.png)。已读取该会话的用户反馈：横屏、保持现有风格、房间区分、能力组合、保存卡片大小与布局，以及减少文字密度。
+- [真机深色首页](../../artifacts/home-repair-audit/05-home-dark.png)、[浅色首页](../../artifacts/home-repair-audit/02-home.png)
+- [真机布局编辑](../../artifacts/home-repair-audit/03-layout-edit.png)、[风扇详情](../../artifacts/home-repair-audit/04-fan-detail.png)、[深色风扇详情](../../artifacts/home-repair-audit/06-fan-detail-dark.png)
+- [设备能力清单](../../artifacts/home-repair-audit/capability-inventory.json)：去除设备唯一标识、凭据及设备信息服务；保留型号、服务/属性编号、读写性、范围、枚举、读取结果、现有映射和卡片能力。清单包含 370 个数值/布尔属性，其中 358 个读取返回 `code=0`；262 个动作来自规格声明，未执行。
+- agy `a9061a4d-7a3f-4899-a8ee-179e59a17aea`：[房间分组原图](../../artifacts/home-repair-audit/reference-grouped-dark.jpg)、[可调整大小的 Bento 原图](../../artifacts/home-repair-audit/reference-bento-dark.jpg)、[本次用户指出的细节](../../artifacts/home-repair-audit/reference-user-detail.png)。已读取该会话的用户反馈：横屏、保持现有风格、房间区分、能力组合、保存卡片大小与布局，以及减少文字密度。
 
 清单中的数值是本次云端属性读取结果；规格声明可写不等于已经验证写入效果。46 台与 44 张卡片的差额是体脂秤和健腹轮，当前聚合器未生成它们的卡片。冷启动期间另观察到 41 张卡片，随后恢复 44 张，数量不能写成固定家庭配置。
 

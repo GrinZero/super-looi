@@ -54,7 +54,7 @@ NSH 的 `locale()` 返回 BCP 47（语言与地区标签）并在系统变化时
 
 ## 实施顺序与验收
 
-详细执行清单见 [NSH 中英双语接入实施计划](plans/nsh-bilingual-integration-plan.md)。
+当前实现与验证见 [NSH 中英双语](nsh-bilingual-integration.md)；原执行清单见 [历史实施计划](plans/archive/nsh-bilingual-integration-plan.md)。
 
 1. 在后续实施计划中先接语言偏好、i18next 本地词条及 Intl polyfill，再迁移可见界面文案；用 NSH headless（无界面测试）验证系统 `locale()` 更新、手动覆盖持久化、英文 `1 item / 2 items` 和两种语言的日期格式。
 2. 将 runtime 面向 UI 的状态和错误转换为稳定消息标识，迁移 Agent 与 Realtime 的语言提示词；分别检查中文、英文、明确要求切换语言、短语气词与中英混合输入，确认最终回答及语音字幕遵守同一规则。

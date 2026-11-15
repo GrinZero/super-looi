@@ -103,7 +103,7 @@
 
 ## 智能家居能力与视觉还原
 
-实施依据：[真机能力、拖边布局与设计还原方案](docs/plans/smart-home-device-and-design-repair-plan.md)。
+实现说明：[家居能力与布局](docs/home-device-capabilities.md)。
 
 - [x] 按真机调研补齐 MIoT 可写属性和动作映射、HA 风扇参数、能力元语组装；真实风扇具备 4 档风速、3 种模式、摇头及角度，空调具备温度/模式/风速，台灯具备亮度/色温及 11 项模式选择器。
 - [x] 修复布局入口重复、尺寸按钮替代拖边、窗口宽度决定列数导致卡片过窄，以及 PM2.5 和家电图标缺少语义视觉的问题。
@@ -140,7 +140,7 @@
 
 ## 中英双语接入
 
-接入依据见 [NSH 中英双语接入调研](docs/nsh-multilingual-integration-research.md)，执行步骤见 [实施计划](docs/plans/nsh-bilingual-integration-plan.md)。
+接入依据见 [NSH 中英双语接入调研](docs/nsh-multilingual-integration-research.md)，原执行步骤见 [历史计划](docs/plans/archive/nsh-bilingual-integration-plan.md)。
 
 实现与验证见 [NSH 中英双语](docs/nsh-bilingual-integration.md)。
 - [ ] 豆包英文专用音色 `en_female_jenny_uranus_bigtts` 在当前 `1.2.6.1` 模型与凭证下返回英文文本但零音频帧；如需提供英文专用音色，先核实适用的 S2S 音色 ID 并取得有声输出。

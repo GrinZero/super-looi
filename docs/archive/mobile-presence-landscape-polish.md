@@ -27,7 +27,7 @@
 
 ## 原生截图与交互
 
-证据目录：[`docs/artifacts/phase7/landscape-polish/`](artifacts/phase7/landscape-polish/)。由单独的原生验证 agent 独占 Simulator 检查。
+证据目录：[`docs/archive/artifacts/phase7/landscape-polish/`](artifacts/phase7/landscape-polish/)。由单独的原生验证 agent 独占 Simulator 检查。
 
 - [`ios-firstscreen.png`](artifacts/phase7/landscape-polish/ios-firstscreen.png)：圆弧微笑与柔化眼球、底边辉光。
 - [`ios-quickdrawer.png`](artifacts/phase7/landscape-polish/ios-quickdrawer.png)：完整缩小双眼/微笑位于面板上方，四张空间卡与两个工具入口可见，顶部状态入口已隐藏。

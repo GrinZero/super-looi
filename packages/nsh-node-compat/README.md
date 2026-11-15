@@ -1,6 +1,6 @@
 # @super-looi/nsh-node-compat
 
-NSH v0.5.0 同版本 QuickJS 的独立兼容包与验证宿主。实际 Pi 1.5.0 programmatic SDK 七工具、Durable 与本机隔离 codemode 已通过。当前提供经过测试的 Node API 子集，并已接入 `apps/nsh` 的手机业务运行时；实现与验证记录见 [实施记录](../../docs/nsh-node-compat-implementation.md)。
+NSH v0.5.0 同版本 QuickJS 的独立兼容包与验证宿主。实际 Pi 1.5.0 programmatic SDK 七工具、Durable 与本机隔离 codemode 已通过。当前提供经过测试的 Node API 子集，并已接入 `apps/nsh` 的手机业务运行时；宿主接线与数据归属见 [NSH 运行时](../../docs/nsh-runtime.md)，初次接入过程见 [历史实施记录](../../docs/archive/nsh-node-compat-implementation.md)。
 
 ```sh
 pnpm install --frozen-lockfile
@@ -55,4 +55,4 @@ pnpm --filter @super-looi/nsh-node-compat verify:codemode
 
 Codemode 同时最多 4 个 VM，默认堆 32 MiB、最大 64 MiB、栈 256 KiB；每次执行/继续最多 250ms 并有 interrupt 预算。桥接输入帧最多 4 MiB，4 个同步 admission permit，单 VM 待处理/乱序结果各 8 MiB，输出消息最多 4096 条/16 MiB；stop 有独立控制入场。确定性模式固定 seed / 虚拟 UTC 时钟，fingerprint 包含 VM/平台/prelude/适配实现及预算。不同 fingerprint 不保证跨平台 replay 一致。Intl.Segmenter 提供 ICU grapheme/word/sentence；当前 locale 为 und，其他 locale 明确拒绝。
 
-未覆盖的 API 会拒绝，例如 `watchFile`、`statfs`、chmod、运行期 require、任意可执行文件与完整 Windows path 语义。异步 FS 包装当前仍在调用线程执行原生同步 I/O；桥接使用 JSON 拷贝，没有“零开销／零拷贝”承诺。native notify 已在 macOS runner、iOS 与 Android ARM64 模拟器原生 class 实测。最新范围见 [原生网络与版本复验](../../docs/nsh-native-live-verification.md)。
+未覆盖的 API 会拒绝，例如 `watchFile`、`statfs`、chmod、运行期 require、任意可执行文件与完整 Windows path 语义。异步 FS 包装当前仍在调用线程执行原生同步 I/O；桥接使用 JSON 拷贝，没有“零开销／零拷贝”承诺。native notify 已在 macOS runner、iOS 与 Android ARM64 模拟器原生 class 实测。验证入口及历史版本证据见 [NSH 运行时](../../docs/nsh-runtime.md#验证入口与历史证据)。

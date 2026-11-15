@@ -1,6 +1,8 @@
 # NSH 中英双语接入实施计划
 
-依据：[中英双语接入调研](../nsh-multilingual-integration-research.md)。首批支持简体中文与英语；默认跟随系统，可在应用内覆盖。词条保存在仓库内，暂不接入 TMS。
+历史实施记录；双语说明见 [双语说明](../../nsh-bilingual-integration.md)。
+
+依据：[中英双语接入调研](../../nsh-multilingual-integration-research.md)。首批支持简体中文与英语；默认跟随系统，可在应用内覆盖。词条保存在仓库内，暂不接入 TMS。
 
 ## Step 1：建立界面语言状态与词条
 

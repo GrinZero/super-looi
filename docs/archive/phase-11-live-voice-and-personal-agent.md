@@ -57,5 +57,5 @@
 3. **子 Agent 独立 Review 闭环**：
    - 修复了 `resolveWorkspacePath` 同级目录前缀绕过问题、Web 隐私暂停/断连麦克风释放、`/ws/voice` 快慢脑并发锁与 `AbortController` 中断、以及 Mobile 临时 WAV 缓存文件清理。
 4. **iOS 模拟器 (`iPhone 16e`) 实机验证截图**：
-   - 首屏 LIVE 对话入口：`docs/artifacts/phase11/sim-face-live.png`
-   - 回忆册真实 Hub 记忆同步：`docs/artifacts/phase11/sim-memories-synced.png`
+   - 首屏 LIVE 对话入口：`docs/archive/artifacts/phase11/sim-face-live.png`
+   - 回忆册真实 Hub 记忆同步：`docs/archive/artifacts/phase11/sim-memories-synced.png`

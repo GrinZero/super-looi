@@ -2,7 +2,7 @@
 
 本文为 Step 6.1 与 Step 6.2 第一层组件的历史交付记录，下文“本次”与“后续”均指该次组件交付时点。首屏接线和四空间的当前实现、验证与局限见 [Phase 6 首屏接线与四大共形空间](phase6-conformal-spaces.md)。历史检查记录保留原样，不代表当前页面仍未接线。
 
-本次依据 `docs/design-v2/ui-v2.1-redesign-spec.md` 完成 Step 6.1 基础设施与 Step 6.2 可复用表现组件。`apps/mobile/app/index.tsx` 未修改；首屏接线、控制器挂载、顶栏及 QA 按钮移除、模拟器截图验收留待后续，Step 6.2 整体尚未完成。
+本次依据 `docs/archive/design-v2/ui-v2.1-redesign-spec.md` 完成 Step 6.1 基础设施与 Step 6.2 可复用表现组件。`apps/mobile/app/index.tsx` 未修改；首屏接线、控制器挂载、顶栏及 QA 按钮移除、模拟器截图验收留待后续，Step 6.2 整体尚未完成。
 
 ## TypeScript 与主题兼容性
 

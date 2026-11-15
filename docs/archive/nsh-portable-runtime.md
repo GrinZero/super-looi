@@ -20,6 +20,6 @@
 
 原先 C02/C05、D05、H01–H06 的常量通过项已替换成真实软件行为断言，包括电视语音审批拒绝、仅关相机、墓碑恢复、轻通知/说话延迟、便携态、三链路状态和降载策略。视觉模型与温控输入仍使用明确的策略 fixture；48/48 不等于真实麦克风/AEC、相机模型、蓝牙底座或手机热管理已验收。
 
-全仓 build/typecheck/test 通过，315 项 JS 测试、九组 QuickJS、强杀恢复与 NSH 原生集成通过。独立只读审查发现的审批旁路、Shell 绕行、动作重放、损坏 epoch、上下文删除竞态与推断恢复问题均由主 agent 修复并复验。双端日志见 [iOS](artifacts/nsh-node-compat/ios-native-probe.log) 和 [Android](artifacts/nsh-node-compat/android-native-probe.log)。
+全仓 build/typecheck/test 通过，315 项 JS 测试、九组 QuickJS、强杀恢复与 NSH 原生集成通过。独立只读审查发现的审批旁路、Shell 绕行、动作重放、损坏 epoch、上下文删除竞态与推断恢复问题均由主 agent 修复并复验。双端日志见 [iOS](../artifacts/nsh-node-compat/ios-native-probe.log) 和 [Android](../artifacts/nsh-node-compat/android-native-probe.log)。
 
 剩余工作为 NSH 本机应用接线、安全凭据、真实网络、媒体与硬件、UI、离线 Release 和商店签名；Hub / Expo 归档与删除继续受完整替代门禁约束。

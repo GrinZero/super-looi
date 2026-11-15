@@ -1,6 +1,6 @@
 # Phase 6 首屏接线与四大共形空间
 
-本阶段依据 `docs/design-v2/ui-v2.1-redesign-spec.md`、`docs/phase6-layer1-components.md` 完成 Step 6.2 首屏接线与 Step 6.3 四大共形二级空间。代码实现、独立审查与 mobile 三项检查已完成。模拟器视觉/交互和真实硬件链路的验收范围在文末独立列明。
+本阶段依据 `docs/archive/design-v2/ui-v2.1-redesign-spec.md`、`docs/archive/phase6-layer1-components.md` 完成 Step 6.2 首屏接线与 Step 6.3 四大共形二级空间。代码实现、独立审查与 mobile 三项检查已完成。模拟器视觉/交互和真实硬件链路的验收范围在文末独立列明。
 
 ## 交付与交互
 

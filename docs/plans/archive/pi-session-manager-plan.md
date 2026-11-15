@@ -1,5 +1,7 @@
 # Pi SessionManager 接入
 
+历史实施记录；Pi 会话说明见 [Pi 会话说明](../../pi-runtime.md#会话与记忆)。
+
 ## 行为
 
 会话消息采用 Pi 1.5.0 的 `SessionManager` 写入 `/home/agent/sessions/<timestamp>_<sessionId>.jsonl`。用户消息、模型消息与工具结果在 `message_end`（消息结束）时追加；任务失败或取消不撤销已保存消息。后续任务按 session ID 和工作目录查找文件，并通过 `buildSessionContext()` 恢复活动分支。

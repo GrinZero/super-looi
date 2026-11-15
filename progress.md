@@ -365,7 +365,7 @@
 ### Pi 标准运行时与生态接入（2026-11-12）
 
 - [x] Step 1：核对官方 SDK 与现有任务、凭据、工具和兼容层，确定职责与迁移方案
-  - [x] 采用 `createAgentSession`、标准资源加载器与官方扩展入口，计划见 `docs/plans/pi-ecosystem-runtime-plan.md`
+  - [x] 采用 `createAgentSession`、标准资源加载器与官方扩展入口，计划见 `docs/plans/archive/pi-ecosystem-runtime-plan.md`
 - [x] Step 2：迁移 AgentSession、模型访问、审批、观测与完成语义
   - [x] 使用官方 SDK，会话消息、压缩、重试和排队由 Pi 管理；标准扩展命令按官方处理结果完成
   - [x] 覆盖启动取消和扩展关闭，将原生确认对话、通知及 Shell 回执接到 Pi 接口
@@ -682,7 +682,7 @@
 
 ### 智能家居真机能力、拖边布局与设计还原落地（2026-11-10）
 
-方案见 [`docs/plans/smart-home-device-and-design-repair-plan.md`](docs/plans/smart-home-device-and-design-repair-plan.md)。
+方案见 [`docs/plans/archive/smart-home-device-and-design-repair-plan.md`](docs/plans/archive/smart-home-device-and-design-repair-plan.md)。
 
 - [x] Step 1：真实设备能力闭环（`@super-looi/home-assistant`、`@super-looi/home-devices`、`apps/nsh/runtime`）
   - [x] 扩充 MIoT Spec 解析（`parseMiotSpec` 保留 `actions` 及关联入参属性）与 `MiotHttpClient.callAction`（`miotspec/action`）
@@ -729,7 +729,7 @@
   - [x] 通过临时只读探针读取账号内 46 台设备规格和属性，核对首页 44 张卡片，保存去除设备标识和凭据的能力清单；探针已撤除并恢复原开发会话
   - [x] 补齐风扇详情、布局编辑与明暗主题截图，恢复跟随系统外观
 - [x] Step 2：读取 agy `a9061a4d-7a3f-4899-a8ee-179e59a17aea` 用户设计反馈及原始分组/Bento 设计图，对照信息层级、图标、PM2.5 和布局入口差距
-- [x] Step 3：追踪设备字段、能力归一化、命令与回读、元语与界面组装，形成 [分层修复方案](docs/plans/smart-home-device-and-design-repair-plan.md)
+- [x] Step 3：追踪设备字段、能力归一化、命令与回读、元语与界面组装，形成 [分层修复方案](docs/plans/archive/smart-home-device-and-design-repair-plan.md)
 - [x] Step 4：独立 review 与复核通过；补齐动作状态判据、1x2 独立轴缩放、同设备 PM2.5 来源、长名称及房间编辑身份，保存方案和待办；业务功能未落地
 
 
@@ -1266,7 +1266,7 @@
   - [x] 原生宿主阶段全仓 build/typecheck/test 通过（含 NSH hardened engine 回归、初始化交互及原有 307 项业务测试）；iOS 八套原生测试通过；独立复审修复取消生命周期问题
   - [x] 扩展至八组真 QuickJS 套件（含 codemode 与完整 SDK），SIGKILL / runner deadline 仍通过；全仓 build/typecheck/test（307 项既有 JS 测试）、Cargo test 与独立复审通过；本轮移动 App 与去 Hub 尚未完成
   - [x] 全仓 pnpm build/typecheck/test 通过（307 项原有 JS 测试 + 六组 QuickJS / SIGKILL / deadline）；Cargo test、公开包导出检查、独立子 agent 复审通过
-  - [x] docs/nsh-node-compat-implementation.md / todo 记录实际证据和剩余门禁；分阶段提交，不勾选完整迁移
+  - [x] docs/archive/nsh-node-compat-implementation.md / todo 记录实际证据和剩余门禁；分阶段提交，不勾选完整迁移
 
 
 ### dsh-Go iOS 分支与 issue #609 调研（2026-11-06）
@@ -1483,11 +1483,11 @@
   - [x] 切回 `main` 主分支，重置为清爽重构起点
 - [x] **0.2 黄金资产抢救与入库落盘**
   - [x] 提取字节跳动 OpenSpeech 全双工二进制协议实现至 `docs/golden-reference/doubao-duplex-reference.ts`
-  - [x] 提取 V2 核心 PRD 至 `docs/design-v2/prd.md`
-  - [x] 提取 V2 核心技术方案至 `docs/design-v2/technical.md`
-  - [x] 提取 48 条全量验收 Case 矩阵至 `docs/design-v2/acceptance-48-cases.md`
-  - [x] 提取 V2 协议设计草案至 `docs/design-v2/protocol_contracts.reference.ts`
-  - [x] 提取 UI Manifest 布局定义至 `docs/design-v2/ui_manifest.json`
+  - [x] 提取 V2 核心 PRD 至 `docs/archive/design-v2/prd.md`
+  - [x] 提取 V2 核心技术方案至 `docs/archive/design-v2/technical.md`
+  - [x] 提取 48 条全量验收 Case 矩阵至 `docs/archive/design-v2/acceptance-48-cases.md`
+  - [x] 提取 V2 协议设计草案至 `docs/archive/design-v2/protocol_contracts.reference.ts`
+  - [x] 提取 UI Manifest 布局定义至 `docs/archive/design-v2/ui_manifest.json`
 - [x] **0.3 净室清理与工作区净化**
   - [x] 移除旧 `app/`, `src/`, `server/`, `scripts/`, `patches/`, `plugins/` 等冗余目录
   - [x] 移除旧 Metro/Nativewind/Babel 临时文件，仅保留必要配置与文档
@@ -1528,7 +1528,7 @@
   - [x] 抽象 `VisionProvider` 标准协议与注册表
   - [x] 实现 `CloudVisionProvider`、`LanVisionProvider` 与具备串行互斥/空闲 5s 自动卸载的 `EdgeVisionProvider`
   - [x] 建立三层视觉基准评测套件 (`runVisionBenchmark`) 与 `/api/vision/benchmark` 诊断路由
-  - [x] 沉淀 `docs/phase1-vision-and-voice-benchmark.md` 阶段性架构结论文档
+  - [x] 沉淀 `docs/archive/phase1-vision-and-voice-benchmark.md` 阶段性架构结论文档
 
 ---
 
@@ -1557,7 +1557,7 @@
   - [x] 联动角落迷你小 LOOI 头像视线：用户点击卡片时，小机器人视线实时转头盯视选中的照片（视线向量聚焦 `{ x: 0.65, y: 0.35 }`）
   - [x] 格式化 4 问生活片段卡片（When 何时、Where 何地、How 何源、Trust Level 凭据），区分已确认事实（绿）、观测记录（青）、推测（琥珀）与隐私过期脱敏徽章
   - [x] 提供“不是这里”（纠错）、“已经拿走了”（移除失效）、“忘掉这条”（彻底遗忘）三大直觉用户动作回调
-  - [x] 沉淀 `docs/phase2-memory-ledger-and-conformal-ui.md` 阶段性架构与设计文档
+  - [x] 沉淀 `docs/archive/phase2-memory-ledger-and-conformal-ui.md` 阶段性架构与设计文档
 
 ---
 
@@ -1585,7 +1585,7 @@
   - [x] 4 色语义卡片格式化：`running` (Cyan), `awaiting_approval` (Amber), `succeeded` (Green), `cancelling`/`unknown`/`failed` (Coral)
   - [x] 后台完成/待审批时向 `LightToastQueue` 入队 3 秒轻提示，绝不突兀抢占全屏前台
   - [x] 管理“约定”（Commitments & Reminders）清单
-  - [x] 沉淀 `docs/phase3-remote-productivity-dsh.md` 阶段性架构与设计文档
+  - [x] 沉淀 `docs/archive/phase3-remote-productivity-dsh.md` 阶段性架构与设计文档
 
 ---
 
@@ -1607,7 +1607,7 @@
   - [x] 编写 `CabinSpaceController` (`apps/mobile/src/ui/cabin-space.ts`)：第三大内页“维修舱”共形展开
   - [x] 离线降级诚实指示（Screen 14）：分别独立展示 LOOI 底座 (BLE)、Hub 主机、HA 网关在线状态与验真时间戳，严禁单一“假绿点”掩盖部分失联；重连时不自动盲目重放旧物理运动
   - [x] Provider 与隐私控制：支持热切换语音/视觉引擎，展示摄像头/麦克风/后台进程硬件状态指示
-  - [x] 沉淀 `docs/phase4-smart-home-and-cabin.md` 阶段性架构与设计文档
+  - [x] 沉淀 `docs/archive/phase4-smart-home-and-cabin.md` 阶段性架构与设计文档
 
 ---
 
@@ -1626,13 +1626,13 @@
   - [x] 无线充底座 7×24 小时常驻发热、内存泄漏与 GC 压力测试（`DockedLongevitySupervisor` 优雅热降级：nominal -> fair -> serious -> critical）
   - [x] BLE 偶发断连、重连抖动与状态同步自愈能力（Zero Motion Replay 协议，断连清空队列，重连重放数为 0）
   - [x] 前台横屏防烧屏微偏移与休眠/唤醒平滑过渡（OLED 像素微偏移严格硬截断在 `[-6, 6]` px 内）
-  - [x] 沉淀 `docs/phase5-acceptance-and-longevity-report.md` 阶段性验收与长稳架构报告
+  - [x] 沉淀 `docs/archive/phase5-acceptance-and-longevity-report.md` 阶段性验收与长稳架构报告
 
 ---
 
 ### Phase 6: Presence v2.1 具身设备感与“脸与页面共形”UI 全量重构
 
-本次执行范围：依据 `docs/design-v2/ui-v2.1-redesign-spec.md` 完成 Step 6.4 的 Hub 内嵌 Web 控制台升级及根目录四包 `pnpm typecheck` / `pnpm test` / `pnpm build`，归档结果并提交本轮改动。保留既有 Step 6.1–6.3 交付记录；移动端 UI 联网验收、iOS 模拟器逐屏交互与双端硬件验收继续独立跟踪，不以 Web 或自动化验证代替。
+本次执行范围：依据 `docs/archive/design-v2/ui-v2.1-redesign-spec.md` 完成 Step 6.4 的 Hub 内嵌 Web 控制台升级及根目录四包 `pnpm typecheck` / `pnpm test` / `pnpm build`，归档结果并提交本轮改动。保留既有 Step 6.1–6.3 交付记录；移动端 UI 联网验收、iOS 模拟器逐屏交互与双端硬件验收继续独立跟踪，不以 Web 或自动化验证代替。
 
 - [x] **6.1 修复类型盲区、统一设备屏设计 Token 与零 Emoji 矢量图标底座**
   - [x] 拆分 `apps/mobile/tsconfig.build.json`（供 `dist` 导出）并升级 `apps/mobile/tsconfig.json` 将 `"app/**/*"` 纳入全局 `pnpm typecheck`
@@ -1661,13 +1661,13 @@
     - [x] 新建 `QuickDrawerOverlay` 六入口玻璃卡片，最小触控高度 84pt，统一使用 `LooiIcon`，4.5 秒无操作自动关闭并清理计时器
     - [x] 新建 `SimLabSheet`，收纳说话/记画面/微观察/脱座归座/急停/48 项验收六类仿真回调
     - [x] 新建 `ConversationSubtitleOverlay`，提供 Screen 02 单句实时语音字幕胶囊
-  - [x] 上轮历史交付：组件接口、生命周期及独立验证已沉淀至 `docs/phase6-layer1-components.md`；当轮 `index.tsx` SHA-256 与当轮基线一致、未做模拟器视觉验收，本轮已实际重构并接线
+  - [x] 上轮历史交付：组件接口、生命周期及独立验证已沉淀至 `docs/archive/phase6-layer1-components.md`；当轮 `index.tsx` SHA-256 与当轮基线一致、未做模拟器视觉验收，本轮已实际重构并接线
   - [x] 本轮首屏接线：全量重构 `index.tsx`，默认仅呈现全屏 `RobotFaceView`、感知微胶囊、功能/仿真台入口与底部引导，轻触/上滑呼出抽屉
     - [x] 挂载并联动 `PresenceStateManager`、`RobotFaceController`、`LightToastQueue`、三个共形空间控制器、`DockedLongevitySupervisor` 与 `KeepAwakeController`，清理定时器与订阅
     - [x] 实际接入字幕、隐私暂停/恢复、轻提示与运动急停；微观察时显示 `#FA8E86` 大胶囊并保持停止路径优先
     - [x] 仿真台六类动作统一先关闭 Modal，再执行状态变更与轻提示入队，允许全屏大脸即时反馈
     - [x] 更新 `apps/mobile/src/index.ts` 导出新组件与类型，检查新增可见图标仅使用 `LooiIcon`
-  - [x] 本轮 iOS 首屏视觉 smoke：iPhone 16e / iOS 26.3、Expo bundle HTTP 200；首屏无缺失字形、空闲波形或旧顶栏，截图 `docs/artifacts/phase6/ios-firstscreen-2026-11-04.png`
+  - [x] 本轮 iOS 首屏视觉 smoke：iPhone 16e / iOS 26.3、Expo bundle HTTP 200；首屏无缺失字形、空闲波形或旧顶栏，截图 `docs/archive/artifacts/phase6/ios-firstscreen-2026-11-04.png`
   - [ ] 后续逐态交互验收：在 iOS 模拟器检查头像、抽屉、字幕、隐私面板与四空间点击流程（CUA Simulator 操作未获批准；不影响本轮代码实现完成）
 - [x] **6.3 重构第三层：共形内页外壳 (`ConformalDeviceShell`) 与四大二级功能空间**
   - [x] 实现 `apps/mobile/src/ui/components/ConformalDeviceShell.tsx`：适配 iOS 横屏 `SafeAreaInsets`，提供左侧 88pt 玻璃窄轨导航（四入口触控高度至少 58pt，便携模式展示真实离座截止时间横幅）、顶部共形眼动锚点与右上角视线实时联动的迷你 LOOI 头显
@@ -1691,7 +1691,7 @@
     - [x] 运行 `pnpm --filter @super-looi/mobile test`：10 suites，45/45 通过，退出码 0
     - [x] 运行 `pnpm --filter @super-looi/mobile build`：退出码 0（TypeScript build，不代表原生 iOS 编译）
     - [x] React Doctor 修复两项 render ref 错误后复扫退出码 0，73/100，0 errors / 47 非阻断 warnings，未扩展无关阴影/架构迁移
-    - [x] 独立审查集成回调与布局约束，记录静态/自动化结果及视觉和硬件局限至 `docs/phase6-conformal-spaces.md`，清理已解决 `todo.md` 条目
+    - [x] 独立审查集成回调与布局约束，记录静态/自动化结果及视觉和硬件局限至 `docs/archive/phase6-conformal-spaces.md`，清理已解决 `todo.md` 条目
 - [ ] **6.4 同步升级 Hub Web 控制台 (`console-html.ts`) 与 iOS 模拟器全屏实机验收**
   - [x] 同步升级 `apps/hub/src/console-html.ts` 为深邃点阵设备屏 + 纯净全屏大脸 + 快捷抽屉/仿真台 + 四大共形内页体验
     - [x] 明确本轮 Hub 与全工作区验证范围，拆分实施及审查步骤，记录当前待办
@@ -1711,20 +1711,20 @@
     - [x] 最终 `pnpm typecheck`：四包通过，退出码 0
     - [x] 最终 `pnpm test`：25 suites / 115 tests，0 fail；contracts 5、looi-driver 11、Hub 54、mobile 45，退出码 0
     - [x] 最终 `pnpm build`：四包 TypeScript 构建通过，退出码 0；`git diff --check` 通过
-  - [x] 将 Hub 交付与验证结果归档至 `docs/phase6-hub-console.md`，收敛 `todo.md` 并提交本轮改动
+  - [x] 将 Hub 交付与验证结果归档至 `docs/archive/phase6-hub-console.md`，收敛 `todo.md` 并提交本轮改动
     - [x] 分阶段提交计划 `d8189e5`、只读接口 `7021357`、控制台与家居参数回读 `f263415`
   - [ ] 通过移动端 UI 实际运行联网 Hub 48 项验收并核验 A-H 八组与四门禁显示；当前客户端解析单测不能替代此项
   - [ ] 在 iOS 模拟器上逐屏实机运行并截图核验（首屏陪伴、聆听/仿真台、快捷抽屉、隐私暂停、回忆册、任务簿、书房家居、维修舱），沉淀阶段性总结至 `docs/` 并清理 `todo.md`
 
 ---
 
-### Phase 7: Presence v3.0 灵动光感硬件与富媒体共形空间深度重构 (`docs/design-v2/ui-v3.0-redesign-spec.md`)
+### Phase 7: Presence v3.0 灵动光感硬件与富媒体共形空间深度重构 (`docs/archive/design-v2/ui-v3.0-redesign-spec.md`)
 
 - [x] **7.0 深度视觉审阅与 Presence v3.0 新版设计规范沉淀**
   - [x] 提取原版目标视觉参考稿（`archive/legacy-v1:design/首屏示例.png`、`记忆示例.png`、`page-design.md`）并与 Phase 6 全部 20 张实机/Web 截图逐帧对比
   - [x] 由审查子 Agent 完成全量代码与截图走查，定位六大系统性病灶与五处代码级实现 Bug
-  - [x] 沉淀新版设计规范至 `docs/design-v2/ui-v3.0-redesign-spec.md`
-前置批次范围（2026-11-04）：`@super-looi/mobile` Step 7.1、7.2，以及提前实现的 `RobotFaceView` avatar；本批次代码实现与独立 review 已完成，最终 mobile 三项检查全部通过，首屏与 avatar 原生截图已核验，抽屉留图、完整 SimLab 交互与 portrait 继续待验；交付记录独立见 `docs/phase7-mobile-foundation-report.md`。
+  - [x] 沉淀新版设计规范至 `docs/archive/design-v2/ui-v3.0-redesign-spec.md`
+前置批次范围（2026-11-04）：`@super-looi/mobile` Step 7.1、7.2，以及提前实现的 `RobotFaceView` avatar；本批次代码实现与独立 review 已完成，最终 mobile 三项检查全部通过，首屏与 avatar 原生截图已核验，抽屉留图、完整 SimLab 交互与 portrait 继续待验；交付记录独立见 `docs/archive/phase7-mobile-foundation-report.md`。
 
 本轮执行范围（2026-11-04）：按用户新指令执行 Step 7.3，共形外壳与记忆、任务、家居、维修四空间升级至 Presence v3.0，复用前置组件与 `humanize.ts`，运行 mobile 三项自动化检查并完成独立审查。用户明确指定的 88pt 导航、5 档亮度（20/40/60/80/100%）与原生绘制优先于旧规范示例。Step 7.4 的 Hub Web 与完整双端逐屏验收继续独立跟踪。
 
@@ -1754,7 +1754,7 @@
     - [x] SimLab speaking 提示改为自然中文演示说明
   - [x] 独立审查已完成，无阻断发现；humanize + Metro 聚焦回归 17 项通过
   - [x] `pnpm --filter @super-looi/mobile typecheck`、`test`、`build` 全部退出码 0；测试 16 suites / 61 tests 全过、0 失败，独立 review 无阻断发现
-  - [x] 核验 iOS 横屏首屏与 avatar 截图：首屏未见原有同心环，头盔传感器/侧灯/品牌标与图标实际呈现；证据位于 `docs/artifacts/phase7/steps-7.1-7.2/`
+  - [x] 核验 iOS 横屏首屏与 avatar 截图：首屏未见原有同心环，头盔传感器/侧灯/品牌标与图标实际呈现；证据位于 `docs/archive/artifacts/phase7/steps-7.1-7.2/`
   - [ ] 后续视觉证据：补充稳定抽屉截图、完整 SimLab 交互与 portrait 实机；已观察抽屉隐藏唤醒栏及大脸缩小上移，但并发操作未留稳定截图，独立模拟器 CUA pipe 关闭后未继续宣称覆盖
 - [x] **7.3 Step 3: 重塑第二/三层 —— `ConformalDeviceShell` v3 与四大富媒体空间（实现与指定验证完成）**
   - [x] 建立本轮实施、验证与归档子步骤；保留前置 7.1/7.2 原有记录及并行改动
@@ -1791,13 +1791,13 @@
     - [x] React Doctor 最终补扫含新增文件：42 files、30 warnings、0 errors，退出 0；独立审查确认无新增功能缺陷
     - [x] 归档 iPhone 16e 横屏四空间首屏与家居开关回读 smoke；CUA pipe 中断后的未测交互及完整双端矩阵保留至 7.4
     - [x] `git diff --check`；确认本轮提交无新增 RNSVG、无直接修改 Expo prebuild 产物
-  - [x] 将实际交付与未验证边界写入 `docs/phase7-ui-v3-report.md`，整理 `todo.md` 并分阶段提交本轮文件
+  - [x] 将实际交付与未验证边界写入 `docs/archive/phase7-ui-v3-report.md`，整理 `todo.md` 并分阶段提交本轮文件
 - [x] **7.4 Step 4: 同步升级 Hub Web 控制台 (`console-html.ts` v3) 与双端实机逐屏截图验收**
   - [x] 同步升级 `apps/hub/src/console-html.ts` 至 Presence v3.0 视觉体系：
     - [x] 1:1 同步纯粹发光大眼、底部声波括号唤醒栏、共形缩放抽屉、3D 头盔面罩、9 柱标题声波纹、4 幅记忆场景 SVG 插画、动态坐标桌面检视器、自然语言日常约定、发光拨动开关、自定义流光亮度滑轨、色温选中态高亮与可折叠 48 项验收看板
     - [x] 修复 `.drawer-open .wake` CSS 层叠顺序文字穿透 Bug、窄屏 `.rail` 悬浮腰斩长图 Bug 与窄屏 `.connections` 三列挤压未折行 Bug
   - [x] 运行全工作区 `pnpm typecheck`、`pnpm test`、`pnpm build` 确保 100% 零错误通过
-  - [x] 在 iOS 模拟器（横屏底座模式 `844×390pt`）与 Web 浏览器上逐屏运行并截图对比核验，由独立 UI/UX 审查子 Agent 完成 10/10 维度终审 PASS，归档至 `docs/artifacts/phase7/` 与阶段报告 `docs/phase7-ui-v3-report.md`，更新清理 `todo.md` 并提交 commit
+  - [x] 在 iOS 模拟器（横屏底座模式 `844×390pt`）与 Web 浏览器上逐屏运行并截图对比核验，由独立 UI/UX 审查子 Agent 完成 10/10 维度终审 PASS，归档至 `docs/archive/artifacts/phase7/` 与阶段报告 `docs/archive/phase7-ui-v3-report.md`，更新清理 `todo.md` 并提交 commit
 
 
 ### Mobile Presence v3.0 iPhone 横屏精修（2026-11-04，844×390pt）
@@ -1811,7 +1811,7 @@
 - [x] Step 3：验证与独立检查
   - [x] mobile typecheck / test / build：全部退出码 0；16 suites / 61 tests 全过（0 fail / skipped）；build 为 TypeScript 构建
   - [x] 独立代码审查与 iOS Simulator 横屏截图核验：四空间主要卡片首屏可见，QuickDrawer 全脸/卡片/工具行避让，Lab 隐藏角标；家居与记忆关键点击 smoke 通过
-  - [x] 更新剩余问题；按用户要求不提交 commit；归档见 `docs/mobile-presence-landscape-polish.md`
+  - [x] 更新剩余问题；按用户要求不提交 commit；归档见 `docs/archive/mobile-presence-landscape-polish.md`
 
 本轮适配以实际源码为准：Shell 对应 `main`，记忆纠错操作移至选中卡片旁，短横屏家居/任务提供紧凑布局，维修卡片按视口宽度而非内层宽度判定列数。保留竖屏/大字布局、离线待核实与单次审批语义。独立审查指出的纠错编辑器可见性、窄屏标题与头像避让已修复。
 
@@ -1847,7 +1847,7 @@
   - [x] 审查并对齐 Hub Web v3 控制台交互：抽屉下滑手势关闭、`armDrawer()` 仅限快捷抽屉自动收起（`7.5s`，不误关 SimLab）、全量控件 `>=44px` 点击区、Safari 滑块拖拽防 5s 轮询回跳保护、48 项分组点击筛选与详情展示、窄屏常驻底栏 + 分段检视切换与短横屏有效视口优化
   - [x] 新增 6 项交互回归测试，运行 `pnpm --filter @super-looi/hub typecheck`、`test`（64/64 通过）、`build` 100% 通过
 - [x] **8.3 RSI Round 1 实机模拟器 + Web 交互实测与子 Agent 独立复审**
-  - [x] 在 iOS 模拟器（横屏 `844×390pt` 底座态）与 Hub Web（桌面 `1280×800` + 短横屏 `844×390` + 手机窄屏 `390×844`）完成点击、滑动、抽屉下滑手势、键盘纠错与 48 项联网验收采样，留存 15 张对比截图于 `docs/artifacts/phase7/rsi-round1/`
+  - [x] 在 iOS 模拟器（横屏 `844×390pt` 底座态）与 Hub Web（桌面 `1280×800` + 短横屏 `844×390` + 手机窄屏 `390×844`）完成点击、滑动、抽屉下滑手势、键盘纠错与 48 项联网验收采样，留存 15 张对比截图于 `docs/archive/artifacts/phase7/rsi-round1/`
   - [x] 调度 `interaction-reviewer` 子 Agent 完成 **RSI Round 1 独立复审**：总分从基线 **`52.5 / 100` 跃升至 `76.5 / 100` (`+24.0`)**（有效区 `73`、手势 `76`、热区 `78`、稳定性 `79`），精准识别出 3 项 Web 短横屏/跨页阻塞项与 5 项双端人体工学精修点
   - [x] 阶段性 Git Commit 已落盘（`b5d1c37`）
 - [x] **8.4 RSI Round 2 & Round 3：二阶交互边界根治、全屏首屏折叠优化、微雕清零与文档归档**
@@ -1865,7 +1865,7 @@
     - [x] `interaction-reviewer` 子 Agent 完成 Round 2 独立复审：**`94.8 / 100`**（有效区 `94`、手势 `94`、热区 `96`、稳定性 `95`，**0 P0 / 0 P1**）
     - [x] 立即执行 **RSI Round 3** 微雕清零全部 4 项 `P2`：Web `390×844` 窄屏 `#memoryInspector` 双列网格使三枚操作按钮首屏可见（`y=664.6px <= 770px`）、`setMobileTaskPane(pane, reveal = false)` 防后台轮询抢滚动、Mobile `MemoriesSpaceView` 内联位置编辑显式 `"取消修改"` / `"取消"` 按钮、Mobile 短横屏 `QuickDrawer` 展开时大脸微笑弧上移（`-98pt`）留出清朗间距
     - [x] 全工作区四包 `pnpm typecheck`、`pnpm test`（**182** 项测试全绿通过，0 失败）、`pnpm build` 与 Playwright 225 控件热区/防裁切审计 100% 零违规通过
-    - [x] 沉淀完整报告至 `docs/phase8-rsi-interaction-report.md`（附 21 张双端终态实测截图于 `docs/artifacts/phase7/rsi-round2/`），清理 `todo.md` 已解决项并完成最终 Git Commit
+    - [x] 沉淀完整报告至 `docs/archive/phase8-rsi-interaction-report.md`（附 21 张双端终态实测截图于 `docs/archive/artifacts/phase7/rsi-round2/`），清理 `todo.md` 已解决项并完成最终 Git Commit
 
 ---
 
@@ -1912,7 +1912,7 @@
   - [x] 调度独立 Review 子 Agent 审查代码质量、布局密度与安全/诚实性边界，归档报告至 `docs/`，更新 `progress.md` 与 `todo.md` 并提交 Git Commit
 
 
-阶段交付见 [Phase 9 零滚动 Bento 报告](docs/phase9-zero-scroll-bento-report.md)、[独立 review](docs/phase9-independent-review.md) 与 `docs/artifacts/phase9/`。原生发现的维修子网格单列溢出已通过数值宽度修复，最终 mobile 119 项测试、typecheck、build 全部退出 0。Hub Web 同步继续独立留在 `todo.md`。
+阶段交付见 [Phase 9 零滚动 Bento 报告](docs/archive/phase9-zero-scroll-bento-report.md)、[独立 review](docs/archive/phase9-independent-review.md) 与 `docs/archive/artifacts/phase9/`。原生发现的维修子网格单列溢出已通过数值宽度修复，最终 mobile 119 项测试、typecheck、build 全部退出 0。Hub Web 同步继续独立留在 `todo.md`。
 
 ---
 
@@ -1935,12 +1935,12 @@
 - [x] **10.5 Step 5: 同步升级 Hub Web 控制台 (`apps/hub/src/console-html.ts`)、全量测试与 iOS 模拟器实机视觉验收**
   - [x] 同步升级 `apps/hub/src/console-html.ts` 至 v4.1 极简侧栏驾驶舱与高颜值 Bento 布局
   - [x] 更新并运行全工作区 `pnpm typecheck`、`pnpm test`（全仓 4 包 202 项测试 100% 全绿通过，0 失败）、`pnpm build` 确保 100% 零错误通过
-  - [x] 在 iOS 模拟器（iPhone 16e `844×390pt`）实机渲染并逐屏截图核验（`docs/artifacts/phase9/ios-*.png`），交由子 Agent 独立 Review 后归档并提交 Commit
+  - [x] 在 iOS 模拟器（iPhone 16e `844×390pt`）实机渲染并逐屏截图核验（`docs/archive/artifacts/phase9/ios-*.png`），交由子 Agent 独立 Review 后归档并提交 Commit
 - [x] **10.6 Step 6: 纯圆几何表情动力学与眨眼状态同步优化 (`RobotFaceView.tsx`, `robot-face-controller.ts`, `app/index.tsx`, `console-html.ts`)**
   - [x] 根治眨眼后卡在 `blinkProgress = 0.5` 导致圆形眼睛变成扁平椭圆的定时器漂移缺陷：为 `RobotFaceController` 新增 `onStateChange` 回调并在每个眨眼阶段（`closing` -> `closed` -> `opening` -> `open`）与表情切换时主动通知视图刷新
   - [x] 升级双端眼眸为 1:1 绝对正圆几何（Mobile 大脸 `184×184pt, borderRadius: 92`、Avatar `24×24pt, borderRadius: 12`；Hub Web `.orb` `200×200px, border-radius: 50%`、`.mini-eye` `20×20px, border-radius: 50%`），彻底移除 `scaleY` 非均匀纵向压扁与切割球面的黑色眼睑遮罩
   - [x] 实现全圆润情绪表达系统 (`getEyePosture`)：通过正圆等比缩放（如 `curious` 大小圆聚焦、`listening` 放大倾听、`thinking` 凝视思考）、圆外悬浮灵动眉弧 (`browArc`)、随视线微移的球面高光点 (`eyeSpecular` / `eyeSparkle`) 及原生弹簧过渡表达丰富情绪，确保任意帧下眼眸始终保持正圆而不坍缩为椭圆
-  - [x] 新增眨眼周期回调与正圆几何回归单测（全仓 203 项测试全绿通过），并在 iOS 模拟器实机复核截图（`docs/artifacts/phase9/ios-quickdrawer.png`、`ios-simlab.png`）
+  - [x] 新增眨眼周期回调与正圆几何回归单测（全仓 203 项测试全绿通过），并在 iOS 模拟器实机复核截图（`docs/archive/artifacts/phase9/ios-quickdrawer.png`、`ios-simlab.png`）
 
 
 ### 首次唤醒提示（2026-11-04）
@@ -1977,7 +1977,7 @@
 - [x] **11.4 Step 4: 首屏极简减法重构、全链路实测与子 Agent 独立 Review**
   - [x] 首屏交互做减法 (`apps/mobile/app/index.tsx` & `console-html.ts`)：轻触大脸或开口即进入 Live 对话，实时展示用户/LOOI 字幕与 `Agent · 执行中` 微状态，回忆册自动同步真实语音记忆
   - [x] 运行全工作区 `pnpm typecheck`、`pnpm test`、`pnpm build` 确保 100% 通过
-  - [x] 在 iOS 模拟器与 Hub Web 实测真实语音链路与 Agent Loop 工具调用，交由子 Agent 独立 Review 后归档至 `docs/phase-11-live-voice-and-personal-agent.md` 并提交 Git Commit
+  - [x] 在 iOS 模拟器与 Hub Web 实测真实语音链路与 Agent Loop 工具调用，交由子 Agent 独立 Review 后归档至 `docs/archive/phase-11-live-voice-and-personal-agent.md` 并提交 Git Commit
 
 
 ### 官方 DSH 执行引擎复用调研（2026-11-05）
@@ -2042,7 +2042,7 @@
   - [x] 真正运行的 App 返回 voiceKey 为空，网络连接前抛错；临时日志已移除
 - [x] Step 3: 确认根因、独立复审诊断并记录结论
   - [x] 子 agent 只读独立 review 通过；区分当前 Key 为空与历史未保存原因未知
-  - [x] 结论沉淀 `docs/live-voice-missing-local-key-diagnosis.md`，后续配置/错误提示修复记录 todo；本轮仅诊断
+  - [x] 结论沉淀 `docs/archive/live-voice-missing-local-key-diagnosis.md`，后续配置/错误提示修复记录 todo；本轮仅诊断
 
 
 ### 智能唤醒方案规划（2026-11-06）
@@ -2822,3 +2822,15 @@
 - [x] Step 2：iOS 模拟器宿主构建通过；横屏语音运行期间两次整包热重载后页面交互正常，退后台再回前台可重新进入聆听并结束到唤醒待机。
   - [x] App 类型检查、9 项原生音频测试、20 项语音故障／SDK 测试及语音运行时用例通过。
 - [x] Step 3：独立 review 通过；按用户要求删除上一轮诊断文档与两份采样文件，清理已修复待办并隔离提交。
+# 文档归档整理（2026-11-15）
+
+- [x] Step 1：确定归档清单及当前文档入口。
+  - [x] 核对旧 Hub／Expo 报告、已完成计划与历史附件的引用。
+  - [x] 提炼 NSH 迁移记录中仍适用的兼容边界和验证入口。
+- [x] Step 2：归档历史资料并更新文档导航。
+  - [x] 移动历史报告、计划和对应附件，修正相对链接。
+  - [x] 更新 README、现行文档和 todo.md 的引用。
+- [ ] Step 3：检查与独立审查。
+  - [x] 检查迁移后的本地链接与脚本引用。
+    - [x] 通过 pnpm 执行本地链接检查，本次迁移与新增说明未引入断链；22 处旧端源码链接指向已核对文件的历史分支。
+  - [ ] 完成独立 review，修正问题并隔离提交文档整理。

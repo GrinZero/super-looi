@@ -2,7 +2,7 @@
 
 日期：2026-11-06
 
-研究路线见 [本机控制中心调研](home-assistant-mobile-runtime-research.md)。H1 已完成：`packages/home-assistant` 提供 `@super-looi/home-assistant`，Hub 家居请求和语音工具已使用该共享实现。Mobile 已声明工作区依赖并验证源码入口，后续在 H3 接入本机家居页面。
+研究路线见 [本机控制中心调研](../home-assistant-mobile-runtime-research.md)。H1 已完成：`packages/home-assistant` 提供 `@super-looi/home-assistant`，Hub 家居请求和语音工具已使用该共享实现。Mobile 已声明工作区依赖并验证源码入口，后续在 H3 接入本机家居页面。
 
 ## 实现
 
@@ -34,6 +34,6 @@ pnpm test
 
 ## 后续边界
 
-H2 将加入米家 OAuth、凭据生命周期、MIoT 规格映射与云端直连适配器；H3 再接移动端登录与连接模式；H4 接本机记忆和语音。待办继续在 [todo.md](../todo.md) 跟踪。
+H2 将加入米家 OAuth、凭据生命周期、MIoT 规格映射与云端直连适配器；H3 再接移动端登录与连接模式；H4 接本机记忆和语音。待办继续在 [todo.md](../../todo.md) 跟踪。
 
 本阶段的跨平台证据来自无 Node 类型编译、隔离运行环境和 Metro 解析；iOS / Android 模拟器、真机以及真实设备物理控制验收仍需在接入阶段完成。当前 Expo 提供标准 WHATWG URL、fetch、AbortController 和 WebSocket；其他宿主需提供相同网络 API。性能和内存数字尚未实测。

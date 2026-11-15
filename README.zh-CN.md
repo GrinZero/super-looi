@@ -209,6 +209,7 @@ pnpm build
 | 想了解什么 | 从这里开始 |
 | --- | --- |
 | 原生构建、真机运行与验证命令 | [NSH 应用说明](apps/nsh/README.md) |
+| 文档导航与历史资料 | [文档索引](docs/README.md) |
 | 模块关系与源码调用路径 | [架构图](docs/arch/index.html) |
 | 界面布局、主题与交互规则 | [NSH 设计规范](apps/nsh/DESIGN.md) |
 | Linux 环境、包管理与源码构建 | [Linux Shell](docs/nsh-linux-shell.md) · [Android 真机与 iOS 构建记录](docs/nsh-linux-shell-verification.md) |
@@ -218,7 +219,7 @@ pnpm build
 | 表情系统与视觉规范 | [72 种表情设计](docs/super-looi-72-expressions-design.md) |
 | 尚待完成的功能与真机验证 | [todo.md](todo.md) |
 
-旧 Expo / React Native 应用与 Hub 源码归档在 `archive/legacy-hub-and-expo` 分支；`docs/` 中相应阶段报告保留为历史记录。
+旧 Expo / React Native 应用与 Hub 源码归档在 `archive/legacy-hub-and-expo` 分支；相应设计、阶段报告与迁移过程收录于 [历史资料](docs/archive/README.md)。
 
 ## 许可证
 

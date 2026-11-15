@@ -1,5 +1,7 @@
 # 以 Pi SDK 承载 Agent 运行时
 
+历史实施记录；Pi 运行时说明见 [Pi 运行时说明](../../pi-runtime.md)。
+
 ## 目标与职责
 
 主应用使用 Pi 1.5.0 的 `createAgentSession()` 创建执行会话。`AgentSession` 负责模型轮次、消息持久化、上下文投影、压缩、重试、消息队列与扩展生命周期；`DefaultResourceLoader` 按 Pi 约定发现 Skills、规则、提示模板和扩展。MCP、工具发现和 codemode 使用官方扩展工厂接入。

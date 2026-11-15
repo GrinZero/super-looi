@@ -1,5 +1,7 @@
 # 语音管理页重设计
 
+历史实施记录；后续语音页计划见 [后续语音页计划](../voice-debug-workspace-plan.md)。
+
 ## 页面结构
 
 - 顶栏展示当前语音服务与 OpenAI Realtime 接入位置。当前服务由 `VOICE_PROVIDER` 决定，OpenAI Realtime 显示为待接入标记。
@@ -25,6 +27,6 @@
 
 NSH 类型检查、构建与独立 review 通过。现有 32 项测试中 31 项通过；另一项旧标题断言更新后，`real_app_task_and_home_panels` 定向复测通过。语音运行时与 17 项 Node 回归通过。
 
-[未配置横屏](../artifacts/voice-space/landscape-light.png)来自实际页面；[已配置横屏](../artifacts/voice-space/configured-preview-light.png)、[深色横屏](../artifacts/voice-space/configured-preview-dark.png)与[深色竖屏](../artifacts/voice-space/configured-preview-portrait.png)复用实际页面组件，在 Mac 原生测试宿主使用内存配置展示已保存状态，未发起语音连接。视口分别为 844 × 390 与 390 × 844pt。
+[未配置横屏](../../artifacts/voice-space/landscape-light.png)来自实际页面；[已配置横屏](../../artifacts/voice-space/configured-preview-light.png)、[深色横屏](../../artifacts/voice-space/configured-preview-dark.png)与[深色竖屏](../../artifacts/voice-space/configured-preview-portrait.png)复用实际页面组件，在 Mac 原生测试宿主使用内存配置展示已保存状态，未发起语音连接。视口分别为 844 × 390 与 390 × 844pt。
 
 真机待核对项与 Mac 测试宿主 Keychain 写入限制见 `todo.md`。
