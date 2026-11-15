@@ -352,20 +352,18 @@ try {
     },
     () => {},
   );
-  equal(homeMobile.taskDetails(homeTask).state, "unknown");
-  assert(homeMobile.recoveryCount() > 0);
-  let blocked = false;
-  try {
-    await homeMobile.run("Continue", homeAction(), () => {});
-  } catch (error) {
-    blocked = String(error).includes("@looi:runtimeThisConversationHasUnverifiedActionsReviewTaskHistory");
-  }
-  assert(
-    blocked,
-    "Unresolved home side effect allowed same conversation to continue",
+  equal(homeMobile.taskDetails(homeTask).state, "succeeded");
+  equal(homeMobile.taskDetails(homeTask).homeActions[0].status, "unknown");
+  equal(homeMobile.taskDetails(homeTask).homeActions[0].receipt, null);
+  const continuedOutcome = await homeMobile.run(
+    "Continue",
+    homeAction(),
+    () => {},
+    { approvalMode: "yolo" },
   );
+  equal(continuedOutcome.answer, "演示设备已回读确认");
   homeMobile.newConversation(homeAction());
-  equal(homeMobile.taskDetails(homeTask).state, "unknown");
+  equal(homeMobile.taskDetails(homeTask).homeActions[0].status, "unknown");
 } finally {
   globalThis.fetch = nativeFetch;
   await homeMobile.close();

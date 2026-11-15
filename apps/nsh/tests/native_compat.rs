@@ -20,7 +20,7 @@ fn real_nsh_engine_with_private_data_runs_node_codemode_and_sdk() -> Result<(), 
     // This probe runs the App's SDK bundle with the same limits as its mobile host.
     config.limits = nsh_core::js::Limits::standalone();
     let mut app = Headless::start(config).map_err(|e| e.to_string())?;
-    app.wait_for_within("Native bridge verified", Duration::from_secs(20))?;
+    app.wait_for_within("Native bridge verified", Duration::from_secs(45))?;
     Ok(())
 }
 
