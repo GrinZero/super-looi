@@ -87,6 +87,9 @@ importers:
       '@super-looi/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@super-looi/search':
+        specifier: workspace:*
+        version: link:../search
     devDependencies:
       tsx:
         specifier: ^4.19.3
@@ -188,6 +191,15 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      tsx:
+        specifier: ^4.19.3
+        version: 4.23.15
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
+  packages/search:
+    devDependencies:
       tsx:
         specifier: ^4.19.3
         version: 4.23.15

@@ -19,7 +19,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@super-looi/contracts": "workspace:*"
+    "@super-looi/contracts": "workspace:*",
+    "@super-looi/search": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.19.3",

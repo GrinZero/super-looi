@@ -2,10 +2,11 @@ import type { ActionReceipt, JsonObject } from "@super-looi/contracts";
 import type { HomeVoiceToolDefinition } from "../types.js";
 import type { HomeGateway } from "./gateway.js";
 import { transportErrorDetails } from "../transport-error.js";
+import { searchHomeEntities } from "./entity-search.js";
 
 export const HOME_VOICE_TOOLS: HomeVoiceToolDefinition[] = [
   { type: "function", name: "list_home_devices", description: "查询家中真实设备及当前状态。控制前先查找实际 entity_id；匹配多个设备时询问用户，不能猜测设备名或传感器读数。", parameters: {
-    type: "object", properties: { query: { type: "string", description: "设备名称或房间关键词" }, offset: { type: "integer", minimum: 0, description: "分页起点，默认 0" } },
+    type: "object", properties: { query: { type: "string", description: "设备名称、房间、类型或功能关键词；支持组合查询，结果按相关性排序" }, offset: { type: "integer", minimum: 0, description: "分页起点，默认 0" } },
   } },
   { type: "function", name: "control_home_device", description: "按用户明确要求控制单个真实设备，使用 list_home_devices 返回的 entity_id。只能根据回执 verified 确认完成，其余结果如实说明待核实。", parameters: {
     type: "object", properties: {
@@ -25,11 +26,8 @@ export function homeControlInstruction(receipt: ActionReceipt): string {
 
 export async function executeHomeVoiceTool(name: string, args: Record<string, unknown>, gateway: HomeGateway): Promise<JsonObject> {
   if (name === "list_home_devices") {
-    const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
-    const entities = (await gateway.listEntities()).filter((entity) =>
-      !query || `${entity.friendly_name} ${entity.room ?? ""} ${entity.device_name ?? ""} ${entity.entity_id}`.toLowerCase().includes(query))
-      .sort((a, b) => Number(Boolean(a.entity_category)) - Number(Boolean(b.entity_category))
-        || Number(b.supported_features.includes("turn_on")) - Number(a.supported_features.includes("turn_on")) || a.entity_id.localeCompare(b.entity_id));
+    const query = typeof args.query === "string" ? args.query.trim() : "";
+    const entities = searchHomeEntities(query, await gateway.listEntities());
     const offset = typeof args.offset === "number" && Number.isInteger(args.offset) ? Math.max(0, args.offset) : 0;
     const page = entities.slice(offset, offset + 30);
     return { total: entities.length, next_offset: offset + page.length < entities.length ? offset + page.length : null,

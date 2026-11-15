@@ -18,6 +18,7 @@ it("loads the complete public API and executes the voice/gateway flow without No
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText;
     const requireRelative = (specifier: string) => {
+      if (specifier === "@super-looi/search") return load(path.resolve(import.meta.dirname, "../../search/src/index.ts"));
       assert.ok(specifier.startsWith("."), `Runtime import must be relative: ${specifier}`);
       return load(path.resolve(path.dirname(filename), specifier.replace(/\.js$/, ".ts")));
     };
