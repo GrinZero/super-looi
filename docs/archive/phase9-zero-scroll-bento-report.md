@@ -36,7 +36,7 @@ iPhone 16e、iOS 26.3，横屏 844×390pt，普通字号，现有原生 Debug �
 | 家居四卡 / 规则提案 / 冲突 | [默认](artifacts/phase9/ios-home.png) · [提案](artifacts/phase9/ios-home-proposal.png) · [冲突](artifacts/phase9/ios-home-conflict.png) |
 | 维修舱默认 / Hub 回执 / 用例详情 | [默认](artifacts/phase9/ios-cabin.png) · [48/48 回执](artifacts/phase9/ios-cabin-acceptance.png) · [详情](artifacts/phase9/ios-cabin-case-detail.png) |
 
-点击验证包括记忆位置确认/取消，任务未知后重新请求取消验证及退出回执，第二条约定暂停/恢复，家居提案显式确认，HA 独立断连、BLE 重连零动作重放与实际运行 48 项验收。Hub 返回 48/48、96/96 分，四门禁均为 0。键盘编辑保证关键编辑动作可见；展开完整验收矩阵与键盘覆盖后的详情保留滚动，不作为默认首屏零滚动状态。原生验证细节见 [验证记录](artifacts/phase9/README.md)。
+点击验证包括记忆位置确认/取消，任务未知后重新请求取消验证及退出回执，第二条约定暂停/恢复，家居提案显式确认，HA 独立断连、BLE 重连零动作重放与实际运行 48 项验收。Hub 返回 48/48、96/96 分，四门禁均为 0。键盘编辑保证关键编辑动作可见；展开完整验收矩阵与键盘覆盖后的详情保留滚动，不作为默认首屏零滚动状态。原生验证截图与检查日志见 [验收附件](artifacts/phase9/)。
 
 ## 本轮发现与修复
 

@@ -126,7 +126,7 @@ SDK 启动子进程，不能直接使用 Hub 进程里的 `PersonalMemoryStore` 
 | 现有位置 | 核实到的行为 | 迁移建议 |
 | --- | --- | --- |
 | [`apps/hub/src/app.ts`](https://github.com/GrinZero/super-looi/blob/archive/legacy-hub-and-expo/apps/hub/src/app.ts) | `buildApp` 创建一个共享 `MinimalAgentLoop`；HTTP `/api/agent/run`、语音工具 `run_agent_task`、语音转写 followup、Duplex 文本输入都调用它 | 依赖改为产品自己的 `AgentExecutor` 接口；统一 submit / observe / cancel / resume，避免四条入口各自管理任务 |
-| [`apps/hub/src/agent/agent-loop.ts`](../../apps/hub/src/agent/agent-loop.ts) | 自写 Chat Completions 工具循环；共享内存 history；signal 传给模型请求却没传给 `execFile`；步数耗尽仍返回“已完成”式文案 | 官方 SDK 接入层替换循环；每个任务独立 session；任务错误/步数限制不能伪装成功；取消以真实退出证据为准 |
+| `apps/hub/src/agent/agent-loop.ts` | 自写 Chat Completions 工具循环；共享内存 history；signal 传给模型请求却没传给 `execFile`；步数耗尽仍返回“已完成”式文案 | 官方 SDK 接入层替换循环；每个任务独立 session；任务错误/步数限制不能伪装成功；取消以真实退出证据为准 |
 | [`apps/hub/src/productivity/dsh-runner.ts`](https://github.com/GrinZero/super-looi/blob/archive/legacy-hub-and-expo/apps/hub/src/productivity/dsh-runner.ts) | 固定 `processId: 1001`、构造 exit 0 与成功输出、通过 map 模拟终止，没有启动官方 DSH | 不在其静态成功返回上再套 SDK；改为真正 worker 事件/进程管理，对接原 TaskSupervisor 的回执语义 |
 | [`apps/hub/src/productivity/task-supervisor.ts`](https://github.com/GrinZero/super-looi/blob/archive/legacy-hub-and-expo/apps/hub/src/productivity/task-supervisor.ts) | task/event/grant/receipt 都是进程内 Map | 保留产品契约，增加持久存储和 task → worker/session/home/workspace 映射；仅 DSH session 落盘不足以恢复 Hub 任务 |
 | [`apps/hub/src/voice/modular-engine.ts`](https://github.com/GrinZero/super-looi/blob/archive/legacy-hub-and-expo/apps/hub/src/voice/modular-engine.ts) | 默认 ASR / LLM / TTS 是固定结果或模拟音频；provider 注册时没有把官方 DSH 接入 | 本轮不扩展语音链路，但迁移不能以现有文档“Modular已接真实Agent”的描述作为事实 |
