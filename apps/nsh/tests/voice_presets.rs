@@ -22,29 +22,36 @@ fn open_voice_page(data: &Path, locale: &str) -> Result<Headless, String> {
 
 #[test]
 fn voice_picker_selects_named_presets_and_keeps_custom_ids_optional() -> Result<(), String> {
-    for (locale, recommended, preset, custom, width, height) in [
-        ("zh-CN", "推荐音色", "小何 2.0", "使用专属音色 ID…", 844.0, 390.0),
-        ("en-US", "Recommended voices", "Xiaohe 2.0", "Use a custom voice ID…", 390.0, 844.0),
+    for (locale, recommended, preset, moss_preset, custom, width, height) in [
+        ("zh-CN", "推荐音色", "小何 2.0", "暖暖", "使用专属音色 ID…", 844.0, 390.0),
+        ("en-US", "Recommended voices", "Xiaohe 2.0", "Nuannuan", "Use a custom voice ID…", 844.0, 390.0),
     ] {
         let data = tempfile::tempdir().map_err(|error| error.to_string())?;
         let mut app = open_voice_page(data.path(), locale)?;
         app.set_viewport(nsh_core::geometry::size(nsh_core::Points(width), nsh_core::Points(height)))?;
-        app.press("edit-voice-id")?;
         app.wait_for("voice-preset-select")?;
         app.press("voice-preset-select")?;
+        app.press_key("Home")?;
         app.wait_for(recommended)?;
-        app.press(preset)?;
+        app.press_key("Down")?;
+        app.press_key("Enter")?;
         app.wait_for(preset)?;
         assert!(!app.shows("voice-id"));
         app.press("voice-preset-select")?;
         app.press_key("End")?;
         app.wait_for(custom)?;
-        app.press(custom)?;
+        app.press_key("Enter")?;
         app.wait_for("voice-id")?;
         app.type_text("voice-id", "S_LooiWarm")?;
         app.press("cancel-voice-id")?;
-        app.wait_for_gone("voice-preset-select", Duration::from_secs(3))?;
+        app.wait_for_gone("voice-id", Duration::from_secs(3))?;
         assert!(!app.shows("voice-id"));
+
+        // Switch to MOSS-Live via extensible provider selector and verify MOSS preset voices
+        app.press("voice-provider-moss")?;
+        app.wait_for(moss_preset)?;
+        app.press("voice-provider-doubao")?;
+        app.wait_for(preset)?;
     }
     Ok(())
 }

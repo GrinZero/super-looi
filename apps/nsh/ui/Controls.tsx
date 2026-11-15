@@ -5,6 +5,7 @@ import {
   createMotion,
   effect,
   lifecycle,
+  openUrl,
   signal,
   Text,
   token,
@@ -17,7 +18,7 @@ import {
   type JSX,
   type TouchPoint,
 } from "nsh";
-import { Button, Input, Dialog, Select, Switch, Slider, Tooltip, type SelectItem } from "nsh/base";
+import { Button, Input, Dialog, Link, Select, Switch, Slider, Tooltip, type SelectItem } from "nsh/base";
 import { ActionIcon, type ActionIconName } from "./HomeIcons";
 
 /** Shared toolbar geometry and loading motion; callers own the action and state. */
@@ -98,6 +99,36 @@ export function LoadingIndicator(props: { label: string; testID?: string }) {
       />
       <Text class="text-muted-foreground text-sm">{props.label}</Text>
     </View>
+  );
+}
+
+/** External navigation with link semantics and the app's shared quiet treatment. */
+export function ExternalLink(props: {
+  label: string;
+  href: string;
+  accessibilityLabel?: string;
+  testID?: string;
+  onError: (message: string) => void;
+}) {
+  return (
+    <Link
+      testID={props.testID}
+      href={props.href}
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      openWith="app"
+      onOpen={({ href }) => {
+        void openUrl(href).then(({ opened }) => {
+          if (!opened) props.onError(`openUrl ${href}: ${t("linkNoHandler")}`);
+        }).catch((cause) => {
+          const code = cause && typeof cause === "object" && "code" in cause
+            ? ` [${String(cause.code)}]` : "";
+          props.onError(`openUrl${code} ${href}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        });
+      }}
+      class="min-h-12 min-w-12 px-2 rounded-lg items-center justify-center hover:bg-muted active:bg-muted focus-visible:bg-muted focus-visible:border-ring transition-colors duration-150"
+    >
+      <Text class="text-muted-foreground text-xs underline">{props.label} ↗</Text>
+    </Link>
   );
 }
 
@@ -273,6 +304,7 @@ export function SelectField<T extends string = string>(props: {
         trigger={
           <View
             testID={props.testID}
+            hitSlop={props.compact ? 4 : undefined}
             class={triggerClass()}
           >
             <Text

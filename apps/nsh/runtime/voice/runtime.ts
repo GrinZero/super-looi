@@ -417,7 +417,8 @@ export class VoiceRuntime {
       if (candidate && !/^[A-Za-z0-9_-]{1,256}$/.test(candidate)) {
         throw new Error("@looi:runtimeEnterAValidDoubaoSpeakerId");
       }
-      targetVoiceId = candidate;
+      targetVoiceId =
+        candidate || this.credentials.voiceIdFor(this.protocol.providerId);
     }
 
     this.suppressAutoStandbyPrompt = true;

@@ -71,14 +71,16 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.press("nav-voice")?;
     app.wait_for("语音服务")?;
     app.wait_for("音色")?;
-    app.wait_for("试听后留在当前页")?;
+    app.wait_for("试听")?;
     for hidden in [
         "当前状态",
         "待机监听唤醒词（本地离线 KWS）",
         "待机（未占用麦克风）",
+        "试听后留在当前页",
     ] {
         assert!(!app.shows(hidden), "unexpected voice-page text: {hidden}");
     }
+    app.scroll("voice-configuration", Points(320.0))?;
     app.press("wake-toggle")?;
     app.wait_for("Hey LOOI 自动唤醒")?;
 

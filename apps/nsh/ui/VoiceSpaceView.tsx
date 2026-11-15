@@ -12,11 +12,13 @@ import {
 } from "nsh";
 import { Button, Input, Switch } from "nsh/base";
 import type { createAppStore } from "../store";
-import { ActionButton, SelectField } from "./Controls";
+import { ActionButton, ExternalLink, SelectField } from "./Controls";
 import {
-  DOUBAO_DEFAULT_VOICE_ID,
-  DOUBAO_VOICES,
-  doubaoVoicePreset,
+  VOICE_PROVIDERS,
+  type VoiceProviderId,
+  defaultVoiceIdForProvider,
+  voicePresetForProvider,
+  voicePresetsForProvider,
 } from "./doubao-voices";
 
 const STAGE_WAVE_RATIOS = [
@@ -127,7 +129,7 @@ export function VoiceSpaceView(props: {
 }) {
   const voiceKey = signal("");
   const showPlainKey = signal(false);
-  const editingKey = signal(false);
+  const editingKey = signal<boolean | null>(null);
   const replacingKey = signal(false);
   const keyError = signal("");
 
@@ -146,7 +148,11 @@ export function VoiceSpaceView(props: {
     state().phase === "speaking" ||
     (state().phase === "listening" && !state().muted);
 
-  const keyDrawerOpen = () => !props.store.voiceConfigured() || editingKey();
+  const keyDrawerOpen = () => {
+    const manual = editingKey();
+    if (manual !== null) return manual;
+    return !props.store.voiceConfigured();
+  };
   const keyInputOpen = () => !props.store.voiceConfigured() || replacingKey();
 
   const voiceNeedsReconnect = () =>
@@ -155,22 +161,43 @@ export function VoiceSpaceView(props: {
     state().activeVoiceId !== undefined &&
     state().activeVoiceId !== props.store.voiceId();
 
+  const providerDefaultVoiceId = () =>
+    defaultVoiceIdForProvider(props.store.voiceProviderId());
+
   const effectivePreviewVoiceId = () => {
-    if (!editingVoice()) return props.store.voiceId();
-    const draft = voiceIdDraft().trim();
-    return draft === DOUBAO_DEFAULT_VOICE_ID ? "" : draft;
+    if (editingVoice() && voiceModeTab() === "custom") {
+      return voiceIdDraft().trim();
+    }
+    return props.store.voiceId();
   };
 
   const currentTimbreSummary = () => {
     const saved = props.store.voiceId();
-    if (!saved) return t("defaultVoice");
-    const preset = doubaoVoicePreset(saved);
-    return preset ? t(preset.name) : saved;
+    const preset = voicePresetForProvider(props.store.voiceProviderId(), saved);
+    if (preset) return t(preset.name);
+    return saved || t("defaultVoice");
+  };
+
+  const selectVoiceProvider = (providerId: VoiceProviderId) => {
+    if (props.store.voiceProviderId() === providerId) return;
+    editingKey.set(null);
+    replacingKey.set(false);
+    voiceKey.set("");
+    showPlainKey.set(false);
+    keyError.set("");
+    editingVoice.set(false);
+    voiceModeTab.set("preset");
+    voiceIdDraft.set("");
+    voiceError.set("");
+    props.store.selectVoiceProvider(providerId);
   };
 
   const stageBadgeText = () => {
     const provider = props.store.voiceProviderLabel();
     const current = state();
+    if (current.phase !== "permission" && (current.error || current.phase === "error")) {
+      return `${provider} · ${t("voiceBadgeFailed")}`;
+    }
     if (isPreviewing()) {
       return `${provider} · ${t("voiceBadgePreviewing")}`;
     }
@@ -179,6 +206,9 @@ export function VoiceSpaceView(props: {
     }
     if (current.phase === "connecting") {
       return `${provider} · ${t("voiceBadgeConnecting")}`;
+    }
+    if (current.phase === "permission") {
+      return `${provider} · ${t("voiceAwaitingMicrophone")}`;
     }
     if (current.phase === "standby") {
       return `${provider} · ${t("voiceBadgeStandby")}`;
@@ -191,13 +221,15 @@ export function VoiceSpaceView(props: {
 
   const stageDotClass = () => {
     const current = state();
+    if (current.phase !== "permission" && (current.error || current.phase === "error")) {
+      return "w-2 h-2 rounded-full bg-destructive";
+    }
     if (current.phase === "connecting" || current.phase === "permission") {
       return "w-2 h-2 rounded-full bg-warning";
     }
     if (
       connected() ||
-      current.phase === "standby" ||
-      props.store.voiceConfigured()
+      current.phase === "standby"
     ) {
       return "w-2 h-2 rounded-full bg-verified";
     }
@@ -206,6 +238,7 @@ export function VoiceSpaceView(props: {
 
   const statusLabel = () => {
     const current = state();
+    if (current.error && current.phase !== "permission") return t("voiceSessionInterrupted");
     if (isPreviewing()) {
       return current.phase === "connecting"
         ? t("voicePreparingPreviewStatus")
@@ -234,6 +267,7 @@ export function VoiceSpaceView(props: {
   const statusDetail = () => {
     const current = state();
     if (current.phase === "permission") return t("voicePermissionHint");
+    if (current.error || current.phase === "error") return "";
     if (current.phase === "connecting") return t("voiceConnectingHint");
     if (connected()) {
       return t(current.muted ? "voiceUnmuteHint" : "voiceConversationLive");
@@ -303,7 +337,7 @@ export function VoiceSpaceView(props: {
     if (!props.store.ready()) return;
     const candidate = voiceIdDraft().trim();
     if (!candidate) return;
-    const nextId = candidate === DOUBAO_DEFAULT_VOICE_ID ? "" : candidate;
+    const nextId = candidate === providerDefaultVoiceId() ? "" : candidate;
     try {
       if (isPreviewing() && active()) props.store.stopVoice();
       props.store.configureVoiceId(nextId);
@@ -342,8 +376,8 @@ export function VoiceSpaceView(props: {
       testID="voice-session"
       class={
         compact
-          ? "rounded-2xl border border-border bg-card px-5 py-6 items-center justify-between gap-4"
-          : "flex-1 px-6 py-5 items-center justify-between gap-3 bg-card"
+          ? "rounded-2xl border border-border bg-card px-4 py-3 items-center justify-between gap-2"
+          : "flex-1 px-4 py-4 items-center justify-between gap-3 bg-card"
       }
     >
       {/* Top Status Capsule */}
@@ -358,9 +392,9 @@ export function VoiceSpaceView(props: {
       </View>
 
       {/* Center Waveform, Heading & Live Dialogue Turn */}
-      <View class="w-full items-center justify-center gap-3 my-auto py-1">
+      <View class={compact ? "w-full items-center justify-center gap-1.5" : "w-full items-center justify-center gap-3 my-auto py-1"}>
         <View
-          class="h-12 flex-row items-center justify-center gap-1.5"
+          class={compact ? "h-8 flex-row items-center justify-center gap-1.5" : "h-12 flex-row items-center justify-center gap-1.5"}
           accessibilityElementsHidden={true}
         >
           <Each of={STAGE_WAVE_RATIOS} key="index">
@@ -470,20 +504,22 @@ export function VoiceSpaceView(props: {
           </View>
         </If>
 
-        <If when={state().error}>
-          <Text role="alert" class="text-destructive text-xs text-center px-3">
-            {state().error}
-          </Text>
+        <If when={state().error && state().phase !== "permission"}>
+          <Scroll class="w-full" style={{ maxHeight: 80 }}>
+            <Text testID="voice-session-error" role="alert" class="text-destructive text-xs text-center px-3">
+              {state().error}
+            </Text>
+          </Scroll>
         </If>
       </View>
 
       {/* Bottom Action Bar */}
-      <View class="w-full flex-row flex-wrap items-center justify-center gap-3">
+      <View class="w-full flex-row flex-wrap items-center justify-center gap-2.5">
         <If when={connected() && !isPreviewing()}>
           <Button
             testID="voice-space-mute"
             onPress={() => props.store.muteVoice(!state().muted)}
-            class="min-h-12 px-7 rounded-full border border-foreground bg-card flex-row items-center justify-center gap-2 active:bg-muted focus:border-ring"
+            class="min-h-12 px-5 rounded-full border border-foreground bg-card flex-row items-center justify-center gap-2 active:bg-muted focus:border-ring"
           >
             <VoiceInlineIcon
               kind={state().muted ? "mic_off" : "mic"}
@@ -498,7 +534,7 @@ export function VoiceSpaceView(props: {
             <Button
               testID="voice-space-interrupt"
               onPress={() => props.store.interruptVoice()}
-              class="min-h-12 px-5 rounded-full border border-border bg-muted flex-row items-center justify-center active:opacity-75 focus:border-ring"
+              class="min-h-12 px-4 rounded-full border border-border bg-muted flex-row items-center justify-center active:opacity-75 focus:border-ring"
             >
               <Text class="text-foreground text-sm font-medium">
                 {t("interrupt")}
@@ -517,7 +553,7 @@ export function VoiceSpaceView(props: {
             if (active()) props.store.stopVoice();
             else void props.store.startVoice();
           }}
-          class="min-h-12 px-9 rounded-full bg-primary flex-row items-center justify-center gap-2.5 active:opacity-80 focus:border-ring disabled:opacity-35"
+          class="min-h-12 px-7 rounded-full bg-primary flex-row items-center justify-center gap-2.5 active:opacity-80 focus:border-ring disabled:opacity-35"
         >
           <VoiceInlineIcon
             kind={active() ? "stop" : "mic"}
@@ -541,78 +577,124 @@ export function VoiceSpaceView(props: {
       testID="voice-configuration"
       class={
         compact
-          ? "rounded-2xl border border-border bg-card p-4 gap-4"
-          : "gap-3 bg-card"
+          ? "rounded-2xl border border-border bg-card p-3.5 gap-2.5"
+          : "gap-2.5 bg-card"
       }
     >
       {/* Section 1: Voice Services & Modernized Key Management */}
       <View class="gap-1.5">
-        <Text role="header" class="text-foreground text-sm font-bold">
-          {t("voiceServiceSection")}
-        </Text>
+        <View class="flex-row items-center justify-between gap-2">
+          <Text role="header" class="text-foreground text-sm font-bold">
+            {t("voiceServiceSection")}
+          </Text>
+          <Each of={VOICE_PROVIDERS.filter((provider) => provider.id === props.store.voiceProviderId())} key={(provider) => provider.id}>
+            {(provider) => (
+              <ExternalLink
+                testID="voice-provider-docs"
+                label={t("officialDocumentation")}
+                accessibilityLabel={`${props.store.voiceProviderLabel()} ${t("officialDocumentation")}`}
+                href={provider().docsUrl}
+                onError={(message) => props.store.notify(message)}
+              />
+            )}
+          </Each>
+        </View>
 
-        {/* Active Provider Row (Doubao) */}
+        {/* Extensible Wrapping Provider Selector */}
         <View
           testID="voice-current-provider"
-          class="min-h-11 rounded-xl bg-muted px-3 py-2 flex-row items-center justify-between gap-2"
+          class="rounded-xl border border-border bg-muted p-1 flex-row flex-wrap items-center gap-1"
         >
-          <View class="flex-row items-center gap-2.5 flex-1 min-w-0">
+          {VOICE_PROVIDERS.map((provider) => {
+            const isSelected = () =>
+              props.store.voiceProviderId() === provider.id;
+            return (
+              <Button
+                testID={`voice-provider-${provider.id}`}
+                selected={isSelected()}
+                hitSlop={4}
+                onPress={() => selectVoiceProvider(provider.id)}
+                class={
+                  isSelected()
+                    ? "grow shrink-0 min-h-9 px-3 rounded-lg border border-border bg-card flex-row items-center justify-center gap-1.5"
+                    : "grow shrink-0 min-h-9 px-3 rounded-lg border border-transparent flex-row items-center justify-center gap-1.5 active:bg-card"
+                }
+              >
+                <View
+                  class={
+                    props.store.isVoiceProviderConfigured(provider.id)
+                      ? "w-1.5 h-1.5 rounded-full bg-verified shrink-0"
+                      : "w-1.5 h-1.5 rounded-full bg-border shrink-0"
+                  }
+                />
+                <Text
+                  class={
+                    isSelected()
+                      ? "text-foreground text-xs font-bold"
+                      : "text-muted-foreground text-xs font-medium"
+                  }
+                  style={{ numberOfLines: 1 }}
+                >
+                  {translateMessage(provider.label)}
+                </Text>
+              </Button>
+            );
+          })}
+        </View>
+
+        {/* Active Provider Credential Status Bar */}
+        <View class="min-h-9 rounded-xl border border-border bg-muted px-3 py-1 flex-row items-center justify-between gap-2">
+          <View class="flex-row items-center gap-2 flex-1 min-w-0">
             <View
               class={
                 props.store.voiceConfigured()
-                  ? "w-5 h-5 rounded-full bg-verified items-center justify-center shrink-0"
-                  : "w-5 h-5 rounded-full border-2 border-foreground bg-card items-center justify-center shrink-0"
+                  ? "w-2 h-2 rounded-full bg-verified shrink-0"
+                  : "w-2 h-2 rounded-full bg-warning shrink-0"
+              }
+            />
+            <Text
+              class={
+                props.store.voiceConfigured()
+                  ? "text-verified text-xs font-semibold shrink-0"
+                  : "text-muted-foreground text-xs font-medium shrink-0"
               }
             >
-              <If
-                when={props.store.voiceConfigured()}
-                else={<View class="w-2 h-2 rounded-full bg-foreground" />}
-              >
-                <VoiceInlineIcon kind="check" tone="primaryFg" size={12} />
-              </If>
-            </View>
-            <Text
-              class="text-foreground text-sm font-bold"
-              style={{ numberOfLines: 1 }}
-            >
-              {props.store.voiceProviderLabel()}
+              {props.store.voiceConfigured()
+                ? t("voiceConfiguredBadge")
+                : t("voiceUnconfiguredBadge")}
             </Text>
-            <View class="px-2 py-0.5 rounded-full bg-card border border-border">
+            <If when={props.store.voiceConfigured() && Boolean(props.store.voiceKeyHint())}>
               <Text
-                class={
-                  props.store.voiceConfigured()
-                    ? "text-verified text-xs font-semibold"
-                    : "text-muted-foreground text-xs"
-                }
+                class="text-muted-foreground text-xs font-mono flex-1 min-w-0"
+                style={{ numberOfLines: 1 }}
               >
-                {props.store.voiceConfigured()
-                  ? t("voiceConfiguredBadge")
-                  : t("voiceUnconfiguredBadge")}
+                {`· ${props.store.voiceKeyHint()}`}
               </Text>
-            </View>
+            </If>
           </View>
 
           <Button
             testID="edit-voice-key"
             hitSlop={6}
             onPress={() => {
-              if (editingKey()) {
+              if (keyDrawerOpen()) {
                 editingKey.set(false);
                 replacingKey.set(false);
                 voiceKey.set("");
+                showPlainKey.set(false);
                 keyError.set("");
               } else {
                 editingKey.set(true);
                 replacingKey.set(!props.store.voiceConfigured());
               }
             }}
-            class="min-h-9 px-2 rounded-lg items-center justify-center active:bg-card"
+            class="min-h-8 px-2.5 rounded-lg border border-border bg-card items-center justify-center active:bg-muted"
           >
             <Text class="text-foreground text-xs font-medium">
-              {editingKey() && props.store.voiceConfigured()
+              {keyDrawerOpen()
                 ? t("voiceCollapseAction")
                 : props.store.voiceConfigured()
-                  ? t("voiceManageAction")
+                  ? t("voiceChangeKey")
                   : t("voiceConfigureAction")}
             </Text>
           </Button>
@@ -628,7 +710,7 @@ export function VoiceSpaceView(props: {
                   <View class="flex-row items-center justify-between gap-2">
                     <View class="flex-1 min-w-0 gap-0.5">
                       <Text class="text-muted-foreground text-xs">
-                        {t("voiceKeychainStoredLabel")}
+                        {t("voiceKeySecurityHint")}
                       </Text>
                       <Text class="text-foreground text-xs font-mono font-semibold">
                         {props.store.voiceKeyHint() || "••••••••••••"}
@@ -650,8 +732,13 @@ export function VoiceSpaceView(props: {
                       compact={true}
                       onPress={() => {
                         props.store.clearVoiceCredentials();
-                        replacingKey.set(true);
-                        editingKey.set(false);
+                        if (props.store.voiceConfigured()) {
+                          replacingKey.set(false);
+                          editingKey.set(false);
+                        } else {
+                          replacingKey.set(true);
+                          editingKey.set(true);
+                        }
                         props.store.notify("@looi:voiceKeyClearedToast");
                       }}
                     />
@@ -722,274 +809,286 @@ export function VoiceSpaceView(props: {
                   </Text>
                 </If>
 
-                <View class="flex-row items-center justify-between gap-2">
-                  <Text
-                    class="text-muted-foreground text-xs flex-1"
-                    style={{ numberOfLines: 1 }}
-                  >
-                    {t("voiceKeySecurityHint")}
-                  </Text>
-                  <View class="flex-row items-center gap-2">
-                    <If when={props.store.voiceConfigured()}>
-                      <ActionButton
-                        label={t("cancel")}
-                        compact={true}
-                        onPress={() => {
-                          replacingKey.set(false);
-                          editingKey.set(false);
-                          voiceKey.set("");
-                          showPlainKey.set(false);
-                          keyError.set("");
-                        }}
-                      />
-                    </If>
-                    <ActionButton
-                      label={saveKeyButtonLabel()}
-                      testID="save-voice-btn"
-                      kind="primary"
-                      compact={true}
-                      disabled={!props.store.ready() || !voiceKey().trim()}
-                      onPress={saveVoiceKey}
-                    />
-                  </View>
+                <View class="flex-row items-center justify-end gap-2">
+                  <ActionButton
+                    label={t("cancel")}
+                    compact={true}
+                    onPress={() => {
+                      replacingKey.set(false);
+                      editingKey.set(false);
+                      voiceKey.set("");
+                      showPlainKey.set(false);
+                      keyError.set("");
+                    }}
+                  />
+                  <ActionButton
+                    label={saveKeyButtonLabel()}
+                    testID="save-voice-btn"
+                    kind="primary"
+                    compact={true}
+                    disabled={!props.store.ready() || !voiceKey().trim()}
+                    onPress={saveVoiceKey}
+                  />
                 </View>
               </View>
             </If>
           </View>
         </If>
+      </View>
 
-        {/* Planned Provider Row (OpenAI Realtime) */}
-        <If when={props.store.voiceProviderId() !== "openai"}>
-          <View
-            testID="voice-planned-openai"
-            class="min-h-11 rounded-xl bg-muted px-3 py-2 flex-row items-center justify-between gap-2"
+      {/* Section 2: Voice Timbre & Inline Audition */}
+      <View class="border-t border-border pt-2 gap-1.5">
+        <View class="flex-row items-center justify-between gap-2">
+          <Text role="header" class="text-foreground text-sm font-bold">
+            {t("voiceTimbreSection")}
+          </Text>
+          <Button
+            testID="edit-voice-id"
+            hitSlop={8}
+            disabled={!props.store.ready()}
+            onPress={() => {
+              if (editingVoice()) {
+                editingVoice.set(false);
+                voiceModeTab.set("preset");
+                voiceError.set("");
+              } else {
+                const saved = props.store.voiceId();
+                const providerId = props.store.voiceProviderId();
+                voiceModeTab.set("custom");
+                voiceIdDraft.set(
+                  voicePresetForProvider(providerId, saved) ? "" : saved,
+                );
+                voiceError.set("");
+                editingVoice.set(true);
+              }
+            }}
+            class="min-h-7 px-2 rounded-lg flex-row items-center gap-1 active:bg-muted disabled:opacity-40"
           >
-            <View class="flex-row items-center gap-2.5 flex-1 min-w-0">
-              <View class="w-5 h-5 rounded-full border border-border bg-card shrink-0" />
-              <Text
-                class="text-foreground text-sm font-medium"
-                style={{ numberOfLines: 1 }}
-              >
-                OpenAI Realtime
-              </Text>
+            <Text
+              class="text-muted-foreground text-xs font-medium"
+              style={{ numberOfLines: 1, maxWidth: 160 }}
+            >
+              {editingVoice()
+                ? t("voiceCollapseAction")
+                : voicePresetForProvider(
+                      props.store.voiceProviderId(),
+                      props.store.voiceId(),
+                    )
+                  ? t("voiceCustomize")
+                  : currentTimbreSummary()}
+            </Text>
+          </Button>
+        </View>
+
+        {/* Direct 1-Step Voice Picker & Audition Bar */}
+        <View class="flex-row items-center gap-2">
+          <View class="flex-1 min-w-0">
+            <SelectField
+              accessibilityLabel={t("voiceOutputVoice")}
+              testID="voice-preset-select"
+              compact={true}
+              disabled={!props.store.ready()}
+              items={[
+                ...voicePresetsForProvider(
+                  props.store.voiceProviderId(),
+                ).map((voice) => ({
+                  value: voice.id,
+                  title: t(voice.name),
+                  group: t(voice.group),
+                })),
+                {
+                  value: "custom",
+                  title: t("voiceUseCustomId"),
+                  group: t("voiceCustomPresetGroup"),
+                },
+              ]}
+              value={
+                editingVoice() && voiceModeTab() === "custom"
+                  ? "custom"
+                  : voicePresetForProvider(
+                        props.store.voiceProviderId(),
+                        props.store.voiceId(),
+                      )
+                    ? props.store.voiceId() || providerDefaultVoiceId()
+                    : "custom"
+              }
+              onChange={(id) => {
+                if (id === "custom") {
+                  voiceModeTab.set("custom");
+                  voiceIdDraft.set(
+                    voicePresetForProvider(
+                      props.store.voiceProviderId(),
+                      props.store.voiceId(),
+                    )
+                      ? ""
+                      : props.store.voiceId(),
+                  );
+                  voiceError.set("");
+                  editingVoice.set(true);
+                  return;
+                }
+                const nextId = id === providerDefaultVoiceId() ? "" : id;
+                try {
+                  if (isPreviewing() && active()) props.store.stopVoice();
+                  props.store.configureVoiceId(nextId);
+                  voiceModeTab.set("preset");
+                  voiceIdDraft.set(id);
+                  voiceError.set("");
+                  editingVoice.set(false);
+                } catch (cause) {
+                  voiceError.set(
+                    cause instanceof Error
+                      ? cause.message
+                      : "@looi:couldNotSaveSpeakerId",
+                  );
+                }
+              }}
+            />
+          </View>
+
+          <Button
+            testID="preview-voice-btn"
+            hitSlop={6}
+            disabled={
+              !props.store.ready() ||
+              (!props.store.voiceConfigured() && !isPreviewing()) ||
+              (!isPreviewing() &&
+                editingVoice() &&
+                voiceModeTab() === "custom" &&
+                !voiceIdDraft().trim())
+            }
+            onPress={handlePreviewVoice}
+            class="min-h-9 px-3 rounded-xl border border-border bg-muted flex-row items-center justify-center gap-1.5 shrink-0 active:bg-card focus:border-ring disabled:opacity-35"
+          >
+            <VoiceInlineIcon
+              kind={isPreviewing() && active() ? "stop" : "play"}
+              tone="foreground"
+              size={11}
+            />
+            <Text class="text-foreground text-xs font-semibold">
+              {isPreviewing() && active()
+                ? t("voiceStopPreview")
+                : inConversation()
+                  ? t("voiceEndAndPreview")
+                  : t("voicePreviewBtn")}
+            </Text>
+          </Button>
+        </View>
+
+        <If when={!editingVoice() && Boolean(voiceError())}>
+          <Text role="alert" class="text-destructive text-xs">
+            {translateMessage(voiceError())}
+          </Text>
+        </If>
+
+        {/* Expandable Custom Speaker ID Drawer */}
+        <If when={editingVoice()}>
+          <View class="rounded-xl border border-border bg-background p-3 gap-2.5">
+            <View class="gap-1.5">
+              <View class="flex-row items-center justify-between gap-2">
+                <Text class="text-muted-foreground text-xs font-medium">
+                  {t("speakerId")}
+                </Text>
+                <Button
+                  testID="paste-voice-id-btn"
+                  hitSlop={6}
+                  onPress={() => void pasteSpeakerIdFromClipboard()}
+                  class="min-h-8 px-2.5 rounded-lg border border-border bg-card items-center justify-center active:bg-muted"
+                >
+                  <Text class="text-foreground text-xs font-medium">
+                    {t("voicePasteKey")}
+                  </Text>
+                </Button>
+              </View>
+              <Input
+                testID="voice-id"
+                value={voiceIdDraft()}
+                onChange={(e) => {
+                  voiceModeTab.set("custom");
+                  voiceIdDraft.set(e.value);
+                  voiceError.set("");
+                }}
+                placeholder={t("enterAClonedSpeakerIdEgS")}
+                autoCorrect={false}
+                autoCapitalize="none"
+                maxLength={256}
+                onSubmit={saveVoiceId}
+                class="h-10 rounded-xl border border-input bg-card px-3.5 text-foreground text-xs font-mono focus:border-ring"
+              />
             </View>
-            <View class="px-2.5 py-0.5 rounded-full bg-card border border-border">
-              <Text class="text-muted-foreground text-xs">
-                {t("voicePlannedService")}
+
+            <If when={voiceError()}>
+              <Text role="alert" class="text-destructive text-xs">
+                {translateMessage(voiceError())}
               </Text>
+            </If>
+
+            <View class="flex-row flex-wrap items-center justify-end gap-2">
+              <If
+                when={
+                  Boolean(props.store.voiceId()) &&
+                  props.store.voiceId() !== providerDefaultVoiceId()
+                }
+              >
+                <ActionButton
+                  label={t("resetToDefault")}
+                  testID="restore-voice-id-btn"
+                  compact={true}
+                  onPress={() => {
+                    try {
+                      props.store.configureVoiceId("");
+                      voiceIdDraft.set("");
+                      voiceModeTab.set("preset");
+                      voiceError.set("");
+                      editingVoice.set(false);
+                      props.store.notify("@looi:voiceSpeakerSavedToast");
+                    } catch (cause) {
+                      voiceError.set(
+                        cause instanceof Error
+                          ? cause.message
+                          : "@looi:couldNotSaveSpeakerId",
+                      );
+                    }
+                  }}
+                />
+              </If>
+              <ActionButton
+                label={t("cancel")}
+                testID="cancel-voice-id"
+                compact={true}
+                onPress={() => {
+                  editingVoice.set(false);
+                  voiceModeTab.set("preset");
+                  voiceIdDraft.set("");
+                  voiceError.set("");
+                }}
+              />
+              <ActionButton
+                label={t("voiceSaveSelection")}
+                testID="save-voice-id-btn"
+                kind="primary"
+                compact={true}
+                disabled={
+                  !props.store.ready() ||
+                  !voiceIdDraft().trim() ||
+                  voiceIdDraft().trim() ===
+                    (props.store.voiceId() || providerDefaultVoiceId())
+                }
+                onPress={saveVoiceId}
+              />
             </View>
           </View>
         </If>
       </View>
 
-      {/* Section 2: Voice Timbre & Inline Audition */}
-      <If when={props.store.voiceProviderId() === "doubao"}>
-        <View class="border-t border-border pt-2.5 gap-1.5">
-          <View class="flex-row items-center justify-between gap-2">
-            <Text role="header" class="text-foreground text-sm font-bold">
-              {t("voiceTimbreSection")}
-            </Text>
-            <Button
-              testID="edit-voice-id"
-              hitSlop={6}
-              disabled={!props.store.ready()}
-              onPress={() => {
-                if (editingVoice()) {
-                  editingVoice.set(false);
-                  voiceError.set("");
-                } else {
-                  const saved = props.store.voiceId();
-                  voiceModeTab.set(
-                    doubaoVoicePreset(saved) ? "preset" : "custom",
-                  );
-                  voiceIdDraft.set(saved || DOUBAO_DEFAULT_VOICE_ID);
-                  voiceError.set("");
-                  editingVoice.set(true);
-                }
-              }}
-              class="min-h-9 px-2 rounded-lg flex-row items-center gap-1 active:bg-muted disabled:opacity-40"
-            >
-              <Text
-                class="text-foreground text-xs font-medium"
-                style={{ numberOfLines: 1, maxWidth: 160 }}
-              >
-                {editingVoice()
-                  ? t("voiceCollapseAction")
-                  : `${currentTimbreSummary()} >`}
-              </Text>
-            </Button>
-          </View>
-
-          {/* Always-visible Audition Row */}
-          <View class="flex-row items-center justify-between gap-2">
-            <Text
-              class="text-muted-foreground text-xs flex-1"
-              style={{ numberOfLines: 1 }}
-            >
-              {voiceNeedsReconnect()
-                ? t("voiceSavedReconnectHint")
-                : t("voicePreviewStaysOnPage")}
-            </Text>
-            <Button
-              testID="preview-voice-btn"
-              hitSlop={6}
-              disabled={
-                !props.store.ready() ||
-                (!props.store.voiceConfigured() && !isPreviewing()) ||
-                (!isPreviewing() && editingVoice() && !voiceIdDraft().trim())
-              }
-              onPress={handlePreviewVoice}
-              class="min-h-9 px-3.5 rounded-full border border-foreground bg-card flex-row items-center justify-center gap-1.5 active:bg-muted focus:border-ring disabled:opacity-35"
-            >
-              <VoiceInlineIcon
-                kind={isPreviewing() && active() ? "stop" : "play"}
-                tone="foreground"
-                size={12}
-              />
-              <Text class="text-foreground text-xs font-semibold">
-                {isPreviewing() && active()
-                  ? t("voiceStopPreview")
-                  : inConversation()
-                    ? t("voiceEndAndPreview")
-                    : t("voicePreviewBtn")}
-              </Text>
-            </Button>
-          </View>
-
-          {/* Expandable Voice Tuning Drawer */}
-          <If when={editingVoice()}>
-            <View class="rounded-xl border border-border bg-background p-3 gap-2.5">
-              <SelectField
-                label={t("voiceOutputVoice")}
-                testID="voice-preset-select"
-                compact={true}
-                items={[
-                  ...DOUBAO_VOICES.map((voice) => ({
-                    value: voice.id,
-                    title: t(voice.name),
-                    group: t(voice.group),
-                  })),
-                  {
-                    value: "custom",
-                    title: t("voiceUseCustomId"),
-                    group: t("voiceCustomPresetGroup"),
-                  },
-                ]}
-                value={voiceModeTab() === "custom" ? "custom" : voiceIdDraft()}
-                onChange={(id) => {
-                  voiceModeTab.set(id === "custom" ? "custom" : "preset");
-                  voiceIdDraft.set(
-                    id === "custom"
-                      ? doubaoVoicePreset(props.store.voiceId())
-                        ? ""
-                        : props.store.voiceId()
-                      : id,
-                  );
-                  voiceError.set("");
-                }}
-              />
-
-              <If when={voiceModeTab() === "custom"}>
-                <View class="gap-1.5">
-                  <View class="flex-row items-center justify-between gap-2">
-                    <Text class="text-muted-foreground text-xs font-medium">
-                      {t("speakerId")}
-                    </Text>
-                    <Button
-                      testID="paste-voice-id-btn"
-                      hitSlop={6}
-                      onPress={() => void pasteSpeakerIdFromClipboard()}
-                      class="min-h-8 px-2.5 rounded-lg border border-border bg-card items-center justify-center active:bg-muted"
-                    >
-                      <Text class="text-foreground text-xs font-medium">
-                        {t("voicePasteKey")}
-                      </Text>
-                    </Button>
-                  </View>
-                  <Input
-                    testID="voice-id"
-                    value={voiceIdDraft()}
-                    onChange={(e) => {
-                      voiceIdDraft.set(e.value);
-                      voiceError.set("");
-                    }}
-                    placeholder={t("enterAClonedSpeakerIdEgS")}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                    maxLength={256}
-                    onSubmit={saveVoiceId}
-                    class="h-10 rounded-xl border border-input bg-card px-3.5 text-foreground text-xs font-mono focus:border-ring"
-                  />
-                </View>
-              </If>
-
-              <If when={voiceError()}>
-                <Text role="alert" class="text-destructive text-xs">
-                  {translateMessage(voiceError())}
-                </Text>
-              </If>
-
-              <View class="flex-row flex-wrap items-center justify-end gap-2">
-                <If when={Boolean(props.store.voiceId())}>
-                  <ActionButton
-                    label={t("resetToDefault")}
-                    testID="restore-voice-id-btn"
-                    compact={true}
-                    onPress={() => {
-                      try {
-                        props.store.configureVoiceId("");
-                        voiceIdDraft.set("");
-                        voiceModeTab.set("preset");
-                        voiceError.set("");
-                        editingVoice.set(false);
-                        props.store.notify("@looi:voiceSpeakerSavedToast");
-                      } catch (cause) {
-                        voiceError.set(
-                          cause instanceof Error
-                            ? cause.message
-                            : "@looi:couldNotSaveSpeakerId",
-                        );
-                      }
-                    }}
-                  />
-                </If>
-                <ActionButton
-                  label={t("cancel")}
-                  testID="cancel-voice-id"
-                  compact={true}
-                  onPress={() => {
-                    editingVoice.set(false);
-                    voiceIdDraft.set("");
-                    voiceError.set("");
-                  }}
-                />
-                <ActionButton
-                  label={t("voiceSaveSelection")}
-                  testID="save-voice-id-btn"
-                  kind="primary"
-                  compact={true}
-                  disabled={
-                    !props.store.ready() ||
-                    !voiceIdDraft().trim() ||
-                    voiceIdDraft().trim() ===
-                      (props.store.voiceId() || DOUBAO_DEFAULT_VOICE_ID)
-                  }
-                  onPress={saveVoiceId}
-                />
-              </View>
-            </View>
-          </If>
-        </View>
-      </If>
-
       {/* Section 3: Wake-up */}
-      <View class="border-t border-border pt-2.5 gap-1.5">
+      <View class="border-t border-border pt-2 gap-1.5">
         <Text role="header" class="text-foreground text-sm font-bold">
           {t("voiceWakeSection")}
         </Text>
-        <View class="min-h-9 flex-row items-center justify-between gap-3">
+        <View class="min-h-9 rounded-xl border border-border bg-muted px-3 py-1 flex-row items-center justify-between gap-3">
           <Text
-            class="text-foreground text-sm font-medium flex-1"
+            class="text-foreground text-xs font-semibold flex-1"
             style={{ numberOfLines: 1 }}
           >
             {t("voiceAutoWake")}
@@ -998,7 +1097,7 @@ export function VoiceSpaceView(props: {
             testID="wake-toggle"
             accessibilityLabel={t("voiceAutoWake")}
             checked={state().wakeEnabled}
-            hitSlop={8}
+            hitSlop={10}
             onChange={(ev) => props.store.setWakeEnabled(ev.checked)}
             class="flex-row items-center justify-center disabled:opacity-40"
             trackClass="w-11 h-6 rounded-full bg-border border border-border p-0.5 justify-center checked:bg-verified checked:border-verified"
@@ -1013,21 +1112,21 @@ export function VoiceSpaceView(props: {
     <If
       when={windowSize().width >= 600}
       else={
-        <Scroll class="flex-1" contentClass="gap-3 pb-6">
+        <Scroll class="flex-1" contentClass="gap-2 pb-4">
           {renderSession(true)}
           {renderConfiguration(true)}
         </Scroll>
       }
     >
       <View class="flex-1 flex-row min-h-0 bg-card">
-        <View style={{ flex: 6.3, minWidth: 0, minHeight: 0 }}>
+        <View style={{ flex: 4.2, minWidth: 0, minHeight: 0 }}>
           {renderSession(false)}
         </View>
         <View
-          style={{ flex: 3.7, minWidth: 0, minHeight: 0 }}
+          style={{ flex: 5.8, minWidth: 0, minHeight: 0 }}
           class="border-l border-border bg-card"
         >
-          <Scroll class="flex-1" contentClass="px-5 py-3 pb-4">
+          <Scroll class="flex-1" contentClass="px-5 py-2.5 pb-3">
             {renderConfiguration(false)}
           </Scroll>
         </View>
