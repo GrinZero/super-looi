@@ -8,7 +8,7 @@ mod camera;
 mod device_camera;
 mod lan_room;
 #[cfg(target_os = "ios")]
-mod keep_awake;
+mod application_lifecycle;
 #[cfg(all(any(target_os = "android", target_os = "ios"), target_arch = "aarch64"))]
 mod linux_shell;
 mod login_browser;
@@ -21,8 +21,6 @@ use login_browser::MiotLoginBrowser;
 /// Private Node-compatible sandbox and OS credential vault for Super LOOI.
 #[native_module("super-looi/native")]
 fn native(registry: &mut Registry) {
-    #[cfg(target_os = "ios")]
-    keep_awake::install();
     registry
         .class::<NodeCompat>()
         .class::<CredentialVault>()
@@ -37,6 +35,9 @@ fn native(registry: &mut Registry) {
 #[cfg(target_os = "ios")]
 #[native_components(ios)]
 fn components(components: &nsh_platform_ios::Components) {
+    application_lifecycle::install(
+        objc2::MainThreadMarker::new().expect("iOS components register on the main thread"),
+    );
     components.register("looi.CameraVideo", camera::view_ios::factory());
     components.register("looi.DeviceCameraPreview", device_camera::view_ios::factory());
 }

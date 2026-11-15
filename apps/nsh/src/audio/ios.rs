@@ -1,9 +1,9 @@
 //! AVAudioEngine ownership stays in the app crate, independent of the NSH host.
 use super::{SharedAudio, pcm};
+use crate::application_lifecycle;
 use block2::RcBlock;
-use dispatch2::DispatchQueue;
 use objc2::{
-    MainThreadMarker, msg_send,
+    msg_send,
     rc::{Allocated, Retained},
     runtime::{AnyClass, AnyObject},
 };
@@ -53,29 +53,6 @@ fn audio_failure(stage: &str, error: Option<&AnyObject>) -> String {
     }
 }
 
-fn application_active() -> bool {
-    if MainThreadMarker::new().is_some() {
-        return application_active_on_main();
-    }
-    let mut active = false;
-    DispatchQueue::main().exec_sync(|| {
-        active = application_active_on_main();
-    });
-    active
-}
-
-fn application_active_on_main() -> bool {
-    debug_assert!(MainThreadMarker::new().is_some());
-    unsafe {
-        let Some(class) = AnyClass::get(c"UIApplication") else {
-            return false;
-        };
-        let application: Retained<AnyObject> = msg_send![class, sharedApplication];
-        let state: isize = msg_send![&application, applicationState];
-        state == 0 // UIApplicationStateActive
-    }
-}
-
 pub fn permission() -> String {
     let Ok(session) = session() else {
         return "unavailable".into();
@@ -92,7 +69,7 @@ pub fn permission() -> String {
 }
 
 pub fn request_permission() -> Result<String, String> {
-    if !application_active() {
+    if !application_lifecycle::is_active() {
         return Err("Microphone permission requires an active application".into());
     }
     unsafe {
@@ -137,7 +114,7 @@ impl Audio {
         if let Some(restoring) = restoring {
             let _ = restoring.join();
         }
-        if !application_active() {
+        if !application_lifecycle::is_active() {
             return Err("Voice audio requires an active application".into());
         }
         if capture && permission() != "granted" {
@@ -271,7 +248,7 @@ impl Audio {
             let _: () = msg_send![&audio.player, play];
             audio.observe_interruptions()?;
             // Cover a transition that raced the initial foreground check.
-            if !application_active() {
+            if !application_lifecycle::is_active() {
                 return Err("Application left the foreground while starting voice audio".into());
             }
             Ok(audio)
@@ -336,7 +313,7 @@ impl Audio {
     pub fn refresh(&mut self) {
         let running: bool = unsafe { msg_send![&self.engine, isRunning] };
         let interrupted = self.interrupted.load(Ordering::Acquire);
-        let active = application_active();
+        let active = application_lifecycle::is_active();
         if !running || interrupted || !active {
             if let Ok(mut state) = self.shared.lock() {
                 if state.error.is_empty() {

@@ -245,5 +245,3 @@
 ## NSH 开发宿主热重载（2026-11-14）
 
 - [ ] 修复公共 `nsh-dev` 客户端的接收容量与错误链，并重建开发宿主：普通包 32,873,600 字节触发 `Capacity(MessageTooLong { size: 32873600, max_size: 16777216 })`；独立探针只把帧上限设为现有消息上限 64 MiB 后，完整收到字节码和 14,215,726 字节 source map。NSH 0.5.1 仍未修复；现有 CLI 补丁不会更新已安装宿主。方案、分帧成本和验证范围见 [调研](docs/nsh-dev-transport-research.md)。8790 以 7.7 MB release 开发包恢复连接，修改后整包重载。
-
-- [ ] 修复 iOS 音频生命周期查询与 NSH 热重载之间的死锁：主线程在 `Engine::drop → join` 等待引擎，引擎在 `VoiceAudio.status → Audio.refresh → application_active → main.exec_sync` 等待主线程。2026-11-15 两次采样确认；由主线程初始化并以生命周期通知维护原子状态，覆盖权限、启动与刷新中的所有读取，消除引擎同步等待主线程。诊断和原始栈见 [热重载死锁](docs/ios-hot-reload-deadlock-diagnosis-2026-11-15.md)。
