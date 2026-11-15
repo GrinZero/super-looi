@@ -28,6 +28,7 @@ const cases = process.argv.includes("--live")
     ? tests
     : [
         "node-shims",
+        "search",
         "budgets",
         "pi-agent-core",
         "pi-ai",

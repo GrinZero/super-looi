@@ -243,6 +243,9 @@ export async function verifyHomeRuntime(): Promise<void> {
     "HA fixture discovery failed",
   );
   const devices = await runtime.list();
+  const searched = await runtime.list("书房的照明");
+  check(searched.total === 1 && searched.connectionId === connection.connectionId,
+    "App home search must combine Chinese room/type terms and preserve the connection reference");
   check(
     !JSON.stringify(devices).includes("NEVER_PUBLISH_ATTRIBUTE"),
     "HA sensitive attributes leaked",

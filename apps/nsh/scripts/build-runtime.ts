@@ -64,6 +64,9 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
           builder.onResolve({ filter: /^@super-looi\/home-assistant$/ }, () => ({
             path: resolve(root, "../../packages/home-assistant/src/index.ts"),
           }));
+          builder.onResolve({ filter: /^@super-looi\/search$/ }, () => ({
+            path: resolve(root, "../../packages/search/src/index.ts"),
+          }));
           builder.onResolve({ filter: /^@super-looi\/home-devices$/ }, () => ({
             path: resolve(root, "../../packages/home-devices/src/index.ts"),
           }));
