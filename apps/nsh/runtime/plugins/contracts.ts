@@ -30,6 +30,7 @@ import {
   type PluginSnapshot,
   type PluginStagePresentation,
   type PluginVoiceTool,
+  type ResumableStageView,
   type StageDrawerDetent,
   type ToolCallBailResult,
   type UserTurnBailResult,
@@ -64,6 +65,7 @@ export {
   type PluginSnapshot,
   type PluginStagePresentation,
   type PluginVoiceTool,
+  type ResumableStageView,
   type StageDrawerDetent,
   type ToolCallBailResult,
   type UserTurnBailResult,
@@ -107,10 +109,18 @@ export interface PluginTaskContext {
   commandTimeoutMs: number;
 }
 
+export interface ResumableStageSessionInput {
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly badgeText?: string;
+  readonly onResume: () => Promise<void> | void;
+}
+
 export interface PluginStageCapability {
   usePresentation(presentation: PluginStagePresentation, scope?: EffectScope): Dispose;
   currentPresentation(): PluginStagePresentation | null;
   onHostExit(listener: () => void, scope?: EffectScope): Dispose;
+  setResumableSession(session: ResumableStageSessionInput | null): void;
 }
 
 export type ScopedExpressionId = `plugin:${string}:${string}`;
@@ -170,6 +180,7 @@ export interface DeviceCameraFrame {
 export interface PluginLanRoomCapability {
   openRoom(options: {
     scope?: EffectScope;
+    preferredPort?: number;
     onRequest: (req: LanHttpRequest) => Promise<LanHttpResponse> | LanHttpResponse;
   }): Promise<LanRoomSession>;
 }
@@ -182,6 +193,16 @@ export interface PluginVisionCapability {
     options: { facing: "front" | "back"; maxDimension?: 320 | 640 | 1280; maxFps?: number; scope?: EffectScope },
     onFrame: (frame: DeviceCameraFrame) => Promise<void> | void,
   ): Promise<{ readonly previewSessionId: string; close(): void }>;
+}
+
+export interface PluginSpeakOptions {
+  readonly spokenText: string;
+  readonly contextNote?: string;
+  readonly delivery?: "when_idle" | "interrupt";
+  readonly capturePolicy?: "duplex" | "muted_broadcast";
+  readonly verbatim?: boolean;
+  readonly holdAliveMs?: number;
+  readonly closeToStandbyOnComplete?: boolean;
 }
 
 export interface PluginAiCapability {
@@ -222,11 +243,7 @@ export interface PluginAiCapability {
     },
     scope?: EffectScope,
   ): Dispose;
-  speak(options: {
-    spokenText: string;
-    contextNote?: string;
-    delivery?: "when_idle" | "interrupt";
-  }): Promise<{ readonly completed: boolean; readonly interruptedReason?: string }>;
+  speak(options: PluginSpeakOptions): Promise<{ readonly completed: boolean; readonly interruptedReason?: string }>;
   runBackgroundTask(prompt: string): Promise<{ readonly taskId: string; readonly answer: string }>;
 }
 
@@ -240,6 +257,7 @@ export interface PluginContext<TState = Record<string, unknown>> {
   enabled(): boolean;
   lifecycle(): PluginLifecycleState;
   ensureStarted(): Promise<void>;
+  onAppForegroundChange(listener: (active: boolean) => void, scope?: EffectScope): Dispose;
   getState(): TState;
   setState(updater: TState | ((prev: TState) => TState)): void;
 

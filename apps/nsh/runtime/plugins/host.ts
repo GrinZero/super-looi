@@ -18,6 +18,7 @@ import type {
   PluginStorage,
   PluginTaskContext,
   PluginVisionCapability,
+  ResumableStageView,
 } from "./contracts.js";
 import { createEffectScope } from "./effect-scope.js";
 import { extractPluginFailure, PluginKernelError } from "./errors.js";
@@ -87,6 +88,8 @@ export class PluginHost {
   private topology: ValidatedTopology;
   private readonly entries = new Map<string, ManagedPluginEntry>();
   private readonly listeners = new Set<(event: PluginEvent) => void>();
+  private readonly foregroundListeners = new Map<string, Set<(active: boolean) => void>>();
+  private foregroundActive = true;
   readonly services: PluginServiceBroker;
   readonly stage: PluginStageManager;
   readonly ai: DualLoopAiBus;
@@ -100,20 +103,28 @@ export class PluginHost {
     this.topology = validateAndSortPluginTopology(definitions.map((d) => d.manifest));
     this.ensureSchemaAndMigrateLegacySettings();
 
-    this.stage = new PluginStageManager((pluginId, presentation, revision) => {
-      this.emit({
-        type: "stage_changed",
-        pluginId,
-        ...(revision !== undefined ? { revision } : {}),
-        presentation,
-      });
-      this.ai?.notifyStageChanged();
-      for (const entry of this.entries.values()) {
-        if (entry.definition.manifest.permissions.includes("stage.ui")) {
-          this.publishSnapshot(entry);
+    this.stage = new PluginStageManager(
+      (pluginId, presentation, revision) => {
+        this.emit({
+          type: "stage_changed",
+          pluginId,
+          ...(revision !== undefined ? { revision } : {}),
+          presentation,
+        });
+        this.ai?.notifyStageChanged();
+        for (const entry of this.entries.values()) {
+          if (entry.definition.manifest.permissions.includes("stage.ui")) {
+            this.publishSnapshot(entry);
+          }
         }
-      }
-    });
+      },
+      (resumable) => {
+        this.emit({
+          type: "resumable_changed",
+          resumable,
+        });
+      },
+    );
 
     this.ai = new DualLoopAiBus(() => this.stage.activePluginId(), drivers.aiBridge);
 
@@ -324,6 +335,39 @@ export class PluginHost {
         if ((entry.lifecycle as PluginLifecycleState) === "active") {
           await this.reconcileWaitingPlugins();
         }
+      },
+      onAppForegroundChange: (listener, targetScope = scope) => {
+        if (!targetScope.active) {
+          throw new PluginKernelError({
+            stage: "plugin.lifecycle.onAppForegroundChange",
+            code: "ERR_PLUGIN_SCOPE_DISPOSED",
+            pluginId: manifest.id,
+            reason: `Cannot register foreground listener on disposed scope for "${manifest.id}"`,
+          });
+        }
+        let bucket = this.foregroundListeners.get(manifest.id);
+        if (!bucket) {
+          bucket = new Set();
+          this.foregroundListeners.set(manifest.id, bucket);
+        }
+        bucket.add(listener);
+        let removed = false;
+        const remove = () => {
+          if (removed) return;
+          removed = true;
+          const current = this.foregroundListeners.get(manifest.id);
+          if (current) {
+            current.delete(listener);
+            if (current.size === 0) {
+              this.foregroundListeners.delete(manifest.id);
+            }
+          }
+        };
+        const detach = targetScope.onDispose(remove);
+        return () => {
+          detach();
+          remove();
+        };
       },
       getState: () => structuredClone(entry.state),
       setState: (updater) => {
@@ -649,6 +693,8 @@ export class PluginHost {
     const manifest = entry.definition.manifest;
     const runtime = entry.runtime;
     const scope = entry.scope;
+    this.stage.clearPluginResumable(manifest.id);
+    this.foregroundListeners.delete(manifest.id);
 
     if (!runtime && !scope) {
       entry.lifecycle = reason === "dependency_lost" ? "waiting_dependency" : "stopped";
@@ -789,10 +835,81 @@ export class PluginHost {
     return this.buildSnapshot(entry);
   }
 
+  setForegroundActive(active: boolean): void {
+    if (this.closing || this.foregroundActive === active) return;
+    this.foregroundActive = active;
+    for (const [pluginId, bucket] of [...this.foregroundListeners.entries()]) {
+      for (const listener of [...bucket]) {
+        try {
+          listener(active);
+        } catch (error) {
+          const entry = this.entries.get(pluginId);
+          if (entry) {
+            entry.lastError = extractPluginFailure(
+              error,
+              `${pluginId}.onAppForegroundChange`,
+              "ERR_PLUGIN_FOREGROUND_SYNC_FAILED",
+            );
+            this.publishSnapshot(entry);
+          }
+        }
+      }
+    }
+  }
+
+  resumableStage(): ResumableStageView | null {
+    return this.stage.activeResumable();
+  }
+
+  async resumePluginStage(id?: string): Promise<void> {
+    if (this.closing) return;
+    const targetId = id ?? this.stage.activeResumable()?.pluginId;
+    if (targetId) {
+      const entry = this.entries.get(targetId);
+      if (entry && entry.enabled && (entry.lifecycle === "registered" || entry.lifecycle === "starting")) {
+        await this.enqueue(entry, () => this.activateInternal(entry));
+        if ((entry.lifecycle as PluginLifecycleState) === "active") {
+          await this.reconcileWaitingPlugins();
+        }
+      }
+    }
+    try {
+      await this.stage.resumeSession(targetId);
+    } catch (error) {
+      if (targetId) {
+        const entry = this.entries.get(targetId);
+        if (entry) {
+          entry.lastError = extractPluginFailure(
+            error,
+            `${targetId}.stage.resume`,
+            "ERR_PLUGIN_STAGE_RESUME_FAILED",
+          );
+          this.publishSnapshot(entry);
+        }
+      }
+      throw error;
+    }
+  }
+
   async sendCommand<TCommand = unknown, TResult = unknown>(
     id: string,
     command: TCommand,
   ): Promise<TResult> {
+    const entry = this.requireEntry(id);
+    if (!entry.enabled) {
+      throw new PluginKernelError({
+        stage: "plugin.command.dispatch",
+        code: "ERR_PLUGIN_DISABLED",
+        pluginId: id,
+        reason: `Plugin "${id}" is disabled`,
+      });
+    }
+    if (entry.lifecycle === "registered" || entry.lifecycle === "starting") {
+      await this.enqueue(entry, () => this.activateInternal(entry));
+      if ((entry.lifecycle as PluginLifecycleState) === "active") {
+        await this.reconcileWaitingPlugins();
+      }
+    }
     const runtime = this.get(id);
     if (!runtime.handleCommand) {
       throw new PluginKernelError({

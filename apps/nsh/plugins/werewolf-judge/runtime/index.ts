@@ -15,9 +15,11 @@ import {
   type PersonTrackerService,
 } from "../../vision-person-tracker/contracts.js";
 import {
+  WEREWOLF_PHASE_LABELS,
   WEREWOLF_PLUGIN_ID,
   type WerewolfCommand,
   type WerewolfLanStatus,
+  type WerewolfPhase,
   type WerewolfPresetId,
   type WerewolfPublicState,
   type WerewolfRole,
@@ -33,14 +35,46 @@ import {
   WerewolfEngine,
   WerewolfRuleError,
   type EngineTransitionOutcome,
+  type WerewolfMatchCheckpointV1,
 } from "./engine.js";
 import {
   LanCompanionController,
   type CompanionSeatActionPayload,
 } from "./lan-companion.js";
 import { buildPresetRules, type RandomIntFn } from "./presets.js";
+import { JudgeSpeechCoordinator } from "./speech-coordinator.js";
 
 const STORAGE_RULES_KEY = "rules_v1";
+const STORAGE_MATCH_CHECKPOINT_KEY = "match_checkpoint_v1";
+
+function isMatchActivePhase(phase: WerewolfPhase): boolean {
+  return phase !== "idle" && phase !== "lobby" && phase !== "game_over";
+}
+
+function shouldCloseVoiceToStandby(phase: WerewolfPhase): boolean {
+  return (
+    phase === "dawn_announce" ||
+    phase === "sheriff_election" ||
+    phase === "leave_resolution" ||
+    phase === "day_discussion" ||
+    phase === "day_voting" ||
+    phase === "day_pk_speech" ||
+    phase === "day_pk_voting" ||
+    phase === "game_over"
+  );
+}
+
+function shouldRunSpeakerClock(
+  phase: WerewolfPhase,
+  sheriffSubphase: WerewolfPublicState["sheriffSubphase"],
+): boolean {
+  return (
+    phase === "day_discussion" ||
+    phase === "day_pk_speech" ||
+    (phase === "sheriff_election" &&
+      (sheriffSubphase === "speech" || sheriffSubphase === "pk_speech"))
+  );
+}
 
 export interface WerewolfJudgePluginOptions {
   readonly randomInt?: RandomIntFn;
@@ -104,7 +138,11 @@ function readStoredRules(storage: PluginStorage): WerewolfRulesConfig {
   return base;
 }
 
-function toPluginFailure(error: unknown, defaultStage: string): PluginFailure {
+function toPluginFailure(
+  error: unknown,
+  defaultStage: string,
+  defaultCode = "ERR_WEREWOLF_RUNTIME",
+): PluginFailure {
   if (error instanceof WerewolfRuleError) {
     return {
       stage: error.stage,
@@ -118,7 +156,7 @@ function toPluginFailure(error: unknown, defaultStage: string): PluginFailure {
     const code =
       typeof rec.code === "string" || typeof rec.code === "number"
         ? rec.code
-        : "ERR_WEREWOLF_RUNTIME";
+        : defaultCode;
     const reason =
       typeof rec.reason === "string" && rec.reason
         ? rec.reason
@@ -129,7 +167,7 @@ function toPluginFailure(error: unknown, defaultStage: string): PluginFailure {
   }
   return {
     stage: defaultStage,
-    code: "ERR_WEREWOLF_RUNTIME",
+    code: defaultCode,
     reason: String(error),
   };
 }
@@ -168,7 +206,21 @@ export function werewolfJudgeDefinition(
         randomInt: options.randomInt,
         now: options.now,
       });
-      return bootstrapEngine.projectPublicState({
+      const savedCheckpoint = storage.get<WerewolfMatchCheckpointV1 | undefined>(
+        STORAGE_MATCH_CHECKPOINT_KEY,
+      );
+      let restoredPaused = false;
+      let restoredClaims: number[] = [];
+      let mutedByHost = false;
+      if (savedCheckpoint) {
+        const result = bootstrapEngine.restoreCheckpoint(savedCheckpoint);
+        if (result.restored) {
+          restoredPaused = true;
+          restoredClaims = result.lanSeatTokens.map(([seat]) => seat).sort((a, b) => a - b);
+          mutedByHost = result.mutedByHost;
+        }
+      }
+      const bootstrapState = bootstrapEngine.projectPublicState({
         dealingFaceAligned: false,
         previewSessionId: null,
         visionAvailable: false,
@@ -177,11 +229,20 @@ export function werewolfJudgeDefinition(
           baseUrl: null,
           lanIpv4: null,
           port: null,
-          claimedSeats: [],
+          claimedSeats: restoredClaims,
           error: null,
         },
-        hostPaused: false,
+        hostPaused: restoredPaused,
+        hasResumableMatch: isMatchActivePhase(bootstrapEngine.getPhase()),
       });
+      return {
+        ...bootstrapState,
+        voiceStatus: {
+          ...bootstrapState.voiceStatus,
+          mutedByHost,
+          lastSpokenText: bootstrapState.lastJudgeSpeech || null,
+        },
+      };
     },
     create: (ctx) => new WerewolfJudgePluginRuntime(ctx, options),
   };
@@ -193,6 +254,7 @@ export class WerewolfJudgePluginRuntime
   private readonly engine: WerewolfEngine;
   private readonly choreographer: WerewolfChoreographer;
   private readonly lanCompanion: LanCompanionController;
+  private readonly speechCoordinator: JudgeSpeechCoordinator;
   private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   private readonly nightIntroDelayMs: number;
   private readonly speakerTickMs: number;
@@ -215,10 +277,13 @@ export class WerewolfJudgePluginRuntime
   private lanScope: EffectScope | null = null;
   private lanSession: LanRoomSession | null = null;
   private lanError: string | null = null;
+  private lastLanPort: number | undefined = undefined;
 
   private speakerInterval: ReturnType<typeof setInterval> | null = null;
   private hostPaused = false;
+  private appForegroundActive = true;
   private mvpRequestToken = 0;
+  private opQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly ctx: PluginContext<WerewolfPublicState>,
@@ -248,10 +313,24 @@ export class WerewolfJudgePluginRuntime
     this.lanCompanion = new LanCompanionController({
       engine: this.engine,
       onClaimsChanged: () => {
+        this.persistCheckpoint();
         this.syncPublicState();
       },
       onAuthenticatedAction: async (seat, payload) => {
-        await this.handleCompanionAction(seat, payload);
+        await this.enqueueOperation(() => this.handleCompanionAction(seat, payload));
+      },
+    });
+
+    this.speechCoordinator = new JudgeSpeechCoordinator({
+      ai: ctx.ai,
+      pluginId: WEREWOLF_PLUGIN_ID,
+      isPaused: () => this.hostPaused,
+      sleep: (ms) => this.sleep(ms),
+      onStatusChange: () => {
+        this.syncPublicState();
+      },
+      onSpeechFailure: (failure) => {
+        this.ctx.setLastError(failure);
       },
     });
   }
@@ -279,10 +358,15 @@ export class WerewolfJudgePluginRuntime
 
     // 2. Host top-right "Exit Stage" synchronization
     this.ctx.stage?.onHostExit(() => {
-      void this.handleHostStageExited();
+      void this.enqueueOperation(() => this.handleHostStageExited());
     }, this.ctx.scope);
 
-    // 3. Register daytime-safe voice tools
+    // 3. Foreground/background synchronization for leases, checkpoint & LAN recovery
+    this.ctx.onAppForegroundChange?.((active) => {
+      void this.enqueueOperation(() => this.handleForegroundChanged(active));
+    }, this.ctx.scope);
+
+    // 4. Register daytime-safe voice tools
     this.ctx.ai?.useContribution(
       {
         voiceTools: this.buildVoiceTools(),
@@ -290,18 +374,51 @@ export class WerewolfJudgePluginRuntime
       this.ctx.scope,
     );
 
-    this.startSpeakerClock();
+    // 5. Restore cold-boot match checkpoint non-intrusively into hostPaused state
+    const savedCheckpoint = this.ctx.storage.get<WerewolfMatchCheckpointV1 | undefined>(
+      STORAGE_MATCH_CHECKPOINT_KEY,
+    );
+    if (savedCheckpoint) {
+      const outcome = this.engine.restoreCheckpoint(savedCheckpoint);
+      if (outcome.restored) {
+        this.lanCompanion.restoreSeatTokens(outcome.lanSeatTokens);
+        this.speechCoordinator.restoreMutedByHost(outcome.mutedByHost);
+        const restoredSpeech = this.engine.projectPublicState({
+          dealingFaceAligned: false,
+          previewSessionId: null,
+          visionAvailable: false,
+          lan: {
+            active: false,
+            baseUrl: null,
+            lanIpv4: null,
+            port: null,
+            claimedSeats: this.lanCompanion.claimedSeats(),
+            error: null,
+          },
+          hostPaused: true,
+        }).lastJudgeSpeech;
+        this.speechCoordinator.seedSubtitle(restoredSpeech);
+        this.hostPaused = true;
+      }
+    }
+
     this.ctx.scope.onDispose(async () => {
       this.stopSpeakerClock();
-      await this.teardownAllSubScopes();
+      this.speechCoordinator.bumpEpoch();
+      this.ctx.stage?.setResumableSession(null);
+      await this.teardownAllSubScopes({ clearLanTokens: false });
     });
 
+    this.syncSpeakerClockForCurrentPhase();
     this.syncPublicState();
   }
 
   async stop(): Promise<void> {
     this.stopSpeakerClock();
-    await this.teardownAllSubScopes();
+    this.speechCoordinator.bumpEpoch();
+    this.persistCheckpoint();
+    this.ctx.stage?.setResumableSession(null);
+    await this.teardownAllSubScopes({ clearLanTokens: false });
     this.engine.exitToIdle();
     this.hostPaused = false;
     this.syncPublicState();
@@ -328,15 +445,26 @@ export class WerewolfJudgePluginRuntime
   }
 
   async handleCommand(command: WerewolfCommand): Promise<WerewolfPublicState> {
-    this.ctx.setLastError(undefined);
-    try {
-      await this.dispatchCommand(command);
-      return this.ctx.getState();
-    } catch (error) {
-      const failure = toPluginFailure(error, `command:${command.type}`);
-      this.ctx.setLastError(failure);
-      return rethrowWithStage(error, failure.stage);
-    }
+    return this.enqueueOperation(async () => {
+      this.ctx.setLastError(undefined);
+      try {
+        await this.dispatchCommand(command);
+        return this.ctx.getState();
+      } catch (error) {
+        const failure = toPluginFailure(error, `command:${command.type}`);
+        this.ctx.setLastError(failure);
+        return rethrowWithStage(error, failure.stage);
+      }
+    });
+  }
+
+  private enqueueOperation<T>(fn: () => Promise<T> | T): Promise<T> {
+    const run = this.opQueue.then(() => fn());
+    this.opQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   // ===========================================================================
@@ -347,10 +475,31 @@ export class WerewolfJudgePluginRuntime
     switch (command.type) {
       case "open_lobby": {
         this.hostPaused = false;
+        this.speechCoordinator.bumpEpoch();
         this.cancelActiveNightTask();
+        this.clearCheckpoint();
+        this.lanCompanion.clearAllClaims();
         const outcome = this.engine.openLobby(command.presetId);
         this.persistRules();
         this.lanCompanion.pruneOutOfRangeClaims(this.engine.getPlayerCount());
+        this.syncResumableSession();
+        await this.ensureMatchStageMounted();
+        if (this.engine.getRules().surfaceMode === "lan_companion") {
+          await this.ensureLanRoomOpen();
+        }
+        await this.applyPostTransitionEffects(outcome);
+        return;
+      }
+
+      case "abort_match_to_lobby": {
+        this.hostPaused = false;
+        this.speechCoordinator.bumpEpoch();
+        this.cancelActiveNightTask();
+        this.stopSpeakerClock();
+        this.clearCheckpoint();
+        this.lanCompanion.clearAllClaims();
+        const outcome = this.engine.openLobby();
+        this.syncResumableSession();
         await this.ensureMatchStageMounted();
         if (this.engine.getRules().surfaceMode === "lan_companion") {
           await this.ensureLanRoomOpen();
@@ -361,25 +510,30 @@ export class WerewolfJudgePluginRuntime
 
       case "resume_stage": {
         this.hostPaused = false;
+        this.syncResumableSession();
         if (this.engine.getPhase() === "idle") {
           const outcome = this.engine.openLobby();
           await this.ensureMatchStageMounted();
+          if (this.engine.getRules().surfaceMode === "lan_companion") {
+            await this.ensureLanRoomOpen();
+          }
           await this.applyPostTransitionEffects(outcome);
           return;
         }
         await this.ensureMatchStageMounted();
-        this.syncLifecycleScopesForCurrentPhase();
-        this.syncDealingCameraSubscription();
-        this.choreographer.applyPhaseAtmosphere(this.engine.getPhase());
-        this.syncPublicState();
+        await this.resumeActivePhaseSideEffects();
         return;
       }
 
       case "exit_to_idle": {
         this.hostPaused = false;
+        this.speechCoordinator.resetForIdle();
         this.cancelActiveNightTask();
-        await this.teardownAllSubScopes();
+        this.stopSpeakerClock();
+        this.clearCheckpoint();
+        await this.teardownAllSubScopes({ clearLanTokens: true });
         this.engine.exitToIdle();
+        this.syncResumableSession();
         this.syncPublicState();
         return;
       }
@@ -402,8 +556,8 @@ export class WerewolfJudgePluginRuntime
         ) {
           await this.ensureLanRoomOpen();
         }
-        this.syncStagePresentation();
         this.syncPublicState();
+        this.syncStagePresentation();
         return;
       }
 
@@ -417,32 +571,61 @@ export class WerewolfJudgePluginRuntime
 
       case "set_seat_nickname": {
         this.engine.setSeatNickname(command.seat, command.nickname);
+        this.persistCheckpoint();
         this.syncPublicState();
         return;
       }
 
       case "toggle_lan_room": {
         if (command.enabled) {
-          await this.ensureLanRoomOpen();
+          await this.ensureLanRoomOpen({ keepExistingTokens: true });
         } else {
-          await this.closeLanRoom();
+          await this.closeLanRoom({ clearTokens: true });
         }
+        this.persistCheckpoint();
         this.syncPublicState();
         return;
       }
 
       case "refresh_lan_address": {
-        this.lanSession?.refreshAddresses();
+        if (this.lanSession) {
+          try {
+            if (this.lanSession.refreshAddressesAsync) {
+              const info = await this.lanSession.refreshAddressesAsync();
+              if (info.port > 0) {
+                this.lastLanPort = info.port;
+              }
+            } else {
+              this.lanSession.refreshAddresses();
+            }
+            this.lanError = null;
+          } catch (error) {
+            const failure = toPluginFailure(error, "lan_refresh", "ERR_LAN_ROOM_REFRESH_FAILED");
+            this.lanError = `[stage=${failure.stage} code=${String(failure.code)}] ${failure.reason}`;
+            this.syncPublicState();
+            throw error;
+          }
+        }
+        this.syncPublicState();
+        return;
+      }
+
+      case "release_lan_seat": {
+        this.lanCompanion.releaseSeatToken(command.seat);
+        this.persistCheckpoint();
         this.syncPublicState();
         return;
       }
 
       case "start_dealing": {
         this.hostPaused = false;
+        this.speechCoordinator.bumpEpoch();
         this.cancelActiveNightTask();
+        this.stopSpeakerClock();
+        this.clearCheckpoint();
         await this.ensureMatchStageMounted();
         if (this.engine.getRules().surfaceMode === "lan_companion") {
-          await this.ensureLanRoomOpen();
+          await this.ensureLanRoomOpen({ keepExistingTokens: true });
         }
         const outcome = this.engine.startDealing(
           this.options.fixedRolesBySeat
@@ -476,12 +659,53 @@ export class WerewolfJudgePluginRuntime
         const outcome = this.engine.confirmSeatDealt(command.seat);
         this.dealingFaceAligned = false;
         if (this.engine.getDealingCurrentSeat() !== null) {
-          void this.choreographer.pivotClockwiseToNextSeat(
-            this.engine.getPlayerCount(),
-            this.engine.getRules().motionMode,
-          );
+          void this.choreographer
+            .pivotClockwiseToNextSeat(
+              this.engine.getPlayerCount(),
+              this.engine.getRules().motionMode,
+            )
+            .catch(() => {});
         }
         await this.applyPostTransitionEffects(outcome);
+        return;
+      }
+
+      case "step_back_deal": {
+        const outcome = this.engine.stepBackDeal();
+        this.dealingFaceAligned = false;
+        this.syncDealingCameraSubscription();
+        await this.applyPostTransitionEffects(outcome);
+        return;
+      }
+
+      case "replay_last_speech": {
+        const voiceStatus = this.speechCoordinator.status();
+        if (!voiceStatus.lastSpokenText) {
+          throw new WerewolfRuleError(
+            "replay_last_speech",
+            "ERR_NO_JUDGE_SPEECH",
+            "当前暂无可重播的法官台词",
+          );
+        }
+        if (voiceStatus.mutedByHost) {
+          throw new WerewolfRuleError(
+            "replay_last_speech",
+            "ERR_JUDGE_VOICE_MUTED",
+            "法官语音当前处于静音状态，请先取消静音或查看屏幕字幕",
+          );
+        }
+        void this.speechCoordinator.replayLast().catch((err) => {
+          this.ctx.setLastError(
+            toPluginFailure(err, "replay_last_speech", "ERR_JUDGE_SPEECH_FAILED"),
+          );
+        });
+        return;
+      }
+
+      case "set_judge_voice_muted": {
+        this.speechCoordinator.setMutedByHost(command.muted);
+        this.persistCheckpoint();
+        this.syncPublicState();
         return;
       }
 
@@ -527,6 +751,7 @@ export class WerewolfJudgePluginRuntime
 
       case "submit_seer_check": {
         this.engine.submitSeerCheck(command.targetSeat);
+        this.persistCheckpoint();
         this.syncPublicState();
         return;
       }
@@ -539,6 +764,7 @@ export class WerewolfJudgePluginRuntime
 
       case "toggle_sheriff_candidate": {
         this.engine.toggleSheriffCandidate(command.seat);
+        this.persistCheckpoint();
         this.syncPublicState();
         return;
       }
@@ -557,16 +783,20 @@ export class WerewolfJudgePluginRuntime
 
       case "advance_speaker": {
         const outcome = this.engine.advanceSpeaker();
-        void this.choreographer.pivotClockwiseToNextSeat(
-          this.engine.getPlayerCount(),
-          this.engine.getRules().motionMode,
-        );
+        void this.choreographer
+          .pivotClockwiseToNextSeat(
+            this.engine.getPlayerCount(),
+            this.engine.getRules().motionMode,
+          )
+          .catch(() => {});
         await this.applyPostTransitionEffects(outcome);
         return;
       }
 
       case "toggle_timer_pause": {
         this.engine.toggleTimerPause();
+        this.persistCheckpoint();
+        this.syncSpeakerClockForCurrentPhase();
         this.syncPublicState();
         return;
       }
@@ -581,6 +811,7 @@ export class WerewolfJudgePluginRuntime
         this.engine.castVote(command.voterSeat, command.targetSeat, {
           autoFinalizeWhenAllVoted: false,
         });
+        this.persistCheckpoint();
         this.syncPublicState();
         return;
       }
@@ -645,9 +876,17 @@ export class WerewolfJudgePluginRuntime
       }
 
       case "play_again": {
+        this.hostPaused = false;
+        this.speechCoordinator.bumpEpoch();
         this.cancelActiveNightTask();
+        this.stopSpeakerClock();
+        this.clearCheckpoint();
+        this.lanCompanion.clearAllClaims();
         const outcome = this.engine.openLobby();
         await this.ensureMatchStageMounted();
+        if (this.engine.getRules().surfaceMode === "lan_companion") {
+          await this.ensureLanRoomOpen();
+        }
         await this.applyPostTransitionEffects(outcome);
         return;
       }
@@ -678,6 +917,7 @@ export class WerewolfJudgePluginRuntime
         if (outcome) {
           await this.finishLivingNightRoleStep("狼人请闭眼。", outcome);
         } else {
+          this.persistCheckpoint();
           this.syncPublicState();
         }
         return;
@@ -695,6 +935,7 @@ export class WerewolfJudgePluginRuntime
       }
       case "seer_check": {
         this.engine.submitSeerCheck(payload.targetSeat, seat);
+        this.persistCheckpoint();
         this.syncPublicState();
         return;
       }
@@ -705,6 +946,7 @@ export class WerewolfJudgePluginRuntime
       }
       case "sheriff_toggle_signup": {
         this.engine.toggleSheriffCandidate(seat);
+        this.persistCheckpoint();
         this.syncPublicState();
         return;
       }
@@ -720,6 +962,7 @@ export class WerewolfJudgePluginRuntime
         if (outcome) {
           await this.applyPostTransitionEffects(outcome);
         } else {
+          this.persistCheckpoint();
           this.syncPublicState();
         }
         return;
@@ -762,11 +1005,13 @@ export class WerewolfJudgePluginRuntime
   }
 
   private async applyPostTransitionEffects(outcome: EngineTransitionOutcome): Promise<void> {
+    this.persistCheckpoint();
+    this.syncPublicState();
     this.syncLifecycleScopesForCurrentPhase();
     this.syncDealingCameraSubscription();
     this.syncStagePresentation();
     this.choreographer.applyPhaseAtmosphere(this.engine.getPhase());
-    this.syncPublicState();
+    this.syncSpeakerClockForCurrentPhase();
 
     if (outcome.announcement) {
       void this.speakJudgeLine(outcome.announcement);
@@ -782,10 +1027,12 @@ export class WerewolfJudgePluginRuntime
       if (outcome.isDeadRoleDecoy && role !== "werewolf") {
         this.scheduleDeadRoleDecoyMask(role);
       } else {
-        void this.choreographer.performNightEntrySweep(
-          this.engine.getRules().motionMode,
-          this.engine.getRules().surfaceMode,
-        );
+        void this.choreographer
+          .performNightEntrySweep(
+            this.engine.getRules().motionMode,
+            this.engine.getRules().surfaceMode,
+          )
+          .catch(() => {});
       }
       return;
     }
@@ -805,8 +1052,14 @@ export class WerewolfJudgePluginRuntime
       if (ac.signal.aborted || this.hostPaused || this.engine.getPhase() !== "night_intro") {
         return;
       }
-      const next = this.engine.advanceFromNightIntro();
-      await this.applyPostTransitionEffects(next);
+      await this.enqueueOperation(async () => {
+        if (ac.signal.aborted || this.hostPaused || this.engine.getPhase() !== "night_intro") {
+          return;
+        }
+        this.nightTaskAbort = null;
+        const next = this.engine.advanceFromNightIntro();
+        await this.applyPostTransitionEffects(next);
+      });
     })();
   }
 
@@ -849,8 +1102,19 @@ export class WerewolfJudgePluginRuntime
       if (ac.signal.aborted || this.hostPaused || this.engine.getPhase() !== expectedPhase) {
         return;
       }
-      const next = this.engine.advanceDecoyNightStep();
-      await this.applyPostTransitionEffects(next);
+      await this.enqueueOperation(async () => {
+        if (
+          ac.signal.aborted ||
+          this.hostPaused ||
+          this.engine.getPhase() !== expectedPhase ||
+          !this.engine.isCurrentNightStepDecoy()
+        ) {
+          return;
+        }
+        this.nightTaskAbort = null;
+        const next = this.engine.advanceDecoyNightStep();
+        await this.applyPostTransitionEffects(next);
+      });
     })();
   }
 
@@ -865,8 +1129,89 @@ export class WerewolfJudgePluginRuntime
     if (!this.matchStageScope || !this.matchStageScope.active) {
       this.matchStageScope = this.ctx.forkScope("werewolf-match-stage");
     }
-    await this.choreographer.acquireMatchLeases(this.matchStageScope);
+    await this.choreographer.ensureMatchLeases(this.matchStageScope);
+    this.syncPublicState();
     this.syncStagePresentation();
+  }
+
+  private async resumeActivePhaseSideEffects(): Promise<void> {
+    this.syncPublicState();
+    this.syncLifecycleScopesForCurrentPhase();
+    this.syncDealingCameraSubscription();
+    this.choreographer.applyPhaseAtmosphere(this.engine.getPhase());
+    this.syncSpeakerClockForCurrentPhase();
+
+    const phase = this.engine.getPhase();
+    if (this.engine.getRules().surfaceMode === "lan_companion" && phase !== "idle") {
+      try {
+        const session = await this.ensureLanRoomOpen({ keepExistingTokens: true });
+        session.notifyRevision(this.engine.getRevision());
+      } catch {
+        // ensureLanRoomOpen already records this.lanError and this.ctx.setLastError
+      }
+    }
+
+    if (phase === "night_intro" && this.options.autoAdvanceNightIntro !== false && !this.nightTaskAbort) {
+      this.scheduleNightIntroAdvance();
+    } else if (
+      (phase === "night_guard" || phase === "night_witch" || phase === "night_seer") &&
+      this.engine.isCurrentNightStepDecoy() &&
+      !this.nightTaskAbort
+    ) {
+      const decoyRole =
+        phase === "night_guard" ? "guard" : phase === "night_witch" ? "witch" : "seer";
+      this.scheduleDeadRoleDecoyMask(decoyRole);
+    } else if (phase === "game_over" && this.ctx.getState().aiMvpReview.status === "idle") {
+      void this.generateEndgameMvpReview();
+    }
+
+    this.syncPublicState();
+    this.syncStagePresentation();
+  }
+
+  private async handleForegroundChanged(active: boolean): Promise<void> {
+    this.appForegroundActive = active;
+    if (!active) {
+      this.stopSpeakerClock();
+      this.persistCheckpoint();
+      return;
+    }
+    if (this.hostPaused || this.engine.getPhase() === "idle") {
+      return;
+    }
+    if (this.matchStageScope?.active) {
+      await this.choreographer.ensureMatchLeases(this.matchStageScope);
+      this.choreographer.applyPhaseAtmosphere(this.engine.getPhase());
+    }
+    this.syncSpeakerClockForCurrentPhase();
+    if (this.engine.getRules().surfaceMode === "lan_companion") {
+      if (this.lanSession) {
+        try {
+          if (this.lanSession.refreshAddressesAsync) {
+            const info = await this.lanSession.refreshAddressesAsync();
+            if (info.port > 0) {
+              this.lastLanPort = info.port;
+            }
+          } else {
+            this.lanSession.refreshAddresses();
+          }
+          this.lanError = null;
+          this.lanSession.notifyRevision(this.engine.getRevision());
+        } catch (error) {
+          const failure = toPluginFailure(error, "lan_rebind", "ERR_LAN_ROOM_REBIND_FAILED");
+          this.lanError = `[stage=${failure.stage} code=${String(failure.code)}] ${failure.reason}`;
+          this.ctx.setLastError(failure);
+        }
+      } else {
+        try {
+          const session = await this.ensureLanRoomOpen({ keepExistingTokens: true });
+          session.notifyRevision(this.engine.getRevision());
+        } catch {
+          // ensureLanRoomOpen already records this.lanError and this.ctx.setLastError
+        }
+      }
+    }
+    this.syncPublicState();
   }
 
   private syncStagePresentation(): void {
@@ -886,7 +1231,12 @@ export class WerewolfJudgePluginRuntime
       surfaceMode: this.engine.getRules().surfaceMode,
     });
     const serialized = JSON.stringify(desired);
-    if (serialized === this.lastPresentationJson && this.stagePresentationDispose) {
+    const currentHostJson = JSON.stringify(this.ctx.stage.currentPresentation());
+    if (
+      serialized === this.lastPresentationJson &&
+      currentHostJson === serialized &&
+      this.stagePresentationDispose
+    ) {
       return;
     }
 
@@ -1011,7 +1361,7 @@ export class WerewolfJudgePluginRuntime
             if (!target) {
               if (this.dealingFaceAligned) {
                 this.dealingFaceAligned = false;
-                void this.choreographer.stopWheelPivot();
+                void this.choreographer.stopWheelPivot().catch(() => {});
                 this.syncPublicState();
               }
               return;
@@ -1028,7 +1378,8 @@ export class WerewolfJudgePluginRuntime
                   this.dealingFaceAligned = aligned;
                   this.syncPublicState();
                 }
-              });
+              })
+              .catch(() => {});
           },
           trackScope,
         );
@@ -1071,10 +1422,10 @@ export class WerewolfJudgePluginRuntime
   // LAN Room Lifecycle
   // ===========================================================================
 
-  private async ensureLanRoomOpen(): Promise<void> {
+  private async ensureLanRoomOpen(options?: { readonly keepExistingTokens?: boolean }): Promise<LanRoomSession> {
     if (this.lanSession) {
       this.lanError = null;
-      return;
+      return this.lanSession;
     }
     if (!this.ctx.lan) {
       const failure: PluginFailure = {
@@ -1092,15 +1443,18 @@ export class WerewolfJudgePluginRuntime
     try {
       const session = await this.ctx.lan.openRoom({
         scope,
+        preferredPort: options?.keepExistingTokens ? this.lastLanPort : undefined,
         onRequest: (req) => this.lanCompanion.handleHttpRequest(req),
       });
       this.lanSession = session;
+      this.lastLanPort = session.port;
       this.lanError = null;
       scope.onDispose(() => {
         if (this.lanSession === session) {
           this.lanSession = null;
         }
       });
+      return session;
     } catch (error) {
       this.lanScope = null;
       await scope.dispose();
@@ -1111,7 +1465,7 @@ export class WerewolfJudgePluginRuntime
     }
   }
 
-  private async closeLanRoom(): Promise<void> {
+  private async closeLanRoom(options?: { readonly clearTokens?: boolean }): Promise<void> {
     const session = this.lanSession;
     this.lanSession = null;
     if (session) {
@@ -1122,7 +1476,9 @@ export class WerewolfJudgePluginRuntime
     if (scope) {
       await scope.dispose();
     }
-    this.lanCompanion.clearAllClaims();
+    if (options?.clearTokens !== false) {
+      this.lanCompanion.clearAllClaims();
+    }
   }
 
   // ===========================================================================
@@ -1131,7 +1487,9 @@ export class WerewolfJudgePluginRuntime
 
   private async handleHostStageExited(): Promise<void> {
     this.hostPaused = true;
+    this.speechCoordinator.bumpEpoch();
     this.cancelActiveNightTask();
+    this.stopSpeakerClock();
     await this.stopDealingCameraSubscription();
 
     if (this.nightScope) {
@@ -1156,21 +1514,39 @@ export class WerewolfJudgePluginRuntime
       this.matchStageScope = null;
       await ms.dispose();
     }
+    this.persistCheckpoint();
     this.syncPublicState();
+  }
+
+  private syncSpeakerClockForCurrentPhase(): void {
+    const state = this.ctx.getState();
+    const shouldRun =
+      this.appForegroundActive &&
+      !this.hostPaused &&
+      !state.timerPaused &&
+      shouldRunSpeakerClock(this.engine.getPhase(), state.sheriffSubphase);
+    if (shouldRun) {
+      this.startSpeakerClock();
+    } else {
+      this.stopSpeakerClock();
+    }
   }
 
   private startSpeakerClock(): void {
     if (this.speakerInterval || this.speakerTickMs <= 0) return;
     this.speakerInterval = setInterval(() => {
-      if (this.hostPaused) return;
+      if (this.hostPaused || !this.appForegroundActive) return;
       const { expired, remainingSec } = this.engine.tickSpeakerTimer(1);
       if (expired) {
-        try {
-          const outcome = this.engine.advanceSpeaker();
-          void this.applyPostTransitionEffects(outcome);
-        } catch {
-          // Ignore race if user manually advanced on exact expiry tick
-        }
+        void this.enqueueOperation(async () => {
+          if (this.hostPaused || !this.appForegroundActive) return;
+          try {
+            const outcome = this.engine.advanceSpeaker();
+            await this.applyPostTransitionEffects(outcome);
+          } catch {
+            // Ignore race if user manually advanced on exact expiry tick
+          }
+        });
       } else if (this.engine.getSpeakingSeat() !== null && remainingSec >= 0) {
         this.syncPublicState();
       }
@@ -1191,7 +1567,7 @@ export class WerewolfJudgePluginRuntime
     }> = {
       name: "werewolf_open_lobby",
       description:
-        "在 LOOI 首屏舞台打开线下聚会狼人杀准备大厅（支持 6p_joy / 9p_standard / 12p_guard / 12p_idiot 预设）。",
+        "在 LOOI 首屏舞台打开线下聚会狼人杀准备大厅（支持 6p_joy / 9p_standard / 12p_guard / 12p_idiot 预设）；若当前有未结束对局则恢复该对局而不覆盖进度。",
       parametersJsonSchema: {
         type: "object",
         properties: {
@@ -1208,6 +1584,16 @@ export class WerewolfJudgePluginRuntime
         },
       },
       execute: async (params) => {
+        if (isMatchActivePhase(this.engine.getPhase())) {
+          const resumed = await this.handleCommand({ type: "resume_stage" });
+          return {
+            ok: true,
+            resumedExistingMatch: true,
+            phase: resumed.phase,
+            playerCount: resumed.rules.playerCount,
+            lanUrl: resumed.lan.baseUrl,
+          };
+        }
         if (params.surfaceMode) {
           await this.handleCommand({
             type: "update_rules",
@@ -1334,23 +1720,61 @@ export class WerewolfJudgePluginRuntime
   }
 
   private async speakJudgeLine(text: string): Promise<void> {
-    if (!this.ctx.ai || !text.trim() || this.hostPaused) return;
-    try {
-      await this.ctx.ai.speak({
-        spokenText: text,
-        contextNote: `[${WEREWOLF_PLUGIN_ID}] 法官台词播报`,
-        delivery: "when_idle",
-      });
-    } catch {
-      // Voice session may be idle/offline during tabletop tap play; screen state remains authoritative.
-    }
+    if (!text.trim() || this.hostPaused) return;
+    await this.speechCoordinator.speakSequential({
+      text,
+      contextNote: `[${WEREWOLF_PLUGIN_ID}] 法官台词播报`,
+      closeToStandbyOnComplete: shouldCloseVoiceToStandby(this.engine.getPhase()),
+    });
   }
 
   private persistRules(): void {
     this.ctx.storage.set(STORAGE_RULES_KEY, this.engine.getRules());
   }
 
+  private persistCheckpoint(): void {
+    const checkpoint = this.engine.exportCheckpoint({
+      lanSeatTokens: this.lanCompanion.exportSeatTokens(),
+      mutedByHost: this.speechCoordinator.isMutedByHost(),
+    });
+    if (checkpoint) {
+      this.ctx.storage.set(STORAGE_MATCH_CHECKPOINT_KEY, checkpoint);
+    } else {
+      this.ctx.storage.delete(STORAGE_MATCH_CHECKPOINT_KEY);
+    }
+  }
+
+  private clearCheckpoint(): void {
+    this.ctx.storage.delete(STORAGE_MATCH_CHECKPOINT_KEY);
+  }
+
+  private syncResumableSession(): void {
+    if (!this.ctx.stage) return;
+    const phase = this.engine.getPhase();
+    const canResumeFromPause = this.hostPaused && phase !== "idle" && phase !== "lobby";
+    if (!canResumeFromPause) {
+      this.ctx.stage.setResumableSession(null);
+      return;
+    }
+    const phaseLabel = WEREWOLF_PHASE_LABELS[phase]["zh-CN"];
+    const subtitle =
+      phase === "game_over"
+        ? phaseLabel
+        : `第 ${Math.max(1, this.engine.getDay())} 天 · ${phaseLabel}`;
+    this.ctx.stage.setResumableSession({
+      title: "狼人杀",
+      subtitle,
+      badgeText: phase === "game_over" ? "查看复盘" : "继续主持",
+      onResume: async () => {
+        await this.handleCommand({ type: "resume_stage" });
+      },
+    });
+  }
+
   private syncPublicState(): void {
+    if (this.lanSession) {
+      this.lastLanPort = this.lanSession.port;
+    }
     const lanAddr = this.lanSession
       ? {
           baseUrl: this.lanSession.baseUrl,
@@ -1377,9 +1801,12 @@ export class WerewolfJudgePluginRuntime
       visionAvailable: this.personTracker !== null,
       lan: lanStatus,
       hostPaused: this.hostPaused,
+      voiceStatus: this.speechCoordinator.status(),
+      hasResumableMatch: isMatchActivePhase(this.engine.getPhase()),
     });
 
     this.ctx.setState(nextState);
+    this.syncResumableSession();
     this.lanSession?.notifyRevision(nextState.revision);
 
     // Keep daytime context slice fresh when public events/votes advance
@@ -1403,10 +1830,10 @@ export class WerewolfJudgePluginRuntime
     }
   }
 
-  private async teardownAllSubScopes(): Promise<void> {
+  private async teardownAllSubScopes(options?: { readonly clearLanTokens?: boolean }): Promise<void> {
     this.cancelActiveNightTask();
     await this.stopDealingCameraSubscription();
-    await this.closeLanRoom();
+    await this.closeLanRoom({ clearTokens: options?.clearLanTokens ?? true });
 
     if (this.nightScope) {
       const ns = this.nightScope;
@@ -1433,7 +1860,8 @@ export class WerewolfJudgePluginRuntime
   }
 }
 
-export { WerewolfEngine, WerewolfRuleError } from "./engine.js";
+export { JudgeSpeechCoordinator } from "./speech-coordinator.js";
+export { WerewolfEngine, WerewolfRuleError, type WerewolfMatchCheckpointV1 } from "./engine.js";
 export {
   WEREWOLF_DYNAMIC_FACE_RECIPES,
   WerewolfChoreographer,

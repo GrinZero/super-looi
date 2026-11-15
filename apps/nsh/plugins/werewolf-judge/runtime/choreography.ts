@@ -205,6 +205,7 @@ export function resolveStagePresentation(input: {
         drawerDetent: "closed",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
+        confirmSystemBackExit: true,
       };
 
     case "night_intro":
@@ -215,6 +216,7 @@ export function resolveStagePresentation(input: {
         drawerDetent: "closed",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
+        confirmSystemBackExit: true,
       };
 
     case "night_guard":
@@ -228,6 +230,7 @@ export function resolveStagePresentation(input: {
           drawerDetent: "peek",
           allowUserSwipeCollapse: true,
           hideDefaultDock: true,
+          confirmSystemBackExit: true,
         };
       }
       return {
@@ -236,6 +239,7 @@ export function resolveStagePresentation(input: {
         drawerDetent: "large",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
+        confirmSystemBackExit: true,
       };
 
     case "sheriff_election":
@@ -246,6 +250,7 @@ export function resolveStagePresentation(input: {
           drawerDetent: "peek",
           allowUserSwipeCollapse: true,
           hideDefaultDock: true,
+          confirmSystemBackExit: true,
         };
       }
       return {
@@ -254,6 +259,7 @@ export function resolveStagePresentation(input: {
         drawerDetent: "large",
         allowUserSwipeCollapse: true,
         hideDefaultDock: true,
+        confirmSystemBackExit: true,
       };
 
     case "dawn_announce":
@@ -265,6 +271,7 @@ export function resolveStagePresentation(input: {
         drawerDetent: "peek",
         allowUserSwipeCollapse: true,
         hideDefaultDock: true,
+        confirmSystemBackExit: true,
       };
 
     case "leave_resolution":
@@ -274,6 +281,7 @@ export function resolveStagePresentation(input: {
         drawerDetent: "large",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
+        confirmSystemBackExit: true,
       };
 
     case "day_voting":
@@ -284,6 +292,7 @@ export function resolveStagePresentation(input: {
         drawerDetent: "large",
         allowUserSwipeCollapse: true,
         hideDefaultDock: true,
+        confirmSystemBackExit: true,
       };
 
     case "game_over":
@@ -362,6 +371,10 @@ export class WerewolfChoreographer {
     }
   }
 
+  async ensureMatchLeases(matchScope: EffectScope): Promise<void> {
+    await this.acquireMatchLeases(matchScope);
+  }
+
   async acquireMatchLeases(matchScope: EffectScope): Promise<void> {
     if (this.options.face && !this.activeFaceLease) {
       const lease = this.options.face.acquireLease("foreground_stage", matchScope);
@@ -382,6 +395,9 @@ export class WerewolfChoreographer {
           this.servoPreempted = false;
           servo.onPreempted(() => {
             this.servoPreempted = true;
+            if (this.activeServoLease === servo) {
+              this.activeServoLease = null;
+            }
           });
           matchScope.onDispose(async () => {
             if (this.activeServoLease === servo) {

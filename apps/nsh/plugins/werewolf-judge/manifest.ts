@@ -33,7 +33,7 @@ export const werewolfJudgeManifest: PluginManifest = {
     "stage.ui",
     "network.lan_room",
   ],
-  activation: "on_demand",
+  activation: "startup",
   dependencies: [
     {
       service: "vision.person-tracker",

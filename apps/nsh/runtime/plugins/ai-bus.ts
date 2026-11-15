@@ -22,6 +22,10 @@ export interface DualLoopAiBusBridge {
     spokenText: string;
     contextNote?: string;
     delivery: "when_idle" | "interrupt";
+    capturePolicy?: "duplex" | "muted_broadcast";
+    verbatim?: boolean;
+    holdAliveMs?: number;
+    closeToStandbyOnComplete?: boolean;
   }) => Promise<{ readonly completed: boolean; readonly interruptedReason?: string }>;
   runBackgroundTask?: (options: {
     pluginId: string;
@@ -540,6 +544,12 @@ export class DualLoopAiBus {
           spokenText: options.spokenText,
           contextNote: options.contextNote,
           delivery: options.delivery ?? "when_idle",
+          ...(options.capturePolicy !== undefined ? { capturePolicy: options.capturePolicy } : {}),
+          ...(options.verbatim !== undefined ? { verbatim: options.verbatim } : {}),
+          ...(options.holdAliveMs !== undefined ? { holdAliveMs: options.holdAliveMs } : {}),
+          ...(options.closeToStandbyOnComplete !== undefined
+            ? { closeToStandbyOnComplete: options.closeToStandbyOnComplete }
+            : {}),
         });
       },
 

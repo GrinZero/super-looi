@@ -6,6 +6,7 @@ import {
   isWolfRole,
   type WerewolfAiMvpReview,
   type WerewolfDeathCause,
+  type WerewolfJudgeVoiceStatus,
   type WerewolfLanStatus,
   type WerewolfLeaveReason,
   type WerewolfNightPromptPublic,
@@ -160,6 +161,86 @@ export interface WerewolfEngineOptions {
   readonly now?: () => number;
 }
 
+export interface WerewolfMatchCheckpointV1 {
+  readonly version: 1;
+  readonly savedAtMs: number;
+  readonly revision: number;
+  readonly phase: WerewolfPhase;
+  readonly sheriffSubphase: WerewolfSheriffSubphase | null;
+  readonly day: number;
+  readonly rules: WerewolfRulesConfig;
+  readonly seats: ReadonlyArray<InternalSeatState>;
+  readonly dealingCurrentSeat: number | null;
+  readonly dealingRevealingSeat: number | null;
+  readonly dealingHistorySeats: readonly number[];
+  readonly currentNightStepIsDecoy: boolean;
+  readonly selectedNightDraftTarget: number | null;
+  readonly lastGuardedSeat: number | null;
+  readonly currentNightGuardTarget: number | null;
+  readonly currentNightWolfVotes: ReadonlyArray<readonly [number, number | null]>;
+  readonly currentNightWolfTarget: number | null;
+  readonly witchAntidoteAvailable: boolean;
+  readonly witchPoisonAvailable: boolean;
+  readonly currentNightWitchSave: boolean;
+  readonly currentNightWitchPoisonTarget: number | null;
+  readonly currentNightSeerChecked: boolean;
+  readonly currentNightSeerResult: WerewolfSeerCheckResult | null;
+  readonly seerHistory: ReadonlyArray<{
+    readonly day: number;
+    readonly targetSeat: number;
+    readonly isWolf: boolean;
+  }>;
+  readonly pendingNightDeaths: ReadonlyArray<PendingNightDeath>;
+  readonly dawnDeathsToday: readonly number[];
+  readonly sheriffSeat: number | null;
+  readonly speakingOrder: readonly number[];
+  readonly speakingIndex: number;
+  readonly speakingSeat: number | null;
+  readonly speakingRemainingSec: number;
+  readonly timerPaused: boolean;
+  readonly leaveQueue: ReadonlyArray<LeaveTask>;
+  readonly postLeaveDestination: "day_discussion" | "next_night";
+  readonly pkCandidates: readonly number[];
+  readonly eligibleVoterSeats: readonly number[];
+  readonly currentBallots: ReadonlyArray<readonly [number, number | null]>;
+  readonly lastPublishedBallots: Readonly<Record<number, number | null>>;
+  readonly lastPublishedTallies: ReadonlyArray<WerewolfVoteTallyItem>;
+  readonly eventCounter: number;
+  readonly publicEvents: ReadonlyArray<WerewolfPublicEvent>;
+  readonly truthTimeline: ReadonlyArray<WerewolfTimelineRevealEntry>;
+  readonly winner: "good" | "werewolf" | null;
+  readonly winReason: string | null;
+  readonly aiMvpReview: WerewolfAiMvpReview;
+  readonly lastJudgeSpeech: string;
+  readonly lanSeatTokens: ReadonlyArray<readonly [number, string]>;
+  readonly mutedByHost: boolean;
+}
+
+const DEFAULT_VOICE_STATUS: WerewolfJudgeVoiceStatus = {
+  speaking: false,
+  mutedByHost: false,
+  lastSpokenText: null,
+  lastInterruptedReason: null,
+  degradedToSubtitles: false,
+};
+
+const ACTIVE_CHECKPOINT_PHASES = new Set<WerewolfPhase>([
+  "dealing",
+  "night_intro",
+  "night_guard",
+  "night_wolf",
+  "night_witch",
+  "night_seer",
+  "dawn_settle",
+  "sheriff_election",
+  "dawn_announce",
+  "leave_resolution",
+  "day_discussion",
+  "day_voting",
+  "day_pk_speech",
+  "day_pk_voting",
+]);
+
 export class WerewolfEngine {
   private readonly randomInt: RandomIntFn;
   private readonly now: () => number;
@@ -174,6 +255,7 @@ export class WerewolfEngine {
   // Dealing state
   private dealingCurrentSeat: number | null = null;
   private dealingRevealingSeat: number | null = null;
+  private dealingHistorySeats: number[] = [];
 
   // Secret night state (strictly encapsulated)
   private nightGateUnlocked = false;
@@ -331,6 +413,8 @@ export class WerewolfEngine {
     readonly visionAvailable: boolean;
     readonly lan: WerewolfLanStatus;
     readonly hostPaused: boolean;
+    readonly voiceStatus?: WerewolfJudgeVoiceStatus;
+    readonly hasResumableMatch?: boolean;
   }): WerewolfPublicState {
     const claimedSet = new Set(extras.lan.claimedSeats);
     const isGameOver = this.phase === "game_over";
@@ -431,6 +515,146 @@ export class WerewolfEngine {
       aiMvpReview: this.aiMvpReview,
       hostPaused: extras.hostPaused,
       lastJudgeSpeech: this.lastJudgeSpeech,
+      voiceStatus: extras.voiceStatus ?? DEFAULT_VOICE_STATUS,
+      hasResumableMatch: extras.hasResumableMatch ?? false,
+      canStepBackDeal:
+        this.phase === "dealing" &&
+        (this.dealingRevealingSeat !== null || this.dealingHistorySeats.length > 0),
+    };
+  }
+
+  exportCheckpoint(runtimeExtras: {
+    readonly lanSeatTokens: ReadonlyArray<readonly [number, string]>;
+    readonly mutedByHost: boolean;
+  }): WerewolfMatchCheckpointV1 | null {
+    if (!ACTIVE_CHECKPOINT_PHASES.has(this.phase)) {
+      return null;
+    }
+    return structuredClone({
+      version: 1 as const,
+      savedAtMs: this.now(),
+      revision: this.revision,
+      phase: this.phase,
+      sheriffSubphase: this.sheriffSubphase,
+      day: this.day,
+      rules: this.rules,
+      // Strip ephemeral camera base64 portraits so persisted SQLite checkpoints stay compact
+      seats: this.seats.map((s) => ({ ...s, portraitDataUri: null })),
+      dealingCurrentSeat: this.dealingCurrentSeat,
+      dealingRevealingSeat: null,
+      dealingHistorySeats: this.dealingHistorySeats,
+      currentNightStepIsDecoy: this.currentNightStepIsDecoy,
+      selectedNightDraftTarget: this.selectedNightDraftTarget,
+      lastGuardedSeat: this.lastGuardedSeat,
+      currentNightGuardTarget: this.currentNightGuardTarget,
+      currentNightWolfVotes: Array.from(this.currentNightWolfVotes.entries()),
+      currentNightWolfTarget: this.currentNightWolfTarget,
+      witchAntidoteAvailable: this.witchAntidoteAvailable,
+      witchPoisonAvailable: this.witchPoisonAvailable,
+      currentNightWitchSave: this.currentNightWitchSave,
+      currentNightWitchPoisonTarget: this.currentNightWitchPoisonTarget,
+      currentNightSeerChecked: this.currentNightSeerChecked,
+      currentNightSeerResult: this.currentNightSeerResult,
+      seerHistory: this.seerHistory,
+      pendingNightDeaths: this.pendingNightDeaths,
+      dawnDeathsToday: this.dawnDeathsToday,
+      sheriffSeat: this.sheriffSeat,
+      speakingOrder: this.speakingOrder,
+      speakingIndex: this.speakingIndex,
+      speakingSeat: this.speakingSeat,
+      speakingRemainingSec: this.speakingRemainingSec,
+      timerPaused: this.timerPaused,
+      leaveQueue: this.leaveQueue,
+      postLeaveDestination: this.postLeaveDestination,
+      pkCandidates: this.pkCandidates,
+      eligibleVoterSeats: this.eligibleVoterSeats,
+      currentBallots: Array.from(this.currentBallots.entries()),
+      lastPublishedBallots: this.lastPublishedBallots,
+      lastPublishedTallies: this.lastPublishedTallies,
+      eventCounter: this.eventCounter,
+      publicEvents: this.publicEvents,
+      truthTimeline: this.truthTimeline,
+      winner: this.winner,
+      winReason: this.winReason,
+      aiMvpReview: this.aiMvpReview,
+      lastJudgeSpeech: this.lastJudgeSpeech,
+      lanSeatTokens: runtimeExtras.lanSeatTokens,
+      mutedByHost: runtimeExtras.mutedByHost,
+    });
+  }
+
+  restoreCheckpoint(raw: unknown):
+    | {
+        readonly restored: true;
+        readonly lanSeatTokens: ReadonlyArray<readonly [number, string]>;
+        readonly mutedByHost: boolean;
+      }
+    | { readonly restored: false; readonly reason: string } {
+    if (!raw || typeof raw !== "object") {
+      return { restored: false, reason: "checkpoint_empty_or_non_object" };
+    }
+    const ck = raw as Partial<WerewolfMatchCheckpointV1>;
+    if (ck.version !== 1) {
+      return { restored: false, reason: `unsupported_checkpoint_version:${String(ck.version)}` };
+    }
+    if (!ck.phase || !ACTIVE_CHECKPOINT_PHASES.has(ck.phase)) {
+      return { restored: false, reason: `non_active_checkpoint_phase:${String(ck.phase)}` };
+    }
+    if (!ck.rules || !Array.isArray(ck.seats) || ck.seats.length !== ck.rules.playerCount) {
+      return { restored: false, reason: "checkpoint_seat_rule_mismatch" };
+    }
+
+    const cloned = structuredClone(ck as WerewolfMatchCheckpointV1);
+    this.revision = Math.max(1, cloned.revision);
+    this.phase = cloned.phase;
+    this.sheriffSubphase = cloned.sheriffSubphase ?? null;
+    this.day = cloned.day;
+    this.rules = cloned.rules;
+    this.seats = cloned.seats.map((s) => ({ ...s }));
+    this.dealingCurrentSeat = cloned.dealingCurrentSeat;
+    // Privacy invariant: never flash a secret card or unlocked night gate on cold resume.
+    this.dealingRevealingSeat = null;
+    this.dealingHistorySeats = [...(cloned.dealingHistorySeats ?? [])];
+    this.nightGateUnlocked = false;
+    this.currentNightStepIsDecoy = Boolean(cloned.currentNightStepIsDecoy);
+    this.selectedNightDraftTarget = cloned.selectedNightDraftTarget ?? null;
+    this.lastGuardedSeat = cloned.lastGuardedSeat ?? null;
+    this.currentNightGuardTarget = cloned.currentNightGuardTarget ?? null;
+    this.currentNightWolfVotes = new Map(cloned.currentNightWolfVotes ?? []);
+    this.currentNightWolfTarget = cloned.currentNightWolfTarget ?? null;
+    this.witchAntidoteAvailable = Boolean(cloned.witchAntidoteAvailable);
+    this.witchPoisonAvailable = Boolean(cloned.witchPoisonAvailable);
+    this.currentNightWitchSave = Boolean(cloned.currentNightWitchSave);
+    this.currentNightWitchPoisonTarget = cloned.currentNightWitchPoisonTarget ?? null;
+    this.currentNightSeerChecked = Boolean(cloned.currentNightSeerChecked);
+    this.currentNightSeerResult = cloned.currentNightSeerResult ?? null;
+    this.seerHistory = [...(cloned.seerHistory ?? [])];
+    this.pendingNightDeaths = [...(cloned.pendingNightDeaths ?? [])];
+    this.dawnDeathsToday = [...(cloned.dawnDeathsToday ?? [])];
+    this.sheriffSeat = cloned.sheriffSeat ?? null;
+    this.speakingOrder = [...(cloned.speakingOrder ?? [])];
+    this.speakingIndex = cloned.speakingIndex ?? 0;
+    this.speakingSeat = cloned.speakingSeat ?? null;
+    this.speakingRemainingSec = cloned.speakingRemainingSec ?? 0;
+    this.timerPaused = Boolean(cloned.timerPaused);
+    this.leaveQueue = [...(cloned.leaveQueue ?? [])];
+    this.postLeaveDestination = cloned.postLeaveDestination ?? "day_discussion";
+    this.pkCandidates = [...(cloned.pkCandidates ?? [])];
+    this.eligibleVoterSeats = [...(cloned.eligibleVoterSeats ?? [])];
+    this.currentBallots = new Map(cloned.currentBallots ?? []);
+    this.lastPublishedBallots = { ...(cloned.lastPublishedBallots ?? {}) };
+    this.lastPublishedTallies = [...(cloned.lastPublishedTallies ?? [])];
+    this.eventCounter = cloned.eventCounter ?? 0;
+    this.publicEvents = [...(cloned.publicEvents ?? [])];
+    this.truthTimeline = [...(cloned.truthTimeline ?? [])];
+    this.winner = cloned.winner ?? null;
+    this.winReason = cloned.winReason ?? null;
+    this.aiMvpReview = cloned.aiMvpReview ?? { status: "idle", text: null, error: null };
+    this.lastJudgeSpeech = cloned.lastJudgeSpeech ?? "";
+    return {
+      restored: true,
+      lanSeatTokens: cloned.lanSeatTokens ?? [],
+      mutedByHost: Boolean(cloned.mutedByHost),
     };
   }
 
@@ -730,6 +954,7 @@ export class WerewolfEngine {
     }
 
     target.dealtConfirmed = true;
+    this.dealingHistorySeats.push(seat);
     if (this.dealingRevealingSeat === seat) {
       this.dealingRevealingSeat = null;
     }
@@ -748,6 +973,37 @@ export class WerewolfEngine {
     return { announcement };
   }
 
+  stepBackDeal(): EngineTransitionOutcome {
+    if (this.phase !== "dealing") {
+      throw new WerewolfRuleError(
+        "step_back_deal",
+        "ERR_WEREWOLF_INVALID_PHASE",
+        "仅发牌阶段支持退回上一位",
+      );
+    }
+    if (this.dealingRevealingSeat !== null && this.dealingHistorySeats.length === 0) {
+      this.dealingRevealingSeat = null;
+      this.bumpRevision();
+      return {};
+    }
+    const prevSeat = this.dealingHistorySeats.pop();
+    if (prevSeat === undefined) {
+      throw new WerewolfRuleError(
+        "step_back_deal",
+        "ERR_WEREWOLF_CANNOT_STEP_BACK",
+        "当前已经是第一位玩家，无法继续回退",
+      );
+    }
+    const target = this.requireSeat(prevSeat, "step_back_deal");
+    target.dealtConfirmed = false;
+    this.dealingCurrentSeat = prevSeat;
+    this.dealingRevealingSeat = null;
+    const announcement = `已退回至 ${prevSeat} 号玩家，请重新查看并确认底牌。`;
+    this.lastJudgeSpeech = announcement;
+    this.bumpRevision();
+    return { announcement };
+  }
+
   beginFirstNight(): EngineTransitionOutcome {
     if (this.phase !== "dealing") {
       throw new WerewolfRuleError(
@@ -761,6 +1017,7 @@ export class WerewolfEngine {
     }
     this.dealingCurrentSeat = null;
     this.dealingRevealingSeat = null;
+    this.dealingHistorySeats = [];
     return this.enterNight(1);
   }
 
@@ -2574,6 +2831,7 @@ export class WerewolfEngine {
     this.day = 0;
     this.dealingCurrentSeat = null;
     this.dealingRevealingSeat = null;
+    this.dealingHistorySeats = [];
     this.nightGateUnlocked = false;
     this.currentNightStepIsDecoy = false;
     this.selectedNightDraftTarget = null;

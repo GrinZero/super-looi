@@ -27,6 +27,9 @@ interface ActiveRoomRecord {
   lanIpv4: string | null;
   baseUrl: string;
   closed: boolean;
+  suspendedByBackground: boolean;
+  lastRevision: number;
+  reopenPromise?: Promise<void>;
   readonly detachScope?: () => void;
 }
 
@@ -101,7 +104,14 @@ export class LanRoomBroker {
     if (this.foregroundActive === active) return;
     this.foregroundActive = active;
     if (!active) {
-      this.teardownAllRooms();
+      for (const record of this.rooms.values()) {
+        if (!record.closed) {
+          record.suspendedByBackground = true;
+          try {
+            this.port?.closeRoom(record.roomId);
+          } catch {}
+        }
+      }
       try {
         this.port?.setForeground(false);
         this.port?.stopAll();
@@ -112,12 +122,18 @@ export class LanRoomBroker {
       try {
         this.port.setForeground(true);
       } catch {}
+      for (const record of this.rooms.values()) {
+        if (!record.closed && record.suspendedByBackground) {
+          void this.rebindRecord(record).catch(() => {});
+        }
+      }
     }
   }
 
   async openRoom(options: {
     pluginId?: string;
     scope?: EffectScope;
+    preferredPort?: number;
     onRequest: (req: LanHttpRequest) => Promise<LanHttpResponse> | LanHttpResponse;
   }): Promise<LanRoomSession> {
     const stage = options.pluginId
@@ -152,7 +168,7 @@ export class LanRoomBroker {
     const requestedId = `lan_${randomUUID()}`;
     let info: NativeLanRoomInfo;
     try {
-      info = await this.port.openRoom(requestedId);
+      info = await this.port.openRoom(requestedId, options.preferredPort);
     } catch (error) {
       const failure = extractPluginFailure(error, stage, "ERR_LAN_ROOM_OPEN_FAILED");
       throw new PluginKernelError({
@@ -185,11 +201,14 @@ export class LanRoomBroker {
       lanIpv4: normalizeLanIpv4(info.lanIpv4),
       baseUrl: info.baseUrl,
       closed: false,
+      suspendedByBackground: false,
+      lastRevision: 0,
     };
 
     const closeRoomInternal = (): void => {
       if (record.closed) return;
       record.closed = true;
+      record.suspendedByBackground = false;
       this.rooms.delete(record.roomId);
       detachScope?.();
       detachScope = undefined;
@@ -220,8 +239,10 @@ export class LanRoomBroker {
         return record.lanIpv4;
       },
       notifyRevision(revision: number): void {
-        if (record.closed || broker.closed || !broker.port) return;
+        if (record.closed || broker.closed) return;
         const safeRev = Number.isFinite(revision) && revision >= 0 ? Math.floor(revision) : 0;
+        record.lastRevision = safeRev;
+        if (!broker.port || record.suspendedByBackground || !broker.foregroundActive) return;
         try {
           broker.port.notifyRevision(record.roomId, safeRev);
         } catch {}
@@ -230,12 +251,53 @@ export class LanRoomBroker {
         if (record.closed || broker.closed || !broker.port) {
           return { lanIpv4: record.lanIpv4, baseUrl: record.baseUrl };
         }
+        if (record.suspendedByBackground && broker.foregroundActive) {
+          void broker.rebindRecord(record).catch(() => {});
+          return { lanIpv4: record.lanIpv4, baseUrl: record.baseUrl };
+        }
         try {
           const updated = broker.port.refreshAddresses(record.roomId);
           record.lanIpv4 = normalizeLanIpv4(updated.lanIpv4);
           record.baseUrl = updated.baseUrl;
+          if (updated.port > 0) {
+            record.port = updated.port;
+          }
         } catch {}
         return { lanIpv4: record.lanIpv4, baseUrl: record.baseUrl };
+      },
+      async refreshAddressesAsync(): Promise<{
+        readonly lanIpv4: string | null;
+        readonly baseUrl: string;
+        readonly port: number;
+      }> {
+        if (record.closed || broker.closed || !broker.port) {
+          return { lanIpv4: record.lanIpv4, baseUrl: record.baseUrl, port: record.port };
+        }
+        if (record.suspendedByBackground && broker.foregroundActive) {
+          await broker.rebindRecord(record);
+          return { lanIpv4: record.lanIpv4, baseUrl: record.baseUrl, port: record.port };
+        }
+        const stage = record.pluginId
+          ? `plugin:${record.pluginId}:lan.refreshAddresses`
+          : "lan.refreshAddresses";
+        try {
+          const updated = broker.port.refreshAddresses(record.roomId);
+          record.lanIpv4 = normalizeLanIpv4(updated.lanIpv4);
+          record.baseUrl = updated.baseUrl;
+          if (updated.port > 0) {
+            record.port = updated.port;
+          }
+          return { lanIpv4: record.lanIpv4, baseUrl: record.baseUrl, port: record.port };
+        } catch (error) {
+          const failure = extractPluginFailure(error, stage, "ERR_LAN_ROOM_REFRESH_FAILED");
+          throw new PluginKernelError({
+            stage: failure.stage,
+            code: failure.code !== undefined ? String(failure.code) : "ERR_LAN_ROOM_REFRESH_FAILED",
+            pluginId: record.pluginId,
+            reason: failure.reason,
+            cause: error,
+          });
+        }
       },
       async close(): Promise<void> {
         closeRoomInternal();
@@ -259,11 +321,64 @@ export class LanRoomBroker {
   private teardownAllRooms(): void {
     for (const record of [...this.rooms.values()]) {
       record.closed = true;
+      record.suspendedByBackground = false;
       this.rooms.delete(record.roomId);
       try {
         this.port?.closeRoom(record.roomId);
       } catch {}
     }
+  }
+
+  private async rebindRecord(record: ActiveRoomRecord): Promise<void> {
+    if (
+      this.closed ||
+      !this.foregroundActive ||
+      record.closed ||
+      !record.suspendedByBackground ||
+      !this.port
+    ) {
+      return;
+    }
+    if (record.reopenPromise) {
+      return record.reopenPromise;
+    }
+    const task = (async () => {
+      try {
+        const preferredPort = record.port > 0 ? record.port : undefined;
+        const info = await this.port!.openRoom(record.roomId, preferredPort);
+        if (this.closed || !this.foregroundActive || record.closed) {
+          try {
+            this.port?.closeRoom(info.roomId);
+          } catch {}
+          return;
+        }
+        record.port = info.port;
+        record.lanIpv4 = normalizeLanIpv4(info.lanIpv4);
+        record.baseUrl = info.baseUrl;
+        record.suspendedByBackground = false;
+        try {
+          this.port?.notifyRevision(record.roomId, record.lastRevision);
+        } catch {}
+        void this.runRequestLoop(record);
+      } catch (error) {
+        // Keep suspended logical record intact so subsequent foreground/refresh can retry.
+        const stage = record.pluginId
+          ? `plugin:${record.pluginId}:lan.rebind`
+          : "lan.rebind";
+        const failure = extractPluginFailure(error, stage, "ERR_LAN_ROOM_REBIND_FAILED");
+        throw new PluginKernelError({
+          stage: failure.stage,
+          code: failure.code !== undefined ? String(failure.code) : "ERR_LAN_ROOM_REBIND_FAILED",
+          pluginId: record.pluginId,
+          reason: failure.reason,
+          cause: error,
+        });
+      } finally {
+        record.reopenPromise = undefined;
+      }
+    })();
+    record.reopenPromise = task;
+    return task;
   }
 
   private async runRequestLoop(record: ActiveRoomRecord): Promise<void> {
@@ -346,6 +461,7 @@ export function createLanRoomCapability(
       broker.openRoom({
         pluginId: manifest.id,
         scope: options.scope ?? pluginScope,
+        preferredPort: options.preferredPort,
         onRequest: options.onRequest,
       }),
   };

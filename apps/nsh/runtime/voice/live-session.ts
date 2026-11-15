@@ -64,6 +64,7 @@ export interface LiveVoiceSessionOptions {
   history?: VoiceConversationMessage[];
   onConversation?: (messages: VoiceConversationMessage[]) => void;
   fromWakeWord: boolean;
+  readonly initialMuted?: boolean;
   protocol: RealtimeProtocolAdapter;
   audio: VoiceAudioPort;
   previewInput?: () => Promise<Uint8Array>;
@@ -142,6 +143,7 @@ export class LiveVoiceSession {
   private turnActivity: "waiting_user" | "user_speaking" | "awaiting_reply" =
     "waiting_user";
   private silenceSince = 0;
+  private idleHoldUntilMs = 0;
   private currentUtteranceTranscript = "";
   private utteranceSeq = 0;
   private evaluatedUtteranceSeq = -1;
@@ -180,6 +182,7 @@ export class LiveVoiceSession {
   constructor(private readonly options: LiveVoiceSessionOptions) {
     this.sessionId = options.sessionId ?? randomUUID();
     this.purpose = options.purpose ?? "conversation";
+    this.muted = Boolean(options.initialMuted);
     this.conversationLanguage = options.initialLanguage;
     this.contextNote = (options.initialContextNote ?? "").trim();
     this.pluginContextNote = (options.initialPluginContext ?? "").trim();
@@ -238,6 +241,10 @@ export class LiveVoiceSession {
 
   get sessionPurpose(): "conversation" | "preview" {
     return this.purpose;
+  }
+
+  get isMuted(): boolean {
+    return this.muted;
   }
 
   private buildSessionTools(pluginTools?: readonly PluginVoiceTool[]) {
@@ -408,15 +415,25 @@ export class LiveVoiceSession {
     this.session.mute(value);
   }
 
+  holdIdleFor(durationMs: number): void {
+    if (this.disposed || durationMs <= 0) return;
+    this.idleHoldUntilMs = Math.max(this.idleHoldUntilMs, Date.now() + durationMs);
+    if (this.idleTimer) {
+      this.startIdleTimer();
+    }
+  }
+
   private applyMute(value: boolean): void {
-    if (
-      this.disposed ||
-      (this.phase !== "listening" && this.phase !== "speaking")
-    )
-      return;
-    this.options.audio.setMuted(value);
-    this.audioPipeline.clearCapture();
+    if (this.disposed) return;
     this.muted = value;
+    if (!value) {
+      this.idleHoldUntilMs = 0;
+    }
+    this.options.audio.setMuted(value);
+    if (this.phase !== "listening" && this.phase !== "speaking") {
+      return;
+    }
+    this.audioPipeline.clearCapture();
     this.publish({ muted: value });
     const frame = this.options.protocol.encodeMute(value);
     if (frame) {
@@ -650,6 +667,7 @@ ${JSON.stringify(this.previewSample())}`;
     const frames = this.options.protocol.encodeProactiveSpeech({
       spokenText: notice.spokenText,
       instructions: notice.contextNote ? this.renderInstructions() : undefined,
+      verbatim: notice.verbatim,
     });
     if (frames.length === 0) return false;
 
@@ -1039,12 +1057,12 @@ ${JSON.stringify(this.previewSample())}`;
         return true;
       }
       this.options.audio.setCaptureMode("conversation");
+      this.options.audio.setMuted(this.muted);
       this.options.audio.playReadyCue();
       this.turnActivity = "waiting_user";
       this.silenceSince = Date.now();
       this.phase = "listening";
-      this.muted = false;
-      if (this.options.protocol.providerId === "moss") {
+      if (this.muted || this.options.protocol.providerId === "moss") {
         const micFrame = this.options.protocol.encodeMute(this.muted);
         if (micFrame) {
           await this.send(micFrame);
@@ -1052,7 +1070,7 @@ ${JSON.stringify(this.previewSample())}`;
       }
       this.publish({
         phase: "listening",
-        muted: false,
+        muted: this.muted,
         purpose: "conversation",
         activeVoiceId: this.options.voiceId,
       });
@@ -1404,6 +1422,7 @@ ${JSON.stringify(this.previewSample())}`;
   private publishHistory(history: RealtimeItem[]): void {
     if (this.disposed) return;
     const messages: VoiceConversationMessage[] = [];
+    let skipPairedVerbatimAssistant = false;
     for (const item of history) {
       if (
         item.type !== "message" ||
@@ -1419,6 +1438,16 @@ ${JSON.stringify(this.previewSample())}`;
               : "",
         )
         .join("");
+      if (item.role === "user") {
+        if (content.startsWith("[Verbatim Announcement]")) {
+          skipPairedVerbatimAssistant = true;
+          continue;
+        }
+        skipPairedVerbatimAssistant = false;
+      } else if (skipPairedVerbatimAssistant) {
+        skipPairedVerbatimAssistant = false;
+        continue;
+      }
       if (content) messages.push({ role: item.role, content });
     }
     this.options.onConversation?.(messages);
@@ -1568,7 +1597,9 @@ ${JSON.stringify(this.previewSample())}`;
   }
 
   private remainingSilenceMs(): number {
-    return Math.max(0, IDLE_SLEEP_MS - (Date.now() - this.silenceSince));
+    const sinceSilence = IDLE_SLEEP_MS - (Date.now() - this.silenceSince);
+    const untilHold = this.idleHoldUntilMs - Date.now();
+    return Math.max(0, sinceSilence, untilHold);
   }
 
   private resumeWaiting(): void {

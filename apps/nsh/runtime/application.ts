@@ -281,6 +281,9 @@ export class MobileRuntime {
   pluginsSnapshot() { return this.plugins.snapshots(); }
   startPlugins() { return this.plugins.startStartupPlugins(); }
   activeStagePresentation() { return this.plugins.stage.activePresentation(); }
+  resumableStage() { return this.plugins.resumableStage(); }
+  resumePluginStage(id?: string) { return this.plugins.resumePluginStage(id); }
+  setPluginsForegroundActive(active: boolean) { this.plugins.setForegroundActive(active); }
   exitPluginStage(id: string) { this.plugins.stage.exitPluginStage(id); }
   reportPluginStageCrash(
     id: string,

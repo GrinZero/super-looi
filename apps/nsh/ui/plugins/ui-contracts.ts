@@ -9,6 +9,7 @@ import type {
   PluginLifecycleState,
   PluginManifest,
   PluginStagePresentation,
+  ResumableStageView,
   StageDrawerDetent,
 } from "../../runtime/plugins/shared-types";
 
@@ -19,6 +20,7 @@ export type {
   PluginLifecycleState,
   PluginManifest,
   PluginStagePresentation,
+  ResumableStageView,
   StageDrawerDetent,
 };
 
@@ -67,6 +69,7 @@ export interface PluginUiModule<
   readonly StageDrawer?: (props: {
     ctx: PluginViewContext<TState, TCommand>;
     detent: () => StageDrawerDetent;
+    requestDetent?: (detent: Exclude<StageDrawerDetent, "closed">) => void;
   }) => JSX.Element;
   readonly StageCanvas?: (props: {
     ctx: PluginViewContext<TState, TCommand>;

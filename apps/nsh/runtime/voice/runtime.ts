@@ -36,9 +36,11 @@ export class VoiceRuntime {
   private readonly pendingNotices: VoiceProactiveNotice[] = [];
   private standbyTimer?: ReturnType<typeof setTimeout>;
   private cueStopTimer?: ReturnType<typeof setTimeout>;
+  private broadcastHoldTimer?: ReturnType<typeof setTimeout>;
   private standbyGeneration = 0;
   private standbyPreparing?: number;
   private suppressAutoStandbyPrompt = false;
+  private sessionOpenedForBroadcast = false;
   private prePreviewTranscript?: string;
   private closed = false;
 
@@ -199,6 +201,10 @@ export class VoiceRuntime {
     spokenText: string;
     contextNote?: string;
     delivery?: "when_idle" | "interrupt";
+    capturePolicy?: "inherit" | "duplex" | "muted_broadcast";
+    verbatim?: boolean;
+    holdAliveMs?: number;
+    closeToStandbyOnComplete?: boolean;
   }): Promise<{ readonly completed: boolean; readonly interruptedReason?: string }> {
     const text = options.spokenText.trim();
     if (this.closed) {
@@ -207,27 +213,51 @@ export class VoiceRuntime {
     if (!text) {
       return { completed: false, interruptedReason: "empty_speech" };
     }
+    this.clearBroadcastHoldTimer();
     if (options.contextNote) {
       this.latestContextNote = options.contextNote.trim();
     }
 
+    const mutedBroadcast = options.capturePolicy === "muted_broadcast";
     if (!this.session || this.session.sessionPurpose !== "conversation" || this.session.isDisposed) {
-      const canAutoOpen =
-        Boolean(this.credentials.resolveApiKey(this.protocol.providerId)) &&
-        this.options.audio.status().permission === "granted" &&
-        ["idle", "standby"].includes(this.state.phase);
-      if (canAutoOpen) {
+      if (!this.credentials.resolveApiKey(this.protocol.providerId)) {
+        return { completed: false, interruptedReason: "voice_provider_unconfigured" };
+      }
+      if (this.options.audio.status().permission !== "granted") {
+        return { completed: false, interruptedReason: "microphone_permission_required" };
+      }
+      if (this.session?.sessionPurpose === "preview") {
+        this.stop();
+      }
+      if (["idle", "standby", "error", "permission"].includes(this.state.phase)) {
         try {
-          await this.start();
-        } catch {
-          return { completed: false, interruptedReason: "session_start_failed" };
+          await this.start({ initialMuted: mutedBroadcast });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          return {
+            completed: false,
+            interruptedReason: detail ? `session_start_failed:${detail}` : "session_start_failed",
+          };
         }
       }
     }
 
     const active = this.session;
     if (!active || active.sessionPurpose !== "conversation" || active.isDisposed) {
-      return { completed: false, interruptedReason: "session_inactive" };
+      const reason =
+        this.state.error ||
+        (this.state.phase === "permission"
+          ? "microphone_permission_required"
+          : "session_inactive");
+      return { completed: false, interruptedReason: reason };
+    }
+
+    const previousMuted = active.isMuted;
+    if (mutedBroadcast && !previousMuted) {
+      active.mute(true);
+    } else if (options.capturePolicy === "duplex" && previousMuted) {
+      this.sessionOpenedForBroadcast = false;
+      active.mute(false);
     }
 
     return new Promise((resolve) => {
@@ -236,7 +266,19 @@ export class VoiceRuntime {
         spokenText: text,
         contextNote: options.contextNote,
         delivery: options.delivery ?? "when_idle",
-        onResult: resolve,
+        verbatim: options.verbatim,
+        onResult: (result) => {
+          if (mutedBroadcast) {
+            if (options.closeToStandbyOnComplete) {
+              this.scheduleBroadcastStandby(active, 600);
+            } else if (this.sessionOpenedForBroadcast) {
+              this.scheduleBroadcastStandby(active, Math.max(1_000, options.holdAliveMs ?? 15_000));
+            } else if (!previousMuted && !active.isDisposed && this.session === active) {
+              active.mute(false);
+            }
+          }
+          resolve(result);
+        },
       });
     });
   }
@@ -316,10 +358,23 @@ export class VoiceRuntime {
     }
   }
 
-  async start(options: { fromWakeWord?: boolean } = {}): Promise<void> {
+  async start(options: { fromWakeWord?: boolean; initialMuted?: boolean } = {}): Promise<void> {
     if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
+    this.clearBroadcastHoldTimer();
     this.suppressAutoStandbyPrompt = false;
     this.prePreviewTranscript = undefined;
+    const broadcastHold = options.initialMuted === true;
+    if (!broadcastHold) {
+      this.sessionOpenedForBroadcast = false;
+      if (
+        this.session &&
+        this.session.sessionPurpose === "conversation" &&
+        !this.session.isDisposed &&
+        this.session.isMuted
+      ) {
+        this.session.mute(false);
+      }
+    }
     if (!["idle", "standby", "error", "permission"].includes(this.state.phase)) {
       return;
     }
@@ -334,6 +389,7 @@ export class VoiceRuntime {
     this.clearStandbyTimer();
     this.clearCueStopTimer();
     if (!fromStandby) this.stop();
+    this.sessionOpenedForBroadcast = broadcastHold;
 
     if (this.options.audio.status().permission !== "granted") {
       const permission = this.options.audio.requestPermission();
@@ -375,6 +431,7 @@ export class VoiceRuntime {
         this.conversation.messages = retained;
       },
       fromWakeWord: options.fromWakeWord === true,
+      initialMuted: broadcastHold,
       protocol: this.protocol,
       audio: this.options.audio,
       connect: this.options.connect,
@@ -551,6 +608,8 @@ export class VoiceRuntime {
     ++this.standbyGeneration;
     this.clearStandbyTimer();
     this.clearCueStopTimer();
+    this.clearBroadcastHoldTimer();
+    this.sessionOpenedForBroadcast = false;
     const active = this.session;
     const wasPreview = active?.sessionPurpose === "preview";
     const restoredTranscript =
@@ -608,6 +667,8 @@ export class VoiceRuntime {
     this.standbyPreparing = undefined;
     this.clearStandbyTimer();
     this.clearCueStopTimer();
+    this.clearBroadcastHoldTimer();
+    this.sessionOpenedForBroadcast = false;
     const active = this.session;
     const restoredTranscript =
       restoredTranscriptOverride !== undefined
@@ -696,6 +757,27 @@ export class VoiceRuntime {
 
   private isStandbyGeneration(generation: number): boolean {
     return !this.closed && generation === this.standbyGeneration;
+  }
+
+  private scheduleBroadcastStandby(active: LiveVoiceSession, delayMs: number): void {
+    this.clearBroadcastHoldTimer();
+    active.holdIdleFor(delayMs + 500);
+    const timer = setTimeout(() => {
+      if (this.broadcastHoldTimer === timer) {
+        this.broadcastHoldTimer = undefined;
+      }
+      if (!this.closed && this.session === active && !active.isDisposed) {
+        this.sessionOpenedForBroadcast = false;
+        this.endSession();
+      }
+    }, delayMs);
+    (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+    this.broadcastHoldTimer = timer;
+  }
+
+  private clearBroadcastHoldTimer(): void {
+    if (this.broadcastHoldTimer) clearTimeout(this.broadcastHoldTimer);
+    this.broadcastHoldTimer = undefined;
   }
 
   private clearStandbyTimer(): void {

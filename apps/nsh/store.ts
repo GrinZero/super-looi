@@ -55,6 +55,7 @@ import {
   type NativeRuntime,
   type PluginSnapshot,
   type PluginStagePresentation,
+  type ResumableStageView,
   type NativeStep,
   type NativeTask,
   type NativeTaskPage,
@@ -332,6 +333,7 @@ export function createAppStore() {
     wakeGuideDismissed = signal(true);
   const voiceTaskRunning = signal(false);
   const foregroundBusy = computed(() => busy() && !voiceTaskRunning());
+  const TOAST_DURATION_MS = 3200;
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   const notify = (text: string) => {
     if (!alive) return;
@@ -340,7 +342,7 @@ export function createAppStore() {
     if (text) {
       toastTimer = setTimeout(() => {
         if (alive) toast.set("");
-      }, 3200);
+      }, TOAST_DURATION_MS);
     }
   };
   const voiceState = signal<VoiceState>({
@@ -375,6 +377,9 @@ export function createAppStore() {
     revision?: number;
     presentation: PluginStagePresentation;
   } | null>(null);
+  const resumableStage = signal<ResumableStageView | null>(null);
+  let stageBackInterceptor: (() => boolean) | null = null;
+  let lastStageBackExitArmMs = 0;
   const inspectedPluginId = signal<string | null>(null);
   const pluginBusyById = signal<Record<string, boolean>>({});
   const pluginUiErrorById = signal<Record<string, string>>({});
@@ -853,6 +858,7 @@ export function createAppStore() {
     runtime?.setBodyForegroundActive(active);
     runtime?.setDeviceCameraForegroundActive(active);
     runtime?.setLanRoomForegroundActive(active);
+    runtime?.setPluginsForegroundActive(active);
     const conversational = !active
       ? null
       : voiceState().phase === "speaking"
@@ -1006,8 +1012,10 @@ export function createAppStore() {
       try {
         opened.attachNativeLanRoom(new LanRoomHost());
       } catch {}
+      opened.setPluginsForegroundActive(lifecycle() === "active");
       plugins.set(opened.pluginsSnapshot());
       activeStage.set(opened.activeStagePresentation());
+      resumableStage.set(opened.resumableStage());
       unsubscribePlugins = opened.subscribePlugins(event => {
         if (!alive) return;
         if (event.type === "state_changed") {
@@ -1020,6 +1028,7 @@ export function createAppStore() {
           });
         }
         if (event.type === "stage_changed") {
+          lastStageBackExitArmMs = 0;
           activeStage.set(
             event.pluginId && event.presentation
               ? {
@@ -1029,6 +1038,10 @@ export function createAppStore() {
                 }
               : null,
           );
+          resumableStage.set(opened.resumableStage());
+        }
+        if (event.type === "resumable_changed") {
+          resumableStage.set(event.resumable);
         }
         if (event.type === "auth_challenge") {
           const current = plugins().find(item => item.id === event.pluginId);
@@ -1197,9 +1210,25 @@ export function createAppStore() {
         redactSecrets: (text) => (runtime ? runtime.redactSecrets(text) : text),
       });
       opened.setPluginAiBridge({
-        speak: ({ spokenText, contextNote, delivery }) =>
+        speak: ({
+          spokenText,
+          contextNote,
+          delivery,
+          capturePolicy,
+          verbatim,
+          holdAliveMs,
+          closeToStandbyOnComplete,
+        }) =>
           voice
-            ? voice.speak({ spokenText, contextNote, delivery })
+            ? voice.speak({
+                spokenText,
+                contextNote,
+                delivery,
+                capturePolicy,
+                verbatim,
+                holdAliveMs,
+                closeToStandbyOnComplete,
+              })
             : Promise.resolve({ completed: false, interruptedReason: "voice_unavailable" }),
         onVoiceContextUpdated: (summaryPrompt) => {
           if (alive) voice?.setPluginContext(summaryPrompt, true);
@@ -1212,6 +1241,7 @@ export function createAppStore() {
         if (alive) {
           plugins.set(opened.pluginsSnapshot());
           activeStage.set(opened.activeStagePresentation());
+          resumableStage.set(opened.resumableStage());
         }
       });
       if (wakePreferenceTouched) {
@@ -1285,14 +1315,35 @@ export function createAppStore() {
   const api = {
     plugins: () => plugins(),
     activeStage: () => activeStage(),
+    resumableStage: () => resumableStage(),
+    registerStageBackInterceptor(fn: (() => boolean) | null) {
+      stageBackInterceptor = fn;
+    },
+    async resumePluginStage(id?: string) {
+      if (!runtime) return;
+      try {
+        await runtime.resumePluginStage(id);
+        activeStage.set(runtime.activeStagePresentation());
+        resumableStage.set(runtime.resumableStage());
+        plugins.set(runtime.pluginsSnapshot());
+        api.backToFace();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        notify(message);
+        if (id && alive) setPluginUiError(id, message);
+      }
+    },
     exitPluginStage(id?: string) {
       const targetId = id ?? activeStage()?.pluginId;
+      lastStageBackExitArmMs = 0;
       if (!targetId || !runtime) {
         activeStage.set(null);
+        resumableStage.set(runtime ? runtime.resumableStage() : null);
         return;
       }
       runtime.exitPluginStage(targetId);
       activeStage.set(runtime.activeStagePresentation());
+      resumableStage.set(runtime.resumableStage());
       plugins.set(runtime.pluginsSnapshot());
     },
     reportPluginStageCrash(
@@ -1300,11 +1351,13 @@ export function createAppStore() {
       slot: "StageCanvas" | "StageCapsule" | "StageDrawer",
       error: unknown,
     ) {
+      lastStageBackExitArmMs = 0;
       if (runtime) {
         const failure = runtime.reportPluginStageCrash(pluginId, slot, error);
         const code = failure.code !== undefined ? String(failure.code) : "ERR_PLUGIN_STAGE_CRASH";
         setPluginUiError(pluginId, `[stage=${failure.stage} code=${code}] ${failure.reason}`);
         activeStage.set(runtime.activeStagePresentation());
+        resumableStage.set(runtime.resumableStage());
         plugins.set(runtime.pluginsSnapshot());
         notify(`${t("pluginStageCrashedReset")} ([${code}] ${pluginId}.${slot}: ${failure.reason})`);
         return;
@@ -1454,7 +1507,21 @@ export function createAppStore() {
     goBack(): boolean {
       const space = activeSpace();
       if (space === "face") {
-        if (activeStage() !== null) {
+        const currentStage = activeStage();
+        if (currentStage !== null) {
+          if (stageBackInterceptor?.()) {
+            lastStageBackExitArmMs = 0;
+            return true;
+          }
+          if (currentStage.presentation.confirmSystemBackExit) {
+            const now = Date.now();
+            if (now - lastStageBackExitArmMs > TOAST_DURATION_MS) {
+              lastStageBackExitArmMs = now;
+              notify(t("pluginStageBackConfirm"));
+              return true;
+            }
+          }
+          lastStageBackExitArmMs = 0;
           api.exitPluginStage();
           return true;
         }

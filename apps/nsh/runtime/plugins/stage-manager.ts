@@ -4,6 +4,8 @@ import type {
   PluginManifest,
   PluginStageCapability,
   PluginStagePresentation,
+  ResumableStageSessionInput,
+  ResumableStageView,
 } from "./contracts.js";
 import { PluginKernelError } from "./errors.js";
 
@@ -13,6 +15,12 @@ interface StageStackEntry {
   presentation: PluginStagePresentation;
 }
 
+interface ResumableSessionEntry {
+  readonly pluginId: string;
+  readonly seq: number;
+  readonly session: ResumableStageSessionInput;
+}
+
 /**
  * Arbitrates which active plugin currently owns the Morphable First-Screen Stage.
  * Bound to EffectScope so closing a game phase or disabling a plugin atomically restores `{ kind: "full" }`.
@@ -20,7 +28,10 @@ interface StageStackEntry {
 export class PluginStageManager {
   private readonly stack: StageStackEntry[] = [];
   private readonly hostExitListeners = new Map<string, Set<() => void>>();
+  private readonly resumableSessions = new Map<string, ResumableSessionEntry>();
   private nextRevision = 1;
+  private nextResumableSeq = 1;
+  private lastResumableKey = "";
 
   constructor(
     private readonly onChanged?: (
@@ -28,6 +39,7 @@ export class PluginStageManager {
       presentation: PluginStagePresentation | null,
       revision?: number,
     ) => void,
+    private readonly onResumableChanged?: (view: ResumableStageView | null) => void,
   ) {}
 
   activePluginId(): string | null {
@@ -54,6 +66,64 @@ export class PluginStageManager {
       }
     }
     return null;
+  }
+
+  activeResumable(): ResumableStageView | null {
+    if (this.activePresentation() !== null) return null;
+    let latest: ResumableSessionEntry | undefined;
+    for (const entry of this.resumableSessions.values()) {
+      if (!latest || entry.seq > latest.seq) {
+        latest = entry;
+      }
+    }
+    if (!latest) return null;
+    return {
+      pluginId: latest.pluginId,
+      title: latest.session.title,
+      ...(latest.session.subtitle !== undefined ? { subtitle: latest.session.subtitle } : {}),
+      ...(latest.session.badgeText !== undefined ? { badgeText: latest.session.badgeText } : {}),
+    };
+  }
+
+  setResumableSession(pluginId: string, session: ResumableStageSessionInput | null): void {
+    if (session === null) {
+      if (this.resumableSessions.delete(pluginId)) {
+        this.emitResumableIfChanged();
+      }
+      return;
+    }
+    this.resumableSessions.set(pluginId, {
+      pluginId,
+      seq: this.nextResumableSeq++,
+      session: {
+        title: session.title,
+        subtitle: session.subtitle,
+        badgeText: session.badgeText,
+        onResume: session.onResume,
+      },
+    });
+    this.emitResumableIfChanged();
+  }
+
+  clearPluginResumable(pluginId: string): void {
+    if (this.resumableSessions.delete(pluginId)) {
+      this.emitResumableIfChanged();
+    }
+  }
+
+  async resumeSession(pluginId?: string): Promise<void> {
+    let target: ResumableSessionEntry | undefined;
+    if (pluginId) {
+      target = this.resumableSessions.get(pluginId);
+    } else {
+      for (const entry of this.resumableSessions.values()) {
+        if (!target || entry.seq > target.seq) {
+          target = entry;
+        }
+      }
+    }
+    if (!target) return;
+    await target.session.onResume();
   }
 
   presentationForPlugin(pluginId: string): PluginStagePresentation | undefined {
@@ -90,6 +160,10 @@ export class PluginStageManager {
 
   createScopedCapability(manifest: PluginManifest, defaultScope: EffectScope): PluginStageCapability | undefined {
     if (!manifest.permissions.includes("stage.ui")) return undefined;
+
+    defaultScope.onDispose(() => {
+      this.clearPluginResumable(manifest.id);
+    });
 
     return {
       usePresentation: (presentation: PluginStagePresentation, scope: EffectScope = defaultScope): Dispose => {
@@ -159,6 +233,17 @@ export class PluginStageManager {
           remove();
         };
       },
+      setResumableSession: (session: ResumableStageSessionInput | null): void => {
+        if (session !== null && !defaultScope.active) {
+          throw new PluginKernelError({
+            stage: "plugin.stage.setResumableSession",
+            code: "ERR_PLUGIN_SCOPE_DISPOSED",
+            pluginId: manifest.id,
+            reason: `Cannot register resumable stage session on disposed scope for "${manifest.id}"`,
+          });
+        }
+        this.setResumableSession(manifest.id, session);
+      },
     };
   }
 
@@ -169,5 +254,14 @@ export class PluginStageManager {
       current?.presentation ?? null,
       current?.revision,
     );
+    this.emitResumableIfChanged();
+  }
+
+  private emitResumableIfChanged(): void {
+    const view = this.activeResumable();
+    const key = view ? JSON.stringify(view) : "";
+    if (key === this.lastResumableKey) return;
+    this.lastResumableKey = key;
+    this.onResumableChanged?.(view ? structuredClone(view) : null);
   }
 }

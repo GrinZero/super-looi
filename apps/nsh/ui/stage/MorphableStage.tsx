@@ -1,6 +1,7 @@
 import {
   Animated,
   Canvas,
+  cleanup,
   computed,
   createAnimatedValue,
   createMotion,
@@ -21,6 +22,7 @@ import type { VoiceState } from "../../generated/looi-runtime.js";
 import type {
   FaceStagePosture,
   PluginStagePresentation,
+  ResumableStageView,
   StageDrawerDetent,
 } from "../../runtime/plugins/shared-types";
 import {
@@ -68,6 +70,7 @@ export interface MorphableStageProps {
   readonly composeOpen: boolean;
   readonly composeDraft: string;
   readonly activeStage: ActiveStageLeaseView | null;
+  readonly resumableStage?: ResumableStageView | null;
   readonly getPluginViewContext: (pluginId: string) => PluginViewContext<any, any>;
   readonly onToggleVoice: () => void;
   readonly onToggleCompose: () => void;
@@ -76,6 +79,8 @@ export interface MorphableStageProps {
   readonly onOpenSettings: () => void;
   readonly onOpenResponse: () => void;
   readonly onExitStage: (pluginId?: string) => void;
+  readonly onResumeStage?: (pluginId: string) => void;
+  readonly registerBackInterceptor?: (fn: (() => boolean) | null) => void;
   readonly onReportStageCrash: (
     pluginId: string,
     slot: StageSlotName,
@@ -209,6 +214,13 @@ export function MorphableStage(props: MorphableStageProps) {
   const userDetentOverride = signal<StageDrawerDetent | null>(null);
   let lastStageIdentity = "";
 
+  const DETENT_RANK: Record<StageDrawerDetent, number> = {
+    closed: 0,
+    peek: 1,
+    medium: 2,
+    large: 3,
+  };
+
   effect(() => {
     const nextIdentity = serializeStageLeaseIdentity(props.activeStage);
     if (nextIdentity !== lastStageIdentity) {
@@ -266,6 +278,21 @@ export function MorphableStage(props: MorphableStageProps) {
     if (!stage) return true;
     return stage.presentation.allowUserSwipeCollapse !== false;
   });
+
+  props.registerBackInterceptor?.(() => {
+    const stage = props.activeStage;
+    if (!stage || !stage.presentation.active || !hasStageDrawer()) {
+      return false;
+    }
+    const current = effectiveDrawerDetent();
+    const baseline = stage.presentation.drawerDetent;
+    if (DETENT_RANK[current] > DETENT_RANK[baseline]) {
+      userDetentOverride.set(null);
+      return true;
+    }
+    return false;
+  });
+  cleanup(() => props.registerBackInterceptor?.(null));
 
   const layout = computed(() =>
     computeStageLayout({
@@ -727,6 +754,7 @@ export function MorphableStage(props: MorphableStageProps) {
                             <Comp
                               ctx={viewCtx}
                               detent={effectiveDrawerDetent}
+                              requestDetent={(detent) => userDetentOverride.set(detent)}
                             />
                           </PluginStageSlotBoundary>
                         </View>
@@ -734,6 +762,37 @@ export function MorphableStage(props: MorphableStageProps) {
                     </View>
                   );
                 }}
+              </If>
+
+              <If
+                when={
+                  Boolean(DrawerSlot()) &&
+                  Boolean(props.activeStage?.presentation.active) &&
+                  props.activeStage?.presentation.drawerDetent !== "closed" &&
+                  effectiveDrawerDetent() === "closed"
+                }
+              >
+                <View
+                  class="absolute left-0 right-0 items-center"
+                  style={{
+                    bottom:
+                      effectiveInsets().bottom +
+                      (props.composeOpen || showResponsePreview() || showWakeGuide() ? 66 : 14),
+                    pointerEvents: "box-none",
+                  }}
+                >
+                  <Button
+                    testID="stage-drawer-reopen"
+                    accessibilityLabel={t("pluginStageDrawerExpand")}
+                    onPress={() => userDetentOverride.set(null)}
+                    class="min-h-11 px-4 rounded-full border border-stage-pill-border bg-elevated-glass flex-row items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
+                    style={{ pointerEvents: "auto" }}
+                  >
+                    <Text class="text-stage-pill-fg text-xs font-semibold">
+                      {t("pluginStageDrawerExpand")}
+                    </Text>
+                  </Button>
+                </View>
               </If>
             </View>
           );
@@ -757,29 +816,67 @@ export function MorphableStage(props: MorphableStageProps) {
             class="flex-row items-center justify-between gap-3"
             style={{ pointerEvents: "box-none" }}
           >
-            <View
-              class="flex-1 min-w-0 flex-row items-center gap-2 px-2 py-1"
-              style={{
-                opacity: 0.85,
-                minHeight: 38,
-                flexShrink: 1,
-                pointerEvents: "none",
-              }}
+            <If
+              when={!props.activeStage && Boolean(props.resumableStage)}
+              else={
+                <View
+                  class="flex-1 min-w-0 flex-row items-center gap-2 px-2 py-1"
+                  style={{
+                    opacity: 0.85,
+                    minHeight: 38,
+                    flexShrink: 1,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <View
+                    class={
+                      voiceActive()
+                        ? "w-1.5 h-1.5 rounded-full bg-verified"
+                        : "w-1.5 h-1.5 rounded-full bg-eye-core"
+                    }
+                  />
+                  <Text
+                    class="text-stage-muted text-xs font-medium"
+                    style={{ letterSpacing: 1, flexShrink: 1, numberOfLines: 1 }}
+                  >
+                    {props.statusText}
+                  </Text>
+                </View>
+              }
             >
               <View
-                class={
-                  voiceActive()
-                    ? "w-1.5 h-1.5 rounded-full bg-verified"
-                    : "w-1.5 h-1.5 rounded-full bg-eye-core"
-                }
-              />
-              <Text
-                class="text-stage-muted text-xs font-medium"
-                style={{ letterSpacing: 1, flexShrink: 1, numberOfLines: 1 }}
+                class="flex-1 min-w-0 flex-row items-center"
+                style={{ pointerEvents: "box-none" }}
               >
-                {props.statusText}
-              </Text>
-            </View>
+                <Button
+                  testID="stage-resumable-pill"
+                  accessibilityLabel={
+                    props.resumableStage?.subtitle
+                      ? `${props.resumableStage.title} ${props.resumableStage.subtitle}`
+                      : (props.resumableStage?.title ?? "")
+                  }
+                  onPress={() => {
+                    const target = props.resumableStage;
+                    if (target) props.onResumeStage?.(target.pluginId);
+                  }}
+                  class="min-h-11 max-w-full px-3.5 rounded-full border border-stage-pill-border bg-elevated-glass flex-row items-center gap-2 active:opacity-75 focus:border-stage-pill-fg"
+                  style={{ pointerEvents: "auto" }}
+                >
+                  <View class="w-2 h-2 rounded-full bg-verified shrink-0" />
+                  <Text
+                    class="text-stage-pill-fg text-xs font-semibold shrink"
+                    style={{ numberOfLines: 1 }}
+                  >
+                    {props.resumableStage?.subtitle
+                      ? `${props.resumableStage.title} · ${props.resumableStage.subtitle}`
+                      : (props.resumableStage?.title ?? "")}
+                  </Text>
+                  <Text class="text-eye-core text-xs font-bold shrink-0">
+                    {props.resumableStage?.badgeText ?? t("pluginStageResumeCta")}
+                  </Text>
+                </Button>
+              </View>
+            </If>
 
             <View
               class="flex-row items-center gap-2"

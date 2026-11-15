@@ -395,21 +395,48 @@ function LobbyDrawerPanel(props: {
                   </Text>
                 </If>
 
-                <View class="flex-row flex-wrap gap-1">
+                <View class="flex-row flex-wrap items-center gap-2">
                   <Each of={st().seats} key={(item) => item.seat}>
                     {(seatAcc) => {
                       const s = () => seatAcc();
                       return (
-                        <Text
-                          class={
-                            s().lanClaimed
-                              ? "text-face-sage-core text-xs font-bold"
-                              : "text-stage-muted text-xs"
+                        <If
+                          when={s().lanClaimed}
+                          else={
+                            <Text
+                              class="text-stage-muted text-xs"
+                              style={{ fontVariant: ["tabular-nums"] }}
+                            >
+                              {`#${s().seat}`}
+                            </Text>
                           }
-                          style={{ fontVariant: ["tabular-nums"] }}
                         >
-                          {s().lanClaimed ? `#${s().seat}✓` : `#${s().seat}`}
-                        </Text>
+                          <Button
+                            testID={`werewolf-release-seat-${s().seat}`}
+                            hitSlop={{ top: 4, bottom: 4, left: 3, right: 3 }}
+                            accessibilityLabel={
+                              loc() === "en-US"
+                                ? `Release seat ${s().seat}`
+                                : `解绑 ${s().seat} 号座位`
+                            }
+                            onPress={() => {
+                              void props.ctx.sendCommand({
+                                type: "release_lan_seat",
+                                seat: s().seat,
+                              });
+                            }}
+                            class="min-h-9 min-w-11 px-2.5 py-0.5 rounded-full border border-air-quality-border bg-air-quality-bg items-center justify-center active:opacity-75"
+                          >
+                            <Text
+                              class="text-face-sage-core text-xs font-bold"
+                              style={{ fontVariant: ["tabular-nums"] }}
+                            >
+                              {loc() === "en-US"
+                                ? `#${s().seat}✓×`
+                                : `#${s().seat}解绑`}
+                            </Text>
+                          </Button>
+                        </If>
                       );
                     }}
                   </Each>
@@ -450,10 +477,12 @@ function LobbyDrawerPanel(props: {
 function NightRoleDrawerPanel(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
   detent: () => StageDrawerDetent;
+  requestDetent?: (detent: Exclude<StageDrawerDetent, "closed">) => void;
 }) {
   const lanOverride = signal(false);
   let lastPhaseKey = "";
   let gateDownAtMs = 0;
+  let gateTriggeredOnDown = false;
   let gateHoldConsumed = false;
 
   const st = () => readWerewolfState(props.ctx);
@@ -463,6 +492,9 @@ function NightRoleDrawerPanel(props: {
     const key = `${st().day}:${st().phase}`;
     if (key !== lastPhaseKey) {
       lastPhaseKey = key;
+      gateDownAtMs = 0;
+      gateTriggeredOnDown = false;
+      gateHoldConsumed = false;
       lanOverride.set(false);
     }
   });
@@ -513,7 +545,10 @@ function NightRoleDrawerPanel(props: {
           </View>
           <Button
             testID="werewolf-lan-host-override-btn"
-            onPress={() => lanOverride.set(true)}
+            onPress={() => {
+              lanOverride.set(true);
+              props.requestDetent?.("large");
+            }}
             class="min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 shrink-0"
           >
             <Text class="text-stage-pill-fg text-xs font-medium">
@@ -542,6 +577,7 @@ function NightRoleDrawerPanel(props: {
               testID="werewolf-night-gate-btn"
               onPressDown={() => {
                 gateDownAtMs = Date.now();
+                gateTriggeredOnDown = true;
                 gateHoldConsumed = false;
                 void props.ctx.sendCommand({
                   type: "set_night_gate",
@@ -564,6 +600,12 @@ function NightRoleDrawerPanel(props: {
               onPress={() => {
                 if (gateHoldConsumed) {
                   gateHoldConsumed = false;
+                  gateTriggeredOnDown = false;
+                  return;
+                }
+                if (gateTriggeredOnDown) {
+                  gateTriggeredOnDown = false;
+                  gateDownAtMs = 0;
                   return;
                 }
                 gateDownAtMs = 0;
@@ -1810,8 +1852,32 @@ function LeaveResolutionDrawerPanel(props: {
 export function WerewolfStageDrawer(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
   detent: () => StageDrawerDetent;
+  requestDetent?: (detent: Exclude<StageDrawerDetent, "closed">) => void;
 }) {
   const st = () => readWerewolfState(props.ctx);
+  const loc = () => props.ctx.locale();
+  const confirmAbort = signal(false);
+  const confirmExit = signal(false);
+
+  effect(() => {
+    const phase = st().phase;
+    if (phase === "idle" || phase === "lobby") {
+      confirmAbort.set(false);
+      confirmExit.set(false);
+    }
+  });
+
+  effect(() => {
+    if (!confirmAbort()) return;
+    const timer = setTimeout(() => confirmAbort.set(false), 3200);
+    return () => clearTimeout(timer);
+  });
+
+  effect(() => {
+    if (!confirmExit()) return;
+    const timer = setTimeout(() => confirmExit.set(false), 3200);
+    return () => clearTimeout(timer);
+  });
 
   const isNightTurn = () => {
     const p = st().phase;
@@ -1875,7 +1941,11 @@ export function WerewolfStageDrawer(props: {
       </If>
 
       <If when={isNightTurn()}>
-        <NightRoleDrawerPanel ctx={props.ctx} detent={props.detent} />
+        <NightRoleDrawerPanel
+          ctx={props.ctx}
+          detent={props.detent}
+          requestDetent={props.requestDetent}
+        />
       </If>
 
       <If
@@ -1897,6 +1967,135 @@ export function WerewolfStageDrawer(props: {
 
       <If when={st().phase === "leave_resolution"}>
         <LeaveResolutionDrawerPanel ctx={props.ctx} />
+      </If>
+
+      <If
+        when={
+          st().phase !== "idle" &&
+          st().phase !== "lobby" &&
+          props.detent() !== "peek"
+        }
+      >
+        <View
+          testID="werewolf-drawer-resilience-bar"
+          class="shrink-0 flex-row flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-stage-pill-border"
+        >
+          <View class="flex-row flex-wrap items-center gap-1.5 flex-1 min-w-0">
+            <If
+              when={
+                st().rules.surfaceMode === "lan_companion" &&
+                st().lan.claimedSeats.length > 0
+              }
+            >
+              <Each of={st().lan.claimedSeats} key={(seat) => seat}>
+                {(seatAcc) => {
+                  const seat = () => seatAcc();
+                  return (
+                    <Button
+                      testID={`werewolf-release-seat-${seat()}`}
+                      hitSlop={{ top: 4, bottom: 4, left: 3, right: 3 }}
+                      accessibilityLabel={
+                        loc() === "en-US"
+                          ? `Release seat ${seat()}`
+                          : `解绑 ${seat()} 号座位`
+                      }
+                      onPress={() => {
+                        void props.ctx.sendCommand({
+                          type: "release_lan_seat",
+                          seat: seat(),
+                        });
+                      }}
+                      class="min-h-9 min-w-11 px-2.5 py-1 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75"
+                    >
+                      <Text
+                        class="text-stage-pill-fg text-xs font-medium"
+                        style={{ fontVariant: ["tabular-nums"] }}
+                      >
+                        {loc() === "en-US"
+                          ? `Release #${seat()}`
+                          : `#${seat()} 解绑`}
+                      </Text>
+                    </Button>
+                  );
+                }}
+              </Each>
+            </If>
+          </View>
+
+          <If when={st().phase !== "game_over"}>
+            <View class="flex-row items-center gap-2 shrink-0">
+              <Button
+                testID="werewolf-abort-match-btn"
+                hitSlop={{ top: 4, bottom: 4, left: 3, right: 3 }}
+                onPress={() => {
+                  if (!confirmAbort()) {
+                    confirmExit.set(false);
+                    confirmAbort.set(true);
+                    return;
+                  }
+                  confirmAbort.set(false);
+                  void props.ctx.sendCommand({ type: "abort_match_to_lobby" });
+                }}
+                class={
+                  confirmAbort()
+                    ? "min-h-9 min-w-11 px-3 py-1 rounded-full border border-destructive bg-stage-pill-bg items-center justify-center active:opacity-75"
+                    : "min-h-9 min-w-11 px-3 py-1 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75"
+                }
+              >
+                <Text
+                  class={
+                    confirmAbort()
+                      ? "text-destructive text-xs font-bold"
+                      : "text-stage-pill-fg text-xs font-medium"
+                  }
+                >
+                  {confirmAbort()
+                    ? loc() === "en-US"
+                      ? "Tap Again to Abort"
+                      : "再点确认终止"
+                    : loc() === "en-US"
+                      ? "Abort Match"
+                      : "终止本局"}
+                </Text>
+              </Button>
+
+              <Button
+                testID="werewolf-drawer-exit-btn"
+                hitSlop={{ top: 4, bottom: 4, left: 3, right: 3 }}
+                onPress={() => {
+                  if (!confirmExit()) {
+                    confirmAbort.set(false);
+                    confirmExit.set(true);
+                    return;
+                  }
+                  confirmExit.set(false);
+                  void props.ctx.sendCommand({ type: "exit_to_idle" });
+                }}
+                class={
+                  confirmExit()
+                    ? "min-h-9 min-w-11 px-3 py-1 rounded-full border border-destructive bg-stage-pill-bg items-center justify-center active:opacity-75"
+                    : "min-h-9 min-w-11 px-3 py-1 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75"
+                }
+              >
+                <Text
+                  class={
+                    confirmExit()
+                      ? "text-destructive text-xs font-bold"
+                      : "text-stage-muted text-xs font-medium"
+                  }
+                >
+                  {confirmExit()
+                    ? loc() === "en-US"
+                      ? "Tap Again to Quit"
+                      : "再点确认退出"
+                    : loc() === "en-US"
+                      ? "Quit Werewolf"
+                      : "退出狼人杀"}
+                </Text>
+              </Button>
+            </View>
+          </If>
+        </View>
       </If>
     </View>
   );

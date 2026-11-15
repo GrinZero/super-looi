@@ -12,7 +12,7 @@
     "test:plugin-host": "node --import tsx --test tests/plugin-host-v2.node.ts",
     "test:embodied": "node --import tsx --test tests/plugin-embodied-v2.node.ts",
     "test:ecosystem": "node --import tsx --test tests/plugin-ecosystem-v2.node.ts",
-    "test:werewolf": "node --import tsx --test tests/werewolf-plugin.node.ts",
+    "test:werewolf": "node --import tsx --test tests/werewolf-plugin.node.ts tests/werewolf-resilience.node.ts",
     "test:home-power": "node --import tsx --test tests/home-power-state.node.ts",
     "test:codex": "node --import tsx --test tests/codex-plugin.node.ts",
     "test:home-control": "node --import tsx --test tests/home-control-errors.node.ts",

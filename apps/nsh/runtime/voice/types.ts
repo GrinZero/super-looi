@@ -76,6 +76,7 @@ export interface VoiceProactiveNotice {
   spokenText: string;
   contextNote?: string;
   delivery?: "when_idle" | "interrupt";
+  readonly verbatim?: boolean;
   onResult?: (result: { readonly completed: boolean; readonly interruptedReason?: string }) => void;
 }
 

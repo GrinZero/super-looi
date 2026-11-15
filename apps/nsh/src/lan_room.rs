@@ -128,18 +128,31 @@ pub(crate) struct RoomSession {
 }
 
 impl RoomSession {
-    pub(crate) async fn bind(requested_id: Option<&str>) -> Result<Arc<Self>, String> {
+    pub(crate) async fn bind(
+        requested_id: Option<&str>,
+        preferred_port: Option<u16>,
+    ) -> Result<Arc<Self>, String> {
         let id = requested_id
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| format!("lan_{}", uuid::Uuid::new_v4()));
 
-        let listener = TcpListener::bind("0.0.0.0:0").await.map_err(|err| {
-            format!(
-                "[stage=lan_room.open code=ERR_LAN_ROOM_BIND_FAILED] Failed to bind TCP listener on 0.0.0.0:0: {err}"
-            )
-        })?;
+        let listener = match preferred_port.filter(|p| *p > 0) {
+            Some(port) => match TcpListener::bind(("0.0.0.0", port)).await {
+                Ok(l) => l,
+                Err(_) => TcpListener::bind("0.0.0.0:0").await.map_err(|err| {
+                    format!(
+                        "[stage=lan_room.open code=ERR_LAN_ROOM_BIND_FAILED] Failed to bind TCP listener on 0.0.0.0:0 after preferred port {port} fallback: {err}"
+                    )
+                })?,
+            },
+            None => TcpListener::bind("0.0.0.0:0").await.map_err(|err| {
+                format!(
+                    "[stage=lan_room.open code=ERR_LAN_ROOM_BIND_FAILED] Failed to bind TCP listener on 0.0.0.0:0: {err}"
+                )
+            })?,
+        };
         let local_addr = listener.local_addr().map_err(|err| {
             format!(
                 "[stage=lan_room.open code=ERR_LAN_ROOM_LOCAL_ADDR] Failed to read bound TCP port: {err}"
@@ -1151,7 +1164,16 @@ impl HostInner {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) async fn open_room(&self, requested_id: String) -> Result<NativeLanRoomInfo, String> {
+        self.open_room_with_port(requested_id, None).await
+    }
+
+    pub(crate) async fn open_room_with_port(
+        &self,
+        requested_id: String,
+        preferred_port: Option<u32>,
+    ) -> Result<NativeLanRoomInfo, String> {
         let epoch_before = self.epoch.load(Ordering::Acquire);
         if !self.foreground.load(Ordering::Acquire) {
             return Err(
@@ -1161,7 +1183,8 @@ impl HostInner {
         }
 
         let requested = (!requested_id.trim().is_empty()).then_some(requested_id);
-        let session = RoomSession::bind(requested.as_deref()).await?;
+        let preferred_u16 = preferred_port.and_then(|p| u16::try_from(p).ok()).filter(|p| *p > 0);
+        let session = RoomSession::bind(requested.as_deref(), preferred_u16).await?;
 
         if !self.foreground.load(Ordering::Acquire) || self.epoch.load(Ordering::Acquire) != epoch_before {
             session.close(true);
@@ -1227,13 +1250,14 @@ impl LanRoomHost {
         }
     }
 
-    /// Bind an ephemeral TCP port (`0.0.0.0:0`) and start accepting foreground LAN companion HTTP traffic.
+    /// Bind the requested `preferred_port` when available or fall back to an ephemeral port (`0.0.0.0:0`).
     pub async fn open_room(
         this: Instance<Self>,
         requested_id: String,
+        preferred_port: Option<u32>,
     ) -> Result<NativeLanRoomInfo, String> {
         let inner = this.with(|s| s.inner.clone());
-        background(async move { inner.open_room(requested_id).await })
+        background(async move { inner.open_room_with_port(requested_id, preferred_port).await })
             .await
             .map_err(|_| {
                 "[stage=lan_room.open code=ERR_LAN_ROOM_OPEN_CANCELLED] LAN room open task cancelled"
@@ -1526,6 +1550,36 @@ mod tests {
         host.set_foreground(true);
         let reopened = host.open_room("room-bg-3".to_string()).await.unwrap();
         assert!(reopened.port > 0);
+        host.stop_all();
+    }
+
+    #[tokio::test]
+    async fn preferred_port_rebinds_same_port_and_falls_back_when_occupied() {
+        let host = Arc::new(HostInner::new());
+        let first = host.open_room("room-pref-1".to_string()).await.unwrap();
+        let saved_port = first.port;
+        assert!(saved_port > 0);
+
+        host.close_room("room-pref-1");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        // Reopen with same roomId and preferred_port while the port is free -> reuses exact port
+        let rebound = host
+            .open_room_with_port("room-pref-1".to_string(), Some(saved_port))
+            .await
+            .unwrap();
+        assert_eq!(rebound.room_id, "room-pref-1");
+        assert_eq!(rebound.port, saved_port);
+
+        // Hold another room on `saved_port`; requesting `saved_port` falls back cleanly to a fresh port
+        let fallback = host
+            .open_room_with_port("room-pref-2".to_string(), Some(saved_port))
+            .await
+            .unwrap();
+        assert_eq!(fallback.room_id, "room-pref-2");
+        assert_ne!(fallback.port, saved_port);
+        assert!(fallback.port > 0);
+
         host.stop_all();
     }
 }

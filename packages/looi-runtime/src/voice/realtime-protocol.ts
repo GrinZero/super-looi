@@ -46,6 +46,7 @@ export type NormalizedRealtimeEvent =
 export type RealtimeProactiveSpeech = {
   spokenText: string;
   instructions?: string;
+  readonly verbatim?: boolean;
 };
 
 export interface RealtimeProtocolAdapter {
@@ -209,13 +210,16 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
       },
     }],
     encodeInstructionsUpdate: (instructions) => ({ type: "session.update", session: { type: "realtime", instructions } }),
-    encodeProactiveSpeech: ({ spokenText, instructions }) => {
+    encodeProactiveSpeech: ({ spokenText, instructions, verbatim }) => {
       const frames: Record<string, unknown>[] = [];
       if (instructions !== undefined) {
         frames.push({ type: "session.update", session: { type: "realtime", instructions } });
       }
       const clean = spokenText.trim();
       if (clean) {
+        const promptText = verbatim
+          ? `[Verbatim Announcement] Read this announcement aloud word-for-word without paraphrasing, summarizing, or adding questions: ${clean}`
+          : `[Background Task Update] Deliver this update naturally and concisely to the user in the current conversation language: ${clean}`;
         frames.push(
           {
             type: "conversation.item.create",
@@ -225,7 +229,7 @@ export function createOpenAiRealtimeProtocol(options: { instructions?: string; m
               content: [
                 {
                   type: "input_text",
-                  text: `[Background Task Update] Deliver this update naturally and concisely to the user in the current conversation language: ${clean}`,
+                  text: promptText,
                 },
               ],
             },

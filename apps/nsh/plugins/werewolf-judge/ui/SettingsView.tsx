@@ -1,4 +1,4 @@
-import { Clipboard, Scroll, Text, View, windowSize } from "nsh";
+import { Clipboard, effect, Scroll, signal, Text, View, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import {
   ActionButton,
@@ -43,6 +43,19 @@ export function WerewolfSettingsView(props: {
   const loc = () => props.ctx.locale();
   const enabled = () => props.ctx.enabled();
   const busy = () => props.ctx.busy();
+  const confirmReset = signal(false);
+
+  effect(() => {
+    if (st().phase === "idle") {
+      confirmReset.set(false);
+    }
+  });
+
+  effect(() => {
+    if (!confirmReset()) return;
+    const timer = setTimeout(() => confirmReset.set(false), 3200);
+    return () => clearTimeout(timer);
+  });
 
   const editableDeck = () => {
     const p = st().phase;
@@ -95,6 +108,19 @@ export function WerewolfSettingsView(props: {
         <Scroll class="flex-1 min-h-0" contentClass="p-3.5 gap-3">
           {/* 1. Stage Launch Header */}
           <View class="gap-2.5">
+            <If when={st().hasResumableMatch}>
+              <View
+                testID="werewolf-settings-resumable-banner"
+                class="rounded-xl border border-face-sage-edge bg-air-quality-bg px-3 py-2 flex-row items-center justify-between gap-2"
+              >
+                <Text class="text-face-sage-core text-xs font-semibold flex-1">
+                  {loc() === "en-US"
+                    ? "Match in progress · Return to the tabletop stage anytime"
+                    : "对局进行中 · 可随时返回首屏舞台继续"}
+                </Text>
+              </View>
+            </If>
+
             <View class="flex-row items-center justify-between gap-2.5">
               <View class="flex-row items-center gap-2.5 flex-1 min-w-0">
                 <View class="w-10 h-10 rounded-xl bg-muted border border-border items-center justify-center shrink-0">
@@ -140,9 +166,13 @@ export function WerewolfSettingsView(props: {
                     ? loc() === "en-US"
                       ? "Launch Stage"
                       : "登上首屏开局"
-                    : loc() === "en-US"
-                      ? "Resume Stage"
-                      : "回到牌局舞台"
+                    : st().hasResumableMatch
+                      ? loc() === "en-US"
+                        ? "Match Active · Resume Stage"
+                        : "对局进行中 · 点击返回舞台"
+                      : loc() === "en-US"
+                        ? "Resume Stage"
+                        : "回到牌局舞台"
                 }
                 onPress={() => {
                   const cmd: WerewolfCommand =
@@ -166,9 +196,20 @@ export function WerewolfSettingsView(props: {
                   kind="danger"
                   disabled={!enabled() || busy()}
                   label={
-                    loc() === "en-US" ? "End Current Match" : "结束重置当前对局"
+                    st().hasResumableMatch && confirmReset()
+                      ? loc() === "en-US"
+                        ? "Tap Again to End"
+                        : "再点确认结束对局"
+                      : loc() === "en-US"
+                        ? "End Current Match"
+                        : "结束重置当前对局"
                   }
                   onPress={() => {
+                    if (st().hasResumableMatch && !confirmReset()) {
+                      confirmReset.set(true);
+                      return;
+                    }
+                    confirmReset.set(false);
                     void props.ctx.sendCommand({ type: "exit_to_idle" });
                   }}
                 />

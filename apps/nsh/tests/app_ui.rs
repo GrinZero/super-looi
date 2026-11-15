@@ -349,3 +349,69 @@ fn back_traverses_home_subpages_before_leaving_management() -> Result<(), String
     app.wait_for("connection-settings")?;
     Ok(())
 }
+
+#[test]
+fn werewolf_stage_resilience_reentry_and_controls_work_in_landscape() -> Result<(), String> {
+    let data = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let mut app = open_app(data.path(), MemoryStorage::new([]), "zh-CN")?;
+    app.set_viewport(size(Points(844.0), Points(390.0)))?;
+
+    app.press("connection-settings")?;
+    app.wait_for("nav-plugins")?;
+    app.press("nav-plugins")?;
+    app.wait_for("plugin-werewolf-judge")?;
+    app.press("plugin-werewolf-judge")?;
+    app.wait_for("werewolf-launch-stage-btn")?;
+    app.press("werewolf-launch-stage-btn")?;
+    app.wait_for("werewolf-start-dealing-btn")?;
+    app.press("werewolf-start-dealing-btn")?;
+    app.wait_for("werewolf-dealing-panel")?;
+
+    // Capsule voice controls: status + mute toggle
+    app.wait_for("werewolf-capsule-voice-status")?;
+    app.wait_for("werewolf-mute-speech-btn")?;
+    app.press("werewolf-mute-speech-btn")?;
+    app.wait_for("已静音")?;
+    app.wait_for("取消静音")?;
+
+    // Deal confirmation and step_back_deal rewind
+    app.press("werewolf-deal-confirm-btn")?;
+    app.wait_for("werewolf-step-back-deal-btn")?;
+    app.press("werewolf-step-back-deal-btn")?;
+    app.wait_until("stepped back to seat 1", Duration::from_secs(3), |screen| {
+        screen.shows("防窥保护中 · 仅限 #1 号查看")
+            && screen.shows("记住了，下一位")
+            && !screen.shows("重发上一位")
+    })?;
+
+    // Double-back exit confirmation preserves match and shows home resumable pill
+    app.back()?;
+    app.wait_for("再按一次返回收起舞台（对局进度已自动保存）")?;
+    assert!(app.shows("记住了，下一位"));
+    app.back()?;
+    app.wait_for("stage-resumable-pill")?;
+    assert!(!app.shows("记住了，下一位"));
+
+    // One-tap resume restores active dealing stage
+    app.press("stage-resumable-pill")?;
+    app.wait_for("werewolf-dealing-panel")?;
+
+    // Settings resumable banner and double-tap reset confirmation
+    app.press("connection-settings")?;
+    app.wait_for("nav-plugins")?;
+    app.press("nav-plugins")?;
+    app.wait_until("werewolf settings or plugin card", Duration::from_secs(5), |screen| {
+        screen.matches("werewolf-settings-resumable-banner") == Ok(true)
+            || screen.matches("plugin-werewolf-judge") == Ok(true)
+    })?;
+    if app.screen().matches("plugin-werewolf-judge") == Ok(true) {
+        app.press("plugin-werewolf-judge")?;
+    }
+    app.wait_for("werewolf-settings-resumable-banner")?;
+    app.wait_for("werewolf-exit-idle-btn")?;
+    app.press("werewolf-exit-idle-btn")?;
+    app.wait_for("再点确认结束对局")?;
+    app.press("werewolf-exit-idle-btn")?;
+    app.wait_for("登上首屏开局")?;
+    Ok(())
+}

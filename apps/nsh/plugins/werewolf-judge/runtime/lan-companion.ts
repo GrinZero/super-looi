@@ -89,6 +89,43 @@ export class LanCompanionController {
     this.options.onClaimsChanged();
   }
 
+  exportSeatTokens(): ReadonlyArray<readonly [number, string]> {
+    return Array.from(this.seatTokens.entries()).sort(([a], [b]) => a - b);
+  }
+
+  restoreSeatTokens(entries: ReadonlyArray<readonly [number, string]>): void {
+    this.seatTokens.clear();
+    const maxSeat = this.options.engine.getPlayerCount();
+    for (const [seat, token] of entries) {
+      if (
+        Number.isInteger(seat) &&
+        seat >= 1 &&
+        seat <= maxSeat &&
+        typeof token === "string" &&
+        token.trim().length > 0
+      ) {
+        this.seatTokens.set(seat, token);
+      }
+    }
+    this.options.onClaimsChanged();
+  }
+
+  releaseSeatToken(seat: number): boolean {
+    const maxSeat = this.options.engine.getPlayerCount();
+    if (!Number.isInteger(seat) || seat < 1 || seat > maxSeat) {
+      throw new WerewolfRuleError(
+        "release_lan_seat",
+        "ERR_WEREWOLF_INVALID_SEAT",
+        `座位号 ${String(seat)} 超出有效范围 1..${maxSeat}`,
+      );
+    }
+    const removed = this.seatTokens.delete(seat);
+    if (removed) {
+      this.options.onClaimsChanged();
+    }
+    return removed;
+  }
+
   async handleHttpRequest(req: LanHttpRequest): Promise<LanHttpResponse> {
     try {
       if (req.method === "GET" && (req.path === "/" || req.path === "/index.html")) {
@@ -449,29 +486,42 @@ export function renderCompanionMobileHtml(): string {
 
   async function api(path, opts) {
     const res = await fetch(path, opts);
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.reason || "操作失败");
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {}
+    if (!res.ok || !data || !data.ok) {
+      const err = new Error((data && data.reason) || ("HTTP " + res.status));
+      err.status = res.status;
+      err.code = data && data.code;
+      throw err;
+    }
     return data;
   }
 
   async function refresh() {
-    errorMsg = "";
     try {
       if (session && session.seat && session.token) {
         const res = await api("/api/state?seat=" + Number(session.seat) + "&token=" + encodeURIComponent(session.token));
         view = res.view;
         rev = view.revision;
+        errorMsg = "";
       } else {
         const res = await api("/api/lobby");
         lobby = res;
         rev = res.revision;
+        errorMsg = "";
       }
     } catch (err) {
-      session = null;
-      view = null;
-      try { localStorage.removeItem(STORE_KEY); } catch {}
-      errorMsg = err.message || String(err);
-      try { lobby = await api("/api/lobby"); rev = lobby.revision; } catch {}
+      if (err && err.status === 401) {
+        session = null;
+        view = null;
+        try { localStorage.removeItem(STORE_KEY); } catch {}
+        errorMsg = err.message || "座位凭证已失效，请重新认领";
+        try { lobby = await api("/api/lobby"); rev = lobby.revision; } catch {}
+      } else {
+        errorMsg = "正在重连主持人设备…" + (err && err.message ? " (" + err.message + ")" : "");
+      }
     }
     render();
   }
@@ -667,17 +717,29 @@ export function renderCompanionMobileHtml(): string {
   }
 
   async function watchLoop() {
+    let disconnected = false;
     while (true) {
       try {
         const res = await fetch("/api/wait?sinceRev=" + rev + "&timeoutMs=15000");
         if (res.ok) {
           const info = await res.json();
-          if (info && info.revision !== rev) await refresh();
+          if (disconnected || (info && info.revision !== rev)) {
+            disconnected = false;
+            await refresh();
+          }
         } else {
+          disconnected = true;
+          errorMsg = "正在重连主持人设备… (HTTP " + res.status + ")";
+          render();
           await new Promise(r => setTimeout(r, 1500));
+          await refresh();
         }
       } catch {
+        disconnected = true;
+        errorMsg = "正在重连主持人设备…";
+        render();
         await new Promise(r => setTimeout(r, 1500));
+        await refresh();
       }
     }
   }

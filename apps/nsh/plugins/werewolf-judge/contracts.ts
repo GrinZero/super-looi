@@ -179,6 +179,14 @@ export interface WerewolfAiMvpReview {
   readonly error: string | null;
 }
 
+export interface WerewolfJudgeVoiceStatus {
+  readonly speaking: boolean;
+  readonly mutedByHost: boolean;
+  readonly lastSpokenText: string | null;
+  readonly lastInterruptedReason: string | null;
+  readonly degradedToSubtitles: boolean;
+}
+
 export interface WerewolfPublicState {
   readonly revision: number;
   readonly phase: WerewolfPhase;
@@ -219,22 +227,30 @@ export interface WerewolfPublicState {
   readonly aiMvpReview: WerewolfAiMvpReview;
   readonly hostPaused: boolean;
   readonly lastJudgeSpeech: string;
+  readonly voiceStatus: WerewolfJudgeVoiceStatus;
+  readonly hasResumableMatch: boolean;
+  readonly canStepBackDeal: boolean;
 }
 
 export type WerewolfCommand =
   | { readonly type: "open_lobby"; readonly presetId?: WerewolfPresetId }
   | { readonly type: "resume_stage" }
   | { readonly type: "exit_to_idle" }
+  | { readonly type: "abort_match_to_lobby" }
   | { readonly type: "select_preset"; readonly presetId: WerewolfPresetId }
   | { readonly type: "update_rules"; readonly patch: Partial<WerewolfRulesConfig> }
   | { readonly type: "set_role_count"; readonly role: WerewolfRole; readonly count: number }
   | { readonly type: "set_seat_nickname"; readonly seat: number; readonly nickname: string }
   | { readonly type: "toggle_lan_room"; readonly enabled: boolean }
   | { readonly type: "refresh_lan_address" }
+  | { readonly type: "release_lan_seat"; readonly seat: number }
   | { readonly type: "start_dealing" }
   | { readonly type: "capture_seat_portrait"; readonly seat: number }
   | { readonly type: "set_deal_reveal"; readonly seat: number; readonly revealing: boolean }
   | { readonly type: "confirm_seat_dealt"; readonly seat: number }
+  | { readonly type: "step_back_deal" }
+  | { readonly type: "replay_last_speech" }
+  | { readonly type: "set_judge_voice_muted"; readonly muted: boolean }
   | { readonly type: "begin_first_night" }
   | { readonly type: "set_night_gate"; readonly unlocked: boolean }
   | { readonly type: "select_night_target"; readonly targetSeat: number | null }

@@ -151,6 +151,14 @@ export interface PluginStagePresentation {
   readonly drawerDetent: StageDrawerDetent;
   readonly allowUserSwipeCollapse?: boolean;
   readonly hideDefaultDock?: boolean;
+  readonly confirmSystemBackExit?: boolean;
+}
+
+export interface ResumableStageView {
+  readonly pluginId: string;
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly badgeText?: string;
 }
 
 export interface PluginSnapshot<TState = Record<string, unknown>> {
@@ -184,6 +192,10 @@ export type PluginEvent =
       pluginId: string | null;
       revision?: number;
       presentation: PluginStagePresentation | null;
+    }
+  | {
+      type: "resumable_changed";
+      resumable: ResumableStageView | null;
     };
 
 export type UserTurnBailResult =
@@ -495,6 +507,11 @@ export interface LanRoomSession {
   /** Broadcasts a state revision bump, immediately waking `/api/wait?sinceRev=` long-polls */
   notifyRevision(revision: number): void;
   refreshAddresses(): { readonly lanIpv4: string | null; readonly baseUrl: string };
+  refreshAddressesAsync?(): Promise<{
+    readonly lanIpv4: string | null;
+    readonly baseUrl: string;
+    readonly port: number;
+  }>;
   close(): Promise<void>;
 }
 
@@ -516,7 +533,7 @@ export interface NativeLanHttpRequest {
 }
 
 export interface NativeLanRoomPort {
-  openRoom(requestedId: string): Promise<NativeLanRoomInfo>;
+  openRoom(requestedId: string, preferredPort?: number): Promise<NativeLanRoomInfo>;
   nextRequest(roomId: string): Promise<NativeLanHttpRequest>;
   respondRequest(
     roomId: string,

@@ -121,6 +121,7 @@ function App() {
           composeOpen={compose()}
           composeDraft={draft()}
           activeStage={store.activeStage()}
+          resumableStage={store.resumableStage()}
           getPluginViewContext={(id) => store.pluginViewContext(id)}
           onToggleVoice={toggleLiveVoice}
           onToggleCompose={() => compose.set(!compose())}
@@ -129,6 +130,10 @@ function App() {
           onOpenSettings={() => store.openSpace("models")}
           onOpenResponse={() => responseOpen.set(true)}
           onExitStage={(id) => store.exitPluginStage(id)}
+          onResumeStage={(id) => {
+            void store.resumePluginStage(id);
+          }}
+          registerBackInterceptor={(fn) => store.registerStageBackInterceptor(fn)}
           onReportStageCrash={(id, slot, error) =>
             store.reportPluginStageCrash(id, slot, error)
           }

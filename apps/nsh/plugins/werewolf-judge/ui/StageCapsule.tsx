@@ -1,4 +1,5 @@
 import { Text, View } from "nsh";
+import { Button } from "nsh/base";
 import type { PluginViewContext } from "../../../ui/plugins/ui-contracts";
 import {
   WEREWOLF_PHASE_LABELS,
@@ -76,6 +77,15 @@ const EMPTY_PUBLIC_STATE: WerewolfPublicState = {
   },
   hostPaused: false,
   lastJudgeSpeech: "",
+  voiceStatus: {
+    speaking: false,
+    mutedByHost: false,
+    lastSpokenText: null,
+    lastInterruptedReason: null,
+    degradedToSubtitles: false,
+  },
+  hasResumableMatch: false,
+  canStepBackDeal: false,
 };
 
 export function readWerewolfState(
@@ -177,16 +187,54 @@ export function WerewolfStageCapsule(props: {
 
   const showAlive = () => {
     const phase = st().phase;
-    return phase !== "idle" && phase !== "lobby" && st().seats.length > 0;
+    if (phase === "idle" || phase === "lobby" || st().seats.length === 0) {
+      return false;
+    }
+    if (st().speakingSeat !== null && st().sheriffSeat !== null && showLanBadge()) {
+      return false;
+    }
+    return true;
   };
 
   const showLanBadge = () =>
     st().lan.active || st().rules.surfaceMode === "lan_companion";
 
+  const showJudgeVoiceControls = () =>
+    st().phase !== "idle" && st().phase !== "lobby";
+
+  const voiceStatusLabel = () => {
+    const vs = st().voiceStatus;
+    if (vs.speaking) return loc() === "en-US" ? "Speaking" : "播报中";
+    if (vs.mutedByHost) return loc() === "en-US" ? "Muted" : "已静音";
+    if (vs.degradedToSubtitles) {
+      return loc() === "en-US" ? "Subtitles" : "字幕模式";
+    }
+    return loc() === "en-US" ? "Voice" : "语音";
+  };
+
+  const voiceStatusPillClass = () => {
+    const vs = st().voiceStatus;
+    if (vs.speaking || vs.degradedToSubtitles) {
+      return "px-2 py-0.5 rounded-full bg-lighting-bg border border-face-amber-edge";
+    }
+    return "px-2 py-0.5 rounded-full bg-stage-pill-bg border border-stage-pill-border";
+  };
+
+  const voiceStatusTextClass = () => {
+    const vs = st().voiceStatus;
+    if (vs.speaking) return "text-face-amber-core text-xs font-semibold";
+    if (vs.degradedToSubtitles) return "text-warning text-xs font-semibold";
+    if (vs.mutedByHost) return "text-stage-muted text-xs font-medium";
+    return "text-stage-pill-muted text-xs font-medium";
+  };
+
+  const canReplaySpeech = () =>
+    Boolean(st().voiceStatus.lastSpokenText || st().lastJudgeSpeech);
+
   return (
     <View
       testID="werewolf-stage-capsule"
-      class="flex-row items-center gap-2.5"
+      class="flex-row items-center gap-2.5 max-w-full overflow-hidden"
     >
       <View class="flex-row items-center gap-1.5">
         <View class={dotClass()} />
@@ -270,6 +318,80 @@ export function WerewolfStageCapsule(props: {
               : `扫码 ${st().lan.claimedSeats.length}/${totalCount()}`}
           </Text>
         </View>
+      </If>
+
+      <If when={showJudgeVoiceControls()}>
+        <View class="w-px h-3 bg-stage-pill-border" />
+        <View class={voiceStatusPillClass()}>
+          <Text
+            testID="werewolf-capsule-voice-status"
+            class={voiceStatusTextClass()}
+          >
+            {voiceStatusLabel()}
+          </Text>
+        </View>
+
+        <If when={canReplaySpeech()}>
+          <Button
+            testID="werewolf-replay-speech-btn"
+            hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
+            accessibilityLabel={
+              loc() === "en-US"
+                ? "Replay last judge announcement"
+                : "重播上一条法官播报"
+            }
+            onPress={() => {
+              void props.ctx.sendCommand({ type: "replay_last_speech" });
+            }}
+            class="min-h-7 min-w-11 px-2.5 py-0.5 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
+          >
+            <Text class="text-stage-pill-fg text-xs font-medium">
+              {loc() === "en-US" ? "Replay" : "重播"}
+            </Text>
+          </Button>
+        </If>
+
+        <Button
+          testID="werewolf-mute-speech-btn"
+          hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
+          selected={st().voiceStatus.mutedByHost}
+          accessibilityLabel={
+            st().voiceStatus.mutedByHost
+              ? loc() === "en-US"
+                ? "Unmute judge voice"
+                : "恢复法官语音播报"
+              : loc() === "en-US"
+                ? "Mute judge voice"
+                : "静音法官语音播报"
+          }
+          onPress={() => {
+            void props.ctx.sendCommand({
+              type: "set_judge_voice_muted",
+              muted: !st().voiceStatus.mutedByHost,
+            });
+          }}
+          class={
+            st().voiceStatus.mutedByHost
+              ? "min-h-7 min-w-11 px-2.5 py-0.5 rounded-full border border-face-amber-edge bg-lighting-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
+              : "min-h-7 min-w-11 px-2.5 py-0.5 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
+          }
+        >
+          <Text
+            class={
+              st().voiceStatus.mutedByHost
+                ? "text-face-amber-core text-xs font-semibold"
+                : "text-stage-pill-fg text-xs font-medium"
+            }
+          >
+            {st().voiceStatus.mutedByHost
+              ? loc() === "en-US"
+                ? "Unmute"
+                : "取消静音"
+              : loc() === "en-US"
+                ? "Mute"
+                : "静音"}
+          </Text>
+        </Button>
       </If>
     </View>
   );

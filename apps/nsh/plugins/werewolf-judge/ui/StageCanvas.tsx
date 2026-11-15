@@ -4,6 +4,7 @@ import {
   Image,
   reduceMotion,
   Scroll,
+  signal,
   Text,
   token,
   View,
@@ -58,7 +59,10 @@ function DealingStageCard(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
 }) {
   let pressDownAtMs = 0;
+  let hadPressDown = false;
+  let wasRevealingOnDown = false;
   let holdReleaseConsumed = false;
+  const lanLocalDealSeat = signal<number | null>(null);
 
   const st = () => readWerewolfState(props.ctx);
   const loc = () => props.ctx.locale();
@@ -72,6 +76,10 @@ function DealingStageCard(props: {
     const num = currentSeatNum();
     return num !== null && st().dealingRevealingSeat === num;
   };
+  const showLanCompanionDealCard = () =>
+    st().rules.surfaceMode === "lan_companion" &&
+    lanLocalDealSeat() !== currentSeatNum() &&
+    !isRevealing();
   const confirmedCount = () =>
     st().seats.filter((s) => s.dealtConfirmed).length;
   const totalCount = () => st().seats.length || st().rules.playerCount;
@@ -146,19 +154,35 @@ function DealingStageCard(props: {
                 ? "Everyone please close your eyes to begin Night 1."
                 : "请全场玩家闭上双眼，法官即将开启第一夜行动。"}
             </Text>
-            <Button
-              testID="werewolf-begin-night-btn"
-              onPress={() => {
-                void props.ctx.sendCommand({ type: "begin_first_night" });
-              }}
-              class="min-h-12 px-6 rounded-full bg-eye-core items-center justify-center active:opacity-75"
-            >
-              <Text class="text-stage-bg text-sm font-bold">
-                {loc() === "en-US"
-                  ? "Close Eyes · Enter Night 1"
-                  : "天黑请闭眼 · 进入首夜"}
-              </Text>
-            </Button>
+            <View class="flex-row items-center justify-center gap-2.5">
+              <If when={st().canStepBackDeal}>
+                <Button
+                  testID="werewolf-step-back-deal-btn"
+                  onPress={() => {
+                    lanLocalDealSeat.set(null);
+                    void props.ctx.sendCommand({ type: "step_back_deal" });
+                  }}
+                  class="min-h-12 px-4 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75"
+                >
+                  <Text class="text-stage-pill-fg text-sm font-semibold">
+                    {loc() === "en-US" ? "Undo Last" : "重发上一位"}
+                  </Text>
+                </Button>
+              </If>
+              <Button
+                testID="werewolf-begin-night-btn"
+                onPress={() => {
+                  void props.ctx.sendCommand({ type: "begin_first_night" });
+                }}
+                class="min-h-12 px-6 rounded-full bg-eye-core items-center justify-center active:opacity-75"
+              >
+                <Text class="text-stage-bg text-sm font-bold">
+                  {loc() === "en-US"
+                    ? "Close Eyes · Enter Night 1"
+                    : "天黑请闭眼 · 进入首夜"}
+                </Text>
+              </Button>
+            </View>
           </View>
         }
       >
@@ -246,7 +270,7 @@ function DealingStageCard(props: {
           {/* Right column: Privacy shield / LAN companion dealing controls */}
           <View class="flex-1 min-w-0 justify-between gap-2.5">
             <If
-              when={st().rules.surfaceMode === "lan_companion"}
+              when={showLanCompanionDealCard()}
               else={
                 <View class="flex-1 min-h-0 justify-between gap-2.5">
                   <If
@@ -296,7 +320,7 @@ function DealingStageCard(props: {
                     }}
                   </If>
 
-                  <View class="flex-row items-center gap-2">
+                  <View class="flex-row flex-wrap items-center gap-2">
                     <Button
                       testID="werewolf-deal-reveal-btn"
                       accessibilityLabel={
@@ -307,9 +331,11 @@ function DealingStageCard(props: {
                       onPressDown={() => {
                         const seat = currentSeatNum();
                         if (seat === null) return;
+                        hadPressDown = true;
+                        wasRevealingOnDown = isRevealing();
                         pressDownAtMs = Date.now();
                         holdReleaseConsumed = false;
-                        if (!isRevealing()) {
+                        if (!wasRevealingOnDown) {
                           void props.ctx.sendCommand({
                             type: "set_deal_reveal",
                             seat,
@@ -338,6 +364,19 @@ function DealingStageCard(props: {
                         if (seat === null) return;
                         if (holdReleaseConsumed) {
                           holdReleaseConsumed = false;
+                          hadPressDown = false;
+                          return;
+                        }
+                        if (hadPressDown) {
+                          hadPressDown = false;
+                          pressDownAtMs = 0;
+                          if (wasRevealingOnDown) {
+                            void props.ctx.sendCommand({
+                              type: "set_deal_reveal",
+                              seat,
+                              revealing: false,
+                            });
+                          }
                           return;
                         }
                         pressDownAtMs = 0;
@@ -370,6 +409,36 @@ function DealingStageCard(props: {
                       </Text>
                     </Button>
 
+                    <If
+                      when={
+                        st().rules.surfaceMode === "lan_companion" &&
+                        lanLocalDealSeat() === currentSeatNum()
+                      }
+                    >
+                      <Button
+                        testID="werewolf-lan-local-cancel-btn"
+                        onPress={() => {
+                          const seat = currentSeatNum();
+                          hadPressDown = false;
+                          pressDownAtMs = 0;
+                          holdReleaseConsumed = false;
+                          if (seat !== null && isRevealing()) {
+                            void props.ctx.sendCommand({
+                              type: "set_deal_reveal",
+                              seat,
+                              revealing: false,
+                            });
+                          }
+                          lanLocalDealSeat.set(null);
+                        }}
+                        class="min-h-11 px-2.5 rounded-xl border border-stage-pill-border bg-elevated-glass items-center justify-center active:opacity-75"
+                      >
+                        <Text class="text-stage-pill-fg text-xs font-medium">
+                          {loc() === "en-US" ? "LAN Wait" : "返回副屏"}
+                        </Text>
+                      </Button>
+                    </If>
+
                     <If when={isRevealing()}>
                       <Button
                         testID="werewolf-deal-hide-btn"
@@ -399,13 +468,33 @@ function DealingStageCard(props: {
                       </Button>
                     </If>
 
+                    <If when={st().canStepBackDeal}>
+                      <Button
+                        testID="werewolf-step-back-deal-btn"
+                        onPress={() => {
+                          pressDownAtMs = 0;
+                          hadPressDown = false;
+                          holdReleaseConsumed = false;
+                          lanLocalDealSeat.set(null);
+                          void props.ctx.sendCommand({ type: "step_back_deal" });
+                        }}
+                        class="min-h-11 px-2.5 rounded-xl border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75"
+                      >
+                        <Text class="text-stage-pill-fg text-xs font-medium">
+                          {loc() === "en-US" ? "Prev" : "重发上一位"}
+                        </Text>
+                      </Button>
+                    </If>
+
                     <Button
                       testID="werewolf-deal-confirm-btn"
                       onPress={() => {
                         const seat = currentSeatNum();
                         if (seat === null) return;
                         pressDownAtMs = 0;
+                        hadPressDown = false;
                         holdReleaseConsumed = false;
+                        lanLocalDealSeat.set(null);
                         void props.ctx.sendCommand({
                           type: "confirm_seat_dealt",
                           seat,
@@ -434,7 +523,30 @@ function DealingStageCard(props: {
                     : "每位玩家在各自手机副屏查看身份并确认；如遇无手机玩家可由主机代为确认。"}
                 </Text>
               </View>
-              <View class="flex-row items-center justify-end gap-2">
+              <View class="flex-row flex-wrap items-center justify-end gap-2">
+                <If when={st().canStepBackDeal}>
+                  <Button
+                    testID="werewolf-step-back-deal-btn"
+                    onPress={() => {
+                      lanLocalDealSeat.set(null);
+                      void props.ctx.sendCommand({ type: "step_back_deal" });
+                    }}
+                    class="min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75"
+                  >
+                    <Text class="text-stage-pill-fg text-xs font-medium">
+                      {loc() === "en-US" ? "Prev" : "重发上一位"}
+                    </Text>
+                  </Button>
+                </If>
+                <Button
+                  testID="werewolf-lan-local-deal-btn"
+                  onPress={() => lanLocalDealSeat.set(currentSeatNum())}
+                  class="min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75"
+                >
+                  <Text class="text-stage-pill-fg text-xs font-semibold">
+                    {loc() === "en-US" ? "Local Reveal" : "本机查牌"}
+                  </Text>
+                </Button>
                 <Button
                   testID="werewolf-deal-confirm-btn"
                   onPress={() => {
@@ -499,11 +611,20 @@ function TabletopRingStage(props: {
             class="text-stage-fg text-xs font-medium flex-1"
             style={{ numberOfLines: 1 }}
           >
-            {st().lastJudgeSpeech ||
+            {st().voiceStatus.lastSpokenText ||
+              st().lastJudgeSpeech ||
               (loc() === "en-US"
                 ? "Daytime discussion in progress"
                 : "请按顺序轮流发言")}
           </Text>
+          <If when={st().voiceStatus.degradedToSubtitles}>
+            <Text
+              testID="werewolf-voice-degraded-badge"
+              class="text-warning text-xs font-semibold shrink-0"
+            >
+              {loc() === "en-US" ? "Subtitles Only" : "语音异常已转字幕"}
+            </Text>
+          </If>
         </View>
 
         <If when={st().speakingSeat !== null}>
@@ -943,6 +1064,7 @@ export function WerewolfStageCanvas(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
 }) {
   const st = () => readWerewolfState(props.ctx);
+  const loc = () => props.ctx.locale();
 
   const isSplitDayTable = () => {
     const p = st().phase;
@@ -956,9 +1078,19 @@ export function WerewolfStageCanvas(props: {
     return false;
   };
 
-  const isQuietNightFull = () => {
+  const subtitleText = () =>
+    st().voiceStatus.lastSpokenText || st().lastJudgeSpeech;
+
+  const showFloatingJudgeSubtitle = () => {
     const p = st().phase;
-    return p === "night_intro" || p === "dawn_settle";
+    return (
+      p !== "idle" &&
+      p !== "lobby" &&
+      p !== "dealing" &&
+      p !== "game_over" &&
+      !isSplitDayTable() &&
+      Boolean(subtitleText())
+    );
   };
 
   return (
@@ -975,18 +1107,26 @@ export function WerewolfStageCanvas(props: {
         <GameOverStage ctx={props.ctx} />
       </If>
 
-      <If when={isQuietNightFull() && Boolean(st().lastJudgeSpeech)}>
+      <If when={showFloatingJudgeSubtitle()}>
         <View
-          class="flex-1 justify-end items-center pb-4"
+          class="flex-1 justify-end items-center pb-14"
           style={{ pointerEvents: "none" }}
         >
-          <View class="rounded-full border border-stage-pill-border bg-glass-bg px-4 py-2">
+          <View class="rounded-full border border-stage-pill-border bg-glass-bg px-4 py-2 flex-row items-center gap-2 max-w-full">
+            <If when={st().voiceStatus.degradedToSubtitles}>
+              <Text
+                testID="werewolf-voice-degraded-badge"
+                class="text-warning text-xs font-semibold shrink-0"
+              >
+                {loc() === "en-US" ? "Subtitles" : "字幕降级"}
+              </Text>
+            </If>
             <Text
               testID="werewolf-night-subtitle"
-              class="text-stage-muted text-xs font-medium"
+              class="text-stage-muted text-xs font-medium shrink"
               style={{ numberOfLines: 1 }}
             >
-              {st().lastJudgeSpeech}
+              {subtitleText()}
             </Text>
           </View>
         </View>
