@@ -1,5 +1,9 @@
 # 当前待办
 
+## Rust Harness 移动端适配
+
+- [ ] 核实 rpi 的 iOS/Android 构建依赖，以及与当前 Pi 1.5.0 会话格式、工具事件的映射；源码调研尚未建立移动端可用性证据。见 [Rust Harness 调研](docs/rust-agent-harness-research-2026-11-16.md)。
+
 ## 具身狼人杀 AI 裁判与视觉座位追踪真机底座验收
 
 - [ ] 连接 iOS 或 Android 开发真机并吸合真实 LOOI 蓝牙底座（横屏 `844 × 390`），在木质／玻璃等不同摩擦系数圆桌上实测 `werewolf-judge` 发牌阶段的 `vision-person-tracker` 硬件人脸 `offsetX` 比例对脸闭环、黑夜声学掩护归位（`Decoy Sweep`）实耳听感无方位泄密，以及多人同局域网／手机热点下微信扫码副屏盲操与终局语音外放复盘；当前 iOS 模拟器横屏开发包安装调试、进程内 `LanRoomHost` 真实 TCP 多客户端对局 E2E 与全套状态机／安全不变量回归验证均纳入本轮自动化覆盖。

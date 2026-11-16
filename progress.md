@@ -1,3 +1,12 @@
+## Rust Agent Harness 调研（2026-11-16）
+
+- [x] Step 1：核实 Pi 的 Rust 移植与原生 Rust 执行框架的一手资料。
+  - [x] 比较可嵌入库、工具循环、会话、上下文压缩与扩展接口。
+  - [x] 识别移动端进程内运行所需的依赖边界。
+- [x] Step 2：整理调研笔记、复核推荐依据并提交本次文档。
+  - [x] 形成 `docs/rust-agent-harness-research-2026-11-16.md`；独立子 agent 复核关键 API、依赖与选型依据，无实质问题。
+  - [x] 将移动端适配与现有会话兼容性问题记录到 `todo.md`，仅提交本次调研改动。
+
 ## 「视觉座位追踪」取景频闪修复与具身跟脸伴随增强（2026-11-15）
 
 方案见 [`docs/plans/vision-person-tracker-fix-plan.md`](docs/plans/vision-person-tracker-fix-plan.md)。
