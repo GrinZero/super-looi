@@ -58,7 +58,9 @@ pnpm --filter @super-looi/nsh ios --device "<IPHONE_UDID>"
 
 脚本从 `.env` 读取 `NSH_CLI_PATH` 并核验版本/revision；没有匹配 CLI 则构建固定源码。仅白名单 Android SDK/NDK/JAVA_HOME 传到构建工具，不把模型/语音 Key 导出或打进 bundle。需要 Rust 1.97+、macOS/Xcode（iOS）或 Android SDK/NDK/JDK；本机 Rust 1.99.1。Rolldown 内部 crate 固定 1.2.13，避免和 1.3 混装。
 
-`NodeCompat` 构造从宿主 System 取得私有目录并校验 grant；JS 不传宿主路径。request/begin 同步入场，wait 单次消费；Shell/codemode 原生线程不依赖 NSH executor 提供 Tokio。`CredentialVault` 使用 iOS Keychain WhenUnlockedThisDeviceOnly，Android 使用不可导出的 Keystore AES-GCM 密钥、槽位 AAD、700/600 私有文件和进程锁。凭据目录不属于 Agent 文件命名空间。
+`NodeCompat` 构造从宿主 System 取得私有目录并校验 grant；JS 不传宿主路径。request/begin 同步入场，wait 单次消费；Shell/codemode 原生线程不依赖 NSH executor 提供 Tokio。`CredentialVault` 保持统一的 `get/set/remove` 槽位接口：iOS 使用 Keychain WhenUnlockedThisDeviceOnly；macOS 使用登录钥匙串；Android 使用不可导出的 Keystore AES-GCM 密钥、槽位 AAD、700/600 私有文件和进程锁；Linux 通过会话 D-Bus 连接系统 Secret Service（如 GNOME Keyring、支持该协议的 KWallet），使用 DH 加密会话和默认持久集合，以 `service/account` 属性识别槽位并替换已有值。Linux 需运行 Secret Service 提供程序并配置默认集合；锁定时由系统提供解锁交互。连接、解锁、读写失败保留具体阶段和底层错误。凭据目录不属于 Agent 文件命名空间。
+
+`CredentialVault.backend()` 分别返回 `ios-keychain`、`macos-keychain`、`android-keystore`、`linux-secret-service`。桌面实际存储回归使用专用 `probe` 槽位，运行 `cargo test --manifest-path apps/nsh/Cargo.toml desktop_system_store_round_trip -- --ignored`，覆盖缺失、Unicode、重开、覆盖更新和幂等删除。
 
 `native/plugins.json` 注册 app 自有构建插件：模拟器用 Xcode 的 `__TEXT,__entitlements` 方式提供测试 Keychain 身份；Android Application 在标准 JNI 入口登记 JVM。app 局部 SDK overlay 在签名前增量修改 binary manifest 的 application name/allowBackup 并加入有归属标记的空闲 DEX；保留原权限、资源、组件和签名参数。原生变更由 app 自有插件处理。真机签名仍使用真实 provisioning profile，模拟器身份不能用于发行。
 

@@ -13,35 +13,41 @@ function CompatProbe() {
   effect(() => {
     void verifyNativePackage()
       .then(() => {
-        if (platform.os !== "ios" && platform.os !== "android") return;
         const vault = new CredentialVault();
-        if (vault.backend() === "desktop") return;
-        const audio = new VoiceAudio();
-        try {
-          if (audio.status().state !== "idle")
-            throw new Error("Audio unexpectedly active at creation");
-          const permission = audio.status().permission;
-          if (permission !== "granted") {
-            let denied = false;
-            try { audio.start(true); } catch { denied = true; }
-            if (!denied || audio.status().permission !== permission)
-              throw new Error("Native capture bypassed the explicit permission boundary");
+        const backend = vault.backend();
+        // Headless tests may emulate a mobile UI on a desktop host. Only touch
+        // the real system vault when the UI platform matches the native host.
+        if (backend !== `${platform.os}-keychain` &&
+            backend !== `${platform.os}-keystore` &&
+            backend !== `${platform.os}-secret-service`) return;
+        if (platform.os === "ios" || platform.os === "android") {
+          const audio = new VoiceAudio();
+          try {
+            if (audio.status().state !== "idle")
+              throw new Error("Audio unexpectedly active at creation");
+            const permission = audio.status().permission;
+            if (permission !== "granted") {
+              let denied = false;
+              try { audio.start(true); } catch { denied = true; }
+              if (!denied || audio.status().permission !== permission)
+                throw new Error("Native capture bypassed the explicit permission boundary");
+              audio.stop();
+              console.log("PASS native microphone permission gate: ungranted capture rejected without prompt");
+            }
+            audio.start(false);
+            audio.enqueue(new Uint8Array(960), 24000);
+            if (audio.status().state !== "running")
+              throw new Error("Native output failed to start");
+            audio.clearPlayback();
             audio.stop();
-            console.log("PASS native microphone permission gate: ungranted capture rejected without prompt");
+            if (audio.status().state !== "idle")
+              throw new Error("Native output failed to stop");
+            console.log(
+              "PASS native PCM output: silent enqueue, clear, stop; no microphone capture",
+            );
+          } finally {
+            audio.stop();
           }
-          audio.start(false);
-          audio.enqueue(new Uint8Array(960), 24000);
-          if (audio.status().state !== "running")
-            throw new Error("Native output failed to start");
-          audio.clearPlayback();
-          audio.stop();
-          if (audio.status().state !== "idle")
-            throw new Error("Native output failed to stop");
-          console.log(
-            "PASS native PCM output: silent enqueue, clear, stop; no microphone capture",
-          );
-        } finally {
-          audio.stop();
         }
         try {
           vault.set("probe", "non-secret native vault 你好");
@@ -53,6 +59,7 @@ function CompatProbe() {
           vault.set("probe", "updated test entry");
           if (vault.get("probe") !== "updated test entry")
             throw new Error("Vault update mismatch");
+          vault.remove("probe");
           vault.remove("probe");
           if (vault.get("probe") !== "")
             throw new Error("Vault delete mismatch");

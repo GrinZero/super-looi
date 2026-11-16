@@ -1,3 +1,16 @@
+## macOS 与 Linux 凭据存储（2026-11-16）
+
+- [x] Step 1：检查 CredentialVault 调用方、平台分支与依赖，读取 codebase-design 和 NSH 编码约定。
+  - [x] 确认 macOS 已有 Keychain 分支，但 backend 标识与探针未覆盖；Linux 缺少实现。
+- [x] Step 2：实现桌面后端并保留现有 get/set/remove 接口。
+  - [x] 修正 macOS 后端标识，桌面使用登录钥匙串，iOS 保留原访问保护。
+  - [x] 接入 Linux Secret Service，以 service/account 匹配槽位并覆盖写入，保留各阶段底层失败原因。
+  - [x] 更新原生探针与凭据存储说明。
+- [x] Step 3：执行可用环境验证、记录 Linux 实机缺口，独立 review 后隔离提交。
+  - [x] `cargo check --all-targets` 通过；macOS 真实钥匙串回归通过（缺失、Unicode、重开、覆盖、幂等删除）。
+  - [x] Linux 后端 `aarch64-unknown-linux-musl` 交叉编译通过；`pnpm --filter @super-looi/nsh typecheck`、原生桥接回归和 `cargo clippy --all-targets --locked` 通过。现有非凭据模块编译警告未改动。
+  - [x] 独立子 agent review 未发现可操作缺陷；Linux 实际存储与解锁交互待办已记录，隔离提交本次凭据改动。
+
 ## Rust Agent Harness 调研（2026-11-16）
 
 - [x] Step 1：核实 Pi 的 Rust 移植与原生 Rust 执行框架的一手资料。

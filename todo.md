@@ -1,5 +1,9 @@
 # 当前待办
 
+## 桌面凭据存储
+
+- [ ] 在运行 Secret Service 且配置默认集合的 Linux 桌面执行 `desktop_system_store_round_trip`（`--ignored`），验证真实存储的重开、覆盖与幂等删除，并核对锁定集合解锁交互。macOS 实际钥匙串回归已通过；当前开发机没有 Linux Secret Service 运行环境。
+
 ## Rust Harness 移动端适配
 
 - [ ] 核实 rpi 的 iOS/Android 构建依赖，以及与当前 Pi 1.5.0 会话格式、工具事件的映射；源码调研尚未建立移动端可用性证据。见 [Rust Harness 调研](docs/rust-agent-harness-research-2026-11-16.md)。
