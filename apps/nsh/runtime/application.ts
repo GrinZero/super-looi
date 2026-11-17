@@ -287,7 +287,7 @@ export class MobileRuntime {
   exitPluginStage(id: string) { this.plugins.stage.exitPluginStage(id); }
   reportPluginStageCrash(
     id: string,
-    slot: "StageCanvas" | "StageCapsule" | "StageDrawer",
+    slot: "StageCanvas" | "StageCompanion" | "StageCapsule" | "StageDrawer",
     error: unknown,
   ) {
     return this.plugins.reportStageCrash(id, slot, error);

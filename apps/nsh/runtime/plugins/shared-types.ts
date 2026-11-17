@@ -149,6 +149,7 @@ export interface PluginStagePresentation {
   readonly active: boolean;
   readonly facePosture: FaceStagePosture;
   readonly drawerDetent: StageDrawerDetent;
+  readonly capsulePlacement?: "below_top" | "top_bar";
   readonly allowUserSwipeCollapse?: boolean;
   readonly hideDefaultDock?: boolean;
   readonly confirmSystemBackExit?: boolean;

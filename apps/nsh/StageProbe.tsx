@@ -215,7 +215,7 @@ function StageProbeApp() {
         voiceAudioLevel={0}
         voiceProviderLabel="豆包"
         wakeGuideDismissed={false}
-        responseText={staleResponseText()}
+        responseText={voiceState().transcript || staleResponseText()}
         composeOpen={composeOpen()}
         composeDraft={composeDraft()}
         activeStage={activeStage()}
@@ -329,6 +329,19 @@ function StageProbeApp() {
             class="px-2 py-1 rounded bg-stage-pill-bg"
           >
             <Text class="text-stage-pill-fg text-xs">切换历史回复</Text>
+          </Button>
+          <Button
+            testID="probe-toggle-live-speech"
+            onPress={() =>
+              voiceState.update((v) =>
+                v.phase === "speaking"
+                  ? { ...v, phase: "idle", transcript: "" }
+                  : { ...v, phase: "speaking", transcript: "法官播报中：今晚请闭眼" },
+              )
+            }
+            class="px-2 py-1 rounded bg-stage-pill-bg"
+          >
+            <Text class="text-stage-pill-fg text-xs">切换语音播报</Text>
           </Button>
         </View>
       </View>

@@ -1,4 +1,18 @@
-import { Canvas, Text, token, View } from "nsh";
+import {
+  Canvas,
+  Clipboard,
+  computed,
+  effect,
+  reduceMotion,
+  Scroll,
+  signal,
+  Text,
+  token,
+  View,
+  windowSize,
+} from "nsh";
+import { Button, Dialog } from "nsh/base";
+import { ActionButton } from "../../../ui/Controls";
 
 interface QrVersionSpec {
   readonly version: number;
@@ -469,76 +483,378 @@ export function encodeQrMatrix(text: string): boolean[][] {
   return bestMatrix;
 }
 
+interface QrRenderState {
+  readonly matrix: boolean[][] | null;
+  readonly error: string | null;
+}
+
+function resolveQrState(raw: string): QrRenderState {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { matrix: null, error: null };
+  }
+  try {
+    return { matrix: encodeQrMatrix(trimmed), error: null };
+  } catch (err) {
+    const record = err as { code?: unknown; stage?: unknown; message?: unknown } | null;
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof record?.message === "string"
+          ? record.message
+          : String(err);
+    const code = typeof record?.code === "string" ? record.code : "ERR_QR_ENCODE_FAILED";
+    const stage = typeof record?.stage === "string" ? record.stage : "qr.encode";
+    return {
+      matrix: null,
+      error: message.includes("code=") ? message : `[stage=${stage} code=${code}] ${message}`,
+    };
+  }
+}
+
+function QrMatrixCanvas(props: {
+  state: () => QrRenderState;
+  locale: () => "zh-CN" | "en-US";
+  testID: string;
+}) {
+  return (
+    <If
+      when={Boolean(props.state().matrix)}
+      else={
+        <If
+          when={Boolean(props.state().error)}
+          else={
+            <Text class="text-stage-bg text-xs text-center px-1.5">
+              {props.locale() === "en-US" ? "Waiting for LAN URL" : "等待局域网地址"}
+            </Text>
+          }
+        >
+          <Text
+            testID={`${props.testID}-error`}
+            class="text-stage-bg text-xs font-medium text-center px-1"
+            style={{ numberOfLines: 4 }}
+          >
+            {props.state().error}
+          </Text>
+        </If>
+      }
+    >
+      <Canvas
+        testID={props.testID}
+        class="w-full h-full"
+        style={{ pointerEvents: "none" }}
+        draw={(cx, canvasSize) => {
+          cx.clearRect(0, 0, canvasSize.width, canvasSize.height);
+          const matrix = props.state().matrix;
+          if (!matrix) return;
+          const moduleCount = matrix.length;
+          const quietModules = 4;
+          const totalGrid = moduleCount + quietModules * 2;
+          const side = Math.min(canvasSize.width, canvasSize.height);
+          const cell = Math.max(1, Math.floor(side / totalGrid));
+          const drawnSpan = cell * totalGrid;
+          const originX = Math.floor((canvasSize.width - drawnSpan) / 2);
+          const originY = Math.floor((canvasSize.height - drawnSpan) / 2);
+
+          cx.fillStyle = token("face-ivory-core");
+          cx.fillRect(0, 0, canvasSize.width, canvasSize.height);
+
+          cx.fillStyle = token("stage-bg");
+          for (let r = 0; r < moduleCount; r += 1) {
+            const row = matrix[r]!;
+            const py = originY + (r + quietModules) * cell;
+            for (let c = 0; c < moduleCount; c += 1) {
+              if (row[c]) {
+                const px = originX + (c + quietModules) * cell;
+                cx.fillRect(px, py, cell, cell);
+              }
+            }
+          }
+        }}
+      />
+    </If>
+  );
+}
+
+/**
+ * Renders a high-contrast QR matrix card that opens an enlarged landscape modal
+ * when tapped (disable via `zoomable={false}` when embedding in non-interactive surfaces).
+ */
 export function QrCodeCanvas(props: {
   value: string;
   size?: number;
   label?: string;
   testID?: string;
+  zoomable?: boolean;
+  locale?: "zh-CN" | "en-US";
+  surface?: "card" | "stage";
+  onNotify?: (message: string) => void;
 }) {
+  const expanded = signal(false);
+  const copied = signal(false);
+  const copyError = signal("");
+
+  const loc = (): "zh-CN" | "en-US" => props.locale ?? "zh-CN";
+  const isEn = () => loc() === "en-US";
   const boxSize = () => props.size ?? 136;
+  const qrState = computed(() => resolveQrState(props.value));
+  const canZoom = () => Boolean(qrState().matrix);
+  const cardTestId = () => props.testID ?? "werewolf-qr-card";
+  const smallCanvasTestId = () =>
+    cardTestId() === "werewolf-qr-card"
+      ? "werewolf-qr-canvas"
+      : `${cardTestId()}-canvas`;
+  const borderClass = () =>
+    props.surface === "stage" ? "border-stage-pill-border" : "border-border";
+  const maxDialogHeight = () => Math.max(160, windowSize().height - 32);
+  const enlargedSize = () =>
+    Math.max(
+      120,
+      Math.min(256, Math.min(windowSize().width - 220, maxDialogHeight() - 36)),
+    );
+  const titleText = () =>
+    props.label ?? (isEn() ? "LAN Companion QR" : "局域网扫码副屏");
+
+  const cardStyle = () => ({
+    width: boxSize(),
+    height: boxSize(),
+    backgroundColor: token("face-ivory-core"),
+  });
+
+  const baseCardClass = () =>
+    `rounded-2xl border ${borderClass()} p-1.5 items-center justify-center shrink-0 overflow-hidden`;
+
+  const triggerFocusClass = () =>
+    props.surface === "stage"
+      ? "focus-visible:border-face-amber-edge"
+      : "focus-visible:border-ring dark:focus-visible:border-face-amber-edge";
+
+  const cardAccessibilityLabel = (interactive: boolean) => {
+    const err = qrState().error;
+    const prefix = titleText();
+    if (err) {
+      return isEn()
+        ? `${prefix}: unavailable (${err})`
+        : `${prefix}：无法生成（${err}）`;
+    }
+    const url = props.value.trim();
+    if (!url) {
+      return isEn()
+        ? `${prefix}: waiting for LAN URL`
+        : `${prefix}：等待局域网地址`;
+    }
+    if (!interactive) {
+      return isEn() ? `${prefix}: ${url}` : `${prefix}：${url}`;
+    }
+    return isEn()
+      ? `${prefix}: ${url} (Tap to enlarge QR code)`
+      : `${prefix}：${url}（点击放大二维码）`;
+  };
+
+  let lastNotifiedQrError: string | null = null;
+  effect(() => {
+    const err = qrState().error;
+    if (err && err !== lastNotifiedQrError) {
+      lastNotifiedQrError = err;
+      props.onNotify?.(err);
+    } else if (!err) {
+      lastNotifiedQrError = null;
+    }
+  });
+
+  effect(() => {
+    if (!canZoom() || props.zoomable === false) {
+      expanded.set(false);
+    }
+  });
+
+  let prevUrl = props.value;
+  let wasExpanded = false;
+  effect(() => {
+    const nextUrl = props.value;
+    const isExpanded = expanded();
+    if (nextUrl !== prevUrl || isExpanded !== wasExpanded) {
+      prevUrl = nextUrl;
+      wasExpanded = isExpanded;
+      copied.set(false);
+      copyError.set("");
+    }
+  });
+
+  effect(() => {
+    if (!copied()) return;
+    const timer = setTimeout(() => copied.set(false), 1800);
+    return () => clearTimeout(timer);
+  });
+
+  const renderSmallMatrix = () => (
+    <QrMatrixCanvas
+      state={qrState}
+      locale={loc}
+      testID={smallCanvasTestId()}
+    />
+  );
 
   return (
-    <View
-      testID={props.testID ?? "werewolf-qr-card"}
-      role="image"
-      accessibilityLabel={
-        props.label
-          ? `${props.label}: ${props.value}`
-          : `局域网房间二维码 ${props.value}`
+    <If
+      when={props.zoomable !== false}
+      else={
+        <View
+          testID={cardTestId()}
+          role="image"
+          accessibilityLabel={cardAccessibilityLabel(false)}
+          class={baseCardClass()}
+          style={cardStyle()}
+        >
+          {renderSmallMatrix()}
+        </View>
       }
-      class="rounded-2xl border border-stage-pill-border p-1.5 items-center justify-center shrink-0"
-      style={{
-        width: boxSize(),
-        height: boxSize(),
-        backgroundColor: token("face-ivory-core"),
-      }}
     >
-      <If
-        when={Boolean(props.value.trim())}
-        else={
-          <Text class="text-muted-foreground text-xs">等待局域网地址</Text>
-        }
-      >
-        <Canvas
-          testID="werewolf-qr-canvas"
-          class="w-full h-full"
-          style={{ pointerEvents: "none" }}
-          draw={(cx, canvasSize) => {
-            cx.clearRect(0, 0, canvasSize.width, canvasSize.height);
-            const raw = props.value.trim();
-            if (!raw) return;
-            let matrix: boolean[][];
-            try {
-              matrix = encodeQrMatrix(raw);
-            } catch {
-              return;
-            }
-            const moduleCount = matrix.length;
-            const quietModules = 3;
-            const totalGrid = moduleCount + quietModules * 2;
-            const side = Math.min(canvasSize.width, canvasSize.height);
-            const cell = Math.max(1, Math.floor(side / totalGrid));
-            const drawnSpan = cell * totalGrid;
-            const originX = Math.floor((canvasSize.width - drawnSpan) / 2);
-            const originY = Math.floor((canvasSize.height - drawnSpan) / 2);
-
-            cx.fillStyle = token("face-ivory-core");
-            cx.fillRect(0, 0, canvasSize.width, canvasSize.height);
-
-            cx.fillStyle = token("stage-bg");
-            for (let r = 0; r < moduleCount; r += 1) {
-              const row = matrix[r]!;
-              const py = originY + (r + quietModules) * cell;
-              for (let c = 0; c < moduleCount; c += 1) {
-                if (row[c]) {
-                  const px = originX + (c + quietModules) * cell;
-                  cx.fillRect(px, py, cell, cell);
-                }
-              }
+      <View class="shrink-0">
+        <Button
+          testID={cardTestId()}
+          disabled={!canZoom()}
+          accessibilityLabel={cardAccessibilityLabel(true)}
+          onPress={() => {
+            if (canZoom()) {
+              expanded.set(true);
             }
           }}
-        />
-      </If>
-    </View>
+          class={`${baseCardClass()} transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100 ${triggerFocusClass()} disabled:opacity-60`}
+          style={cardStyle()}
+        >
+          {renderSmallMatrix()}
+        </Button>
+
+        <Dialog
+          testID={`${cardTestId()}-zoom-dialog`}
+          open={expanded() && canZoom()}
+          animation={reduceMotion() ? "none" : "fade"}
+          presentation="fullScreen"
+          accessibilityLabel={titleText()}
+          closeOnEscape={true}
+          closeOnSwipe={true}
+          closeOnBackdropPress={true}
+          onOpenChange={(e) => {
+            if (!e.open) {
+              expanded.set(false);
+            }
+          }}
+          backdropClass="bg-backdrop"
+          backdropTestID={`${cardTestId()}-zoom-backdrop`}
+          class="m-auto rounded-2xl border border-border bg-popover p-4 shadow-lg"
+          style={{
+            width: Math.min(560, windowSize().width - 32),
+            maxHeight: maxDialogHeight(),
+          }}
+        >
+          <View
+            testID={`${cardTestId()}-zoom-card`}
+            class="flex-row items-center gap-4"
+          >
+            <Button
+              testID={`${cardTestId()}-zoom-qr`}
+              accessibilityLabel={
+                isEn() ? "Collapse enlarged QR code" : "收起放大二维码"
+              }
+              onPress={() => expanded.set(false)}
+              class="rounded-xl border border-border p-2 items-center justify-center shrink-0 overflow-hidden transition-transform duration-180 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:border-ring dark:focus-visible:border-face-amber-edge"
+              style={{
+                width: enlargedSize(),
+                height: enlargedSize(),
+                backgroundColor: token("face-ivory-core"),
+              }}
+            >
+              <QrMatrixCanvas
+                state={qrState}
+                locale={loc}
+                testID={`${cardTestId()}-zoom-canvas`}
+              />
+            </Button>
+
+            <Scroll
+              class="flex-1 min-w-0"
+              style={{ maxHeight: enlargedSize() }}
+              contentClass="justify-between gap-3"
+            >
+              <View class="gap-1">
+                <Text
+                  class="text-foreground text-base font-bold"
+                  role="header"
+                >
+                  {titleText()}
+                </Text>
+                <Text class="text-muted-foreground text-xs">
+                  {isEn()
+                    ? "Scan with your phone camera or browser to join. Tap QR code or backdrop to close."
+                    : "使用手机相机或浏览器扫码加入房间，点击二维码或空白处可收起"}
+                </Text>
+              </View>
+
+              <View class="rounded-lg border border-border bg-muted px-3 py-2">
+                <Text
+                  testID={`${cardTestId()}-zoom-url`}
+                  class="text-foreground text-xs font-mono"
+                  style={{ numberOfLines: 2 }}
+                >
+                  {props.value}
+                </Text>
+              </View>
+
+              <If when={Boolean(copyError())}>
+                <Text
+                  testID={`${cardTestId()}-zoom-copy-error`}
+                  class="text-destructive text-xs"
+                >
+                  {copyError()}
+                </Text>
+              </If>
+
+              <View class="flex-row flex-wrap items-center gap-2">
+                <ActionButton
+                  testID={`${cardTestId()}-zoom-copy`}
+                  compact
+                  label={
+                    copied()
+                      ? isEn()
+                        ? "URL Copied"
+                        : "已复制链接"
+                      : isEn()
+                        ? "Copy URL"
+                        : "复制链接"
+                  }
+                  onPress={() => {
+                    const url = props.value.trim();
+                    if (!url) return;
+                    void Clipboard.writeText(url)
+                      .then(() => {
+                        copyError.set("");
+                        copied.set(true);
+                      })
+                      .catch((err) => {
+                        const detail =
+                          err instanceof Error ? err.message : String(err);
+                        const message = detail.includes("code=")
+                          ? detail
+                          : `[stage=qr.copy code=ERR_CLIPBOARD_WRITE] ${detail || "Clipboard write failed"}`;
+                        copied.set(false);
+                        copyError.set(message);
+                        props.onNotify?.(message);
+                      });
+                  }}
+                />
+                <ActionButton
+                  testID={`${cardTestId()}-zoom-close`}
+                  compact
+                  kind="primary"
+                  label={isEn() ? "Close QR" : "收起二维码"}
+                  onPress={() => expanded.set(false)}
+                />
+              </View>
+            </Scroll>
+          </View>
+        </Dialog>
+      </View>
+    </If>
   );
 }

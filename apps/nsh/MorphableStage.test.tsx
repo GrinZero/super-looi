@@ -109,9 +109,13 @@ test("MorphableStage morphs across all 5 postures without unmounting RobotFace, 
     expect(app.shows("id:exit-plugin-stage")).toBe(false);
     expect(app.shows("id:morphable-stage")).toBe(true);
 
-    // Stale task response preview shows in full posture, hides during active stage with hideDefaultDock/drawer, and reappears on exit
+    // Stale task response preview AND live voice speech subtitle show in full posture,
+    // hide during active stage with hideDefaultDock/drawer, and reappear on exit
     await app.press("probe-toggle-stale-response");
     expect(app.texts()).toContain("历史任务回复：不遮挡插件抽屉");
+    await app.press("probe-toggle-live-speech");
+    expect(app.shows("id:subtitle-capsule")).toBe(true);
+    expect(app.texts()).toContain("法官播报中：今晚请闭眼");
 
     // 2. Morph to floating_top + peek drawer + StageCapsule + StageCanvas
     await app.press("probe-floating-top");
@@ -120,7 +124,9 @@ test("MorphableStage morphs across all 5 postures without unmounting RobotFace, 
     expect(app.shows("id:exit-plugin-stage")).toBe(true);
     expect(app.texts()).toContain("阶段：天黑请闭眼");
     expect(app.texts()).toContain("狼人杀控制台 · 档位:peek");
+    expect(app.shows("id:subtitle-capsule")).toBe(false);
     expect(app.texts().includes("历史任务回复：不遮挡插件抽屉")).toBe(false);
+    expect(app.texts().includes("法官播报中：今晚请闭眼")).toBe(false);
 
     // Plugin StageCanvas & StageDrawer receive taps cleanly without RobotFace stealing pointer events
     await app.press("seat-pick-3");
@@ -188,11 +194,14 @@ test("MorphableStage morphs across all 5 postures without unmounting RobotFace, 
     await app.press("compose");
     expect(app.shows("id:message-input")).toBe(false);
 
-    // Host exit-plugin-stage unconditionally exits even when allowUserSwipeCollapse=false, and restores historical response preview
+    // Host exit-plugin-stage unconditionally exits even when allowUserSwipeCollapse=false, and restores historical response preview & voice subtitle
     await app.press("exit-plugin-stage");
     await app.wait(220);
     expect(app.shows("id:exit-plugin-stage")).toBe(false);
     expect(app.count("id:looi-face")).toBe(1);
+    expect(app.shows("id:subtitle-capsule")).toBe(true);
+    expect(app.texts()).toContain("法官播报中：今晚请闭眼");
+    await app.press("probe-toggle-live-speech");
     expect(app.texts()).toContain("历史任务回复：不遮挡插件抽屉");
     await app.press("probe-toggle-stale-response");
 

@@ -1348,7 +1348,7 @@ export function createAppStore() {
     },
     reportPluginStageCrash(
       pluginId: string,
-      slot: "StageCanvas" | "StageCapsule" | "StageDrawer",
+      slot: "StageCanvas" | "StageCompanion" | "StageCapsule" | "StageDrawer",
       error: unknown,
     ) {
       lastStageBackExitArmMs = 0;

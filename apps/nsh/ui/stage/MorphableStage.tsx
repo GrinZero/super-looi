@@ -46,7 +46,7 @@ import {
   STAGE_BASE_PILL_WIDTH,
 } from "./posture-geometry";
 
-export type StageSlotName = "StageCanvas" | "StageCapsule" | "StageDrawer";
+export type StageSlotName = "StageCanvas" | "StageCompanion" | "StageCapsule" | "StageDrawer";
 
 export interface ActiveStageLeaseView {
   readonly pluginId: string;
@@ -199,8 +199,10 @@ function serializeStageLeaseIdentity(stage: ActiveStageLeaseView | null): string
   }
   const p = stage.presentation;
   return `${stage.pluginId}#${p.active ? "1" : "0"}:${p.drawerDetent}:${
-    p.allowUserSwipeCollapse === false ? "0" : "1"
-  }:${p.hideDefaultDock ? "1" : "0"}:${JSON.stringify(p.facePosture)}`;
+    p.capsulePlacement ?? "below_top"
+  }:${p.allowUserSwipeCollapse === false ? "0" : "1"}:${
+    p.hideDefaultDock ? "1" : "0"
+  }:${JSON.stringify(p.facePosture)}`;
 }
 
 /**
@@ -259,11 +261,19 @@ export function MorphableStage(props: MorphableStageProps) {
     Boolean(activeUiModule()?.StageCapsule),
   );
 
+  const hasStageCompanion = computed(() =>
+    Boolean(activeUiModule()?.StageCompanion),
+  );
+
   const effectivePosture = computed<FaceStagePosture>(() => {
     const stage = props.activeStage;
     if (!stage || !stage.presentation.active) return FULL_POSTURE;
     return stage.presentation.facePosture;
   });
+
+  const capsulePlacement = computed<"below_top" | "top_bar">(() =>
+    props.activeStage?.presentation.capsulePlacement ?? "below_top",
+  );
 
   const effectiveDrawerDetent = computed<StageDrawerDetent>(() => {
     const stage = props.activeStage;
@@ -302,6 +312,8 @@ export function MorphableStage(props: MorphableStageProps) {
       drawerDetent: effectiveDrawerDetent(),
       hasDrawer: hasStageDrawer(),
       hasCapsule: hasStageCapsule(),
+      capsulePlacement: capsulePlacement(),
+      hasCompanion: hasStageCompanion(),
     }),
   );
 
@@ -430,14 +442,10 @@ export function MorphableStage(props: MorphableStageProps) {
   const voiceActive = () =>
     ["connecting", "listening", "speaking"].includes(props.voiceState.phase);
 
-  const liveVoiceTranscriptActive = () =>
-    ["listening", "speaking"].includes(props.voiceState.phase) &&
-    Boolean(props.voiceState.transcript);
-
   const showResponsePreview = () => {
     if (!props.responseText) return false;
     const stage = props.activeStage;
-    if (stage && stage.presentation.active && !liveVoiceTranscriptActive()) {
+    if (stage && stage.presentation.active) {
       if (stage.presentation.hideDefaultDock) return false;
       if (effectiveDrawerDetent() !== "closed") return false;
     }
@@ -486,10 +494,9 @@ export function MorphableStage(props: MorphableStageProps) {
             <If when={Boolean(CanvasSlot())}>
               {() => {
                 const Comp = CanvasSlot()!;
-                const canvasMotion = createMotion({
-                  enter: "fadeIn",
-                  duration: 180,
-                });
+                const canvasMotion = createMotion(
+                  reduceMotion() ? {} : { enter: "fadeIn", duration: 180 },
+                );
                 return (
                   <View
                     testID="stage-canvas-region"
@@ -501,16 +508,28 @@ export function MorphableStage(props: MorphableStageProps) {
                       bottom: layout().canvas.bottom,
                       left: layout().canvas.left,
                       opacity: canvasMotion.opacity,
-                      pointerEvents: "box-none",
+                      pointerEvents: layout().canvasOccludedByDrawer
+                        ? "none"
+                        : "box-none",
                     }}
                   >
-                    <PluginStageSlotBoundary
-                      pluginId={pluginId}
-                      slot="StageCanvas"
-                      onCrash={props.onReportStageCrash}
+                    <View
+                      class="flex-1 min-h-0"
+                      style={{
+                        opacity: layout().canvasOccludedByDrawer ? 0 : 1,
+                        pointerEvents: layout().canvasOccludedByDrawer
+                          ? "none"
+                          : "box-none",
+                      }}
                     >
-                      <Comp ctx={viewCtx} />
-                    </PluginStageSlotBoundary>
+                      <PluginStageSlotBoundary
+                        pluginId={pluginId}
+                        slot="StageCanvas"
+                        onCrash={props.onReportStageCrash}
+                      >
+                        <Comp ctx={viewCtx} />
+                      </PluginStageSlotBoundary>
+                    </View>
                   </View>
                 );
               }}
@@ -564,6 +583,56 @@ export function MorphableStage(props: MorphableStageProps) {
         />
       </View>
 
+      {/* Layer 16: Split-left Companion slot below RobotFace */}
+      <Each of={activePluginIds()} key={(id) => id}>
+        {(pluginIdAccessor) => {
+          const pluginId = pluginIdAccessor();
+          const viewCtx = props.getPluginViewContext(pluginId);
+          const CompanionSlot = computed(
+            () => getPluginUiModule(pluginId)?.StageCompanion,
+          );
+          return (
+            <If
+              when={
+                Boolean(CompanionSlot()) &&
+                Boolean(layout().leftCompanion) &&
+                !layout().canvasOccludedByDrawer
+              }
+            >
+              {() => {
+                const Comp = CompanionSlot()!;
+                const companionMotion = createMotion(
+                  reduceMotion() ? {} : { enter: "fadeIn", duration: 180 },
+                );
+                return (
+                  <View
+                    testID="stage-companion-region"
+                    class="absolute items-center justify-start"
+                    style={{
+                      zIndex: 16,
+                      top: layout().leftCompanion?.top ?? 0,
+                      right: layout().leftCompanion?.right ?? 0,
+                      bottom: layout().leftCompanion?.bottom ?? 0,
+                      left: layout().leftCompanion?.left ?? 0,
+                      opacity: companionMotion.opacity,
+                      pointerEvents: "box-none",
+                    }}
+                  >
+                    <PluginStageSlotBoundary
+                      pluginId={pluginId}
+                      slot="StageCompanion"
+                      onCrash={props.onReportStageCrash}
+                    >
+                      <Comp ctx={viewCtx} />
+                    </PluginStageSlotBoundary>
+                  </View>
+                );
+              }}
+            </If>
+          );
+        }}
+      </Each>
+
       {/* Layer 25: Plugin StageCapsule & 4-Detent StageDrawer */}
       <Each of={activePluginIds()} key={(id) => id}>
         {(pluginIdAccessor) => {
@@ -580,13 +649,18 @@ export function MorphableStage(props: MorphableStageProps) {
               class="absolute inset-0"
               style={{ zIndex: 25, pointerEvents: "box-none" }}
             >
-              <If when={Boolean(CapsuleSlot()) && !capsuleOccludedByDrawer()}>
+              <If
+                when={
+                  Boolean(CapsuleSlot()) &&
+                  capsulePlacement() !== "top_bar" &&
+                  !capsuleOccludedByDrawer()
+                }
+              >
                 {() => {
                   const Comp = CapsuleSlot()!;
-                  const capsuleMotion = createMotion({
-                    enter: "fadeIn",
-                    duration: 180,
-                  });
+                  const capsuleMotion = createMotion(
+                    reduceMotion() ? {} : { enter: "fadeIn", duration: 180 },
+                  );
                   return (
                     <View
                       testID="stage-capsule-region"
@@ -817,64 +891,114 @@ export function MorphableStage(props: MorphableStageProps) {
             style={{ pointerEvents: "box-none" }}
           >
             <If
-              when={!props.activeStage && Boolean(props.resumableStage)}
+              when={Boolean(
+                props.activeStage?.presentation.active &&
+                  capsulePlacement() === "top_bar" &&
+                  hasStageCapsule(),
+              )}
               else={
-                <View
-                  class="flex-1 min-w-0 flex-row items-center gap-2 px-2 py-1"
-                  style={{
-                    opacity: 0.85,
-                    minHeight: 38,
-                    flexShrink: 1,
-                    pointerEvents: "none",
-                  }}
+                <If
+                  when={!props.activeStage && Boolean(props.resumableStage)}
+                  else={
+                    <View
+                      class="flex-1 min-w-0 flex-row items-center gap-2 px-2 py-1"
+                      style={{
+                        opacity: 0.85,
+                        minHeight: 38,
+                        flexShrink: 1,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <View
+                        class={
+                          voiceActive()
+                            ? "w-1.5 h-1.5 rounded-full bg-verified"
+                            : "w-1.5 h-1.5 rounded-full bg-eye-core"
+                        }
+                      />
+                      <Text
+                        class="text-stage-muted text-xs font-medium"
+                        style={{ letterSpacing: 1, flexShrink: 1, numberOfLines: 1 }}
+                      >
+                        {props.statusText}
+                      </Text>
+                    </View>
+                  }
                 >
                   <View
-                    class={
-                      voiceActive()
-                        ? "w-1.5 h-1.5 rounded-full bg-verified"
-                        : "w-1.5 h-1.5 rounded-full bg-eye-core"
-                    }
-                  />
-                  <Text
-                    class="text-stage-muted text-xs font-medium"
-                    style={{ letterSpacing: 1, flexShrink: 1, numberOfLines: 1 }}
+                    class="flex-1 min-w-0 flex-row items-center"
+                    style={{ pointerEvents: "box-none" }}
                   >
-                    {props.statusText}
-                  </Text>
-                </View>
+                    <Button
+                      testID="stage-resumable-pill"
+                      accessibilityLabel={
+                        props.resumableStage?.subtitle
+                          ? `${props.resumableStage.title} ${props.resumableStage.subtitle}`
+                          : (props.resumableStage?.title ?? "")
+                      }
+                      onPress={() => {
+                        const target = props.resumableStage;
+                        if (target) props.onResumeStage?.(target.pluginId);
+                      }}
+                      class="min-h-11 max-w-full px-3.5 rounded-full border border-stage-pill-border bg-elevated-glass flex-row items-center gap-2 active:opacity-75 focus:border-stage-pill-fg"
+                      style={{ pointerEvents: "auto" }}
+                    >
+                      <View class="w-2 h-2 rounded-full bg-verified shrink-0" />
+                      <Text
+                        class="text-stage-pill-fg text-xs font-semibold shrink"
+                        style={{ numberOfLines: 1 }}
+                      >
+                        {props.resumableStage?.subtitle
+                          ? `${props.resumableStage.title} · ${props.resumableStage.subtitle}`
+                          : (props.resumableStage?.title ?? "")}
+                      </Text>
+                      <Text class="text-eye-core text-xs font-bold shrink-0">
+                        {props.resumableStage?.badgeText ?? t("pluginStageResumeCta")}
+                      </Text>
+                    </Button>
+                  </View>
+                </If>
               }
             >
               <View
+                testID="stage-topbar-capsule-region"
                 class="flex-1 min-w-0 flex-row items-center"
-                style={{ pointerEvents: "box-none" }}
+                style={{
+                  maxWidth: layout().topBarCapsuleMaxWidth ?? undefined,
+                  minHeight: 40,
+                  pointerEvents: "box-none",
+                }}
               >
-                <Button
-                  testID="stage-resumable-pill"
-                  accessibilityLabel={
-                    props.resumableStage?.subtitle
-                      ? `${props.resumableStage.title} ${props.resumableStage.subtitle}`
-                      : (props.resumableStage?.title ?? "")
-                  }
-                  onPress={() => {
-                    const target = props.resumableStage;
-                    if (target) props.onResumeStage?.(target.pluginId);
+                <Each of={activePluginIds()} key={(id) => id}>
+                  {(pluginIdAccessor) => {
+                    const pluginId = pluginIdAccessor();
+                    const viewCtx = props.getPluginViewContext(pluginId);
+                    const CapsuleSlot = computed(
+                      () => getPluginUiModule(pluginId)?.StageCapsule,
+                    );
+                    return (
+                      <If when={Boolean(CapsuleSlot())}>
+                        {() => {
+                          const Comp = CapsuleSlot()!;
+                          return (
+                            <PluginStageSlotBoundary
+                              pluginId={pluginId}
+                              slot="StageCapsule"
+                              onCrash={props.onReportStageCrash}
+                            >
+                              <View
+                                class="max-w-full"
+                                style={{ pointerEvents: "auto" }}
+                              >
+                                <Comp ctx={viewCtx} />
+                              </View>
+                            </PluginStageSlotBoundary>
+                          );
+                        }}
+                      </If>
+                    );
                   }}
-                  class="min-h-11 max-w-full px-3.5 rounded-full border border-stage-pill-border bg-elevated-glass flex-row items-center gap-2 active:opacity-75 focus:border-stage-pill-fg"
-                  style={{ pointerEvents: "auto" }}
-                >
-                  <View class="w-2 h-2 rounded-full bg-verified shrink-0" />
-                  <Text
-                    class="text-stage-pill-fg text-xs font-semibold shrink"
-                    style={{ numberOfLines: 1 }}
-                  >
-                    {props.resumableStage?.subtitle
-                      ? `${props.resumableStage.title} · ${props.resumableStage.subtitle}`
-                      : (props.resumableStage?.title ?? "")}
-                  </Text>
-                  <Text class="text-eye-core text-xs font-bold shrink-0">
-                    {props.resumableStage?.badgeText ?? t("pluginStageResumeCta")}
-                  </Text>
-                </Button>
+                </Each>
               </View>
             </If>
 

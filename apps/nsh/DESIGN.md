@@ -36,6 +36,11 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 | `stage-pill-border` | `rgba(250,245,235,0.16)` | `rgba(229,214,190,0.13)` | 主页外围轻量胶囊边框 |
 | `stage-pill-fg` | `#F7F1E6` | `#EAE0D0` | 主页胶囊主文字色 |
 | `stage-pill-muted` | `#A8A29E` | `#8E8A84` | 主页次要状态与唤醒提示文字色 |
+| `stage-panel` | `#1B1917` | `#121215` | 舞台插件不透明哑光主面板底色（杜绝透底重影） |
+| `stage-tile` | `#24211E` | `#1A1A1E` | 舞台面板内座位砖块与次级分组块底色 |
+| `stage-rose-bg` | `rgba(232,125,146,0.16)` | `rgba(219,110,132,0.16)` | 毒药/狼人阵营/告警选中态柔和玫瑰底色 |
+| `stage-rose-border` | `rgba(232,125,146,0.44)` | `rgba(219,110,132,0.40)` | 毒药/狼人阵营/告警选中态玫瑰描边 |
+| `stage-rose-ink` | `#7F2D36` | `#6E2731` | 暖米色主按钮承载玫瑰红动作时的深玫瑰字色 |
 
 ### 2.2 后台管理与通用控件 Token（方案 B 暖石日光 vs 方案 A 中性锌灰）
 
@@ -79,7 +84,7 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 
 ## 4. 后台管理空间规范（「结构 3」· `ManagementShell`）
 
-后台取代多层模态弹窗堆叠，统一收口 **`模型`**、**`语音`**、**`家居`**、**`底座`**、**`任务`**、**`设置`** 六个一级模块（将实时语音从文本 LLM 模型配置中独立拆出，新增 LOOI 硬件底座连接与体感遥控空间，并将外观与多语言等通用设置收口至独立的「设置」页）。
+后台取代多层模态弹窗堆叠，统一收口 **`模型`**、**`语音`**、**`家居`**、**`底座`**、**`任务`**、**`插件`**、**`设置`** 七个一级模块（将实时语音从文本 LLM 模型配置中独立拆出，新增 LOOI 硬件底座连接与体感遥控空间及插件生态空间，并将外观与多语言等通用设置收口至独立的「设置」页）。
 
 ### 4.1 三段式空间骨架与横竖屏自适应
 
@@ -87,7 +92,7 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
    - 各区域背景铺到屏幕边缘，安全区只约束内容：导航轨向左侧挖孔区延伸，内部导航保持 `80pt` 宽；顶部操作栏背景和底部分隔线延伸到右边缘，控件避开右侧安全区；导航轨背景与竖向分隔线贯穿到底部，工作区内容避开底部安全区。Android 额外上报的挖孔补偿与系统安全区一并在这些区域内部消费。
    - **第一段：左侧极窄导航轨（`80pt` 宽，`bg-sidebar` + 右侧 `1px` `border-border`）**
      - **顶部返回锚点**：`44 × 44pt` 微缩桌宠按钮，内部固定采用 `stage-bg` 深色底与两枚 `eye-core` 暖米圆点（唯一保留前台深色桌宠特征的门户按钮），点击即刻返回全屏桌宠主页。
-     - **中部模块导航**：垂直排列 `模型`、`语音`、`家居`、`底座`、`任务`、`设置` 6 个入口（触控热区 `>= 44 × 44pt`；底座吸合就绪时显示 `verified` 绿点）。
+     - **中部模块导航**：垂直排列 `模型`、`语音`、`家居`、`底座`、`任务`、`插件`、`设置` 7 个入口（触控热区 `>= 44 × 44pt`；底座吸合就绪时显示 `verified` 绿点）。
      - **底部状态点**：展示本机运行时就绪状态。
    - **第二段：顶部横向上下文胶囊栏（`48pt` 高，`bg-card` + 底部 `1px` `border-border`）**
      - 替代传统臃肿的二级纵向目录栏，横向排布当前模块的子源胶囊（溢出时支持横向滚动），右侧仅保留清爽的 `返回` 按钮，不堆叠通用设置控件：
@@ -96,12 +101,13 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
        - **`家居`**：横向切换 `米家直连`、`Home Assistant`、`离线演示` 及停用开关。
        - **`底座`**：左侧横向切换 `蓝牙底座` 与 `模拟体验`，右侧提供 `扫描附近底座` 胶囊按钮；前台桌宠主页不叠加任何“底座已吸合 / 急停”胶囊，保持 100% 桌宠沉浸感。
        - **`任务`**：展示标题、任务总数徽章、`+ 开始新对话` 胶囊按钮与 `刷新` 按钮；下方工作区采用「左任务列表卡片（`flex: 4`）+ 右审计检视器卡片（`flex: 6`）」主从分栏，列表与详情各自的 `Scroll` 挂载在所属圆角卡片内部，进入或刷新时默认选中首条任务以消除冗余的双层标题与关闭按钮。
+       - **`插件`**：顶栏在目录态展示 `插件` 标题、说明与右侧返回动作，进入插件详情时切换为面包屑返回按钮、插件图标/名称/版本徽章、紧凑依赖状态胶囊与启用开关；下方目录在横屏底座态将搜索框与横向滚动分类胶囊并排于首行，下方采用 `grid-cols-3`（`repeat(3, minmax(0, 1fr))`）三列等宽卡片网格，保证同行卡片的顶部标题、摘要首行基线与底部状态栏水平对齐，当前内置插件单行首屏完整可见。
        - **`设置`**：展示 `通用设置` 标题，工作区内分卡片承载**外观**（`跟随系统 / 浅色 / 深色`）与**多语言下拉框**（`SelectField`：`跟随系统 / 简体中文 / English`）。
    - **第三段：下方平衡双栏工作区（`flex-1 min-w-0 min-h-0`）**
      - 左栏与右栏分担当前模块的表单、状态与列表内容；`底座` 页左栏展示设备大标题、吸合状态胶囊、已连接底座的电量百分比与外接供电状态栏、`启动时连接上次底座 / 模拟放上底座` 拨杆与可用底座列表（仅展示设备名、信号格图标与连接按钮，严禁展示 UUID、dBm 数值、GATT 寄存器地址或握手日志），右栏采用双内嵌卡片承载**360° 无极变向摇杆轮盘（`方向轮盘` + 等宽实时双轴速度/转向读数 + 顶栏急停胶囊，拖动摇杆无极变向、松手即停）**、**纵向头部俯仰连续滑杆（`抬头 / 平视 / 低头` + 大字号 `25°–85°` 等宽读数）**与底部**补光灯开关及无极亮度滑杆（`0%–100%`）**。
      - 外层窗口严禁整体滚动；横屏 `390pt` 视口下保持紧凑表单密度使主操作首屏完整可见，列表或长内容仅在所属卡片内部独立挂载 `Scroll`。
 2. **竖屏手持态（`windowSize().width < 600`）**：
-   - 左侧导航轨自动收束为底部安全区导航栏（均分 6 个一级模块入口）。
+   - 左侧导航轨自动收束为底部安全区导航栏（均分 7 个一级模块入口）。
    - 顶部 `48pt` 横向胶囊栏保持在安全区顶部；下方 `7:5` 双栏自然流式折为上下单列并启用纵向滚动，配合 `env(keyboard-inset-height)` 确保软键盘弹出时输入框与提交按钮完整可见。
 
 ### 4.2 视觉层级、控件几何与交互准则
@@ -132,14 +138,16 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 
 1. **五种姿态（`FaceStagePosture`）与单实例连续性**：
    - `full`：默认全屏陪伴态，圆眼居中铺满安全区。
-   - `floating_top`：缩放至 `0.22–0.36`（默认 `0.32`）悬浮于顶部安全净空区，自动避让右上角主控胶囊组，支持 `pill`（`elevated-glass` + `stage-pill-border`）或 `frameless` 外框。
+   - `floating_top`：缩放至 `0.20–0.36`（`pill` 默认 `0.32`，`frameless` 支持缩至 `0.20–0.24` 嵌入顶栏中央净空区，不额外挤压下方 `StageCanvas` 纵向空间），自动避让右上角主控胶囊组，支持 `pill`（`elevated-glass` + `stage-pill-border`）或 `frameless` 外框。
    - `docked_corner`：缩放至 `0.20–0.42`（默认 `0.28`）停靠于顶栏下方的 `top_left` 或 `top_right` 安全区角落，绝不与顶栏系统控制柄重叠。
-   - `split_left`：左栏保留伴随表情（比例 `0.28–0.52`，默认 `0.38`），右栏让渡给插件 `StageCanvas` 交互画布。
+   - `split_left`：左栏保留伴随表情（比例 `0.28–0.52`，默认 `0.38`），右栏让渡给插件 `StageCanvas` 交互画布；当插件提供 `StageCompanion` 槽位时，左栏表情中心上移为 `leftCompanion` 区域让出表情正下方伴随文案与胜负主标题空间。
    - `minimized_pill`：极简胶囊态（缩放 `0.22`）悬浮于顶部中央，为底部大抽屉或画布留出最大纵向交互空间。
-2. **三类插件插槽与故障熔断隔离**：
-   - `StageCanvas`（`zIndex: 10`）、`StageCapsule` 与四档位 `StageDrawer`（`closed` / `peek` / `medium` / `large`，`zIndex: 25`）分别包裹在独立 `<ErrorBoundary>` 内；任一插件视图抛错立即触发 `exitPluginStage` 自动复位至 `{ kind: "full" }` 并弹出轻量提示，保障 LOOI 主表情永不崩溃。
+2. **四类插件插槽、顶栏单行化与故障熔断隔离**：
+   - `StageCanvas`（`zIndex: 10`）、`StageCompanion`（`split_left` 左栏下方，复用 `StageCanvas` 边界隔离）、`StageCapsule` 与四档位 `StageDrawer`（`closed` / `peek` / `medium` / `large`，`zIndex: 25`）分别包裹在独立 `<ErrorBoundary>` 内；任一插件视图抛错立即触发 `exitPluginStage` 自动复位至 `{ kind: "full" }` 并弹出轻量提示，保障 LOOI 主表情永不崩溃。
+   - 当 `PluginStagePresentation.capsulePlacement === "top_bar"` 时，`<StageCapsule />` 直接替换顶栏左侧通用状态文字，避免顶栏与悬浮胶囊双行堆叠；当 `drawer` 处于 `large` 遮挡 `StageCanvas` 时自动隐藏底层画布防止半透明重影。
 3. **宿主安全不变量（Unblockable Host Safety Bar）**：
    - 顶栏右侧主控胶囊组（`退出舞台`、`LIVE 语音`、`对话`、`连接设置`）固定处于最高栈层（`zIndex: 40`），外层布局容器统一使用 `pointerEvents: "box-none"`，确保插件画布可正常点按且任何插件视图均无法遮挡或拦截宿主退出与安全控制。
+   - 在 `hideDefaultDock: true` 或 `StageDrawer` 展开期间，宿主 Layer 40 底部 `ResponsePreview`（`subtitle-capsule`）一律保持隐藏，严禁在插件交互面板底部盖上全局字幕胶囊或吞掉触控。
 
 ### 5.1 首屏舞台动效清单（Motion Inventory）
 
@@ -147,7 +155,7 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 | :--- | :--- | :--- | :--- |
 | `FaceStagePosture` 五态空间切换 | 单实例表情层 `translateX`、`translateY`、`scale` 与胶囊外框（零宽高重排） | 位移与缩放使用原生 `AnimatedValue.spring`（`stiffness: 280, damping: 30, mass: 1`，近似临界阻尼无回弹）；胶囊外框 `opacity` 使用 `AnimatedValue.timing (180ms easeOut)` | 跳过动画直接 `.set(target)` 瞬时到位 |
 | `StageDrawer` 档位切换与手势松手吸附 | 抽屉 FLIP `translateY` + 底部同色连续延展裙边（结合 `PanEvent.velocity.y` 速度投射与 `cancelled` 回弹） | 原生 `AnimatedValue.spring`（`stiffness: 320, damping: 32, mass: 1`） | 跳过弹簧直接 `.set(0)` 瞬时吸附 |
-| `StageCanvas` / `StageCapsule` 挂载入场 | 容器 `opacity` | `createMotion({ enter: "fadeIn", duration: 180 })` 原生淡入 | 自动跳过淡入瞬时呈现 `opacity: 1` |
+| `StageCanvas` / `StageCompanion` / `StageCapsule` 挂载入场 | 容器 `opacity` | `createMotion({ enter: "fadeIn", duration: 180 })` 原生淡入 | 自动跳过淡入瞬时呈现 `opacity: 1` |
 | 顶栏 `退出舞台` 胶囊点击反馈 | 按压态透明度 `active:opacity-75` | 系统即时触控反馈 | 保留即时明度对比反馈 |
 
 ---
@@ -156,10 +164,12 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 
 面向 6–12 人线下桌面聚会，LOOI 作为居中具身法官承载 **本机首屏触控** 与 **局域网手机扫码副屏** 双模体验，所有视图严格受控于 `844 × 390` 横屏安全区与 `theme.json` 语义令牌：
 
-### 6.1 双舞台色彩分工与二维码反差纪律
-- **前台首屏插槽（`StageCapsule` / `StageCanvas` / `StageDrawer`）**：沿用前台深色器物语言（`ask-bar-bg`、`elevated-glass`、`stage-pill-bg`、`stage-pill-border`、`stage-fg`、`stage-pill-fg`、`stage-muted`）。阵营与牌局状态仅在关键判断处点缀低饱和舞台令牌：已入座/金水使用 `verified` / `face-sage-core`，警徽与当前发言聚焦使用 `face-amber-core`，神职技能提示使用 `face-mist-core`，狼刀/查杀/倒牌出局使用 `destructive` / `face-rose-core`，且每项状态均同时具备文字或符号标识（绝不只靠颜色区分）。
-- **扫码二维码表面（`<QrCodeCanvas />`）**：固定使用 `token("face-ivory-core")` 绘制 4 模块静区浅底、`token("stage-bg")` 绘制深色码点，保证浅色与深色系统外观下均维持高反差深码浅底极性，手机相机与微信扫一扫无需反色识别即可秒扫。
-- **后台配置页（`SettingsView`）**：沿用 `ManagementShell` 暖石日光 / 中性锌灰双栏平面卡片（`background`、`card`、`muted`、`border`、`foreground`、`muted-foreground`），全页仅保留唯一 `primary` 主操作按钮「登上首屏开局」。
+### 6.1 双舞台色彩分工、顶栏一体与线性图标系统
+- **前台首屏插槽（`StageCapsule` / `StageCompanion` / `StageCanvas` / `StageDrawer`）**：采用不透明哑光深炭舞台面板（`stage-panel`、`stage-tile`、`stage-pill-border`、`stage-fg`、`stage-pill-fg`、`stage-muted`）配合 `1px` 细分割线消除层层套卡。主行动提交按钮统一使用暖米实心填充（`bg-eye-core text-stage-bg`，或女巫毒杀态使用 `bg-eye-core text-stage-rose-ink`）。阵营与牌局状态仅在关键判断处点缀低饱和舞台令牌：已入座/已投票/好人使用 `verified` / `face-sage-core`，警徽与当前发言/选中项使用 `face-amber-core`，神职技能提示使用 `face-mist-core`，狼人/毒药/出局/告警使用 `destructive` / `face-rose-core` / `stage-rose-bg` / `stage-rose-border`，且每项状态均同时具备文字或矢量图标标识（绝不只靠颜色区分）。
+- **顶栏一体化胶囊（`capsulePlacement: "top_bar"`）**：全阶段在宿主顶栏左侧单行展示语义状态圆点、阶段短标、必要副信息（如 `存活 X/N` 或预设名）与右侧紧凑圆形快捷图标按钮（重播 `replay`、语音播报/静音 `speaker_on`/`speaker_off`、更多菜单 `more_dots`），将 `390pt` 矮横屏纵向工作区全部还给游戏面板。`狼人自爆`、已绑定副屏座位 `#k 解绑`、`提前结算（未投记弃票）`、`规则与配牌设置`、`终止本局` 与 `退出狼人杀` 统一收口于 `[⋯]` 原生 `<Menu>`，破坏性动作由原生 `AlertDialog` 二次确认。
+- **矢量线性图标（`WerewolfIcons`）**：通过 `<Canvas>` 统一绘制 8 角色线性图标及舞台常用图标（防窥闭眼盾、长按手势、毒药烧瓶、声波纹、勾选圆标、等待时钟、Wi-Fi 弧线、匿名头像剪影），严禁在 JSX 中堆砌大面积高饱和 Emoji 替代图标。
+- **扫码二维码表面（`<QrCodeCanvas />`）**：固定使用 `token("face-ivory-core")` 绘制 4 模块静区浅底、`token("stage-bg")` 绘制深色码点，保证浅色与深色系统外观下均维持高反差深码浅底极性，手机相机与微信扫一扫无需反色识别即可秒扫；默认作为语义 `<Button>` 触发器，轻点后弹出居中横屏 `<Dialog>`（`rounded-2xl` 容器、`maxHeight` 安全区封顶、右栏内置 `<Scroll>` 兜底），`844 × 390` 横屏下码面尺寸为 `256 × 256pt`，点击遮罩/放大码面/`Esc`/返回键或「收起二维码」即可关闭。
+- **后台配置页（`WerewolfSettingsView`）**：严格沿用 `ManagementShell`（左侧 `80pt` 导航轨）与 `PluginsContextBar`（顶部面包屑、图标、版本徽章、视觉追踪就绪胶囊、启用开关）以及左右双卡片独立 `<Scroll>` 布局（`background`、`card`、`muted`、`border`、`foreground`、`muted-foreground`），融入角色线性图标、阵营配比摘要（`X 狼 · Y 神 · Z 民`）、单边框分隔行与扁平 `SwitchRow variant="flat"`。
 
 ### 6.2 防窥门禁（Hold-to-Reveal Privacy Shield）与键盘/无障碍双通道
 - 发牌看牌（`dealing`）与本机黑夜行动面板（`night_guard` / `night_wolf` / `night_witch` / `night_seer`）默认覆盖不透明防窥门禁层，未解锁前底层不渲染敏感目标信息。
@@ -170,12 +180,12 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 
 | 状态变化类别（Category & State Change） | 原生动效工具与令牌参数（Tool & Motion Tokens） | 无障碍降级（`reduceMotion()`） |
 | :--- | :--- | :--- |
-| **1. 按压与悬停（Press & Hover）**：座位卡、操作胶囊、分段项与提交按钮 | 悬停色阶过渡 `transition-colors duration-120`；按压反馈 `transition-transform duration-180 active:scale-[0.97]` + 按压底色加深，禁用态屏蔽按压缩放 | `motion-reduce:active:scale-100`，仅保留即时明度/边框色阶切换 |
-| **2. 图标与标签切换（Glyph & Label Swap）**：顶部阶段胶囊、存活计数、计时器「暂停 / 继续」状态 | 胶囊阶段文案与存活人数使用 `tabular-nums` 等宽数字稳定换字，状态徽章通过 `180ms` 透明度与语义色平滑过渡 | 瞬时切换文案与状态色，无闪烁 |
-| **3. 选中态滑动（Sliding Selection）**：建房大厅预设切换（6人 / 9人 / 12人守卫 / 12人白痴）与载体切换 | 单一选中背景滑块通过 `createAnimatedValue` `timing(targetX, { duration: 240, easing: "easeInOut" })` 在等宽槽位间平滑滑动 | 直接 `.set(targetX)` 瞬时落位 |
-| **4. 内容入场与离场（Arriving & Leaving Content）**：副屏玩家扫码入座点亮、终局全员底牌与时间轴揭晓 | 扫码座位就绪徽章 `createMotion({ enter: "fadeIn", duration: 240 })`；终局底牌网格采用上限封顶波浪淡入（每座间隔 `30ms`，封顶 `240ms`） | 跳过入场动画，全部座位就绪点与终局底牌瞬时完整呈现 |
-| **5. 浮层与防窥盾开合（Opening & Closing Surface）**：长按防窥盾揭开/闭合、狼人自爆二级确认条 | 揭开防窥盾时内容层 `opacity` `0 → 1` + `scale` `0.96 → 1.0`（`180ms easeOut`）；**松手遮蔽时 `0ms` 瞬时置回遮罩（安全优先）**；自爆确认栏 `180ms` 淡入展开 | 揭开、遮蔽与确认栏展开均为 `0ms` 瞬时显隐 |
-| **6. 用户触发的布局变形（Layout Change）**：阶段推进驱动首屏五姿态（`floating_top` ↔ `split_left` ↔ `full`）与抽屉四档位切换 | 复用宿主 `MorphableStage` 单实例 `AnimatedValue.spring`（`stiffness: 280, damping: 30, mass: 1`）与抽屉 FLIP 弹簧 | 宿主自动 `.set(target)` 瞬时切换姿态与抽屉高度 |
-| **7. 拖拽与松手释放（Drag & Release）**：玩家上下拖拽底部 `StageDrawer` 抓手查看计票或规则摘要 | 拖拽过程 `1:1` 跟随手指，松手按 `PanEvent.velocity.y` 投射吸附至最近档位（`stiffness: 320, damping: 32`） | 松手直接瞬时吸附目标档位 |
-| **8. 加载与进度（Loading & Progress）**：终局 AI 法官毒舌 MVP 颁奖词后台生成中 | 复用共享 `<LoadingIndicator />` 旋转圆弧进度环，生成完成后平滑替换为颁奖词正文卡片 | `<LoadingIndicator />` 自动停转静止展示进度语义环 |
+| **1. 按压与悬停（Press & Hover）**：座位砖块、操作按钮、预设胶囊、分段项与二维码触发卡 | 悬停/边框色阶过渡 `transition-colors duration-120`；按压反馈 `transition-transform duration-180 active:scale-[0.97]` + 明度加深，禁用态屏蔽按压缩放 | `motion-reduce:active:scale-100`，仅保留即时明度与边框色阶切换 |
+| **2. 图标与标签切换（Glyph & Label Swap）**：顶栏阶段状态点、播报/静音图标切换、计时器「暂停 / 继续」、`StageCompanion` 法官台词更新 | 倒计时 `01:00` 与 `X / N` 计数采用 `tabular-nums` 等宽数字防抖动；左栏 `StageCompanion` 文案及语音状态角标采用 `180ms` 淡入切换 | 瞬时更新数字与图标，无闪烁 |
+| **3. 选中态滑动（Sliding Selection）**：开局准备载体切换（`本机防窥 | 手机副屏`）、终局复盘标签切换（`身份揭晓 | 对局时间线`） | 单一选中背景滑块通过 `createAnimatedValue` `timing(targetX, { duration: 240, easing: "easeInOut" })` 在等宽槽位间平滑滑动 | 直接 `.set(targetX)` 瞬时落位 |
+| **4. 内容入场与离场（Arriving & Leaving Content）**：阶段画布切换、副屏扫码座位就绪打勾、终局全员底牌揭晓 | 画布容器 `createMotion({ enter: "fadeIn", duration: 180 })`；扫码座位就绪与终局底牌网格采用 `180ms–240ms` 轻量淡入（列表/网格上限封顶） | 跳过淡入动画，阶段面板与全部座位/底牌瞬时呈现 |
+| **5. 浮层与防窥盾开合（Opening & Closing Surface）**：长按防窥盾揭开/闭合、`[⋯]` 原生 `<Menu>`、狼人自爆确认 `<Dialog>`、二维码点击放大 `<Dialog>`、原生 `AlertDialog` | 揭开防窥盾时内容层 `180ms easeOut` 呈现；**松手遮蔽时 `0ms` 瞬时闭合遮罩（安全优先）**；`<Menu>` 从顶栏按钮锚点展开/收起；`<Dialog animation={reduceMotion() ? "none" : "fade"} />` | 揭开、遮蔽、菜单与弹窗均为 `0ms` 瞬时显隐（`motion-reduce:active:scale-100`） |
+| **6. 用户触发的布局变形（Layout Change）**：阶段推进驱动 `floating_top`（顶栏微缩眼眸）↔ `split_left`（左伴随右画布）↔ `full`（副屏闭眼守夜）连续过渡 | 复用宿主 `MorphableStage` 单实例 `AnimatedValue.spring`（`stiffness: 280, damping: 30, mass: 1`） | 宿主自动 `.set(target)` 瞬时切换姿态 |
+| **7. 拖拽与松手释放（Drag & Release）**：`lan_companion` 夜间闭眼态可拖动的底部 `StageDrawer` peek 提示条 | 拖拽过程 `1:1` 跟随手指，松手按 `PanEvent.velocity.y` 投射吸附至最近档位（`stiffness: 320, damping: 32`） | 松手直接瞬时吸附目标档位 |
+| **8. 加载与进度（Loading & Progress）**：终局 AI 法官复盘后台生成中、暗票收集横向进度条 | AI 复盘生成中复用共享 `<LoadingIndicator />` 旋转圆弧进度环；暗票进度条随收到票数比例平滑更新宽比 | `<LoadingIndicator />` 自动停转静止展示，进度条直接落位 |
 | **9. 实时连续状态（Live & Continuous）**：白天/警上发言 `<Canvas>` 环形倒计时弧、发牌前摄人脸对准环 | `<Canvas>` 进度弧随剩余秒数连续绘制，最后 `10s` 切换 `token("warning")` 语义色；人脸对准就绪时外环切换 `token("verified")` | 倒计时弧按整秒离散步进更新，不播放呼吸脉冲 |

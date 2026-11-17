@@ -71,7 +71,12 @@ export function IconButton(props: {
   );
 }
 
-export function LoadingIndicator(props: { label: string; testID?: string }) {
+export function LoadingIndicator(props: {
+  label: string;
+  testID?: string;
+  stage?: boolean;
+  inline?: boolean;
+}) {
   const rotation = createMotion();
   effect(() => {
     if (lifecycle() === "active" && !reduceMotion()) void rotation.play("spin");
@@ -79,25 +84,39 @@ export function LoadingIndicator(props: { label: string; testID?: string }) {
     return () => rotation.stop();
   });
   return (
-    <View testID={props.testID} role="progressbar" accessibilityLabel={props.label} class="items-center gap-4">
+    <View
+      testID={props.testID}
+      role="progressbar"
+      accessibilityLabel={props.label}
+      class={props.inline ? "flex-row items-center gap-2" : "items-center gap-4"}
+    >
       <Canvas
-        class="w-8 h-8"
+        class={props.inline ? "w-4 h-4 shrink-0" : "w-8 h-8"}
         style={rotation.style}
         draw={(cx, size) => {
           const radius = Math.min(size.width, size.height) / 2 - 2;
           cx.lineWidth = 2;
-          cx.strokeStyle = token("border");
+          cx.strokeStyle = token(props.stage ? "stage-pill-border" : "border");
           cx.beginPath();
           cx.arc(size.width / 2, size.height / 2, radius, 0, Math.PI * 2);
           cx.stroke();
-          cx.strokeStyle = token("primary");
+          cx.strokeStyle = token(props.stage ? "face-amber-core" : "primary");
           cx.lineCap = "round";
           cx.beginPath();
           cx.arc(size.width / 2, size.height / 2, radius, -Math.PI / 2, 0);
           cx.stroke();
         }}
       />
-      <Text class="text-muted-foreground text-sm">{props.label}</Text>
+      <Text
+        class={
+          props.stage
+            ? "text-stage-fg text-xs font-medium"
+            : "text-muted-foreground text-sm"
+        }
+        style={{ numberOfLines: 1 }}
+      >
+        {props.label}
+      </Text>
     </View>
   );
 }
@@ -237,8 +256,8 @@ export function SelectField<T extends string = string>(props: {
   const triggerClass = () => {
     if (props.compact) {
       return open()
-        ? "min-h-9 flex-row items-center justify-between gap-2 rounded-xl border border-ring bg-muted px-3 active:bg-muted disabled:opacity-40"
-        : "min-h-9 flex-row items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 active:bg-muted focus:border-ring disabled:opacity-40";
+        ? "min-h-11 flex-row items-center justify-between gap-2 rounded-xl border border-ring bg-muted px-3 active:bg-muted disabled:opacity-40"
+        : "min-h-11 flex-row items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 active:bg-muted focus:border-ring disabled:opacity-40";
     }
     return open()
       ? "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-ring bg-muted px-4 active:bg-muted disabled:opacity-40"
@@ -663,10 +682,18 @@ export function SwitchRow(props: {
   checked: boolean;
   disabled?: boolean;
   testID?: string;
+  variant?: "boxed" | "flat";
   onChange: (checked: boolean) => void;
 }) {
+  const isFlat = () => props.variant === "flat";
   return (
-    <View class="min-h-12 rounded-xl bg-muted border border-border px-3.5 py-2 flex-row items-center justify-between gap-3">
+    <View
+      class={
+        isFlat()
+          ? "min-h-11 py-1.5 border-b border-border flex-row items-center justify-between gap-3"
+          : "min-h-12 rounded-xl bg-muted border border-border px-3.5 py-2 flex-row items-center justify-between gap-3"
+      }
+    >
       <Text class="text-foreground text-sm font-medium flex-1" style={{ numberOfLines: 1 }}>
         {props.label}
       </Text>
@@ -675,7 +702,7 @@ export function SwitchRow(props: {
         accessibilityLabel={props.label}
         checked={props.checked}
         disabled={props.disabled}
-        hitSlop={8}
+        hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
         onChange={(ev) => props.onChange(ev.checked)}
         class="flex-row items-center justify-center disabled:opacity-40"
         trackClass="w-11 h-6 rounded-full bg-border border border-border p-0.5 justify-center checked:bg-primary checked:border-primary"

@@ -379,9 +379,10 @@ fn werewolf_stage_resilience_reentry_and_controls_work_in_landscape() -> Result<
     app.wait_for("werewolf-step-back-deal-btn")?;
     app.press("werewolf-step-back-deal-btn")?;
     app.wait_until("stepped back to seat 1", Duration::from_secs(3), |screen| {
-        screen.shows("防窥保护中 · 仅限 #1 号查看")
+        screen.shows("1号玩家")
+            && screen.shows("你的身份已遮蔽")
             && screen.shows("记住了，下一位")
-            && !screen.shows("重发上一位")
+            && !screen.shows("上一位")
     })?;
 
     // Double-back exit confirmation preserves match and shows home resumable pill

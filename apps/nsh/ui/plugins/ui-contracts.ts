@@ -66,6 +66,9 @@ export interface PluginUiModule<
   readonly StageCapsule?: (props: {
     ctx: PluginViewContext<TState, TCommand>;
   }) => JSX.Element;
+  readonly StageCompanion?: (props: {
+    ctx: PluginViewContext<TState, TCommand>;
+  }) => JSX.Element;
   readonly StageDrawer?: (props: {
     ctx: PluginViewContext<TState, TCommand>;
     detent: () => StageDrawerDetent;

@@ -2895,3 +2895,36 @@
   - [x] Step 2.2：夜间行动、白天发言、公投页。
   - [x] Step 2.3：终局复盘页。
 - [ ] Step 3：独立审阅图片、保存生成提示词与图片并提交本次产物。
+
+## 狼人杀设置效果图容器修正（2026-11-16）
+
+- [x] Step 1：对照用户截图与当前设置代码，确认侧栏、插件顶栏和双栏滚动容器。
+- [ ] Step 2：使用用户截图重做设置页效果图，保留管理空间外框与真实内容尺寸。
+  - [ ] Step 2.1：生成保留侧栏和插件顶栏的修正版。
+  - [ ] Step 2.2：检查预设、规则值和滚动区域，保存图片与独立提示词。
+- [ ] Step 3：完成独立审阅并隔离提交本轮设计产物。
+
+## 狼人杀 UI 视觉与舞台交互优化（2026-11-17）
+
+- [x] Step 1：计划落盘、进度追踪与设计规范先行。
+  - [x] 创建 `docs/plans/werewolf-ui-optimization-2026-11-17.md` 记录目标、模块边界取舍、空间预算与验证矩阵。
+  - [x] 在 `progress.md` 建立 Step 1–Step 5 执行清单。
+  - [x] 更新 `apps/nsh/DESIGN.md` 第 5、6 节语义 Token、槽位规范与 9 类完整动效清单（Motion Inventory）。
+- [x] Step 2：语义 Token、通用控件变体与宿主舞台几何升级。
+  - [x] 在 `apps/nsh/theme.json` 增加 `stage-panel`、`stage-tile`、`stage-rose-bg`、`stage-rose-border`、`stage-rose-ink` 语义令牌并生成类型。
+  - [x] 在 `apps/nsh/ui/Controls.tsx` 为 `SwitchRow` 新增 `variant?: "boxed" | "flat"`。
+  - [x] 扩展 `PluginStagePresentation.capsulePlacement` 与 `PluginUiModule.StageCompanion`。
+  - [x] 更新 `posture-geometry.ts` 与 `MorphableStage.tsx`：顶栏单行胶囊、无框居中微缩眼眸、左栏伴随文本区域、`hideDefaultDock` 防字幕遮挡与画布抽屉遮挡消隐。
+- [x] Step 3：矢量图标集、表情配方与插件配置页样式微调。
+  - [x] 新建 `apps/nsh/plugins/werewolf-judge/ui/WerewolfIcons.tsx`（8 角色图标与全舞台交互线性图标）。
+  - [x] 优化 `choreography.ts` 夜间/白天/终局动态表情配方与全阶段舞台姿态映射。
+  - [x] 微调 `SettingsView.tsx`：保留双栏滚动布局，接入角色线性图标、阵营配比摘要、扁平分隔行与 `SwitchRow variant="flat"`。
+- [x] Step 4：首屏舞台六大视图与交互重构。
+  - [x] 重构 `StageCapsule.tsx`（顶栏一体化状态点、重播/静音快捷按钮与 `[⋯]` 原生菜单 + `AlertDialog`/`Dialog`）。
+  - [x] 新增 `WerewolfStageCompanion`（发牌提示、白天台词、终局胜负主视觉）并接入 `ui/index.ts`。
+  - [x] 重构 `StageCanvas.tsx`（开局准备、环视发牌、夜间行动、白天发言、放逐公投/警上/离场、终局复盘）与精简 `StageDrawer.tsx`（仅保留副屏夜间闭眼 peek 条）。
+- [ ] Step 5：自动化测试更新、全套门禁验证与独立 Review。
+  - [ ] 更新并扩充 `WerewolfStage.test.tsx`、`MorphableStage.test.tsx` 与 `tests/app_ui.rs`。
+  - [ ] 完成 `typecheck`、`build`、`test:werewolf` 与 `nsh test` 全量通过。
+  - [ ] 核查真机连接状态并在无真机时将真机横屏核验记录至 `todo.md`。
+  - [ ] 完成只读子 Agent 独立 Review、修复问题并隔离 commit。

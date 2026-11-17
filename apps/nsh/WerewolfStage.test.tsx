@@ -138,6 +138,7 @@ async function runFullLandscapeMatch(variant: {
     await app.waitFor("id:plugin-werewolf-judge");
     await app.press("id:plugin-werewolf-judge");
     await app.waitFor("id:werewolf-settings-view");
+    expect(app.shows("id:werewolf-settings-faction-summary")).toBe(true);
 
     await app.press("id:werewolf-settings-toggle-lan");
     await app.waitFor("id:werewolf-settings-qr");
@@ -178,18 +179,9 @@ async function runFullLandscapeMatch(variant: {
     await app.waitFor("id:werewolf-lobby-panel");
     expect(app.count("id:looi-face")).toBe(1);
     expect(app.shows("id:exit-plugin-stage")).toBe(true);
-    // In large lobby drawer, StageCapsule auto-hides to avoid glass-on-glass overlap behind StageDrawer
-    expect(app.shows("id:werewolf-stage-capsule")).toBe(false);
-
-    // Collapsing drawer to peek exposes StageCapsule cleanly; cycling back to large re-hides it
-    await app.press("id:stage-drawer-grabber");
-    await app.wait(120);
+    // StageCapsule sits directly inside top bar alongside RobotFace without colliding with host controls
     expect(app.shows("id:werewolf-stage-capsule")).toBe(true);
-    await app.press("id:stage-drawer-grabber");
-    await app.wait(80);
-    await app.press("id:stage-drawer-grabber");
-    await app.wait(120);
-    expect(app.shows("id:werewolf-stage-capsule")).toBe(false);
+    expect(app.shows("id:werewolf-capsule-phase")).toBe(true);
 
     // 3. Select 6p_joy, toggle LAN Companion QR on to verify native LanRoomHost + QrCodeCanvas + tap-to-enlarge modal, then switch back to on_device
     await app.press("id:werewolf-preset-6p_joy");
@@ -217,6 +209,7 @@ async function runFullLandscapeMatch(variant: {
     await app.press("id:werewolf-start-dealing-btn");
     await app.waitFor("id:werewolf-dealing-panel");
     expect(app.shows("id:werewolf-stage-capsule")).toBe(true);
+    expect(app.shows("id:werewolf-stage-companion")).toBe(true);
 
     const wolfSeats: number[] = [];
     let witchSeat = 0;
@@ -308,6 +301,7 @@ async function runFullLandscapeMatch(variant: {
     await app.waitFor("id:werewolf-tabletop-stage");
     expect(app.count("id:looi-face")).toBe(1);
     expect(app.shows("id:werewolf-stage-capsule")).toBe(true);
+    expect(app.shows("id:werewolf-stage-companion")).toBe(true);
 
     // Pause/resume speaker timer and advance one speaker
     await app.press("id:werewolf-pause-timer-btn");
@@ -339,14 +333,20 @@ async function runFullLandscapeMatch(variant: {
       await app.press(`id:werewolf-vote-target-${remainingWolf}`);
       await app.wait(50);
     }
+    await app.press(`id:werewolf-voter-${remainingWolf}`);
+    await app.press("id:werewolf-vote-abstain");
     await app.press("id:werewolf-finalize-votes-btn");
 
-    // 8. Game Over full-deck reveal + timeline + Play Again + Exit Stage
+    // 8. Game Over full-deck reveal + timeline tab + Play Again + Exit Stage
     await app.waitFor("id:werewolf-gameover-panel");
     expect(app.shows("id:werewolf-winner-banner")).toBe(true);
     expect(app.shows("id:werewolf-role-reveal-grid")).toBe(true);
     expect(app.shows("id:werewolf-mvp-card")).toBe(true);
-    expect(app.shows("id:werewolf-truth-timeline")).toBe(true);
+    expect(app.shows("id:werewolf-truth-timeline")).toBe(false);
+    await app.press("id:werewolf-gameover-tab-timeline");
+    await app.waitFor("id:werewolf-truth-timeline");
+    await app.press("id:werewolf-gameover-tab-roles");
+    await app.waitFor("id:werewolf-role-reveal-grid");
     expect(app.texts().some((t) => t.includes("好人阵营获胜"))).toBe(true);
 
     await app.press("id:werewolf-play-again-btn");
@@ -372,6 +372,118 @@ test(
   "Werewolf + Vision Person Tracker full landscape 844x390 E2E flow (Dark theme, reducedMotion)",
   async () => {
     await runFullLandscapeMatch({ colorScheme: "dark", reducedMotion: true });
+  },
+  120_000,
+);
+
+test(
+  "Werewolf LAN Companion night peek drawer, secret ballot waiting UI & StageCapsule menu actions",
+  async () => {
+    const app = await open("./WerewolfStageProbe.tsx", {
+      width: 844,
+      height: 390,
+      locale: "zh-CN",
+      colorScheme: "light",
+      reducedMotion: true,
+    });
+
+    try {
+      await app.waitUntil(() => app.shows("id:connection-settings"), { timeout: 10000 });
+      await app.press("id:connection-settings");
+      await app.waitFor("id:nav-plugins");
+      await app.press("id:nav-plugins");
+      await app.waitFor("id:plugin-werewolf-judge");
+      await app.press("id:plugin-werewolf-judge");
+      await app.waitFor("id:werewolf-launch-stage-btn");
+      await app.press("id:werewolf-launch-stage-btn");
+
+      await app.waitFor("id:werewolf-lobby-panel");
+      await app.press("id:werewolf-preset-6p_joy");
+      await app.press("id:werewolf-surface-lan_companion");
+      await app.waitFor("id:werewolf-qr-card");
+      await app.press("id:werewolf-start-dealing-btn");
+      await app.waitFor("id:werewolf-dealing-panel");
+
+      expect(app.shows("id:werewolf-begin-night-btn")).toBe(false);
+      for (let seat = 1; seat <= 6; seat += 1) {
+        await app.press("id:werewolf-deal-confirm-btn");
+        await app.wait(50);
+      }
+
+      await app.waitFor("id:werewolf-begin-night-btn");
+      await app.press("id:werewolf-begin-night-btn");
+
+      // LAN Companion keeps Night phase compact in a peek drawer while StageCapsule stays in top bar
+      await app.waitUntil(() => app.shows("id:werewolf-night-lan-peek"), { timeout: 6000 });
+      expect(app.shows("id:werewolf-stage-capsule")).toBe(true);
+
+      // Wolf turn via host override
+      await app.press("id:werewolf-lan-host-override-btn");
+      await app.waitFor("id:werewolf-night-gate-btn");
+      await app.press("id:werewolf-night-gate-btn");
+      await app.waitFor("id:werewolf-wolf-empty-btn");
+      await app.press("id:werewolf-wolf-empty-btn");
+
+      // Witch turn via host override
+      await app.waitUntil(() => app.shows("id:werewolf-lan-host-override-btn"), { timeout: 5000 });
+      await app.press("id:werewolf-lan-host-override-btn");
+      await app.waitFor("id:werewolf-night-gate-btn");
+      await app.press("id:werewolf-night-gate-btn");
+      await app.waitFor("id:werewolf-witch-pass-btn");
+      await app.press("id:werewolf-witch-pass-btn");
+
+      // Seer turn via host override
+      await app.waitUntil(() => app.shows("id:werewolf-lan-host-override-btn"), { timeout: 5000 });
+      await app.press("id:werewolf-lan-host-override-btn");
+      await app.waitFor("id:werewolf-night-gate-btn");
+      await app.press("id:werewolf-night-gate-btn");
+      await app.waitFor("id:werewolf-night-seat-1");
+      const checkSeat = [1, 2, 3, 4, 5, 6].find((s) =>
+        app.enabled(`id:werewolf-night-seat-${s}`),
+      )!;
+      await app.press(`id:werewolf-night-seat-${checkSeat}`);
+      await app.press("id:werewolf-seer-check-btn");
+      await app.waitFor("id:werewolf-finish-seer-btn");
+      await app.press("id:werewolf-finish-seer-btn");
+
+      // Advance Day 1 -> check Self-Explode Dialog from StageCapsule [...] Menu during day_discussion
+      await app.waitFor("id:werewolf-tabletop-stage");
+      if (app.shows("id:werewolf-ack-dawn-btn")) {
+        await app.press("id:werewolf-ack-dawn-btn");
+      }
+      await app.waitUntil(() => app.shows("id:werewolf-start-voting-btn"), { timeout: 5000 });
+
+      await app.press("id:werewolf-more-menu-btn");
+      await app.waitFor("id:werewolf-open-explode-btn");
+      await app.press("id:werewolf-open-explode-btn");
+      await app.waitFor("id:werewolf-explode-dialog");
+      await app.press("id:werewolf-cancel-explode-btn");
+      await app.waitUntil(() => !app.shows("id:werewolf-explode-dialog"), { timeout: 3000 });
+
+      // Start Voting -> LAN secret ballot waiting screen masks targets and keeps finalize disabled until all votes arrive
+      await app.press("id:werewolf-start-voting-btn");
+      await app.waitFor("id:werewolf-voting-panel");
+
+      expect(app.shows("id:werewolf-vote-progress-count")).toBe(true);
+      expect(app.enabled("id:werewolf-finalize-votes-btn")).toBe(false);
+      expect(app.texts()).toContain("等待全员投票");
+      expect(app.shows("id:werewolf-vote-target-1")).toBe(false);
+
+      await app.press("id:werewolf-lan-vote-override-btn");
+      await app.waitFor("id:werewolf-lan-vote-back-btn");
+      await app.press("id:werewolf-lan-vote-back-btn");
+      await app.waitFor("id:werewolf-lan-vote-override-btn");
+
+      // StageCapsule [...] Menu during voting exposes early-finalize & Abort AlertDialog confirm -> Lobby
+      app.onDialog(() => "终止本局");
+      await app.press("id:werewolf-more-menu-btn");
+      await app.waitFor("id:werewolf-early-finalize-menu-btn");
+      await app.waitFor("id:werewolf-abort-match-btn");
+      await app.press("id:werewolf-abort-match-btn");
+      await app.waitFor("id:werewolf-lobby-panel");
+    } finally {
+      app.dispose();
+    }
   },
   120_000,
 );

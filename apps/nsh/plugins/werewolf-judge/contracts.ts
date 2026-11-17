@@ -116,6 +116,7 @@ export interface WerewolfSeatPublicView {
 
 export interface WerewolfWitchPromptContext {
   readonly attackedSeat: number | null;
+  readonly antidoteAvailable: boolean;
   readonly canSave: boolean;
   readonly canPoison: boolean;
   readonly saveSelected: boolean;

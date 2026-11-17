@@ -192,7 +192,7 @@ export interface NativeRuntime {
  resumePluginStage(id?:string):Promise<void>;
  setPluginsForegroundActive(active:boolean):void;
  exitPluginStage(id:string):void;
- reportPluginStageCrash(id:string,slot:"StageCanvas"|"StageCapsule"|"StageDrawer",error:unknown):PluginFailure;
+ reportPluginStageCrash(id:string,slot:"StageCanvas"|"StageCompanion"|"StageCapsule"|"StageDrawer",error:unknown):PluginFailure;
  installMarketplacePlugin(rawArchive:string|Uint8Array|{readonly format:"nshpkg-v1";readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string;readonly signature:string},verifyOptions:{readonly trustedKeys:Readonly<Record<string,string|Uint8Array>>;readonly hostApiVersion?:number},createDefinition:(verified:{readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string})=>unknown,action:UiAction):Promise<PluginSnapshot>;
  attachFaceController(controller:RobotFaceController|undefined):void;
  attachNativeDeviceCamera(port:NativeDeviceCameraPort|null,options?:VisionBrokerAttachOptions):void;

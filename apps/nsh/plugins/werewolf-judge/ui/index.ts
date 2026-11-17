@@ -7,7 +7,7 @@ import {
 import { encodeQrMatrix, QrCodeCanvas } from "./QrCodeCanvas";
 import { WerewolfSettingsView } from "./SettingsView";
 import { readWerewolfState, WerewolfStageCapsule } from "./StageCapsule";
-import { WerewolfStageCanvas } from "./StageCanvas";
+import { WerewolfStageCanvas, WerewolfStageCompanion } from "./StageCanvas";
 import { WerewolfStageDrawer } from "./StageDrawer";
 
 export {
@@ -15,8 +15,9 @@ export {
   QrCodeCanvas,
   readWerewolfState,
   WerewolfSettingsView,
-  WerewolfStageCapsule,
   WerewolfStageCanvas,
+  WerewolfStageCapsule,
+  WerewolfStageCompanion,
   WerewolfStageDrawer,
 };
 
@@ -27,6 +28,7 @@ export const werewolfJudgeUiModule: PluginUiModule<
   pluginId: WEREWOLF_PLUGIN_ID,
   SettingsView: WerewolfSettingsView,
   StageCapsule: WerewolfStageCapsule,
+  StageCompanion: WerewolfStageCompanion,
   StageDrawer: WerewolfStageDrawer,
   StageCanvas: WerewolfStageCanvas,
 };

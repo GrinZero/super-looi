@@ -38,15 +38,14 @@ export const WEREWOLF_DYNAMIC_FACE_RECIPES: Readonly<
 > = {
   judge_lobby: {
     recipe: {
-      tint: "amber",
-      ambientOpacity: 0.85,
+      tint: "ivory",
+      ambientOpacity: 0.92,
       allowsBreath: true,
       eyes: [
-        { shape: "orb", scale: 1.04, brow: { angleDeg: -5, lift: -5 } },
-        { shape: "orb", scale: 1.04, brow: { angleDeg: 5, lift: -5 } },
+        { shape: "orb", scale: 1.0, brow: { angleDeg: -4, lift: -5 } },
+        { shape: "orb", scale: 1.0, brow: { angleDeg: 4, lift: -5 } },
       ],
       mouth: { kind: "smile" },
-      glyphs: ["star_sparkle"],
     },
   },
   night_slumber: {
@@ -55,50 +54,38 @@ export const WEREWOLF_DYNAMIC_FACE_RECIPES: Readonly<
     allowsAudioResonance: false,
     recipe: {
       tint: "mist",
-      ambientOpacity: 0.42,
+      ambientOpacity: 0.48,
       allowsBreath: true,
       eyes: [
-        { shape: "line", opacity: 0.55 },
-        { shape: "line", opacity: 0.55 },
+        { shape: "crescent_down", scale: 0.9, opacity: 0.65 },
+        { shape: "crescent_down", scale: 0.9, opacity: 0.65 },
       ],
-      mouth: { kind: "mute_x", scale: 0.88, opacity: 0.72 },
+      mouth: { kind: "flat", scale: 0.72, opacity: 0.55 },
       glyphs: ["zzz"],
     },
   },
   wolf_prowl: {
     recipe: {
-      tint: "coral",
-      ambientOpacity: 0.65,
+      tint: "ivory",
+      ambientOpacity: 0.76,
       allowsBreath: true,
       eyes: [
-        {
-          shape: "orb",
-          scale: 0.96,
-          eyelid: { top: 0.35, angleDeg: 14 },
-          brow: { angleDeg: 14, lift: -4 },
-        },
-        {
-          shape: "orb",
-          scale: 0.96,
-          eyelid: { top: 0.35, angleDeg: -14 },
-          brow: { angleDeg: -14, lift: -4 },
-        },
+        { shape: "orb", scale: 0.94, eyelid: { top: 0.44, angleDeg: 8 } },
+        { shape: "orb", scale: 0.94, eyelid: { top: 0.44, angleDeg: -8 } },
       ],
-      mouth: { kind: "smirk", dx: 4 },
-      glyphs: ["lightning"],
+      mouth: { kind: "smile", scale: 0.88 },
     },
   },
   witch_brew: {
     recipe: {
-      tint: "sage",
-      ambientOpacity: 0.72,
+      tint: "ivory",
+      ambientOpacity: 0.78,
       allowsBreath: true,
       eyes: [
-        { shape: "orb", scale: 1.02, rippleRings: 2, brow: { angleDeg: -6, lift: -6 } },
-        { shape: "crescent_up", scale: 0.94, dy: 2, brow: { angleDeg: 8, lift: -4 } },
+        { shape: "orb", scale: 0.94, eyelid: { top: 0.48 } },
+        { shape: "orb", scale: 0.94, eyelid: { top: 0.48 } },
       ],
-      mouth: { kind: "cat_w", scale: 0.92 },
-      glyphs: ["star_sparkle"],
+      mouth: { kind: "smile", scale: 0.9 },
     },
   },
   seer_oracle: {
@@ -107,37 +94,36 @@ export const WEREWOLF_DYNAMIC_FACE_RECIPES: Readonly<
       ambientOpacity: 0.82,
       allowsBreath: true,
       eyes: [
-        { shape: "star4", scale: 1.08, rippleRings: 3 },
-        { shape: "star4", scale: 1.08, rippleRings: 3 },
+        { shape: "orb", scale: 0.96, eyelid: { top: 0.36 } },
+        { shape: "orb", scale: 0.96, eyelid: { top: 0.36 } },
       ],
-      mouth: { kind: "dot", scale: 0.9 },
-      glyphs: ["forehead_star", "scan_trails"],
+      mouth: { kind: "smile", scale: 0.9 },
+      glyphs: ["star_sparkle"],
     },
   },
   guard_shield: {
     recipe: {
       tint: "mist",
-      ambientOpacity: 0.74,
+      ambientOpacity: 0.76,
       allowsBreath: true,
       eyes: [
-        { shape: "orb", scale: 1.0, brow: { angleDeg: 8, lift: -5, span: 1.15 } },
-        { shape: "orb", scale: 1.0, brow: { angleDeg: -8, lift: -5, span: 1.15 } },
+        { shape: "orb", scale: 0.95, eyelid: { top: 0.42 } },
+        { shape: "orb", scale: 0.95, eyelid: { top: 0.42 } },
       ],
-      mouth: { kind: "flat", scale: 0.95 },
-      glyphs: ["checkmark"],
+      mouth: { kind: "flat", scale: 0.86 },
     },
   },
   dawn_solemn: {
     recipe: {
-      tint: "amber",
-      ambientOpacity: 0.86,
+      tint: "ivory",
+      ambientOpacity: 0.9,
       allowsBreath: true,
       eyes: [
-        { shape: "orb", scale: 0.95, brow: { angleDeg: -4, lift: -2 } },
-        { shape: "orb", scale: 0.95, brow: { angleDeg: 4, lift: -2 } },
+        { shape: "orb", scale: 0.92 },
+        { shape: "orb", scale: 0.92 },
       ],
-      mouth: { kind: "circle_o", scale: 0.85 },
-      glyphs: ["glasses", "timer_clock"],
+      mouth: { kind: "smile", scale: 0.92 },
+      glyphs: ["glasses"],
     },
   },
   victory_party: {
@@ -192,17 +178,19 @@ export function resolveStagePresentation(input: {
     case "lobby":
       return {
         active: true,
-        facePosture: { kind: "floating_top", scale: 0.28, chrome: "pill" },
-        drawerDetent: "large",
-        allowUserSwipeCollapse: true,
+        facePosture: { kind: "floating_top", scale: 0.18, chrome: "frameless" },
+        drawerDetent: "closed",
+        capsulePlacement: "top_bar",
+        allowUserSwipeCollapse: false,
         hideDefaultDock: true,
       };
 
     case "dealing":
       return {
         active: true,
-        facePosture: { kind: "split_left", widthRatio: 0.36 },
+        facePosture: { kind: "split_left", widthRatio: 0.34 },
         drawerDetent: "closed",
+        capsulePlacement: "top_bar",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
         confirmSystemBackExit: true,
@@ -214,6 +202,7 @@ export function resolveStagePresentation(input: {
         active: true,
         facePosture: { kind: "full" },
         drawerDetent: "closed",
+        capsulePlacement: "top_bar",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
         confirmSystemBackExit: true,
@@ -228,6 +217,7 @@ export function resolveStagePresentation(input: {
           active: true,
           facePosture: { kind: "full" },
           drawerDetent: "peek",
+          capsulePlacement: "top_bar",
           allowUserSwipeCollapse: true,
           hideDefaultDock: true,
           confirmSystemBackExit: true,
@@ -235,8 +225,9 @@ export function resolveStagePresentation(input: {
       }
       return {
         active: true,
-        facePosture: { kind: "floating_top", scale: 0.28, chrome: "pill" },
-        drawerDetent: "large",
+        facePosture: { kind: "floating_top", scale: 0.18, chrome: "frameless" },
+        drawerDetent: "closed",
+        capsulePlacement: "top_bar",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
         confirmSystemBackExit: true,
@@ -246,18 +237,20 @@ export function resolveStagePresentation(input: {
       if (sheriffSubphase === "speech" || sheriffSubphase === "pk_speech") {
         return {
           active: true,
-          facePosture: { kind: "split_left", widthRatio: 0.36 },
-          drawerDetent: "peek",
-          allowUserSwipeCollapse: true,
+          facePosture: { kind: "split_left", widthRatio: 0.32 },
+          drawerDetent: "closed",
+          capsulePlacement: "top_bar",
+          allowUserSwipeCollapse: false,
           hideDefaultDock: true,
           confirmSystemBackExit: true,
         };
       }
       return {
         active: true,
-        facePosture: { kind: "floating_top", scale: 0.26, chrome: "pill" },
-        drawerDetent: "large",
-        allowUserSwipeCollapse: true,
+        facePosture: { kind: "floating_top", scale: 0.18, chrome: "frameless" },
+        drawerDetent: "closed",
+        capsulePlacement: "top_bar",
+        allowUserSwipeCollapse: false,
         hideDefaultDock: true,
         confirmSystemBackExit: true,
       };
@@ -267,9 +260,10 @@ export function resolveStagePresentation(input: {
     case "day_pk_speech":
       return {
         active: true,
-        facePosture: { kind: "split_left", widthRatio: 0.36 },
-        drawerDetent: "peek",
-        allowUserSwipeCollapse: true,
+        facePosture: { kind: "split_left", widthRatio: 0.32 },
+        drawerDetent: "closed",
+        capsulePlacement: "top_bar",
+        allowUserSwipeCollapse: false,
         hideDefaultDock: true,
         confirmSystemBackExit: true,
       };
@@ -277,8 +271,9 @@ export function resolveStagePresentation(input: {
     case "leave_resolution":
       return {
         active: true,
-        facePosture: { kind: "floating_top", scale: 0.28, chrome: "pill" },
-        drawerDetent: "large",
+        facePosture: { kind: "floating_top", scale: 0.18, chrome: "frameless" },
+        drawerDetent: "closed",
+        capsulePlacement: "top_bar",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
         confirmSystemBackExit: true,
@@ -288,9 +283,10 @@ export function resolveStagePresentation(input: {
     case "day_pk_voting":
       return {
         active: true,
-        facePosture: { kind: "floating_top", scale: 0.26, chrome: "pill" },
-        drawerDetent: "large",
-        allowUserSwipeCollapse: true,
+        facePosture: { kind: "floating_top", scale: 0.18, chrome: "frameless" },
+        drawerDetent: "closed",
+        capsulePlacement: "top_bar",
+        allowUserSwipeCollapse: false,
         hideDefaultDock: true,
         confirmSystemBackExit: true,
       };
@@ -298,8 +294,9 @@ export function resolveStagePresentation(input: {
     case "game_over":
       return {
         active: true,
-        facePosture: { kind: "split_left", widthRatio: 0.34 },
+        facePosture: { kind: "split_left", widthRatio: 0.3 },
         drawerDetent: "closed",
+        capsulePlacement: "top_bar",
         allowUserSwipeCollapse: false,
         hideDefaultDock: true,
       };
@@ -473,12 +470,15 @@ export class WerewolfChoreographer {
         break;
       case "sheriff_election":
       case "dawn_announce":
-      case "leave_resolution":
       case "day_discussion":
-      case "day_voting":
       case "day_pk_speech":
-      case "day_pk_voting":
         this.setFaceSlot("dawn_solemn", { x: 0, y: 0 });
+        void this.safeSetHeadAndLight(58, false, 0);
+        break;
+      case "leave_resolution":
+      case "day_voting":
+      case "day_pk_voting":
+        this.setFaceSlot("judge_lobby", { x: 0, y: 0 });
         void this.safeSetHeadAndLight(58, false, 0);
         break;
       case "game_over":

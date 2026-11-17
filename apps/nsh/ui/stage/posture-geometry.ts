@@ -22,6 +22,8 @@ export interface StageLayoutInput {
   readonly drawerDetent: StageDrawerDetent;
   readonly hasDrawer: boolean;
   readonly hasCapsule?: boolean;
+  readonly capsulePlacement?: "below_top" | "top_bar";
+  readonly hasCompanion?: boolean;
 }
 
 export interface StageFaceGeometry {
@@ -63,6 +65,9 @@ export interface StageLayoutMetrics {
   readonly splitLeftBoundaryX: number;
   readonly face: StageFaceGeometry;
   readonly canvas: StageBoxInset;
+  readonly leftCompanion: StageBoxInset | null;
+  readonly canvasOccludedByDrawer: boolean;
+  readonly topBarCapsuleMaxWidth: number | null;
   readonly capsule: StageCapsuleGeometry;
   readonly drawer: StageDrawerGeometry;
 }
@@ -110,6 +115,7 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
   const effectiveDetent: StageDrawerDetent = input.hasDrawer
     ? input.drawerDetent
     : "closed";
+  const capsulePlacement = input.capsulePlacement ?? "below_top";
 
   let targetScale = 1;
   let targetCenterX = naturalFaceCenterX;
@@ -128,23 +134,44 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
       break;
     }
     case "floating_top": {
-      targetScale = clamp(posture.scale ?? 0.32, 0.22, 0.36);
-      const pillVisualHalfW = (STAGE_BASE_PILL_WIDTH * baseFaceScale * targetScale) / 2;
-      const pillVisualHalfH = (STAGE_BASE_PILL_HEIGHT * baseFaceScale * targetScale) / 2;
+      const isFrameless = (posture.chrome ?? "pill") === "frameless";
+      targetScale = clamp(
+        posture.scale ?? (isFrameless ? 0.18 : 0.32),
+        isFrameless ? 0.16 : 0.22,
+        0.36,
+      );
+      const faceVisualSpanW = isFrameless ? 540 : STAGE_BASE_PILL_WIDTH;
+      const faceVisualSpanH = isFrameless ? 220 : STAGE_BASE_PILL_HEIGHT;
+      const pillVisualHalfW = (faceVisualSpanW * baseFaceScale * targetScale) / 2;
+      const pillVisualHalfH = (faceVisualSpanH * baseFaceScale * targetScale) / 2;
       const rightControlsLeftX = width - safeRight - STAGE_TOP_RIGHT_CONTROLS_RESERVED_WIDTH;
       const minLeftCenterX = safeLeft + 16 + pillVisualHalfW;
       const maxClearCenterX = rightControlsLeftX - 8 - pillVisualHalfW;
-      if (naturalFaceCenterX + pillVisualHalfW <= rightControlsLeftX - 8) {
-        targetCenterX = naturalFaceCenterX;
-        targetCenterY = safeTop + Math.max(30, Math.round(pillVisualHalfH + 6));
-      } else if (maxClearCenterX >= minLeftCenterX) {
-        targetCenterX = maxClearCenterX;
-        targetCenterY = safeTop + Math.max(30, Math.round(pillVisualHalfH + 6));
+      if (isFrameless) {
+        if (naturalFaceCenterX + pillVisualHalfW <= rightControlsLeftX - 8) {
+          targetCenterX = naturalFaceCenterX;
+          targetCenterY = safeTop + Math.round(STAGE_TOP_BAR_HEIGHT * 0.54);
+        } else if (maxClearCenterX >= minLeftCenterX) {
+          targetCenterX = maxClearCenterX;
+          targetCenterY = safeTop + Math.round(STAGE_TOP_BAR_HEIGHT * 0.54);
+        } else {
+          targetCenterX = naturalFaceCenterX;
+          targetCenterY = safeTop + STAGE_TOP_BAR_HEIGHT + 6 + Math.round(pillVisualHalfH);
+        }
+        pillOpacity = 0;
       } else {
-        targetCenterX = naturalFaceCenterX;
-        targetCenterY = safeTop + STAGE_TOP_BAR_HEIGHT + 6 + Math.round(pillVisualHalfH);
+        if (naturalFaceCenterX + pillVisualHalfW <= rightControlsLeftX - 8) {
+          targetCenterX = naturalFaceCenterX;
+          targetCenterY = safeTop + Math.max(30, Math.round(pillVisualHalfH + 6));
+        } else if (maxClearCenterX >= minLeftCenterX) {
+          targetCenterX = maxClearCenterX;
+          targetCenterY = safeTop + Math.max(30, Math.round(pillVisualHalfH + 6));
+        } else {
+          targetCenterX = naturalFaceCenterX;
+          targetCenterY = safeTop + STAGE_TOP_BAR_HEIGHT + 6 + Math.round(pillVisualHalfH);
+        }
+        pillOpacity = 1;
       }
-      pillOpacity = (posture.chrome ?? "pill") === "pill" ? 1 : 0;
       break;
     }
     case "docked_corner": {
@@ -173,8 +200,9 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
         Math.max(safeBottom, effectiveDetent !== "closed" ? basePeekHeight : 0);
       const verticalTop = safeTop + STAGE_TOP_BAR_HEIGHT;
       targetCenterX = safeLeft + leftPaneWidth / 2;
+      const verticalFraction = input.hasCompanion ? 0.36 : 0.48;
       targetCenterY =
-        verticalTop + Math.max(60, (availableBottom - verticalTop) * 0.48);
+        verticalTop + Math.max(48, (availableBottom - verticalTop) * verticalFraction);
       pillOpacity = 0;
       break;
     }
@@ -200,8 +228,10 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
   const pillScale = baseFaceScale * targetScale;
   const pillTranslateX = targetCenterX - viewportHalfW;
   const pillTranslateY = targetCenterY - viewportHalfH;
+  const isFramelessFloating =
+    posture.kind === "floating_top" && (posture.chrome ?? "pill") === "frameless";
   const pillBottomY = Math.round(
-    targetCenterY + (STAGE_BASE_PILL_HEIGHT * pillScale) / 2,
+    targetCenterY + ((isFramelessFloating ? 220 : STAGE_BASE_PILL_HEIGHT) * pillScale) / 2,
   );
 
   // 4-detent bottom drawer geometry: never intrudes into the top host safety bar OR top floating face pill
@@ -238,11 +268,14 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
   const baseCanvasTop = safeTop + STAGE_TOP_BAR_HEIGHT + 4;
   const topFaceClearance =
     posture.kind === "floating_top" || posture.kind === "minimized_pill"
-      ? pillBottomY + 8
+      ? isFramelessFloating && targetCenterY <= safeTop + STAGE_TOP_BAR_HEIGHT
+        ? baseCanvasTop
+        : pillBottomY + 8
       : baseCanvasTop;
-  const topCapsuleClearance = input.hasCapsule
-    ? capsuleTop + STAGE_CAPSULE_ESTIMATED_HEIGHT + 6
-    : baseCanvasTop;
+  const topCapsuleClearance =
+    input.hasCapsule && capsulePlacement !== "top_bar"
+      ? capsuleTop + STAGE_CAPSULE_ESTIMATED_HEIGHT + 6
+      : baseCanvasTop;
   const canvasTop = Math.min(
     Math.round(height * 0.48),
     Math.max(baseCanvasTop, topFaceClearance, topCapsuleClearance),
@@ -251,8 +284,45 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
   const canvasRight = safeRight + 12;
   const canvasBottom =
     effectiveDetent === "closed"
-      ? safeBottom + 12
-      : Math.min(height - canvasTop - 40, peekHeight + 8);
+      ? safeBottom + 10
+      : Math.min(height - canvasTop - 40, visibleDrawerHeight + 8);
+  const canvasOccludedByDrawer =
+    effectiveDetent !== "closed" &&
+    (effectiveDetent === "large" || height - canvasTop - visibleDrawerHeight < 72);
+
+  const leftCompanion: StageBoxInset | null =
+    isSplitLeft && input.hasCompanion
+      ? {
+          top: Math.min(
+            height - safeBottom - 56,
+            Math.round(targetCenterY + 132 * baseFaceScale * targetScale),
+          ),
+          left: safeLeft + 8,
+          right: Math.max(safeRight + 8, width - splitLeftBoundaryX + 8),
+          bottom: Math.max(safeBottom + 12, visibleDrawerHeight + 8),
+        }
+      : null;
+
+  let topBarCapsuleMaxWidth: number | null = null;
+  if (capsulePlacement === "top_bar" && input.hasCapsule) {
+    const leftStart = safeLeft + 16;
+    const rightLimit = width - safeRight - STAGE_TOP_RIGHT_CONTROLS_RESERVED_WIDTH;
+    if (
+      (posture.kind === "floating_top" || posture.kind === "minimized_pill") &&
+      targetCenterY <= safeTop + STAGE_TOP_BAR_HEIGHT
+    ) {
+      const halfW =
+        posture.kind === "floating_top" && (posture.chrome ?? "pill") === "frameless"
+          ? (540 * baseFaceScale * targetScale) / 2
+          : (STAGE_BASE_PILL_WIDTH * baseFaceScale * targetScale) / 2;
+      topBarCapsuleMaxWidth = Math.max(
+        140,
+        Math.floor(targetCenterX - halfW - leftStart - 8),
+      );
+    } else {
+      topBarCapsuleMaxWidth = Math.max(180, Math.floor(rightLimit - leftStart - 8));
+    }
+  }
 
   return {
     topBarHeight: STAGE_TOP_BAR_HEIGHT,
@@ -275,6 +345,9 @@ export function computeStageLayout(input: StageLayoutInput): StageLayoutMetrics 
       bottom: Math.max(safeBottom + 8, canvasBottom),
       left: canvasLeft,
     },
+    leftCompanion,
+    canvasOccludedByDrawer,
+    topBarCapsuleMaxWidth,
     capsule: {
       top: capsuleTop,
       left: capsuleLeft,

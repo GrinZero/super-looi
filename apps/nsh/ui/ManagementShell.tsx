@@ -560,12 +560,12 @@ export function ManagementShell(props: {
             class={
               props.store.activeSpace() === "voice"
                 ? "flex-1 min-h-0 relative bg-card"
-                : "flex-1 p-3.5 min-h-0 relative"
+                : "flex-1 px-3.5 pt-2.5 min-h-0 relative"
             }
             style={
               props.store.activeSpace() === "voice"
                 ? { paddingRight: rightInset(), paddingBottom: insets().bottom }
-                : { paddingRight: rightInset() + 14, paddingBottom: insets().bottom + 14 }
+                : { paddingRight: rightInset() + 14, paddingBottom: Math.max(10, insets().bottom) }
             }
           >
             {renderActiveWorkspace()}

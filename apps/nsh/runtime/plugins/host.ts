@@ -924,7 +924,7 @@ export class PluginHost {
 
   reportStageCrash(
     pluginId: string,
-    slot: "StageCanvas" | "StageCapsule" | "StageDrawer",
+    slot: "StageCanvas" | "StageCompanion" | "StageCapsule" | "StageDrawer",
     error: unknown,
   ): PluginFailure {
     const failure = extractPluginFailure(

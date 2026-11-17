@@ -2517,6 +2517,7 @@ export class WerewolfEngine {
         canEmptyTarget: true,
         witchContext: {
           attackedSeat,
+          antidoteAvailable: this.witchAntidoteAvailable,
           canSave,
           canPoison: this.witchPoisonAvailable,
           saveSelected: false,

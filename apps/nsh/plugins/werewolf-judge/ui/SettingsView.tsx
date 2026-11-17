@@ -25,6 +25,7 @@ import {
 } from "../contracts";
 import { QrCodeCanvas } from "./QrCodeCanvas";
 import { readWerewolfState } from "./StageCapsule";
+import { WerewolfRoleIcon } from "./WerewolfIcons";
 
 const SINGLETON_ROLES: ReadonlySet<WerewolfRole> = new Set([
   "white_wolf_king",
@@ -62,15 +63,6 @@ export function WerewolfSettingsView(props: {
     return p === "idle" || p === "lobby" || p === "game_over";
   };
 
-  const visionDep = () =>
-    props.ctx
-      .dependencies()
-      .find(
-        (dep) =>
-          dep.service === "vision.person-tracker" ||
-          dep.providerPluginId === "vision-person-tracker",
-      );
-
   const statusDotClass = () => {
     if (!enabled()) return "w-2 h-2 rounded-full bg-subtle-text";
     if (st().phase === "idle") return "w-2 h-2 rounded-full bg-subtle-text";
@@ -94,6 +86,20 @@ export function WerewolfSettingsView(props: {
       0,
     );
 
+  const wolfSum = () =>
+    WEREWOLF_ROLES.reduce(
+      (sum, role) => sum + (isWolfRole(role) ? (st().rules.roleCounts[role] ?? 0) : 0),
+      0,
+    );
+
+  const godSum = () =>
+    WEREWOLF_ROLES.reduce(
+      (sum, role) => sum + (isGodRole(role) ? (st().rules.roleCounts[role] ?? 0) : 0),
+      0,
+    );
+
+  const villagerSum = () => st().rules.roleCounts.villager ?? 0;
+
   return (
     <View
       testID="werewolf-settings-view"
@@ -107,13 +113,14 @@ export function WerewolfSettingsView(props: {
       <View class="flex-1 min-w-0 min-h-0 rounded-2xl border border-border bg-card overflow-hidden">
         <Scroll class="flex-1 min-h-0" contentClass="p-3.5 gap-3">
           {/* 1. Stage Launch Header */}
-          <View class="gap-2.5">
+          <View class="gap-2">
             <If when={st().hasResumableMatch}>
               <View
                 testID="werewolf-settings-resumable-banner"
-                class="rounded-xl border border-face-sage-edge bg-air-quality-bg px-3 py-2 flex-row items-center justify-between gap-2"
+                class="rounded-xl border border-air-quality-border bg-air-quality-bg px-3 py-2 flex-row items-center gap-2"
               >
-                <Text class="text-face-sage-core text-xs font-semibold flex-1">
+                <View class="w-2 h-2 rounded-full bg-verified shrink-0" />
+                <Text class="text-foreground text-xs font-semibold flex-1">
                   {loc() === "en-US"
                     ? "Match in progress · Return to the tabletop stage anytime"
                     : "对局进行中 · 可随时返回首屏舞台继续"}
@@ -121,100 +128,87 @@ export function WerewolfSettingsView(props: {
               </View>
             </If>
 
-            <View class="flex-row items-center justify-between gap-2.5">
-              <View class="flex-row items-center gap-2.5 flex-1 min-w-0">
-                <View class="w-10 h-10 rounded-xl bg-muted border border-border items-center justify-center shrink-0">
-                  <PluginVectorIcon name="gamepad" tone="foreground" size={18} />
-                </View>
-                <View class="flex-1 min-w-0 gap-0.5">
-                  <Text
-                    class="text-foreground text-sm font-bold"
-                    style={{ numberOfLines: 1 }}
-                  >
-                    {loc() === "en-US" ? "Werewolf Referee" : "狼人杀法官主持台"}
-                  </Text>
-                  <View class="flex-row items-center gap-1.5">
-                    <View class={statusDotClass()} />
-                    <Text
-                      testID="werewolf-settings-phase"
-                      class="text-muted-foreground text-xs font-medium"
-                      style={{ numberOfLines: 1 }}
-                    >
-                      {!enabled()
-                        ? loc() === "en-US"
-                          ? "Plugin Disabled"
-                          : "插件未启用"
-                        : `${WEREWOLF_PHASE_LABELS[st().phase][loc()]}${
-                            st().hostPaused
-                              ? loc() === "en-US"
-                                ? " (Paused)"
-                                : "（舞台已挂起）"
-                              : ""
-                          }`}
-                    </Text>
-                  </View>
-                </View>
+            <View class="flex-row items-center justify-between gap-2.5 flex-wrap">
+              <View class="flex-row items-center gap-2 min-w-0 flex-1">
+                <View class={statusDotClass()} />
+                <Text
+                  testID="werewolf-settings-phase"
+                  class="text-muted-foreground text-xs font-medium flex-1"
+                  style={{ numberOfLines: 1 }}
+                >
+                  {!enabled()
+                    ? loc() === "en-US"
+                      ? "Plugin Disabled"
+                      : "插件未启用"
+                    : `${WEREWOLF_PHASE_LABELS[st().phase][loc()]}${
+                        st().hostPaused
+                          ? loc() === "en-US"
+                            ? " (Paused)"
+                            : "（舞台已挂起）"
+                          : ""
+                      }`}
+                </Text>
               </View>
 
-              <ActionButton
-                testID="werewolf-launch-stage-btn"
-                compact
-                kind="primary"
-                disabled={!enabled() || busy()}
-                label={
-                  st().phase === "idle"
-                    ? loc() === "en-US"
-                      ? "Launch Stage"
-                      : "登上首屏开局"
-                    : st().hasResumableMatch
-                      ? loc() === "en-US"
-                        ? "Match Active · Resume Stage"
-                        : "对局进行中 · 点击返回舞台"
-                      : loc() === "en-US"
-                        ? "Resume Stage"
-                        : "回到牌局舞台"
-                }
-                onPress={() => {
-                  const cmd: WerewolfCommand =
-                    st().phase === "idle"
-                      ? { type: "open_lobby" }
-                      : { type: "resume_stage" };
-                  void props.ctx.sendCommand(cmd).then(() => {
-                    if (!props.ctx.uiError()) {
-                      props.ctx.openStage();
+              <View class="flex-row items-center gap-2 shrink-0">
+                <If when={st().phase !== "idle"}>
+                  <ActionButton
+                    testID="werewolf-exit-idle-btn"
+                    compact
+                    kind="danger"
+                    disabled={!enabled() || busy()}
+                    label={
+                      st().hasResumableMatch && confirmReset()
+                        ? loc() === "en-US"
+                          ? "Tap Again to End"
+                          : "再点确认结束对局"
+                        : loc() === "en-US"
+                          ? "End Match"
+                          : "结束重置当前对局"
                     }
-                  });
-                }}
-              />
-            </View>
+                    onPress={() => {
+                      if (st().hasResumableMatch && !confirmReset()) {
+                        confirmReset.set(true);
+                        return;
+                      }
+                      confirmReset.set(false);
+                      void props.ctx.sendCommand({ type: "exit_to_idle" });
+                    }}
+                  />
+                </If>
 
-            <If when={st().phase !== "idle"}>
-              <View class="flex-row items-center justify-end">
                 <ActionButton
-                  testID="werewolf-exit-idle-btn"
+                  testID="werewolf-launch-stage-btn"
                   compact
-                  kind="danger"
+                  kind="primary"
                   disabled={!enabled() || busy()}
                   label={
-                    st().hasResumableMatch && confirmReset()
+                    st().phase === "idle"
                       ? loc() === "en-US"
-                        ? "Tap Again to End"
-                        : "再点确认结束对局"
-                      : loc() === "en-US"
-                        ? "End Current Match"
-                        : "结束重置当前对局"
+                        ? "Launch Stage"
+                        : "登上首屏开局"
+                      : st().hasResumableMatch
+                        ? loc() === "en-US"
+                          ? "Resume Stage"
+                          : "返回舞台"
+                        : loc() === "en-US"
+                          ? "Resume Stage"
+                          : "回到牌局舞台"
                   }
                   onPress={() => {
-                    if (st().hasResumableMatch && !confirmReset()) {
-                      confirmReset.set(true);
-                      return;
-                    }
-                    confirmReset.set(false);
-                    void props.ctx.sendCommand({ type: "exit_to_idle" });
+                    const cmd: WerewolfCommand =
+                      st().phase === "idle"
+                        ? { type: "open_lobby" }
+                        : { type: "resume_stage" };
+                    void props.ctx.sendCommand(cmd).then(() => {
+                      if (!props.ctx.uiError()) {
+                        props.ctx.openStage();
+                      }
+                    });
                   }}
                 />
               </View>
-            </If>
+            </View>
 
             <If when={Boolean(errorText())}>
               <View class="rounded-xl bg-muted border border-destructive px-3 py-2">
@@ -231,7 +225,7 @@ export function WerewolfSettingsView(props: {
           <View class="h-px bg-border" />
 
           {/* 2. Preset & Custom Deck Fine-Tuning */}
-          <View class="gap-2.5">
+          <View class="gap-2">
             <View class="flex-row items-center justify-between gap-2">
               <Text class="text-foreground text-sm font-bold" role="header">
                 {loc() === "en-US" ? "Board & Role Deck" : "板子与身份配比"}
@@ -248,7 +242,7 @@ export function WerewolfSettingsView(props: {
                 style={{ fontVariant: ["tabular-nums"] }}
               >
                 {loc() === "en-US"
-                  ? `${roleTotalSum()} / ${st().rules.playerCount} Players (6–12)`
+                  ? `${roleTotalSum()} / ${st().rules.playerCount} Players`
                   : `共 ${roleTotalSum()} 人（支持 6–12 人）`}
               </Text>
             </View>
@@ -289,7 +283,17 @@ export function WerewolfSettingsView(props: {
               }}
             />
 
-            <View class="gap-1.5">
+            <Text
+              testID="werewolf-settings-faction-summary"
+              class="text-muted-foreground text-xs font-medium"
+              style={{ fontVariant: ["tabular-nums"] }}
+            >
+              {loc() === "en-US"
+                ? `${wolfSum()} Wolf · ${godSum()} God · ${villagerSum()} Villager`
+                : `${wolfSum()} 狼 · ${godSum()} 神 · ${villagerSum()} 民`}
+            </Text>
+
+            <View class="rounded-xl border border-border bg-card overflow-hidden">
               <Each of={WEREWOLF_ROLES} key={(r) => r}>
                 {(roleAcc) => {
                   const role = () => roleAcc();
@@ -306,10 +310,23 @@ export function WerewolfSettingsView(props: {
                     }
                     return loc() === "en-US" ? "Good" : "平民";
                   };
+                  const isLast = () =>
+                    role() === WEREWOLF_ROLES[WEREWOLF_ROLES.length - 1];
 
                   return (
-                    <View class="min-h-11 rounded-xl border border-border bg-muted px-3 py-1 flex-row items-center justify-between gap-2">
+                    <View
+                      class={
+                        isLast()
+                          ? "min-h-11 px-3 py-1 flex-row items-center justify-between gap-2"
+                          : "min-h-11 px-3 py-1 border-b border-border flex-row items-center justify-between gap-2"
+                      }
+                    >
                       <View class="flex-row items-center gap-2 flex-1 min-w-0">
+                        <WerewolfRoleIcon
+                          role={role()}
+                          tone={count() > 0 ? "foreground" : "muted"}
+                          size={18}
+                        />
                         <Text
                           class="text-foreground text-xs font-semibold"
                           style={{ numberOfLines: 1 }}
@@ -321,13 +338,18 @@ export function WerewolfSettingsView(props: {
                         </Text>
                       </View>
 
-                      <View class="flex-row items-center gap-2 shrink-0">
+                      <View class="flex-row items-center gap-1.5 shrink-0">
                         <Button
                           testID={`werewolf-role-dec-${role()}`}
+                          hitSlop={4}
                           disabled={
                             !enabled() || !editableDeck() || count() <= 0
                           }
-                          accessibilityLabel={`Decrease ${WEREWOLF_ROLE_LABELS[role()][loc()]}`}
+                          accessibilityLabel={
+                            loc() === "en-US"
+                              ? `Decrease ${WEREWOLF_ROLE_LABELS[role()][loc()]}`
+                              : `减少${WEREWOLF_ROLE_LABELS[role()][loc()]}数量`
+                          }
                           onPress={() => {
                             void props.ctx.sendCommand({
                               type: "set_role_count",
@@ -335,7 +357,7 @@ export function WerewolfSettingsView(props: {
                               count: Math.max(0, count() - 1),
                             });
                           }}
-                          class="w-11 h-11 rounded-xl border border-border bg-card items-center justify-center active:bg-secondary disabled:opacity-35"
+                          class="w-11 h-11 rounded-xl border border-border bg-muted items-center justify-center active:bg-secondary disabled:opacity-35"
                         >
                           <Text class="text-foreground text-base font-bold">
                             −
@@ -352,12 +374,17 @@ export function WerewolfSettingsView(props: {
 
                         <Button
                           testID={`werewolf-role-inc-${role()}`}
+                          hitSlop={4}
                           disabled={
                             !enabled() ||
                             !editableDeck() ||
                             count() >= maxAllowed()
                           }
-                          accessibilityLabel={`Increase ${WEREWOLF_ROLE_LABELS[role()][loc()]}`}
+                          accessibilityLabel={
+                            loc() === "en-US"
+                              ? `Increase ${WEREWOLF_ROLE_LABELS[role()][loc()]}`
+                              : `增加${WEREWOLF_ROLE_LABELS[role()][loc()]}数量`
+                          }
                           onPress={() => {
                             void props.ctx.sendCommand({
                               type: "set_role_count",
@@ -365,7 +392,7 @@ export function WerewolfSettingsView(props: {
                               count: Math.min(maxAllowed(), count() + 1),
                             });
                           }}
-                          class="w-11 h-11 rounded-xl border border-border bg-card items-center justify-center active:bg-secondary disabled:opacity-35"
+                          class="w-11 h-11 rounded-xl border border-border bg-muted items-center justify-center active:bg-secondary disabled:opacity-35"
                         >
                           <Text class="text-foreground text-base font-bold">
                             +
@@ -392,41 +419,70 @@ export function WerewolfSettingsView(props: {
                 : "竞赛规则与具身编排"}
             </Text>
 
-            <SelectField<WerewolfSurfaceMode>
-              testID="werewolf-settings-surface"
-              compact
-              disabled={!enabled() || !editableDeck()}
-              label={loc() === "en-US" ? "Player Surface" : "交互形态"}
-              value={st().rules.surfaceMode}
-              items={[
-                {
-                  value: "on_device",
-                  title:
-                    loc() === "en-US"
-                      ? "On-Device Privacy Shield"
-                      : "本机防窥按压",
-                },
-                {
-                  value: "lan_companion",
-                  title:
-                    loc() === "en-US"
-                      ? "LAN Phone QR Companion"
-                      : "局域网扫码手机副屏",
-                },
-              ]}
-              onChange={(surfaceMode) => {
-                void props.ctx.sendCommand({
-                  type: "update_rules",
-                  patch: { surfaceMode },
-                });
-                if (surfaceMode === "on_device") {
-                  void props.ctx.sendCommand({
-                    type: "toggle_lan_room",
-                    enabled: false,
-                  });
-                }
-              }}
-            />
+            <View class={wide() ? "flex-row items-end gap-2.5" : "gap-2.5"}>
+              <View class={wide() ? "flex-1 min-w-0" : ""}>
+                <SelectField<WerewolfSurfaceMode>
+                  testID="werewolf-settings-surface"
+                  compact
+                  disabled={!enabled() || !editableDeck()}
+                  label={loc() === "en-US" ? "Player Surface" : "交互形态"}
+                  value={st().rules.surfaceMode}
+                  items={[
+                    {
+                      value: "on_device",
+                      title:
+                        loc() === "en-US"
+                          ? "On-Device Privacy Shield"
+                          : "本机防窥按压",
+                    },
+                    {
+                      value: "lan_companion",
+                      title:
+                        loc() === "en-US"
+                          ? "LAN Phone QR Companion"
+                          : "局域网扫码手机副屏",
+                    },
+                  ]}
+                  onChange={(surfaceMode) => {
+                    void props.ctx.sendCommand({
+                      type: "update_rules",
+                      patch: { surfaceMode },
+                    });
+                    if (surfaceMode === "on_device") {
+                      void props.ctx.sendCommand({
+                        type: "toggle_lan_room",
+                        enabled: false,
+                      });
+                    }
+                  }}
+                />
+              </View>
+
+              <View class={wide() ? "w-32 shrink-0" : ""}>
+                <SelectField<string>
+                  testID="werewolf-settings-speech-sec"
+                  compact
+                  disabled={!enabled()}
+                  label={loc() === "en-US" ? "Speech Timer" : "单人发言时长"}
+                  value={String(st().rules.speechSeconds)}
+                  items={[
+                    { value: "45", title: "45s" },
+                    { value: "60", title: "60s" },
+                    { value: "90", title: "90s" },
+                    { value: "120", title: "120s" },
+                  ]}
+                  onChange={(raw) => {
+                    const parsed = Number(raw);
+                    if (Number.isFinite(parsed) && parsed >= 15) {
+                      void props.ctx.sendCommand({
+                        type: "update_rules",
+                        patch: { speechSeconds: parsed },
+                      });
+                    }
+                  }}
+                />
+              </View>
+            </View>
 
             <SelectField<WerewolfMotionMode>
               testID="werewolf-settings-motion"
@@ -460,6 +516,7 @@ export function WerewolfSettingsView(props: {
 
             <SwitchRow
               testID="werewolf-settings-sheriff"
+              variant="flat"
               disabled={!enabled() || !editableDeck()}
               label={
                 loc() === "en-US"
@@ -477,6 +534,7 @@ export function WerewolfSettingsView(props: {
 
             <SwitchRow
               testID="werewolf-settings-guard-save"
+              variant="flat"
               disabled={!enabled() || !editableDeck()}
               label={
                 loc() === "en-US"
@@ -550,76 +608,17 @@ export function WerewolfSettingsView(props: {
                 });
               }}
             />
-
-            <SelectField<string>
-              testID="werewolf-settings-speech-sec"
-              compact
-              disabled={!enabled()}
-              label={loc() === "en-US" ? "Speech Timer" : "单人发言时长"}
-              value={String(st().rules.speechSeconds)}
-              items={[
-                { value: "45", title: "45s" },
-                { value: "60", title: "60s" },
-                { value: "90", title: "90s" },
-                { value: "120", title: "120s" },
-              ]}
-              onChange={(raw) => {
-                const parsed = Number(raw);
-                if (Number.isFinite(parsed) && parsed >= 15) {
-                  void props.ctx.sendCommand({
-                    type: "update_rules",
-                    patch: { speechSeconds: parsed },
-                  });
-                }
-              }}
-            />
           </View>
 
           <View class="h-px bg-border" />
 
-          {/* 2. Optional Vision Dependency & LAN Room Status */}
+          {/* 2. LAN Room Status */}
           <View class="gap-2.5">
             <Text class="text-foreground text-sm font-bold" role="header">
               {loc() === "en-US"
-                ? "Capabilities & LAN Room"
-                : "协同插件与局域网副屏"}
+                ? "LAN Companion Room"
+                : "局域网扫码副屏"}
             </Text>
-
-            <View
-              testID="werewolf-dep-vision-status"
-              class="rounded-xl border border-border bg-muted px-3 py-2.5 flex-row items-center gap-2.5"
-            >
-              <PluginVectorIcon
-                name="eye"
-                tone={st().visionAvailable ? "foreground" : "muted"}
-                size={16}
-              />
-              <View class="flex-1 min-w-0 gap-0.5">
-                <View class="flex-row items-center gap-1.5">
-                  <View
-                    class={
-                      st().visionAvailable || visionDep()?.satisfied
-                        ? "w-2 h-2 rounded-full bg-verified"
-                        : "w-2 h-2 rounded-full bg-subtle-text"
-                    }
-                  />
-                  <Text class="text-foreground text-xs font-semibold">
-                    {loc() === "en-US"
-                      ? "Vision Person Tracker"
-                      : "视觉人物追踪（vision-person-tracker）"}
-                  </Text>
-                </View>
-                <Text class="text-muted-foreground text-xs">
-                  {st().visionAvailable || visionDep()?.satisfied
-                    ? loc() === "en-US"
-                      ? "Connected · Face centering & seat avatar capture ready"
-                      : "已就绪 · 发牌自动寻人居中并抓拍座位头像"
-                    : loc() === "en-US"
-                      ? "Optional · Running with clockwise servo seat patrol"
-                      : "可选协同未开启 · 使用顺时针舵机环视发牌"}
-                </Text>
-              </View>
-            </View>
 
             <View
               testID="werewolf-settings-lan-card"
@@ -681,6 +680,9 @@ export function WerewolfSettingsView(props: {
                     testID="werewolf-settings-qr"
                     value={st().lan.baseUrl ?? ""}
                     size={96}
+                    locale={loc()}
+                    surface="card"
+                    onNotify={(msg) => props.ctx.notify(msg)}
                   />
                   <View class="flex-1 min-w-0 gap-2">
                     <Text
@@ -698,9 +700,14 @@ export function WerewolfSettingsView(props: {
                         onPress={() => {
                           const url = st().lan.baseUrl;
                           if (!url) return;
-                          void Clipboard.writeText(url).catch((err) =>
-                            props.ctx.notify(String(err)),
-                          );
+                          void Clipboard.writeText(url).catch((err) => {
+                            const detail =
+                              err instanceof Error ? err.message : String(err);
+                            const message = detail.includes("code=")
+                              ? detail
+                              : `[stage=qr.copy code=ERR_CLIPBOARD_WRITE] ${detail || "Clipboard write failed"}`;
+                            props.ctx.notify(message);
+                          });
                         }}
                       />
                       <ActionButton
