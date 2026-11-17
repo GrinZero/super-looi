@@ -185,7 +185,7 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
     app.press("新加坡")?;
     app.wait_for("新加坡")?;
     app.press("nav-tasks")?;
-    app.wait_for("任务与审计记录")?;
+    app.wait_for("任务记录")?;
     app.press("nav-plugins")?;
     for label in [
         "让 LOOI 连接更多能力",

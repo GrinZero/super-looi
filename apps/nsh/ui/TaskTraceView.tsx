@@ -1,4 +1,4 @@
-import { signal, Text, View } from "nsh";
+import { computed, signal, Text, View } from "nsh";
 import { Accordion, AccordionHeader, AccordionItem, AccordionPanel, AccordionTrigger } from "nsh/base";
 import type { NativeObservation, NativeTask } from "../generated/looi-runtime.js";
 import { t, formatDate, translateMessage } from "../i18n";
@@ -84,8 +84,8 @@ function NodeDetails(props: { node: NativeObservation }) {
 /** Read-only inspector; every retained row is one recorded span. */
 export function TaskTraceView(props: { task: NativeTask }) {
   const expanded = signal<string[]>([]);
-  const rows = () => traceRows(props.task.observations ?? []);
-  const history = () => props.task.observations?.find(node => node.name === "agent.context" && node.parentSpanId === props.task.trace?.spanId);
+  const rows = computed(() => traceRows(props.task.observations ?? []));
+  const history = computed(() => props.task.observations?.find(node => node.name === "agent.context" && node.parentSpanId === props.task.trace?.spanId));
   const stateLabel = (node: NativeObservation) => {
     const state = traceState(node);
     return state === "active" ? t("traceActive") : state === "error" ? t("traceFailed") : state === "cancelled" ? t("stopped") : state === "interrupted" ? t("traceInterrupted") : t("traceEnded");
@@ -111,33 +111,40 @@ export function TaskTraceView(props: { task: NativeTask }) {
         <View class="rounded-xl border border-border bg-background overflow-hidden min-w-0">
           <Accordion multiple={true} value={expanded()} onChange={event => expanded.set(event.value)} class="min-w-0">
             <Each of={rows()} key={row => row.node.spanId}>
-              {row => (
-                <AccordionItem value={row().node.spanId} class="border-b border-border min-w-0">
-                  <AccordionHeader>
-                    <AccordionTrigger testID={`trace-${row().node.spanId}`} class="min-h-11 flex-row items-start gap-2 px-3 py-2.5 active:bg-muted focus:bg-muted" style={{ paddingLeft: 12 + row().depth * 12 }}>
-                      <Text class="text-muted-foreground text-sm font-mono w-4 shrink-0">{expanded().includes(row().node.spanId) ? "−" : "+"}</Text>
-                      <View class="flex-1 min-w-0 gap-1">
-                        <View class="flex-row items-center gap-2 min-w-0">
-                          <Text class="text-foreground text-sm font-semibold" style={{ numberOfLines: 1, flexShrink: 1 }}>{nodeTitle(row().node)}</Text>
-                          <If when={row().node.spanId === props.task.trace?.spanId}>
-                            <View class="px-1.5 py-0.5 rounded-md bg-muted border border-border shrink-0">
-                              <Text class="text-muted-foreground text-xs font-medium">{t("traceCurrentTask")}</Text>
-                            </View>
+              {row => {
+                const preview = computed(() => row().node.name === "agent.context"
+                  ? t("traceHistoryCount", { count: Number(tracePreview(row().node)) })
+                  : tracePreview(row().node));
+                return (
+                  <AccordionItem value={row().node.spanId} class="border-b border-border min-w-0">
+                    <AccordionHeader>
+                      <AccordionTrigger testID={`trace-${row().node.spanId}`} class="min-h-12 flex-row items-start gap-2 border border-transparent px-3 py-2.5 hover:bg-muted active:bg-accent focus-visible:border-ring" style={{ paddingLeft: 12 + Math.min(row().depth, 4) * 12 }}>
+                        <Text class="text-muted-foreground text-sm font-mono w-4 shrink-0">{expanded().includes(row().node.spanId) ? "−" : "+"}</Text>
+                        <View class="flex-1 min-w-0 gap-1">
+                          <View class="flex-row items-center gap-2 min-w-0">
+                            <Text class="text-foreground text-sm font-semibold" style={{ numberOfLines: 1, flexShrink: 1 }}>{nodeTitle(row().node)}</Text>
+                            <If when={row().node.spanId === props.task.trace?.spanId}>
+                              <View class="px-1.5 py-0.5 rounded-md bg-muted border border-border shrink-0">
+                                <Text class="text-muted-foreground text-xs font-medium">{t("traceCurrentTask")}</Text>
+                              </View>
+                            </If>
+                          </View>
+                          <If when={Boolean(preview())}>
+                            <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 2 }}>{preview()}</Text>
                           </If>
+                          <Text class="text-muted-foreground text-xs font-mono" style={{ fontVariant: ["tabular-nums"], numberOfLines: 1 }}>{formatDate(row().node.startedAt, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{row().node.endedAt === undefined ? "" : ` · ${row().node.endedAt! - row().node.startedAt} ms`}</Text>
                         </View>
-                        <Text class="text-muted-foreground text-xs" style={{ numberOfLines: 2 }}>{row().node.name === "agent.context" ? t("traceHistoryCount", { count: Number(tracePreview(row().node)) }) : tracePreview(row().node)}</Text>
-                        <Text class="text-muted-foreground text-xs font-mono" style={{ fontVariant: ["tabular-nums"], numberOfLines: 1 }}>{formatDate(row().node.startedAt, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{row().node.endedAt === undefined ? "" : ` · ${row().node.endedAt! - row().node.startedAt} ms`}</Text>
+                        <Text class={traceState(row().node) === "error" ? "text-destructive text-xs font-semibold shrink-0" : "text-muted-foreground text-xs font-medium shrink-0"}>{stateLabel(row().node)}</Text>
+                      </AccordionTrigger>
+                    </AccordionHeader>
+                    <AccordionPanel accessibilityLabel={nodeTitle(row().node)}>
+                      <View class="px-3 pt-1">
+                        <NodeDetails node={row().node} />
                       </View>
-                      <Text class={traceState(row().node) === "error" ? "text-destructive text-xs font-semibold shrink-0" : "text-muted-foreground text-xs font-medium shrink-0"}>{stateLabel(row().node)}</Text>
-                    </AccordionTrigger>
-                  </AccordionHeader>
-                  <AccordionPanel accessibilityLabel={nodeTitle(row().node)}>
-                    <View class="px-3 pt-1">
-                      <NodeDetails node={row().node} />
-                    </View>
-                  </AccordionPanel>
-                </AccordionItem>
-              )}
+                    </AccordionPanel>
+                  </AccordionItem>
+                );
+              }}
             </Each>
           </Accordion>
         </View>

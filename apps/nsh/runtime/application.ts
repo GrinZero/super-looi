@@ -5,7 +5,6 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { UserActionRef } from "@super-looi/contracts";
 import { PiAgentExecutor } from "@super-looi/runtime/agent/pi-executor";
 import type {
-  AgentTask,
   AgentStepEvent,
   AgentInteractionAnswer,
 } from "@super-looi/runtime/agent/executor";
@@ -158,7 +157,8 @@ export type LlmOAuthUiEvent =
 /** One foreground app owns the database and executor. No Hub endpoint exists. */
 export class MobileRuntime {
   private readonly voiceConversation = new VoiceConversationWindow();
-  private readonly traceListeners = new Set<() => void>();
+  private readonly taskActivityListeners = new Set<(historyChanged: boolean) => void>();
+  private pendingTaskActivity?: { historyChanged: boolean };
   private readonly database = new DatabaseSync("/home/looi.sqlite");
   private readonly storage = new SqliteRuntimeStore(this.database);
   readonly tracer = createLangfuseTracer({
@@ -167,7 +167,7 @@ export class MobileRuntime {
     secretKey: process.env.LANGFUSE_SECRET_KEY,
     onObservation: (observation) => {
       this.storage.saveObservation(observation);
-      for (const listener of this.traceListeners) listener();
+      this.emitTaskActivity(false);
     },
   });
   private readonly home: HomeRuntime;
@@ -803,15 +803,12 @@ export class MobileRuntime {
     };
   }
 
-  private allTasks(): AgentTask[] {
-    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
-    return this.executor?.listTasks() ?? this.storage.tasks.load();
-  }
-
   taskPage(offset = 0) {
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
     if (!Number.isSafeInteger(offset) || offset < 0)
       throw new Error("@looi:runtimeInvalidTaskPage");
-    const tasks = this.allTasks().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const tasks = this.executor?.listTaskSummaries() ?? this.storage.tasks.load();
+    tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return {
       total: tasks.length,
       offset,
@@ -825,7 +822,8 @@ export class MobileRuntime {
   }
 
   taskDetails(id: string) {
-    const task = this.allTasks().find((item) => item.id === id);
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    const task = this.executor ? this.executor.getTask(id) : this.storage.task(id);
     if (!task) throw new Error("@looi:runtimeTaskNotFound");
     const homeActions = this.database
       .prepare(
@@ -839,13 +837,28 @@ export class MobileRuntime {
       )
       .all(task.id)
       .map((row) => JSON.parse(String(row.evidence)));
-    return { ...structuredClone(task), homeActions, bodyActions,
+    return { ...task, homeActions, bodyActions,
       observations: task.trace ? this.storage.traceObservations(task.trace.traceId) : [] };
   }
 
-  subscribeTrace(listener: () => void): () => void {
-    this.traceListeners.add(listener);
-    return () => this.traceListeners.delete(listener);
+  subscribeTaskActivity(listener: (historyChanged: boolean) => void): () => void {
+    this.taskActivityListeners.add(listener);
+    return () => this.taskActivityListeners.delete(listener);
+  }
+
+  private emitTaskActivity(historyChanged: boolean) {
+    if (this.taskActivityListeners.size === 0) return;
+    if (this.pendingTaskActivity) {
+      this.pendingTaskActivity.historyChanged ||= historyChanged;
+      return;
+    }
+    const update = { historyChanged };
+    this.pendingTaskActivity = update;
+    // Publish after the executor updates its in-memory snapshot following persistence.
+    void Promise.resolve().then(() => {
+      this.pendingTaskActivity = undefined;
+      for (const listener of this.taskActivityListeners) listener(update.historyChanged);
+    });
   }
 
   newConversation(action: UserActionRef): void {
@@ -1071,7 +1084,13 @@ export class MobileRuntime {
       model: selection.modelId,
       stateDirectory: "/home/agent",
       workspaceRoot: "/workspace",
-      taskPersistence: this.storage.tasks,
+      taskPersistence: {
+        load: this.storage.tasks.load,
+        save: (task) => {
+          this.storage.tasks.save(task);
+          this.emitTaskActivity(true);
+        },
+      },
       approvalUiSessionId: this.uiSessionId,
       requireApprovalForAllWrites: true,
       maxConcurrentTasks: 2,

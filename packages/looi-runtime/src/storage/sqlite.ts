@@ -14,6 +14,12 @@ export interface RuntimeDatabase {
 }
 
 const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
+function decodeTask(row: Record<string, unknown>): AgentTask {
+  const task = JSON.parse(String(row.snapshot)) as AgentTask;
+  if (task.id !== row.id) throw new Error("Task snapshot identity mismatch");
+  return task;
+}
+
 function encode(value: unknown): string {
   const json = JSON.stringify(value);
   if (new TextEncoder().encode(json).byteLength > MAX_SNAPSHOT_BYTES)
@@ -45,12 +51,7 @@ export class SqliteRuntimeStore {
         return db
           .prepare("SELECT id,snapshot FROM runtime_tasks ORDER BY id")
           .all()
-          .map((row) => {
-            const task = JSON.parse(String(row.snapshot)) as AgentTask;
-            if (task.id !== row.id)
-              throw new Error("Task snapshot identity mismatch");
-            return task;
-          });
+          .map(decodeTask);
       },
       save: (task) => {
         this.assertOpen();
@@ -59,6 +60,12 @@ export class SqliteRuntimeStore {
         ).run(task.id, encode(task));
       },
     };
+  }
+
+  task(id: string): AgentTask | undefined {
+    this.assertOpen();
+    const row = this.db.prepare("SELECT id,snapshot FROM runtime_tasks WHERE id = ?").get(id);
+    return row ? decodeTask(row) : undefined;
   }
 
   saveObservation(observation: TraceObservation): void {

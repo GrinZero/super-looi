@@ -214,7 +214,7 @@ export interface NativeRuntime {
  cancelPluginLogin(id:string):Promise<void>;
  logoutPlugin(id:string,action:UiAction):Promise<void>;
  readonly tracer:{start(name:string,type:"span"|"agent"|"generation"|"tool",context?:TraceContext,attributes?:Record<string,unknown>):{end(attributes?:Record<string,unknown>):void}};
- subscribeTrace(listener:()=>void):()=>void;
+ subscribeTaskActivity(listener:(historyChanged:boolean)=>void):()=>void;
  homeConfiguration():HomeConfiguration;
  homeConnection():HomeConnection;
  configureHome(input:{mode:HomeConfiguration["mode"];haUrl?:string;haToken?:string;region?:HomeConfiguration["region"];enabledSources?:Partial<Record<HomeSourceId,boolean>>},action:UiAction):Promise<HomeConfiguration>;

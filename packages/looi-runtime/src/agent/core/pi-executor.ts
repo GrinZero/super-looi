@@ -90,6 +90,10 @@ export class PiAgentExecutor implements AgentExecutor {
     return structuredClone(this.store.list());
   }
 
+  listTaskSummaries(): Pick<AgentTask, "id" | "prompt" | "state" | "updatedAt">[] {
+    return this.store.list().map(({ id, prompt, state, updatedAt }) => ({ id, prompt, state, updatedAt }));
+  }
+
   sendMessage(taskId: string, message: string, behavior: "steer" | "followUp" = "followUp"): Promise<"queued" | "handled"> {
     const runner = this.runners.get(taskId);
     if (!runner) return Promise.reject(new AgentExecutionError("Task has no active Pi run", taskId));

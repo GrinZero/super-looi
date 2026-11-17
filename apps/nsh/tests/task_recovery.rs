@@ -68,7 +68,8 @@ fn past_task_errors_do_not_require_review_or_show_startup_reminders() -> Result<
         assert!(!app.shows("review-task-btn"));
         app.press("task-interrupted")?;
         app.wait_for("text:write: MIOT_ERROR_503")?;
-        app.press("back-to-face")?;
+        app.press("new-conversation-btn")?;
+        app.wait_for("message-input")?;
         app.wait_for(standing_by)?;
         assert!(!app.shows("subtitle-capsule"));
         drop(app);

@@ -3,7 +3,7 @@ import { effect, safeAreaInsets, signal, Text, View, Scroll, windowSize } from "
 import { Button } from "nsh/base";
 import type { LlmBrandId } from "../generated/looi-runtime.js";
 import type { createAppStore, AppSpace } from "../store";
-import { IconButton, LightToast } from "./Controls";
+import { ActionButton, IconButton, LightToast } from "./Controls";
 import { ModelsSpaceView } from "./ModelsSpaceView";
 import { VoiceServiceBar, VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
@@ -15,6 +15,7 @@ import { RetainedPage } from "./RetainedPage";
 
 export function ManagementShell(props: {
   store: ReturnType<typeof createAppStore>;
+  onNewConversation: () => void;
   cutoutInsets?: { left: number; right: number };
 }) {
   const insets = safeAreaInsets();
@@ -325,37 +326,23 @@ export function ManagementShell(props: {
 
       <If when={props.store.activeSpace() === "tasks"}>
         <View class="flex-1 min-w-0 h-11 flex-row items-center justify-between gap-2">
-          <View class="flex-row items-center gap-2 min-w-0 flex-1">
-            <Text class="text-foreground text-base font-bold" style={{ numberOfLines: 1 }}>
-              {t("tasksAndActivity")}
-            </Text>
-            <If when={props.store.tasks().total > 0}>
-              <View class="px-2 py-0.5 rounded-full bg-muted border border-border">
-                <Text
-                  class="text-muted-foreground text-xs font-mono font-medium"
-                  style={{ fontVariant: ["tabular-nums"] }}
-                >
-                  {String(props.store.tasks().total)}
-                </Text>
-              </View>
-            </If>
-          </View>
+          <Text class="text-foreground text-base font-semibold flex-1 min-w-0" role="header" style={{ numberOfLines: 1 }}>
+            {t("tasks")}
+          </Text>
           <View class="flex-row items-center gap-1.5 shrink-0">
-            <Button
+            <ActionButton
               testID="new-conversation-btn"
-              accessibilityLabel={t("newConversation")}
-              disabled={props.store.busy()}
-              onPress={() => props.store.newConversation()}
-              class="min-h-11 px-3 rounded-full border border-border bg-muted flex-row items-center gap-1.5 active:opacity-75 focus:border-ring disabled:opacity-35"
-            >
-              <Text class="text-foreground text-xs font-semibold">
-                + {t("newConversation")}
-              </Text>
-            </Button>
+              label={t("newConversation")}
+              kind="primary"
+              compact={true}
+              disabled={!props.store.ready() || props.store.busy()}
+              onPress={() => props.onNewConversation()}
+            />
             <IconButton
               icon="refresh"
               label={t("refresh")}
               testID="refresh-tasks-btn"
+              disabled={!props.store.ready()}
               onPress={() => props.store.refreshTasks(props.store.tasks().offset)}
             />
           </View>

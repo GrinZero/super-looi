@@ -140,7 +140,16 @@ function App() {
         />
       </RetainedPage>
       <RetainedPage active={store.activeSpace() !== "face"}>
-        <ManagementShell store={store} cutoutInsets={missingCutout()} />
+        <ManagementShell
+          store={store}
+          cutoutInsets={missingCutout()}
+          onNewConversation={() => {
+            if (store.newConversation()) {
+              store.backToFace();
+              compose.set(true);
+            }
+          }}
+        />
       </RetainedPage>
 
       {/* Global View Response Modal */}

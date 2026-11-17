@@ -1108,6 +1108,7 @@ export function MorphableStage(props: MorphableStageProps) {
                 value={props.composeDraft}
                 onChange={(e) => props.onChangeDraft(e.value)}
                 onSubmit={props.onSubmitDraft}
+                autoFocus={props.active}
                 autoCorrect={false}
                 autoCapitalize="none"
                 maxLength={8192}

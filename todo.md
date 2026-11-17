@@ -269,3 +269,11 @@
 ## 狼人杀 UI 视觉与舞台交互真机核验（2026-11-17）
 
 - [ ] 连接已签名开发真机，在横屏（如 `844 × 390 pt`）浅色与深色模式下核验插件配置页角色行与总数摘要、首屏舞台 6 个核心画面（开局准备与双态切换、环视发牌、夜间隐私护盾及 LAN 副屏 `peek` 抽屉、白天桌席发言与 `StageCompanion` 字幕、公投进度条与 LAN 暗票等待、终局角色/时间线标签滑块）、以及顶栏状态胶囊 `[⋯]` `<Menu>` 与 `AlertDialog`/`Dialog` 弹窗交互。本轮检查 `xcrun devicectl list devices` 与 `adb devices -l` 均未发现已连接真机。
+
+## 任务界面真机验证
+
+- [ ] 在 iOS 与 Android 真机横屏复核任务页的触控、键盘弹出、VoiceOver／TalkBack 朗读顺序，以及减少动态效果设置下的标签切换。
+
+## Codex 插件配置测试
+
+- [ ] 修正 `tests/codex-plugin.node.ts` 中 `save_cloud_defaults` 回执的深比较断言。回执包含保留的 `cliVersion: "0.167.2"`，断言只列出 `environment` 与 `branch`，导致 `pnpm test:codex` 的这一个用例失败。

@@ -729,9 +729,16 @@ export function createAppStore() {
   const tasks = signal<NativeTaskPage>({ total: 0, offset: 0, items: [] });
   const task = signal<NativeTask | undefined>(undefined);
   const shellOutput = signal<{taskId:string;callId:string;command:string;text:string;status:string} | undefined>(undefined);
-  const refreshInspectedTask = () => {
-    const id = task()?.id;
-    if (id && runtime) task.set(runtime.taskDetails(id));
+  const refreshTaskActivity = (historyChanged: boolean) => {
+    if (!alive || !runtime || activeSpace() !== "tasks") return;
+    try {
+      const page = historyChanged ? runtime.taskPage(tasks().offset) : undefined;
+      const id = task()?.id ?? (windowSize().width >= 600 ? page?.items[0]?.id : undefined);
+      if (id) task.set(runtime.taskDetails(id));
+      if (page) tasks.set(page);
+    } catch (error) {
+      fail(error);
+    }
   };
   const receiveShellOutput = (event: NativeShellOutput) => {
     if (!alive) return;
@@ -756,7 +763,7 @@ export function createAppStore() {
     }
   });
   const face = signal(driver.getState());
-  let unsubscribeTrace: (() => void) | undefined;
+  let unsubscribeTaskActivity: (() => void) | undefined;
   let runtime: NativeRuntime | undefined,
     alive = true,
     sequence = 0;
@@ -1048,9 +1055,7 @@ export function createAppStore() {
           if (current?.enabled && current.auth?.state === "authorizing" && current.auth.sessionId === event.sessionId) void openUrl(event.url).catch(error => { if (alive) setPluginUiError(event.pluginId, String(error)); });
         }
       });
-      unsubscribeTrace = opened.subscribeTrace(() => {
-        if (alive && activeSpace() === "tasks" && task()) refreshInspectedTask();
-      });
+      unsubscribeTaskActivity = opened.subscribeTaskActivity(refreshTaskActivity);
       if (cameraHost) opened.attachNativeCamera(cameraHost);
       opened.setBodyForegroundActive(lifecycle() === "active");
       try {
@@ -1079,7 +1084,6 @@ export function createAppStore() {
               action(),
               (event) => {
                 if (!alive) return;
-                refreshInspectedTask();
                 if (event.interaction && event.taskId) {
                   interaction.set({ ...event.interaction, taskId: event.taskId });
                 }
@@ -1100,7 +1104,6 @@ export function createAppStore() {
               busy.set(false);
               voiceTaskRunning.set(false);
               interaction.set(undefined);
-              refreshInspectedTask();
               syncBodyStatus(runtime.bodyStatus());
             }
           }
@@ -1287,6 +1290,7 @@ export function createAppStore() {
         });
       }
       ready.set(true);
+      if (activeSpace() === "tasks") refreshTaskActivity(true);
       status.set("@looi:runtimeStandingBy");
     } catch (error) {
       if (alive) {
@@ -1298,7 +1302,7 @@ export function createAppStore() {
   })();
   cleanup(() => {
     alive = false;
-    unsubscribeTrace?.();
+    unsubscribeTaskActivity?.();
     unsubscribePlugins?.();
     if (toastTimer) clearTimeout(toastTimer);
     if (dockExpressionTimer) clearTimeout(dockExpressionTimer);
@@ -1491,7 +1495,7 @@ export function createAppStore() {
       if (space !== "home" && homeSubView() === "video_login") api.cancelXiaomiVideoLogin();
       activeSpace.set(space);
       if (space === "tasks" && ready()) {
-        api.refreshTasks(0);
+        api.refreshTasks(tasks().offset);
       }
     },
     backToFace() {
@@ -2592,14 +2596,15 @@ export function createAppStore() {
       try {
         const currentId = task()?.id;
         const page = runtime.taskPage(offset);
-        tasks.set(page);
         const preferredId =
-          currentId && page.items.some((item) => item.id === currentId)
+          currentId && (offset === tasks().offset || page.items.some((item) => item.id === currentId))
             ? currentId
             : windowSize().width >= 600
               ? page.items[0]?.id
               : undefined;
-        task.set(preferredId ? runtime.taskDetails(preferredId) : undefined);
+        const selectedTask = preferredId ? runtime.taskDetails(preferredId) : undefined;
+        tasks.set(page);
+        task.set(selectedTask);
       } catch (error) {
         fail(error);
       }
@@ -2652,7 +2657,6 @@ export function createAppStore() {
           (event) => {
             if (!alive) return;
             status.set(event.summary);
-            refreshInspectedTask();
             if (event.interaction && event.taskId)
               interaction.set({ ...event.interaction, taskId: event.taskId });
           },
@@ -2670,7 +2674,6 @@ export function createAppStore() {
         if (alive) {
           busy.set(false);
           interaction.set(undefined);
-          refreshInspectedTask();
           syncBodyStatus(runtime.bodyStatus());
         }
       }
