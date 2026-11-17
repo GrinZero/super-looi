@@ -1,3 +1,11 @@
+## UI 测试钥匙串弹窗修复（2026-11-17）
+
+计划见 [钥匙串弹窗修复](docs/plans/credential-keychain-prompt-fix.md)。
+
+- [x] Step 1：定位 `app_ui-*` 读取真实钥匙串的路径，停止挂起约 10 小时的旧测试进程树。
+- [x] Step 2：在原生 CredentialVault 内按宿主平台隔离模拟凭据，补充重开、覆盖、幂等删除、跨 VM 隔离与真实后端选择回归。
+- [x] Step 3：凭据回归 2/2、`app_ui` 狼人杀横屏原场景（17.74 秒）、`typecheck` 与 `cargo clippy --all-targets --locked` 通过；独立 review 无可操作问题。清理旧测试进程，隔离提交本次修复。
+
 ## macOS 与 Linux 凭据存储（2026-11-16）
 
 - [x] Step 1：检查 CredentialVault 调用方、平台分支与依赖，读取 codebase-design 和 NSH 编码约定。

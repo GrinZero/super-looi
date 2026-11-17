@@ -1,5 +1,16 @@
+use nsh_core::element::Local;
 use nsh_core::prelude::*;
-use std::path::PathBuf;
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+
+/// Shared by vaults of one emulated VM; never shared with another test or OS store.
+#[derive(Default)]
+struct EmulatedCredentials(Arc<Mutex<HashMap<String, String>>>);
+
+impl Local for EmulatedCredentials {}
 
 /// App credentials in Apple Keychain, Android Keystore-encrypted private files,
 /// or Linux Secret Service. Agent workspace cannot read them.
@@ -7,6 +18,7 @@ use std::path::PathBuf;
 pub struct CredentialVault {
     #[allow(dead_code)]
     directory: PathBuf,
+    emulated: Option<Arc<Mutex<HashMap<String, String>>>>,
 }
 
 fn validate_key(key: &str) -> Result<(), String> {
@@ -22,9 +34,11 @@ fn validate_key(key: &str) -> Result<(), String> {
 
 #[class]
 impl CredentialVault {
-    /// The compiled native backend (independent of a test's emulated UI OS).
+    /// The selected store; emulated platforms keep credentials in their VM only.
     pub fn backend(&self) -> String {
-        if cfg!(target_os = "ios") {
+        if self.emulated.is_some() {
+            "emulated-memory"
+        } else if cfg!(target_os = "ios") {
             "ios-keychain"
         } else if cfg!(target_os = "macos") {
             "macos-keychain"
@@ -49,6 +63,10 @@ impl CredentialVault {
                 .map_err(|_| "Credential storage access denied")?;
         }
         let directory = data.join("credentials");
+        // Headless tests can emulate another OS. Its private directory does not
+        // namespace Keychain/Secret Service, so select a VM-owned store instead.
+        let emulated = (sys.os.name() != std::env::consts::OS)
+            .then(|| sys.locals.get::<EmulatedCredentials>().0.clone());
         #[cfg(target_os = "android")]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -56,12 +74,21 @@ impl CredentialVault {
             std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
                 .map_err(|_| "Cannot protect credential storage")?;
         }
-        Ok(Self { directory })
+        Ok(Self {
+            directory,
+            emulated,
+        })
     }
 
     /// Read one slot. Empty means absent; access/decryption errors are failures.
     pub fn get(&self, key: String) -> Result<String, String> {
         validate_key(&key)?;
+        if let Some(slots) = &self.emulated {
+            return slots
+                .lock()
+                .map(|slots| slots.get(&key).cloned().unwrap_or_default())
+                .map_err(|error| format!("Emulated credential read failed: {error}"));
+        }
         platform::get(&self.directory, &key)
     }
 
@@ -71,12 +98,26 @@ impl CredentialVault {
         if value.is_empty() || value.len() > 32_768 {
             return Err("Invalid credential length".into());
         }
+        if let Some(slots) = &self.emulated {
+            slots
+                .lock()
+                .map_err(|error| format!("Emulated credential write failed: {error}"))?
+                .insert(key, value);
+            return Ok(());
+        }
         platform::set(&self.directory, &key, value.as_bytes())
     }
 
     /// Delete the stored slot; absence is idempotent.
     pub fn remove(&self, key: String) -> Result<(), String> {
         validate_key(&key)?;
+        if let Some(slots) = &self.emulated {
+            slots
+                .lock()
+                .map_err(|error| format!("Emulated credential delete failed: {error}"))?
+                .remove(&key);
+            return Ok(());
+        }
         platform::remove(&self.directory, &key)
     }
 }
@@ -160,11 +201,66 @@ mod platform {
 mod tests {
     use super::*;
 
+    fn system(data: &std::path::Path, os: nsh_core::platform::Os) -> System {
+        let mut sys = System::default().with_os(os);
+        sys.data_dir = Some(data.to_owned());
+        let access = Arc::make_mut(&mut sys.access);
+        access.declared.fs.read = vec!["${dataDir}".into()];
+        access.declared.fs.write = vec!["${dataDir}".into()];
+        sys
+    }
+
+    #[test]
+    fn emulated_mobile_vault_never_selects_the_desktop_keychain() -> Result<(), String> {
+        let data = tempfile::tempdir().map_err(|error| error.to_string())?;
+        for os in [nsh_core::platform::Os::Ios, nsh_core::platform::Os::Android] {
+            let sys = system(data.path(), os);
+            let vault = CredentialVault::new(sys.clone())?;
+            // Check routing before any I/O so a regression cannot open an auth dialog.
+            assert_eq!(vault.backend(), "emulated-memory");
+            assert_eq!(vault.get("model".into())?, "");
+            vault.set("model".into(), "test credential 你好".into())?;
+            let reopened = CredentialVault::new(sys.clone())?;
+            assert_eq!(reopened.get("model".into())?, "test credential 你好");
+            reopened.set("model".into(), "updated".into())?;
+            assert_eq!(vault.get("model".into())?, "updated");
+
+            // Even identical paths must not leak credentials across test VMs.
+            let other = CredentialVault::new(system(data.path(), os))?;
+            assert_eq!(other.get("model".into())?, "");
+            reopened.remove("model".into())?;
+            reopened.remove("model".into())?;
+            assert_eq!(vault.get("model".into())?, "");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn matching_host_keeps_the_native_store() -> Result<(), String> {
+        let data = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let os = if cfg!(target_os = "macos") {
+            nsh_core::platform::Os::MacOs
+        } else {
+            nsh_core::platform::Os::Linux
+        };
+        let vault = CredentialVault::new(system(data.path(), os))?;
+        assert_eq!(
+            vault.backend(),
+            if cfg!(target_os = "macos") {
+                "macos-keychain"
+            } else {
+                "linux-secret-service"
+            }
+        );
+        Ok(())
+    }
+
     #[test]
     #[ignore = "requires an unlocked desktop system credential store; uses only the probe slot"]
     fn desktop_system_store_round_trip() -> Result<(), String> {
         let vault = CredentialVault {
             directory: PathBuf::new(),
+            emulated: None,
         };
         assert_eq!(
             vault.backend(),
@@ -181,6 +277,7 @@ mod tests {
             vault.set("probe".into(), "desktop vault 你好 🔑".into())?;
             let reopened = CredentialVault {
                 directory: PathBuf::new(),
+                emulated: None,
             };
             assert_eq!(reopened.get("probe".into())?, "desktop vault 你好 🔑");
             reopened.set("probe".into(), "updated desktop credential".into())?;
