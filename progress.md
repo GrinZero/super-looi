@@ -2923,11 +2923,10 @@
   - [x] 重构 `StageCapsule.tsx`（顶栏一体化状态点、重播/静音快捷按钮与 `[⋯]` 原生菜单 + `AlertDialog`/`Dialog`）。
   - [x] 新增 `WerewolfStageCompanion`（发牌提示、白天台词、终局胜负主视觉）并接入 `ui/index.ts`。
   - [x] 重构 `StageCanvas.tsx`（开局准备、环视发牌、夜间行动、白天发言、放逐公投/警上/离场、终局复盘）与精简 `StageDrawer.tsx`（仅保留副屏夜间闭眼 peek 条）。
-- [ ] Step 5：自动化测试更新、全套门禁验证与独立 Review。
-  - [ ] 更新并扩充 `WerewolfStage.test.tsx`、`MorphableStage.test.tsx` 与 `tests/app_ui.rs`。
-  - [ ] 完成 `typecheck`、`build`、`test:werewolf` 与 `nsh test` 全量通过。
-  - [ ] 核查真机连接状态并在无真机时将真机横屏核验记录至 `todo.md`。
-  - [ ] 完成只读子 Agent 独立 Review、修复问题并隔离 commit。
+- [x] Step 5：更新测试、验证 NSH 与独立审阅。
+  - [x] 更新 `WerewolfStage.test.tsx`、`MorphableStage.test.tsx` 与 `tests/app_ui.rs`，通过构建、类型检查、狼人杀专项和 NSH 无界面测试。
+  - [x] 将 iOS 和 Android 真机横屏核验记录至 `todo.md`。
+  - [x] 独立审阅后修正舞台错误反馈、静音字幕、提前结算与伴随槽位错误定位，提交 `e7d8979`。
 
 ## 任务界面优化（2026-11-18）
 
@@ -2936,6 +2935,8 @@
 - [x] Step 3：优化列表选中、翻页与详情的结果、执行过程和回执阅读路径。
   - [x] 列表固定翻页，详情按任务 ID 与标签保留滚动和展开状态，窄横屏可返回原列表。
   - [x] 任务保存与 Trace 写入驱动实时更新，保留历史错误和未归档的命令输出。
-- [ ] Step 4：验证切换、翻页、实时更新及旧任务，完成独立审阅并推送。
+- [x] Step 4：验证切换、翻页、实时更新及旧任务，完成独立审阅并推送。
   - [x] 独立审阅并处理长命令与路径、末段输出、同页刷新选中项和重复深拷贝问题。
-  - [x] macOS 原生测试窗口核对 `844 × 390` 浅色、深色布局与 `568 × 320` 窄横屏布局。
+  - [x] macOS 原生测试窗口核对 `844 × 390` 浅色、深色布局、`568 × 320` 窄横屏布局及键盘切换标签。
+  - [x] NSH 构建与类型检查通过。NSH 无界面测试 62 项通过、1 项跳过，运行时测试 112 项通过。
+  - [x] 任务界面提交 `86353f0` 已推送至 `origin/main`。真机验收与 Codex 插件既有断言失败记录在 `todo.md`。
