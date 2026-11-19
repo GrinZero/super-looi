@@ -5,6 +5,7 @@ import {
 } from "./credentials.js";
 import { LiveVoiceSession } from "./live-session.js";
 import { VoiceConversationWindow } from "./conversation-window.js";
+import { VoiceHomeReferences } from "./tools/home.js";
 import type { VoiceConversationMessage } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 import {
   createVoiceProtocol,
@@ -32,7 +33,7 @@ export class VoiceRuntime {
   private latestContextNote = "";
   private pluginContextNote = "";
   private readonly conversationWindow = new VoiceConversationWindow();
-  private conversation?: { id: string; messages: VoiceConversationMessage[] };
+  private conversation?: { id: string; messages: VoiceConversationMessage[]; homeReferences: VoiceHomeReferences };
   private readonly pendingNotices: VoiceProactiveNotice[] = [];
   private standbyTimer?: ReturnType<typeof setTimeout>;
   private cueStopTimer?: ReturnType<typeof setTimeout>;
@@ -405,9 +406,10 @@ export class VoiceRuntime {
     const conversationId = this.options.conversationId?.() ?? this.conversationWindow.current();
     if (this.conversation?.id !== conversationId) {
       if (this.conversation) this.latestContextNote = "";
-      this.conversation = { id: conversationId, messages: [] };
+      this.conversation = { id: conversationId, messages: [], homeReferences: new VoiceHomeReferences() };
     }
     const history = [...this.conversation.messages];
+    const home = this.options.home?.();
     const session = new LiveVoiceSession({
       apiKey,
       voiceId: selectedVoiceId,
@@ -438,6 +440,7 @@ export class VoiceRuntime {
       tracer: this.options.tracer,
       requestTask: this.options.requestTask,
       taskBridge: this.options.taskBridge,
+      home: home ? { runtime: home, references: this.conversation.homeReferences } : undefined,
       onConversationActivity: () => {
         this.conversationWindow.touch();
         this.options.onConversationActivity?.();

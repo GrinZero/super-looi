@@ -1,5 +1,6 @@
 import { tool } from "@openai/agents-realtime";
 import { createControlLooiBody } from "./control-looi-body.js";
+import { createVoiceHomeTools } from "./home.js";
 import { createManageAgentTask } from "./manage-agent-task.js";
 import { createRunAgentTask } from "./run-agent-task.js";
 import type { VoiceToolHost, VoiceToolSchema } from "./types.js";
@@ -35,6 +36,7 @@ export function createVoiceTools(host: VoiceToolHost, apiKey: string) {
     createRunAgentTask(host),
     ...(host.taskBridge ? [createManageAgentTask(host)] : []),
     ...(host.controlBody ? [createControlLooiBody(host)] : []),
+    ...(host.home ? createVoiceHomeTools(host.home.runtime, host.sessionId ?? "", host.home.references) : []),
   ];
 
   const builtinTools = definitions.map(({ schema, execute }) =>
@@ -108,5 +110,6 @@ function toolFailure(stage: string, error: unknown): Record<string, unknown> {
     ...(info.cause !== undefined
       ? { cause: toolFailure(stage, info.cause) }
       : {}),
+    ...(info.diagnostics !== undefined ? { diagnostics: info.diagnostics } : {}),
   };
 }

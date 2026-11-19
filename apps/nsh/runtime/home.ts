@@ -10,7 +10,8 @@ import {
   defineHaEntity,
   MiotCameraError,
   DirectMiotTransportAdapter,
-  executeHomeVoiceTool,
+  listHomeDevices,
+  searchHomeEntities,
   HomeAssistantGateway,
   homeControlInstruction,
   HomeAssistantRestTransport,
@@ -35,6 +36,7 @@ import {
   buildHomeDashboardModel,
   createEmptyLayoutPreferences,
   createRichSimulationCatalog,
+  normalizeRoomName,
   updateApplianceOrder,
   updateApplianceSpan,
   type HomeDashboardModel,
@@ -102,6 +104,28 @@ export interface HomeAction {
   requestId: string;
   connectionId: string;
   signal?: AbortSignal;
+}
+export interface HomeTargetName {
+  name: string;
+  room?: string;
+}
+type HomeOperation = Pick<HomeControlCommand, "service" | "service_data">;
+interface HomeTargetChoices {
+  status: "needs_selection";
+  candidates: Array<HomeEntityDefinition & { simulation: boolean }>;
+  total: number;
+  simulation: boolean;
+  connectionId: string;
+}
+
+const normalizeHomeName = (name = "") =>
+  name.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
+
+const controlRoomName = (room = "") =>
+  normalizeHomeName(/^\S+(?:的家|家庭)\s/.test(room.trim()) ? normalizeRoomName(room).room : room);
+
+function homeTargetError(code: string, message: string, diagnostics?: JsonObject) {
+  return Object.assign(new Error(message), { code, stage: "home.target_resolution", diagnostics });
 }
 
 interface SavedHome {
@@ -1257,7 +1281,7 @@ export class HomeRuntime {
     return dashboard;
   }
 
-  async list(query = "", offset = 0): Promise<JsonObject> {
+  async list(query = "", offset = 0) {
     this.assertOpen();
     if (!this.owner) await (this.connecting ?? this.connect());
     const owner = this.owner;
@@ -1269,21 +1293,96 @@ export class HomeRuntime {
         ...this.connection(),
         instruction: "家居未连接，不能声称读取或控制了真实设备。",
       };
-    const result = await executeHomeVoiceTool(
-      "list_home_devices",
-      { query, offset },
-      owner.gateway,
-    );
+    const result = await listHomeDevices(query, Math.max(0, Number.isInteger(offset) ? offset : 0), owner.gateway);
     this.assertCurrent(owner.generation);
+    const { simulation } = this.connection();
     return {
       ...result,
-      simulation: this.saved.config.mode === "simulation",
+      devices: result.devices.map(device => ({
+        ...device,
+        simulation: this.isSimulatedEntity(owner, device.entity_id),
+      })),
+      simulation,
       connectionId: owner.id,
       instruction:
-        this.saved.config.mode === "simulation"
+        simulation
           ? "离线演示数据，未读取或控制真实设备。"
           : result.instruction,
     };
+  }
+
+  async controlByName(
+    target: HomeTargetName,
+    operation: HomeOperation,
+    requestId: string,
+  ): Promise<HomeControlResult | HomeTargetChoices> {
+    this.assertOpen();
+    if (!this.owner) await (this.connecting ?? this.connect());
+    const owner = this.owner;
+    if (!owner) {
+      const connection = this.connection();
+      throw homeTargetError(
+        connection.error ?? "home_not_connected",
+        "当前没有可用的家居连接",
+        connection.diagnostics,
+      );
+    }
+
+    const name = normalizeHomeName(target.name);
+    const room = normalizeHomeName(target.room);
+    if (!name) throw homeTargetError("home_target_name_required", "请提供设备名称");
+    const entities = await owner.gateway.listEntities();
+    if (owner !== this.owner)
+      throw homeTargetError("home_connection_changed", "home_connection_changed");
+    const inRoom = entities.filter(entity =>
+      !room || normalizeHomeName(entity.room) === room || controlRoomName(entity.room) === room);
+    const exact = inRoom.filter(entity => {
+      const entityRoom = controlRoomName(entity.room);
+      const withRoom = (value: string) =>
+        [`${entityRoom}${value}`, `${entityRoom}的${value}`, `${entityRoom} ${value}`];
+      return [entity.device_name, entity.friendly_name].some(label => {
+        const normalized = normalizeHomeName(label);
+        if (!normalized) return false;
+        return normalized === name || Boolean(entityRoom && (
+          (room && withRoom(name).includes(normalized)) || withRoom(normalized).includes(name)
+        ));
+      });
+    });
+    const supportsOperation = (entity: HomeEntityDefinition) =>
+      entity.supported_features.includes(operation.service) &&
+      Object.keys(operation.service_data).every(key =>
+        entity.domain === "light" && operation.service === "turn_on" &&
+        entity.supported_features.includes(key === "color_temp_kelvin" ? "color_temp" : key));
+    const matches = exact.filter(supportsOperation);
+    if (matches.length === 1) {
+      const entity = matches[0]!;
+      return this.control(
+        { ...operation, entity_id: entity.entity_id, domain: entity.domain },
+        { connectionId: owner.id, requestId },
+      );
+    }
+    if (exact.length && !matches.length)
+      throw homeTargetError("unsupported_home_command", `设备不支持请求的动作 ${operation.service}`);
+    const candidates = matches.length
+      ? searchHomeEntities("", matches)
+      : searchHomeEntities(name, inRoom.filter(supportsOperation));
+    if (!candidates.length)
+      throw homeTargetError("home_target_not_found", `未找到设备 ${[target.room, target.name].filter(Boolean).join(" ")}`);
+    return {
+      status: "needs_selection",
+      candidates: candidates.slice(0, 30).map(entity => ({
+        ...entity,
+        simulation: this.isSimulatedEntity(owner, entity.entity_id),
+      })),
+      total: candidates.length,
+      simulation: this.connection().simulation,
+      connectionId: owner.id,
+    };
+  }
+
+  private isSimulatedEntity(owner: ConnectionOwner, entityId: string): boolean {
+    const source = owner.dashboardEntities.find(entity => entity.entity_id === entityId)?.source;
+    return source ? source === "simulation" : this.connection().simulation;
   }
   /** requestId is an authenticated UI event/tool-call identity, not model text.
    * Consume it before queueing. Failures and unknown outcomes are never replayed. */
@@ -1296,7 +1395,7 @@ export class HomeRuntime {
       return Promise.reject(new Error("home_action_cancelled"));
     const owner = this.owner;
     if (!owner || action.connectionId !== owner.id)
-      return Promise.reject(new Error("home_connection_changed"));
+      return Promise.reject(homeTargetError("home_connection_changed", "home_connection_changed"));
     if (!/^[a-zA-Z0-9_.:-]{1,160}$/.test(action.requestId))
       return Promise.reject(new Error("home_invalid_request_id"));
     if (this.actions.has(action.requestId))
@@ -1306,12 +1405,7 @@ export class HomeRuntime {
     this.actions.add(action.requestId);
     const requestId = action.requestId;
     const captured = copy(command);
-    const matchedDashboardEntity = owner.dashboardEntities.find(
-      (e) => e.entity_id === captured.entity_id,
-    );
-    const simulation =
-      this.saved.config.mode === "simulation" ||
-      matchedDashboardEntity?.source === "simulation";
+    const simulation = this.isSimulatedEntity(owner, captured.entity_id);
     const abort = () => {
       if (owner.generation === this.generation) this.invalidate();
     };

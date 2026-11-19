@@ -1180,6 +1180,7 @@ export function createAppStore() {
           }
         },
         taskBridge: voiceTaskCoordinator,
+        home: () => opened.voiceHome(),
         onConversationActivity: () => opened.touchVoiceConversation(),
         onSessionEnd: stopVoiceSessionMotion,
         initialPluginContext: () => opened.pluginAmbientVoiceContext(),

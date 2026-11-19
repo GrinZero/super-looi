@@ -16,6 +16,7 @@ import type {
   NormalizedRealtimeEvent,
 } from "./protocol.js";
 import { createVoiceTools } from "./tools/index.js";
+import type { VoiceToolHost } from "./tools/types.js";
 import {
   RealtimeAgent,
   RealtimeSession,
@@ -78,6 +79,7 @@ export interface LiveVoiceSessionOptions {
     traceContext?: TraceContext,
   ) => Promise<string>;
   taskBridge?: VoiceTaskBridge;
+  home?: VoiceToolHost["home"];
   onConversationActivity?: () => void;
   controlBody?: (
     action: string,
@@ -176,11 +178,16 @@ export class LiveVoiceSession {
   private outputStreamDone = false;
   private disposed = false;
   private readonly sessionId: string;
+  private readonly previousHomeChoices: string;
   private connectStartedAt = 0;
   private connectionStage = "websocket.connect";
 
   constructor(private readonly options: LiveVoiceSessionOptions) {
     this.sessionId = options.sessionId ?? randomUUID();
+    const homeChoices = options.home?.references.lastPresented();
+    this.previousHomeChoices = homeChoices?.length
+      ? `重连前最后一组家居候选数据，按当时的返回顺序排列。用户继续选择时可参考这些引用，后续工具返回的候选优先。\n${JSON.stringify(homeChoices)}`
+      : "";
     this.purpose = options.purpose ?? "conversation";
     this.muted = Boolean(options.initialMuted);
     this.conversationLanguage = options.initialLanguage;
@@ -254,6 +261,7 @@ export class LiveVoiceSession {
         sessionId: this.sessionId,
         requestTask: this.options.requestTask,
         taskBridge: this.options.taskBridge,
+        home: this.options.home,
         controlBody: this.options.controlBody,
         pluginTools,
         evaluateToolCall: this.options.evaluateVoiceToolCall,
@@ -627,6 +635,7 @@ ${JSON.stringify(this.previewSample())}`;
     return [
       base,
       history,
+      this.previousHomeChoices,
       this.pluginContextNote,
       this.turnWaterfallNote,
       this.contextNote,

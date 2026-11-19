@@ -1,6 +1,7 @@
 import type { TraceContext } from "../../../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type { PluginVoiceTool, ToolCallBailResult } from "../../plugins/contracts.js";
 import type { VoiceTaskBridge } from "../types.js";
+import type { VoiceHome, VoiceHomeReferences } from "./home.js";
 
 export type VoiceToolSchema = {
   type: "function";
@@ -27,6 +28,7 @@ export interface VoiceBodyControlOptions {
 export interface VoiceToolHost {
   requestTask?(prompt: string, traceContext?: TraceContext): Promise<string>;
   taskBridge?: VoiceTaskBridge;
+  home?: { runtime: VoiceHome; references: VoiceHomeReferences };
   controlBody?(
     action: string,
     durationMs?: number,

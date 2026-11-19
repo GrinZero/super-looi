@@ -24,18 +24,22 @@ export function homeControlInstruction(receipt: ActionReceipt): string {
   return `执行尚未确认成功。${detail}不得声称操作已完成。`;
 }
 
+export async function listHomeDevices(query: string, offset: number, gateway: HomeGateway) {
+  const entities = searchHomeEntities(query, await gateway.listEntities());
+  const page = entities.slice(offset, offset + 30);
+  return { total: entities.length, next_offset: offset + page.length < entities.length ? offset + page.length : null,
+    devices: await Promise.all(page.map(async (entity) => {
+      try { return { ...entity, snapshot: await gateway.getState(entity.entity_id) }; }
+      catch (error) { return { ...entity, snapshot: null, read_error: transportErrorDetails(error, "home_state_read_failed") }; }
+    })),
+    instruction: "只根据实际回读回答。无设备表示尚未连接或未找到；多个匹配必须澄清，离线/未知值不可猜测。" };
+}
+
 export async function executeHomeVoiceTool(name: string, args: Record<string, unknown>, gateway: HomeGateway): Promise<JsonObject> {
   if (name === "list_home_devices") {
     const query = typeof args.query === "string" ? args.query.trim() : "";
-    const entities = searchHomeEntities(query, await gateway.listEntities());
     const offset = typeof args.offset === "number" && Number.isInteger(args.offset) ? Math.max(0, args.offset) : 0;
-    const page = entities.slice(offset, offset + 30);
-    return { total: entities.length, next_offset: offset + page.length < entities.length ? offset + page.length : null,
-      devices: await Promise.all(page.map(async (entity) => {
-        try { return { ...entity, snapshot: await gateway.getState(entity.entity_id) }; }
-        catch (error) { return { ...entity, snapshot: null, read_error: transportErrorDetails(error, "home_state_read_failed") }; }
-      })),
-      instruction: "只根据实际回读回答。无设备表示尚未连接或未找到；多个匹配必须澄清，离线/未知值不可猜测。" } as unknown as JsonObject;
+    return await listHomeDevices(query, offset, gateway) as unknown as JsonObject;
   }
   const data: JsonObject = {};
   if (args.brightness !== undefined) data.brightness = args.brightness as number;

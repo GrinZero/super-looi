@@ -278,6 +278,10 @@ export class MobileRuntime {
     return this.home.configuration();
   }
 
+  voiceHome(): import("./voice/tools/home.js").VoiceHome | undefined {
+    return this.home.configuration().mode === "disabled" ? undefined : this.home;
+  }
+
   pluginsSnapshot() { return this.plugins.snapshots(); }
   startPlugins() { return this.plugins.startStartupPlugins(); }
   activeStagePresentation() { return this.plugins.stage.activePresentation(); }

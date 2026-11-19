@@ -3,6 +3,7 @@ export * from "./transport-error.js";
 export * from "./core/gateway.js";
 export * from "./core/rules-engine.js";
 export * from "./core/voice-tools.js";
+export { searchHomeEntities } from "./core/entity-search.js";
 export * from "./core/ha-entity-policy.js";
 export * from "./transports/in-memory-transport.js";
 export * from "./transports/ha-rest-transport.js";

@@ -112,6 +112,7 @@ export interface VoiceTaskBridge {
 }
 
 export interface VoiceRuntimeOptions {
+  home?: () => import("./tools/home.js").VoiceHome | undefined;
   vault: Vault;
   /** Shared logical conversation used by the backend task runtime. */
   conversationId?: () => string;

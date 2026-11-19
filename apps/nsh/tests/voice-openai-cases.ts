@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { HomeRuntime } from "../runtime/home.js";
 import { VoiceRuntime, type VoiceAudioPort, type VoiceSocket } from "../runtime/voice.js";
 import { createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
 import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
@@ -37,11 +38,14 @@ export async function verifyOpenAiVoiceRuntime() {
   };
   const sockets: Socket[] = [], headers: Array<Record<string, string>> = [];
   let audioStarted = 0;
+  const home = new HomeRuntime({ vault });
+  await home.configure({ mode: "simulation" });
   const voice = new VoiceRuntime({
     vault, audio, protocol: createOpenAiRealtimeProtocol({ model: "gpt-realtime" }),
     connect: async (url, options) => { check(url.endsWith("?model=gpt-realtime"), "OpenAI model missing from URL"); headers.push(options.headers); const socket = new Socket(); sockets.push(socket); return socket; },
     onState: (state) => { if (state.phase === "speaking") audioStarted++; },
     requestTask: async () => "任务完成", cancelTask: () => {},
+    home: () => home,
   });
   check(voice.configuration().hasKey === false && voice.configuration().providerLabel === "OpenAI", "OpenAI reused legacy Doubao key");
   slots.set("model", JSON.stringify({ credentials: { openai: { type: "api_key", key: "model-key" } } }));
@@ -49,6 +53,9 @@ export async function verifyOpenAiVoiceRuntime() {
   await voice.start();
   const socket = sockets[0];
   check(headers[0].Authorization === "Bearer model-key" && socket.writes[0]?.type === "session.update", "OpenAI handshake used wrong credential or frame");
+  const tools = socket.writes[0].session.tools;
+  check(tools.some((tool: { name: string }) => tool.name === "list_home_devices") &&
+    tools.some((tool: { name: string }) => tool.name === "control_home_device"), "home tools were not registered with the voice session");
   socket.push({ type: "session.created" });
   await wait(20);
   check(mode === "idle", "capture started before session.updated");
@@ -82,6 +89,32 @@ export async function verifyOpenAiVoiceRuntime() {
   await wait(35);
   check(socket.writes.some((item) => item.type === "conversation.item.create" && item.item?.type === "function_call_output" && typeof item.item.output === "string"), "OpenAI function output was not serialized");
   check(socket.writes.some((item) => item.type === "response.create"), "OpenAI tool did not continue response");
+  const toolOutput = (callId: string) => {
+    const output = socket.writes.find((frame) => frame.item?.type === "function_call_output" && frame.item.call_id === callId)?.item.output;
+    return typeof output === "string" ? JSON.parse(output) : undefined;
+  };
+  socket.push({ type: "response.function_call_arguments.done", response_id: "r3", call_id: "home-list", name: "list_home_devices", arguments: '{"query":"灯"}' });
+  await wait(35);
+  const listed = toolOutput("home-list");
+  const light = listed?.devices.find((device: { domain: string }) => device.domain === "light");
+  check(listed?.simulation && light?.ref === "d1" && !light.entity_id && !listed.connectionId, "voice home lookup did not return a simulated light reference");
+  const service = light.snapshot?.state === "on" ? "turn_off" : "turn_on";
+  voice.refreshPluginVoiceTools();
+  await voice.restartSession();
+  const restarted = sockets[1];
+  check(restarted.writes[0]?.session?.instructions?.includes(JSON.stringify({
+    ref: light.ref, name: light.friendly_name, room: light.room, simulation: true,
+  })), "realtime reconnect lost the previously presented home candidate");
+  restarted.push({ type: "session.created" });
+  restarted.push({ type: "session.updated", session: { id: "s2" } });
+  await wait(25);
+  restarted.push({
+    type: "response.function_call_arguments.done", response_id: "r4", call_id: "home-control", name: "control_home_device",
+    arguments: JSON.stringify({ target: { ref: light.ref }, service }),
+  });
+  await wait(35);
+  const controlled = JSON.parse(restarted.writes.find(frame => frame.item?.call_id === "home-control" && frame.item.type === "function_call_output")?.item.output ?? "null");
+  check(controlled?.simulation && controlled.receipt?.status === "verified", "voice home control did not return a verified readback");
   voice.stop();
   slots.set("model", JSON.stringify({ credentials: {} }));
   check(!voice.refreshCredentials().hasKey, "removed model key remained available");
@@ -91,6 +124,7 @@ export async function verifyOpenAiVoiceRuntime() {
   voice.setWakeEnabled(true);
   check(JSON.parse(slots.get("voice")!).apiKeys.openai === "openai-own", "wake toggle erased provider key");
   voice.close();
+  home.close();
 }
 
 export async function verifyVoiceTraceFinalization() {
