@@ -10,7 +10,7 @@
 
 ## 缩短米家实体 ID
 
-- 保留 `did` 中的小写字母和数字，用 `_u` 加六位十六进制码点转义其余字符。保留米家服务、属性、动作后缀，例如 `light.miot_1083378395_s2`。
+- 保留 `did` 中的小写字母和数字，用 `_u` 加六位十六进制码点转义其余字符。保留米家服务、属性、动作后缀，例如 `light.miot:1083378395_s2`。冒号将 App 内部的直连米家 ID 与外部 Home Assistant 的合法 ID 区分开，混合连接用同一套键读取和写入。 [Home Assistant ID 校验源码](https://github.com/home-assistant/core/blob/dev/homeassistant/core.py)
 - 读取家居缓存时升级旧直连米家实体及快照的 ID。布局继续按原始 `did` 关联，历史回执保留操作当时的 ID。
 
 ## 验收

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { MiotSpecResolver, brightnessFromMiot, brightnessToMiot, mapMiotDevice, parseMiotSpec, quantizeMiot } from "../src/index.js";
+import { MiotSpecResolver, brightnessFromMiot, brightnessToMiot, mapMiotDevice, parseMiotSpec, quantizeMiot, upgradeMiotEntityId } from "../src/index.js";
 import { PrivateStore, lightSpec, lightUrn, specProperty } from "./miot-fixtures.js";
 
 const device = { did: "lamp.1", name: "灯", model: "test.light.v1", urn: lightUrn, online: true };
@@ -72,7 +72,13 @@ it("keeps IDs stable and collision-free and omits arbitrary string telemetry", (
   const spec = parseMiotSpec(raw, lightUrn);
   const a = mapMiotDevice({ ...device, did: "lamp.1" }, spec, new Set());
   const b = mapMiotDevice({ ...device, did: "lamp_1" }, spec, new Set());
-  assert.notEqual(a[0].definition.entity_id, b[0].definition.entity_id);
+  assert.equal(a[0].definition.entity_id, "light.miot:lamp_u00002e1_s2");
+  assert.equal(b[0].definition.entity_id, "light.miot:lamp_u00005f1_s2");
+  const did = "1083378395";
+  const compact = mapMiotDevice({ ...device, did }, spec, new Set())[0].definition.entity_id;
+  assert.equal(compact, "light.miot:1083378395_s2");
+  assert.equal(upgradeMiotEntityId("light.miot_000031000030000038000033000033000037000038000033000039000035_s2", did), compact);
+  assert.equal(upgradeMiotEntityId(compact, did), compact);
   assert.ok(!a.some((binding) => binding.primary.name === "token"));
   assert.ok(a.every((binding) => !binding.definition.is_whitelisted));
 });

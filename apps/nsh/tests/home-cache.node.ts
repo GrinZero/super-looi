@@ -168,7 +168,7 @@ for (const multiSource of [false, true]) {
         ...(multiSource ? { enabledSources: { direct_miot: true, simulation: true } } : {}) },
       credentials: { [credentialKey]: JSON.stringify(credentials) },
     }));
-    let specs = 0, refreshes = 0;
+    let specs = 0, refreshes = 0, failRead = false;
     const fetcher: typeof fetch = async (input, init) => {
       const url = String(input);
       let value: unknown;
@@ -181,6 +181,7 @@ for (const multiSource of [false, true]) {
         { did: "lamp-1", name: "书房灯", model: "test.light.v1", spec_type: lightUrn, isOnline: true },
       ] } };
       else if (url.endsWith("/miotspec/prop/get")) {
+        if (failRead) return new Response("fixture read unavailable", { status: 503 });
         const body = JSON.parse(String(init?.body));
         value = { code: 0, result: body.params.map((property: { piid: number }) => ({ ...property, code: 0, value: property.piid === 1 ? true : property.piid === 2 ? 50 : 4000 })) };
       } else throw new Error(`unexpected URL ${url}`);
@@ -188,22 +189,43 @@ for (const multiSource of [false, true]) {
     };
     let home = new HomeRuntime({ vault, cache, fetch: fetcher });
     try {
-      await home.dashboard();
+      const initial = await home.dashboard();
+      const lamp = initial.allAppliances.find(appliance => appliance.deviceId === "lamp-1")!;
+      assert.equal(lamp.capabilities.power?.entityId, "light.miot:lamp_u00002d1_s2");
+      home.setApplianceLayout(lamp.id, { span: "2x2" });
       assert.equal(specs, 1);
       await home.connect();
       await home.dashboard();
       assert.equal(specs, 1);
       home.close();
+      const legacyDashboard = JSON.parse(cache.get("dashboard-v1")!);
+      for (const record of legacyDashboard.records) {
+        if (record.device_id !== "lamp-1") continue;
+        record.entity_id = record.entity_id.replace("miot:lamp_u00002d1_", "miot_00006c00006100006d00007000002d000031_");
+        if (record.snapshot) record.snapshot.entity_id = record.entity_id;
+      }
+      cache.set("dashboard-v1", JSON.stringify(legacyDashboard));
       const saved = JSON.parse(vault.get("home"));
       saved.credentials[credentialKey] = JSON.stringify(createMiotCredentials(scope, credentials.deviceId,
         { accessToken: "expired", refreshToken: "refresh", expiresIn: 3600 }, Date.now() - 3600_000));
       vault.set("home", JSON.stringify(saved));
       home = new HomeRuntime({ vault, cache, fetch: fetcher });
-      assert.ok(home.cachedDashboard()!.allAppliances.some((a) => a.deviceId === "lamp-1"));
+      const restored = home.cachedDashboard()!.allAppliances.find(appliance => appliance.deviceId === "lamp-1")!;
+      assert.equal(restored.id, lamp.id);
+      assert.equal(restored.span, "2x2");
+      assert.equal(restored.capabilities.power?.entityId, lamp.capabilities.power?.entityId);
+      assert.equal(restored.capabilities.power?.isOn, true);
       await home.connect();
       assert.equal(refreshes, 1);
       assert.ok(home.cachedDashboard(), "token refresh must keep the same account's snapshot");
       assert.equal(specs, 1);
+      failRead = true;
+      const offline = await home.dashboard();
+      assert.equal(offline.allAppliances.find(appliance => appliance.id === lamp.id)?.capabilities.power?.isOn, true);
+      const upgraded = JSON.parse(cache.get("dashboard-v1")!).records.find((record: { entity_id: string }) =>
+        record.entity_id === lamp.capabilities.power?.entityId);
+      assert.equal(upgraded.snapshot.entity_id, lamp.capabilities.power?.entityId);
+      failRead = false;
       const key = `miot-spec-v1:${lightUrn}`;
       const schema = JSON.parse(cache.get(key)!);
       schema.expiresAt = Date.now() - 1;
@@ -222,3 +244,81 @@ for (const multiSource of [false, true]) {
     } finally { home.close(); db.close(); }
   });
 }
+
+test("direct MIoT and external HA route independent writes for a matching device ID", async () => {
+  const vault = vaultFixture();
+  const callbackId = "00000000-0000-0000-0000-000000000001";
+  const redirectUri = `http://homeassistant.local:8123/api/webhook/${callbackId}`;
+  const credentialKey = `super-looi.miot.cn.${MIOT_CLIENT_ID}.${encodeURIComponent(redirectUri)}`;
+  const credentials = createMiotCredentials({ region: "cn", clientId: MIOT_CLIENT_ID, redirectUri },
+    "ha.routing-fixture", { accessToken: "fixture", refreshToken: "refresh", expiresIn: 3600 }, Date.now());
+  vault.set("home", JSON.stringify({
+    version: 1,
+    config: { mode: "direct_miot", region: "cn", haUrl: "", callbackId },
+    credentials: { [credentialKey]: JSON.stringify(credentials) },
+  }));
+
+  const did = "1083378395";
+  const haId = "light.miot_1083378395_s2";
+  const directId = "light.miot:1083378395_s2";
+  const writes: string[] = [];
+  let miotOn = true, haOn = true;
+  const home = new HomeRuntime({
+    vault,
+    registry: async () => new Map([[haId, { device_id: "ha-light", device_name: "HA 台灯" }]]),
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      if (url.hostname === "fixture.invalid") {
+        if (url.pathname === "/api/services/light/turn_off") {
+          assert.equal(JSON.parse(String(init?.body)).entity_id, haId);
+          writes.push("external_ha");
+          haOn = false;
+          return Response.json([]);
+        }
+        const state = { ...haState(haOn ? "on" : "off"), entity_id: haId };
+        return Response.json(url.pathname === "/api/states" ? [state] : state);
+      }
+      if (url.hostname === "miot-spec.org") return Response.json(lightSpec());
+      if (url.pathname.endsWith("/homeroom/gethome")) return Response.json({ code: 0, result: { homelist: [] } });
+      if (url.pathname.endsWith("/home/device_list_page")) {
+        return Response.json({ code: 0, result: { list: [
+          { did, name: "米家台灯", model: "test.light.v1", spec_type: lightUrn, isOnline: true },
+        ] } });
+      }
+      const { params } = JSON.parse(String(init?.body));
+      if (url.pathname.endsWith("/miotspec/prop/set")) {
+        assert.deepEqual(params, [{ did, siid: 2, piid: 1, value: false }]);
+        writes.push("direct_miot");
+        miotOn = false;
+        return Response.json({ code: 0, result: [{ did, siid: 2, piid: 1, code: 0 }] });
+      }
+      assert.ok(url.pathname.endsWith("/miotspec/prop/get"));
+      return Response.json({ code: 0, result: params.map((property: { piid: number }) => ({
+        ...property, code: 0, value: property.piid === 1 ? miotOn : property.piid === 2 ? 50 : 4000,
+      })) });
+    },
+  });
+  try {
+    await home.configure({
+      mode: "direct_miot", haUrl: "https://fixture.invalid", haToken: "fixture",
+      enabledSources: { direct_miot: true, external_ha: true },
+    });
+    const dashboard = await home.dashboard();
+    const direct = dashboard.allAppliances.find(appliance => appliance.source === "direct_miot")?.capabilities.power;
+    const external = dashboard.allAppliances.find(appliance => appliance.source === "external_ha")?.capabilities.power;
+    assert.equal(direct?.entityId, directId);
+    assert.equal(external?.entityId, haId);
+    const { connectionId } = home.connection();
+    assert.ok(connectionId);
+    const turnOff = (entity_id: string) => home.control(
+      { entity_id, domain: "light", service: "turn_off", service_data: {} },
+      { connectionId, requestId: entity_id },
+    );
+    assert.equal((await turnOff(directId)).receipt.status, "verified");
+    assert.deepEqual(writes, ["direct_miot"]);
+    assert.equal((await turnOff(haId)).receipt.status, "verified");
+    assert.deepEqual(writes, ["direct_miot", "external_ha"]);
+  } finally {
+    home.close();
+  }
+});

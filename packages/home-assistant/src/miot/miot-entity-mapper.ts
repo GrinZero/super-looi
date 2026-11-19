@@ -70,8 +70,27 @@ const actionExpectedStatuses: Record<string, string[]> = {
 };
 const metrics: Record<string, string> = { "temperature": "temperature", "relative-humidity": "humidity", "pm2.5-density": "pm25", "pm2-5-density": "pm25", "carbon-dioxide-density": "co2", "co2-density": "co2" };
 
-/** A reversible, collision-free ASCII identifier; never merge dids such as a.b and a_b. */
-function deviceKey(did: string): string { return [...did].map((char) => char.codePointAt(0)!.toString(16).padStart(6, "0")).join(""); }
+function codePointKey(char: string): string {
+  return char.codePointAt(0)!.toString(16).padStart(6, "0");
+}
+
+/** Only escapes start with an underscore, so service suffixes stay distinguishable. */
+function deviceKey(did: string): string {
+  return [...did].map(char => /^[a-z0-9]$/.test(char) ? char : `_u${codePointKey(char)}`).join("");
+}
+
+// Home Assistant object IDs cannot contain a colon. Keep the local MIoT keys
+// distinct even when a Home Assistant entity uses the same name and numbers.
+const miotEntityPrefix = "miot:";
+
+/** Upgrade a cached ID using its original device ID. Current IDs pass through unchanged. */
+export function upgradeMiotEntityId(entityId: string, did: string): string {
+  const domainEnd = entityId.indexOf(".");
+  if (domainEnd === -1) return entityId;
+  const legacyPrefix = `.miot_${[...did].map(codePointKey).join("")}_s`;
+  if (!entityId.startsWith(legacyPrefix, domainEnd)) return entityId;
+  return `${entityId.slice(0, domainEnd)}.${miotEntityPrefix}${deviceKey(did)}_s${entityId.slice(domainEnd + legacyPrefix.length)}`;
+}
 function canDim(property: MiotSpecProperty | undefined): property is MiotSpecProperty & { range: [number, number, number] } {
   return !!property && numericFormats.has(property.format) && property.readable && property.writable && !!property.range
     && property.range[2] <= property.range[1] - property.range[0];
@@ -97,7 +116,7 @@ export function mapMiotDevice(device: MiotDevice, spec: MiotSpec, allowedEntitie
   const bindings: MiotEntityBinding[] = [];
   const restricted = !safeDevices.has(spec.deviceType)
     || /lock|gas|water.?heater|garage|valve|门锁|燃气|煤气|热水器|水阀|车库门/i.test(`${device.model} ${device.name} ${spec.deviceType}`);
-  const base = `miot_${deviceKey(device.did)}`;
+  const base = `${miotEntityPrefix}${deviceKey(device.did)}`;
   const definition = (entityId: string, domain: string, name: string, originalName?: string): HomeEntityDefinition => ({
     entity_id: entityId, domain, friendly_name: name, device_id: device.did, device_name: device.name,
     online: device.online,

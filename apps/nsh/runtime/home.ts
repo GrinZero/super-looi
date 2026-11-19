@@ -22,6 +22,7 @@ import {
   MiotSpecResolver,
   readHomeRegistry,
   transportErrorDetails,
+  upgradeMiotEntityId,
   type CredentialStore,
   type HaTransportAdapter,
   type HomeEntityMetadata,
@@ -293,7 +294,21 @@ export class HomeRuntime {
     }
     try {
       const snapshot = JSON.parse(options.cache?.get(dashboardCacheKey) ?? "null") as CachedHomeDashboard | null;
-      if (snapshot?.scope === this.cacheScope()) this.dashboardSnapshot = snapshot;
+      if (snapshot?.scope === this.cacheScope()) {
+        this.dashboardSnapshot = {
+          ...snapshot,
+          records: snapshot.records.map(record => {
+            if (record.source !== "direct_miot" || !record.device_id) return record;
+            const entity_id = upgradeMiotEntityId(record.entity_id, record.device_id);
+            if (entity_id === record.entity_id) return record;
+            return {
+              ...record,
+              entity_id,
+              ...(record.snapshot ? { snapshot: { ...record.snapshot, entity_id } } : {}),
+            };
+          }),
+        };
+      }
     } catch { /* A missing cache does not prevent a fresh connection. */ }
   }
 
