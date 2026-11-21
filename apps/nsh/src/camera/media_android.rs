@@ -2,7 +2,7 @@ use super::media::{Jpeg, Status};
 use super::video::{VideoFormat, VideoPacket};
 use jni::{
     JNIEnv, JavaVM,
-    objects::{GlobalRef, JByteArray, JClass, JLongArray, JObject, JValue},
+    objects::{GlobalRef, JByteArray, JClass, JLongArray, JObject, JString, JValue},
     sys::jboolean,
 };
 use std::sync::{Mutex, OnceLock};
@@ -77,6 +77,46 @@ impl Decoder {
             env.call_method(self.object.as_obj(), "close", "()V", &[])?;
             Ok(())
         });
+    }
+    pub fn reset(&self) -> Result<(), String> {
+        let mut format = self.format.lock().unwrap();
+        java(|env, _| {
+            env.call_method(self.object.as_obj(), "reset", "()V", &[])?;
+            Ok(())
+        })?;
+        *format = VideoFormat::default();
+        Ok(())
+    }
+    pub fn fail(&self, reason: &str) {
+        let _ = java(|env, _| {
+            let reason = env.new_string(reason)?;
+            env.call_method(
+                self.object.as_obj(),
+                "fail",
+                "(Ljava/lang/String;)V",
+                &[JValue::Object(&reason)],
+            )?;
+            Ok(())
+        });
+    }
+    pub fn render_failure(&self) -> Option<String> {
+        java(|env, _| {
+            let reason = env
+                .call_method(
+                    self.object.as_obj(),
+                    "renderFailure",
+                    "()Ljava/lang/String;",
+                    &[],
+                )?
+                .l()?;
+            if reason.is_null() {
+                return Ok(None);
+            }
+            let reason = JString::from(reason);
+            Ok(Some(env.get_string(&reason)?.into()))
+        })
+        .ok()
+        .flatten()
     }
     pub fn feed(&self, packet: &VideoPacket) -> Result<(), String> {
         let mut format = self.format.lock().unwrap();

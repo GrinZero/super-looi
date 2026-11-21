@@ -38,6 +38,6 @@ The October 2026 physical Python-implementation PTZ checks are documented
 in docs/PTZ_HARDWARE_VERIFICATION_2026-10-24.md in this repository.
 The upstream go2rtc result remains a protocol reference only.
 
-CS2 media relay simulator probe references:
+CS2 media relay protocol references:
 - https://github.com/AlexxIT/go2rtc/pull/2631: directory init-string format and table
 - https://github.com/eugeneRover/micam#6-cs2-relay-handshake: public relay wire format

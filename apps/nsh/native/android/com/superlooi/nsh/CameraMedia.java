@@ -30,6 +30,8 @@ public final class CameraMedia {
     private final HandlerThread thread = new HandlerThread("looi-camera-media");
     private final Handler handler;
     private volatile boolean closed;
+    private volatile String failure;
+    private volatile String renderFailure;
     private volatile long frames, pts, receivedAt;
     private volatile int width, height, error;
     private volatile boolean displayed;
@@ -136,13 +138,43 @@ public final class CameraMedia {
         if(closed) return;
         try {
             current(pbuffer); texture.updateTexImage(); texture.getTransformMatrix(matrix);
-            pts=texture.getTimestamp()/1000000; Long arrival=arrivals.remove(pts); receivedAt=arrival==null ? System.currentTimeMillis() : arrival;
+            long framePts = texture.getTimestamp() / 1000000;
+            Long arrival = arrivals.remove(framePts);
+            if (arrival == null) return;
+            pts = framePts;
+            receivedAt = arrival;
             // SurfaceTexture coalesces obsolete outputs; old arrival records are no longer needed.
             arrivals.entrySet().removeIf(entry -> entry.getKey()<pts); frames++;
             if(window!=null) { current(window); draw(previewWidth,previewHeight,true); displayed=EGL14.eglSwapBuffers(display,window); current(pbuffer); }
-        } catch(RuntimeException failure) { error=-1; }
+        } catch(RuntimeException cause) {
+            renderFailure = "[stage=camera.android.render code=camera_decode_failed] " + cause;
+            error = -1;
+        }
     }
     public long[] status() { return new long[]{frames,width,height,pts,error,displayed?1:0}; }
+    public void reset() {
+        call(() -> {
+            if (closed) return null;
+            if (codec != null) {
+                codec.stop();
+                codec.release();
+                codec = null;
+            }
+            arrivals.clear();
+            revision = -1;
+            frames = 0;
+            pts = 0;
+            receivedAt = 0;
+            width = 0;
+            height = 0;
+            error = 0;
+            displayed = false;
+            renderFailure = null;
+            return null;
+        });
+    }
+    public String renderFailure() { return renderFailure; }
+    public void fail(String reason) { failure = reason; }
     public static final class Snapshot {
         public final byte[] data; public final int width,height; public final long receivedAt;
         Snapshot(byte[] data,int width,int height,long receivedAt) { this.data=data;this.width=width;this.height=height;this.receivedAt=receivedAt; }
@@ -224,7 +256,7 @@ public final class CameraMedia {
         private CameraMedia media; private final Object context; private final Handler main=new Handler(android.os.Looper.getMainLooper());
         private final Runnable observer=new Runnable() { public void run() {
             if(media==null) return;
-            Map<String,Object> state=new HashMap<>(); long[] s=media.status(); state.put("sessionId",media.id);state.put("frames",s[0]);state.put("width",s[1]);state.put("height",s[2]);state.put("timestampMs",s[3]);state.put("error",s[4]);state.put("displayed",s[5]!=0);state.put("closed",media.closed);state.put("failure",s[4]==0?null:"camera_decode_failed");
+            Map<String,Object> state=new HashMap<>(); long[] s=media.status(); state.put("sessionId",media.id);state.put("frames",s[0]);state.put("width",s[1]);state.put("height",s[2]);state.put("timestampMs",s[3]);state.put("error",s[4]);state.put("displayed",s[5]!=0);state.put("closed",media.closed);state.put("failure",media.failure!=null ? media.failure : s[5]!=0 ? media.renderFailure : null);
             try { context.getClass().getMethod("emit",String.class,Object.class).invoke(context,"state",state); }
             catch(ReflectiveOperationException failure) { throw new IllegalStateException("camera_component_event",failure); }
             main.postDelayed(this,250);

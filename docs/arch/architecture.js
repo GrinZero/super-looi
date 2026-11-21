@@ -162,7 +162,7 @@ globalThis.LOOI_ARCH = {
     },
     {
       id: "home", x: 280, y: 462, title: "HomeRuntime + 设备聚合", symbol: "home", category: "TypeScript · 家居业务与组件模型", detail: "多源并发 / 房间 Bento / 通用控制原语", path: "apps/nsh/runtime/home.ts",
-      description: "支持米家直连（direct_miot）、Home Assistant（external_ha）与离线演示（simulation）多源并发挂载；由 @super-looi/home-devices 将零散实体按物理设备与所属房间归一化，聚合为 6 大设备原型与统一控制原语（Toggle/Range/Choice/Action/Metric），并支持房间级 1×1 / 2×1 / 1×2 / 2×2 Bento 拖边布局。摄像头视频使用独立的 xiaomiio 账号：VideoAccount 对接真实图形／短信挑战，XiaomiCameraHost 完成 STS、设备发现、系统凭据保存及 MISS/CS2 取流；CameraVideo 按 sessionId 显示系统解码结果。离开详情或退后台时结束媒体会话。",
+      description: "支持米家直连（direct_miot）、Home Assistant（external_ha）与离线演示（simulation）多源并发挂载；由 @super-looi/home-devices 将零散实体按物理设备与所属房间归一化，聚合为 6 大设备原型与统一控制原语（Toggle/Range/Choice/Action/Metric），并支持房间级 1×1 / 2×1 / 1×2 / 2×2 Bento 拖边布局。摄像头视频使用独立的 xiaomiio 账号：VideoAccount 对接真实图形／短信挑战，XiaomiCameraHost 完成 STS、设备发现、系统凭据保存及 MISS/CS2 取流。初次观看优先尝试局域网；有中继参数且直连失败或未及时解出首帧时，在同一原生会话回退到小米 CS2 公网媒体中继。CameraVideo 按 sessionId 显示系统解码结果。离开详情或退后台时结束媒体会话。",
       files: [
         { path: "apps/nsh/runtime/home.ts", entry: "export class HomeRuntime" },
         { path: "packages/home-devices/src/device-aggregator.ts", entry: "export function buildHomeDashboardModel" },

@@ -30,6 +30,7 @@ pub mod ios {
         fn looi_camera_media_create() -> *mut c_void;
         fn looi_camera_media_release(handle: *mut c_void);
         fn looi_camera_media_close(handle: *mut c_void);
+        fn looi_camera_media_reset(handle: *mut c_void);
         fn looi_camera_media_feed(
             handle: *mut c_void,
             codec: u32,
@@ -70,6 +71,10 @@ pub mod ios {
             unsafe {
                 looi_camera_media_close(self.0);
             }
+        }
+        pub fn reset(&self) -> Result<(), String> {
+            unsafe { looi_camera_media_reset(self.0) };
+            Ok(())
         }
         pub fn feed(&self, packet: &VideoPacket) -> Result<(), String> {
             let error = unsafe {
@@ -147,6 +152,9 @@ impl Decoder {
         Err("camera_decoder_unavailable".into())
     }
     pub fn close(&self) {}
+    pub fn reset(&self) -> Result<(), String> {
+        Err("camera_decoder_unavailable".into())
+    }
     pub fn feed(&self, _: &VideoPacket) -> Result<(), String> {
         Err("camera_decoder_unavailable".into())
     }

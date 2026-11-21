@@ -158,6 +158,35 @@ void *looi_camera_media_create(void) {
     return (__bridge_retained void *)[LCCameraMedia new];
 }
 void looi_camera_media_close(void *handle) { [(__bridge LCCameraMedia *)handle close]; }
+void looi_camera_media_reset(void *handle) {
+    LCCameraMedia *media = (__bridge LCCameraMedia *)handle;
+    dispatch_sync(media->_queue, ^{
+        if (media->_decoder) {
+            VTDecompressionSessionWaitForAsynchronousFrames(media->_decoder);
+            VTDecompressionSessionInvalidate(media->_decoder);
+            CFRelease(media->_decoder);
+            media->_decoder = NULL;
+        }
+        if (media->_format) {
+            CFRelease(media->_format);
+            media->_format = NULL;
+        }
+        [media->_parameters removeAllObjects];
+        [media->_lock lock];
+        if (media->_latest) {
+            CVPixelBufferRelease(media->_latest);
+            media->_latest = NULL;
+        }
+        media->_frames = 0;
+        media->_lastPts = 0;
+        media->_receivedAt = 0;
+        media->_width = 0;
+        media->_height = 0;
+        media->_error = 0;
+        media->_displayed = NO;
+        [media->_lock unlock];
+    });
+}
 void looi_camera_media_release(void *handle) {
     if (!handle) return; LCCameraMedia *media=CFBridgingRelease(handle); [media close];
 }

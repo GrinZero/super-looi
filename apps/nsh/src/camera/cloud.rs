@@ -5,7 +5,23 @@ use md5::{Digest, Md5};
 use reqwest::{Client, Method, header};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, error::Error as _, time::Duration};
+
+fn api_network_error(stage: &str, error: reqwest::Error) -> String {
+    let code = if error.is_timeout() {
+        "camera_cloud_timeout"
+    } else {
+        "camera_cloud_network"
+    };
+    let error = error.without_url();
+    let mut detail = format!("[stage=camera.cloud.{stage} code={code}] {error}");
+    let mut cause = error.source();
+    while let Some(error) = cause {
+        detail.push_str(&format!(" | {error}"));
+        cause = error.source();
+    }
+    detail
+}
 
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Credentials {
@@ -28,8 +44,7 @@ pub struct Provision {
     pub public: [u8; 32],
     pub key: [u8; 32],
     pub sign: String,
-    #[cfg(all(target_os = "ios", target_abi = "sim"))]
-    pub relay: Option<super::relay::Parameters>,
+    pub relay: Result<super::relay::Parameters, String>,
 }
 #[derive(Default)]
 struct Attempt {
@@ -554,14 +569,17 @@ impl Cloud {
             .form(&form)
             .send()
             .await
-            .map_err(|_| "camera_cloud_network")?;
+            .map_err(|error| api_network_error("send", error))?;
         if [401, 403].contains(&response.status().as_u16()) {
             return Err("camera_account_expired".into());
         }
         if !response.status().is_success() {
             return Err(format!("camera_cloud_http_{}", response.status().as_u16()));
         }
-        let raw = response.bytes().await.map_err(|_| "camera_cloud_network")?;
+        let raw = response
+            .bytes()
+            .await
+            .map_err(|error| api_network_error("read", error))?;
         let result: Value = if let Ok(bytes) = STANDARD.decode(&raw) {
             serde_json::from_slice(&crypto::rc4(&signed, &bytes))
                 .map_err(|_| "camera_cloud_response_invalid")?
@@ -617,12 +635,7 @@ impl Cloud {
             return Err("camera_vendor_unsupported".into());
         }
         Ok(Provision {
-            #[cfg(all(target_os = "ios", target_abi = "sim"))]
-            relay: if std::env::var_os("LOOI_CAMERA_RELAY_PROBE").is_some() {
-                Some(super::relay::Parameters::from_cloud(&result["vendor"]["vendor_params"])?)
-            } else {
-                None
-            },
+            relay: super::relay::Parameters::from_cloud(&result["vendor"]["vendor_params"]),
             public,
             key: crypto::shared(
                 crypto::unhex32(

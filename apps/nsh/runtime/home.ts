@@ -629,6 +629,12 @@ export class HomeRuntime {
     if (!owner || owner.id !== connectionId || !owner.directMiot?.listCameraCapabilities().some(camera => camera.did === did))
       throw new Error("camera_device_not_in_connection");
     if (signal?.aborted) throw new Error("camera_request_cancelled");
+    const appliance = this.cachedDashboard()?.allAppliances.find(item => item.source === "direct_miot" && item.deviceId === did);
+    const powerId = appliance?.capabilities.power?.entityId;
+    const power = powerId ? owner.lastKnownSnapshots.get(powerId) : undefined;
+    if (power?.state === "off" && Date.now() - Date.parse(power.last_updated) < 15_000) {
+      throw new MiotCameraError("off");
+    }
     if (!this.camera) throw new Error("camera_decoder_unavailable");
     const camera=this.camera;
     const requestId=camera.beginCapture(did);

@@ -1,4 +1,4 @@
-//! CS2 media relay for the opt-in iOS simulator probe.
+//! CS2 directory discovery and UDP transport for Xiaomi's public media relay.
 use super::transport::{Incoming, LIMIT, Outgoing, message};
 use serde_json::Value;
 use std::{

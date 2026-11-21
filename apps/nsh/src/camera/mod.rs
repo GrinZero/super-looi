@@ -1,6 +1,7 @@
 //! Native camera sessions own transport and decoding; views only borrow display access.
 use base64::{Engine, engine::general_purpose::STANDARD};
 use nsh_core::prelude::*;
+use playback::StartFailure;
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -10,12 +11,13 @@ use std::{
     },
     time::Duration,
 };
+use tokio::time::{Instant, interval, sleep_until, timeout_at};
 mod cloud;
 mod crypto;
 mod media;
 #[cfg(target_os = "android")]
 mod media_android;
-#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod playback;
 mod relay;
 mod transport;
 mod video;
@@ -86,12 +88,143 @@ impl Session {
         value["failure"] = self.error.lock().unwrap().clone().into();
         value
     }
+    fn decode(
+        self: &Arc<Self>,
+        packet: video::VideoPacket,
+    ) -> tokio::task::JoinHandle<Result<(), String>> {
+        let session = self.clone();
+        tokio::task::spawn_blocking(move || session.decoder.feed(&packet))
+    }
+    async fn feed(self: &Arc<Self>, packet: video::VideoPacket) -> Result<(), String> {
+        self.decode(packet)
+            .await
+            .map_err(|error| format!("[stage=camera.decode code=camera_decode_failed] {error}"))?
+    }
+    async fn await_first_frame(
+        self: &Arc<Self>,
+        miss: &mut transport::Miss,
+        budget: Duration,
+    ) -> Result<(), StartFailure> {
+        let route = miss.route();
+        let timeout = || {
+            StartFailure::Transport(format!(
+                "[stage=camera.{route}.first_frame code=camera_{route}_first_frame_timeout] no decoded frame before deadline"
+            ))
+        };
+        let deadline = Instant::now() + budget;
+        let mut decoded = interval(Duration::from_millis(20));
+        loop {
+            let status = self.decoder.status();
+            if status.error != 0 {
+                #[cfg(target_os = "android")]
+                if let Some(error) = self.decoder.render_failure() {
+                    return Err(StartFailure::Terminal(error));
+                }
+                return Err(StartFailure::Terminal(format!(
+                    "[stage=camera.{route}.first_frame code=camera_decode_{}] native decoder rejected a frame",
+                    status.error
+                )));
+            }
+            if Instant::now() >= deadline {
+                return Err(timeout());
+            }
+            if status.frames > 0 {
+                return Ok(());
+            }
+            tokio::select! {
+                _ = sleep_until(deadline) => {},
+                _ = decoded.tick() => {},
+                packet = miss.video() => {
+                    let packet = packet?;
+                    let mut job = self.decode(packet);
+                    let result = match timeout_at(deadline, &mut job).await {
+                        Ok(result) => result,
+                        Err(_) => {
+                            // Drain work already running on the platform decoder before changing routes.
+                            job.abort();
+                            match job.await {
+                                Ok(Err(error)) => return Err(StartFailure::Terminal(error)),
+                                Err(error) if !error.is_cancelled() => return Err(StartFailure::Terminal(format!("[stage=camera.decode code=camera_decode_failed] {error}"))),
+                                _ => return Err(timeout()),
+                            }
+                        }
+                    };
+                    result.map_err(|error| StartFailure::Terminal(format!("[stage=camera.decode code=camera_decode_failed] {error}")))?
+                        .map_err(StartFailure::Terminal)?;
+                }
+            }
+        }
+    }
+    async fn open_playback(
+        self: &Arc<Self>,
+        host: &Weak<Host>,
+        token: (u64, u64),
+    ) -> Result<transport::Miss, String> {
+        let provision = || async {
+            let host = host.upgrade().ok_or("camera_host_closed")?;
+            let result = host.provision_device(&self.did, token).await?;
+            host.current(token)?;
+            Ok::<_, String>(result)
+        };
+        let (device, lan_grant) = provision().await?;
+        let (lan_connect, lan_first_frame) = if lan_grant.relay.is_ok() {
+            (Duration::from_secs(4), Duration::from_secs(4))
+        } else {
+            (Duration::from_secs(24), Duration::from_secs(15))
+        };
+        playback::lan_then_relay(
+            async {
+                let mut miss = transport::Miss::connect_lan(
+                    &device.host,
+                    &lan_grant,
+                    &device.model,
+                    true,
+                    lan_connect,
+                )
+                .await?;
+                match self.await_first_frame(&mut miss, lan_first_frame).await {
+                    Ok(()) => Ok(miss),
+                    Err(StartFailure::Transport(reason)) => {
+                        let reason = match miss.close_lan_attempt().await {
+                            Ok(()) => reason,
+                            Err(error) => format!("{reason} | {error}"),
+                        };
+                        Err(StartFailure::Transport(reason))
+                    }
+                    Err(error) => Err(error),
+                }
+            },
+            async {
+                lan_grant.relay.as_ref().map_err(Clone::clone)?;
+                let session = self.clone();
+                tokio::task::spawn_blocking(move || session.decoder.reset())
+                    .await
+                    .map_err(|error| {
+                        format!(
+                            "[stage=camera.relay.decoder_reset code=camera_decode_failed] {error}"
+                        )
+                    })??;
+                let (device, relay_grant) = provision().await?;
+                let mut miss = transport::Miss::connect_relay(&relay_grant, &device.model).await?;
+                self.await_first_frame(&mut miss, Duration::from_secs(8))
+                    .await
+                    .map_err(StartFailure::reason)?;
+                Ok(miss)
+            },
+        )
+        .await
+    }
     async fn capture(
         self: Arc<Self>,
         request: Option<Arc<CaptureRequest>>,
     ) -> Result<CameraFrame, String> {
         let after = self.decoder.status().frames;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        let budget = if after > 0 {
+            Duration::from_secs(30)
+        } else {
+            Duration::from_secs(75)
+        };
+        let deadline = Instant::now() + budget;
         loop {
             if self.cancelled.load(Ordering::Acquire)
                 || request
@@ -123,7 +256,7 @@ impl Session {
                     received_at: jpeg.received_at.to_string(),
                 });
             }
-            if tokio::time::Instant::now() >= deadline {
+            if Instant::now() >= deadline {
                 return Err("camera_frame_timeout".into());
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -264,7 +397,7 @@ impl Host {
                     return Ok(());
                 }
                 if tokio::time::Instant::now() >= deadline {
-                    return Err("camera_cs2_handshake_timeout".into());
+                    return Err("[stage=camera.ptz.wait code=camera_ptz_preview_wait_timeout] video route is still starting".into());
                 }
                 tokio::time::sleep(Duration::from_millis(30)).await;
             }
@@ -272,9 +405,15 @@ impl Host {
 
         let (device, provision) = self.provision_device(did, token).await?;
         self.current(token)?;
-        let miss =
-            transport::Miss::connect_with_options(&device.host, provision, &device.model, false)
-                .await?;
+        let miss = transport::Miss::connect_lan(
+            &device.host,
+            &provision,
+            &device.model,
+            false,
+            Duration::from_secs(24),
+        )
+        .await
+        .map_err(StartFailure::reason)?;
         miss.command_handle().pan_tilt(direction).await?;
         tokio::time::sleep(Duration::from_millis(350)).await;
         Ok(())
@@ -303,34 +442,34 @@ impl Host {
             owned.insert(session.id.clone(), session.clone());
             let weak = Arc::downgrade(&session);
             let host = Arc::downgrade(self);
-            let did = did.to_owned();
             *session.worker.lock().unwrap() = Some(tokio::spawn(async move {
                 let result: Result<(), String> = async {
-                    let (device, provision) = {
-                        let host = host.upgrade().ok_or("camera_host_closed")?;
-                        host.provision_device(&did, token).await?
+                    let mut miss = {
+                        let session = weak.upgrade().ok_or("camera_session_closed")?;
+                        let miss = session.open_playback(&host, token).await?;
+                        let mut command = session.command.lock().unwrap();
+                        if session.cancelled.load(Ordering::Acquire) {
+                            return Ok(());
+                        }
+                        eprintln!("[camera.playback] first frame transport={}", miss.route());
+                        *command = Some(miss.command_handle());
+                        miss
                     };
-                    host.upgrade().ok_or("camera_host_closed")?.current(token)?;
-                    let mut miss =
-                        transport::Miss::connect(&device.host, provision, &device.model).await?;
-                    if let Some(session) = weak.upgrade() {
-                        *session.command.lock().unwrap() = Some(miss.command_handle());
-                    }
                     loop {
-                        let packet = miss.video().await?;
+                        let packet = miss.video().await.map_err(StartFailure::reason)?;
                         let session = weak.upgrade().ok_or("camera_session_closed")?;
                         if session.cancelled.load(Ordering::Acquire) {
                             return Ok(());
                         }
-                        tokio::task::spawn_blocking(move || session.decoder.feed(&packet))
-                            .await
-                            .map_err(|_| "camera_decode_failed")??;
+                        session.feed(packet).await?;
                     }
                 }
                 .await;
                 if let Some(session) = weak.upgrade() {
                     *session.command.lock().unwrap() = None;
                     if let Err(error) = result {
+                        #[cfg(target_os = "android")]
+                        session.decoder.fail(&error);
                         *session.error.lock().unwrap() = Some(error);
                         session.decoder.close();
                     }
