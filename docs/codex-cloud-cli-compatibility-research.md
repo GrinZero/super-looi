@@ -1,5 +1,13 @@
 # Codex CLI 与新版 Cloud 环境兼容性
 
+## 2026-11-19 复查
+
+- 稳定版 [0.170.0](https://github.com/openai/codex/releases/tag/rust-v0.170.0) 已包含新版 Cloud 的实验性 TUI 后端。该版的 [`cloud exec` 环境解析](https://github.com/openai/codex/blob/rust-v0.170.0/codex-rs/cloud-tasks/src/lib.rs#L248-L276)仍依赖 [`wham/environments`](https://github.com/openai/codex/blob/rust-v0.170.0/codex-rs/cloud-tasks/src/env_detect.rs#L344-L387)。[同版 Linux 用户复现](https://github.com/openai/codex/issues/50182#issuecomment-7000672078)显示，网页能运行的已发布环境在 CLI 中报 `environment not found`。
+- 预发布版 [0.172.0-alpha.1](https://github.com/openai/codex/releases/tag/rust-v0.172.0-alpha.1) 的新版 Cloud 客户端已支持[列出个人和工作区的已发布环境](https://github.com/openai/codex/pull/61940)、[按配置 ID 创建会话](https://github.com/openai/codex/pull/61956)和[在 TUI 内通过 `Ctrl+X` 后按 `E` 选择环境](https://github.com/openai/codex/pull/61974)。入口受 [`tui_multi_backend`](https://github.com/openai/codex/blob/rust-v0.172.0-alpha.1/codex-rs/features/src/lib.rs#L1170-L1174)及 [Cloud 预览条件](https://github.com/openai/codex/blob/rust-v0.172.0-alpha.1/codex-rs/tui/src/lib.rs#L2263-L2277)控制。
+- 该预发布版的 [`cloud exec`](https://github.com/openai/codex/blob/rust-v0.172.0-alpha.1/codex-rs/cloud-tasks/src/lib.rs#L248-L276)仍走旧环境解析。App 的非交互封装不能通过升级版本接通 `video2rig`。新版 TUI 路径的结论来自发布标签源码，本次未在 App 内用 `video2rig` 提交任务。
+
+## 2026-11-13 核对记录
+
 核对日期：2026-11-13。核对对象为官方 CLI（命令行客户端）稳定版 `0.167.2`、该版本源码、`main` 上的新 Cloud 客户端，以及 openai/codex 的公开 issue、评论和 PR（合并请求）。
 
 ## 结论

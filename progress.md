@@ -9,6 +9,28 @@
   - [x] 魅族 20 Pro 横屏实时语音中注入临时焦点请求，观察到 `audio.pipeline` 保留 `AUDIOFOCUS_LOSS_TRANSIENT`，焦点归还后恢复录音。
   - [x] 自包含开发包在真机前台稳定运行。23:39:45 停止录音，23:39:50 恢复录音；恢复期间进程 PID 未变化。
 
+## 米家视频局域网优先与公网回退（2026-11-21）
+
+- [x] Step 1 — 确定原生会话的切换条件、首帧期限和错误边界。
+- [x] Step 2 — 正式预览与取帧共享局域网优先策略；涵盖启动拒绝、传输失败后切换、取消和两路错误保留。
+- [x] Step 3 — 完成独立复审和架构说明；19 项 Rust／TS 回归、运行时 TypeScript、Android ARM64 Rust 与 Android 原生 Java 编译检查通过。
+  - [x] iPhone 16e 横屏正式详情局域网 TCP 直连播放 `864 × 480`；验证包仅把局域网目标改为模拟器回环地址，同一个详情页自动切到公网 UDP 中继并播放 `864 × 480`。
+  - [x] 重新安装无测试地址的独立正式包，打开大厅监控，确认恢复局域网直连播放。蜂窝真机验证记入 `todo.md`。
+
+## 大厅米家监控公网直播模拟器验证（2026-11-21）
+
+- [x] Step 1 — 编译并安装独立 iOS 模拟器包；沿用原开发宿主的 App 钥匙串，读取 `039a01` 的中国区授权，确认 CS2 和 `p2p_id`、`init_string` 均存在。
+- [x] Step 2 — 在 iOS 模拟器通过 App 直接连接公网 UDP 中继；大厅摄像头以 864 × 480 解码，连续两次读数由 120 帧增至 848 帧。
+- [x] Step 3 — 独立复审后制作同一开发身份的独立包，复用模拟器里的米家授权，绕开热更新。iPhone 16e 正式「大厅 → 监控」显示「播放中」和 `864 × 480`，独立包进程持有公网 UDP 媒体连接。
+  - [x] 通过 `pnpm test:home-camera`、`pnpm test:video-account` 和 `cargo test --locked --lib camera::`，共 16 项。
+  - [x] 模拟器复测入口为 `SIMCTL_CHILD_LOOI_CAMERA_RELAY_PROBE=1 xcrun simctl launch --terminate-running-process booted com.longbridge.nsh.host`。
+
+## 大厅米家监控公网直播调研（2026-11-21）
+
+- [x] Step 1 — 核对当前 App 取流、目标型号的局域网实测及小米公开授权能力。
+- [x] Step 2 — 核实公网媒体中继、云端协调后直连和家庭子网 VPN 的证据与成本，完成独立复审。
+- [x] Step 3 — 写入[公网直播方案](docs/plans/xiaomi-camera-remote-streaming-plan.md)，将目标型号的中继授权及 5G 首帧实测记入 `todo.md`。
+
 ## UI 测试钥匙串弹窗修复（2026-11-17）
 
 计划见 [钥匙串弹窗修复](docs/plans/credential-keychain-prompt-fix.md)。
@@ -2963,3 +2985,55 @@
   - [x] 采用固定 `miot:` 前缀并迁移旧家居缓存，保留布局及上次状态。
   - [x] 独立复审通过。米家与 Home Assistant 同名 ID 各自路由，家居、语音、类型检查和 App 构建通过。
 - [ ] Step 3：横屏真机复验，等待连接 iOS 或 Android 开发设备。
+
+## 语音操作进入任务记录（2026-11-21）
+
+- [x] Step 1：核对本地链路和任务列表，确认旧台灯回执已保存在 `runtime_observations`。
+- [x] Step 2：将语音直调记录接入任务列表、执行过程和回执。
+  - [x] 任务页按时间分页读取 Agent 任务和本地语音工具调用，直接使用原有执行记录。
+  - [x] 同一语音调用保留一条历史记录，设备回执与发送失败各自保留。
+- [ ] Step 3：验证旧记录、实时更新、失败和 Agent 委派，完成独立审查及隔离提交。
+  - [x] 回放 09:38 的本地数据库，核对家居查询、两次 `INVALID_ARGUMENT` 和亮度 255 的回执。
+  - [x] 语音与追踪测试、App 类型检查和构建通过。
+  - [x] 完成代码复审并独立提交语音工具历史改动。
+
+## 狼人杀 UI 视觉审计与修复（2026-11-19）
+
+方案见 [狼人杀 UI 视觉审计与修复方案](docs/plans/werewolf-visual-audit-and-fix-2026-11-19.md)。
+
+- [x] Step 1：计划落盘、进度建项与补全基线（修复前）iOS 模拟器截图。
+  - [x] 在 `docs/plans/werewolf-visual-audit-and-fix-2026-11-19.md` 写入视觉问题清单与空间预算方案。
+  - [x] 在 `progress.md` 建立 Step 1–Step 7 执行清单。
+  - [x] 使用 `nsh/test` 补全修复前剩余核心画面（Day Discussion、Menu、Self-Explode、Voting On-Device & LAN、LAN Night Peek、Game Over）截图并目视核对。
+- [x] Step 2：语义 Token 与设计规范升级（`apps/nsh/theme.json`、`apps/nsh/DESIGN.md`）。
+  - [x] 新增前台舞台专用 `stage-amber-*`、`stage-sage-*`、`stage-mist-*` 与 `accent`/`accent-foreground`，修正对比度。
+  - [x] 更新 `apps/nsh/DESIGN.md` 第 2 节 Token 表与第 4.1 节插件网格响应式规则。
+- [x] Step 3：共享控件、插件空间与狼人杀配置页修复（`Controls.tsx`、`ManagementShell.tsx`、`PluginsSpaceView.tsx`、`SettingsView.tsx`）。
+  - [x] 抽取共享 `ToggleSwitch`，升级 `SelectField` 矢量箭头与 `TextField compact` 热区，统一可见 `focus-visible:ring-2` 焦点环。
+  - [x] 优化 `PluginsSpaceView` 目录基线对齐、手机横屏 `grid-cols-2` 卡片网格与对比度。
+  - [x] 优化 `SettingsView` 紧凑步进器、去重阵营词、`w-24` 发言时长列宽与 `SwitchRow` 无间距边界。
+- [x] Step 4：舞台几何、表情渲染与矢量图标修复（`posture-geometry.ts`、`MorphableStage.tsx`、`RobotFace.tsx`、`choreography.ts`、`WerewolfIcons.tsx`、`engine.ts`）。
+  - [x] 修正顶栏预留宽度、光晕净空、`floating_top` 居中高度、`split_left` 垂直重心与 `StageDrawer` `peekHeight` 安全区。
+  - [x] 修复 `RobotFace` 半闭眼 `eyelid` 裁剪前光晕穹顶与 `judge_lobby` 无眉微缩姿态。
+  - [x] 修复 `engine.ts` Seat 1 `canStepBackDeal` 误判消除按压跳动，并修复 `WerewolfIcons.tsx` 几何缺陷与 `flexShrink: 0`。
+- [x] Step 5：顶栏 `StageCapsule`、二维码 `QrCodeCanvas`、`StageDrawer` 与全舞台 `StageCanvas` 重构。
+  - [x] 移除流内 `WerewolfStageError` 与冗余 `judgeSubtitle`，在 `StageCapsule` 顶栏提供可点击告警弹窗入口并升级左侧圆钮为 `44 × 44pt`。
+  - [x] 舞台 `<Menu>` 与 `QrCodeCanvas` 舞台态弹窗全面切换深炭舞台令牌；优化 QR 码静区与清晰度。
+  - [x] 修复 Lobby 12P 规则/按钮裁切、Dealing 头像碰撞与翻牌拉伸、Night/Day/Voting/Leave/GameOver 全人数档位对齐与溢出。
+- [ ] Step 6：自动化验证、iOS 模拟器浅/深色全套截图采集与独立子 Agent 视觉复审。
+  - [x] 工作区类型检查和 21 项狼人杀 Node 测试通过。
+  - [ ] 通过 `typecheck`、`build`、`test:werewolf` 与 `nsh test` 全量无界面测试。
+  - [ ] 在 iOS 模拟器浅色、深色外观与真实 `ManagementShell` 布局下采集全套修复后截图并目视检查。
+  - [ ] 由 2 个独立只读复审子 Agent 逐张对照修复前后截图及 Finishing Checklist 验收至零 P0/P1。
+- [ ] Step 7：生成视觉验证证据 Artifact、更新文档并提交。
+  - [ ] 导出修复前后对比截图并生成 `visual_verification_report.md` Artifact。
+  - [x] 将狼人杀界面和视觉方案独立提交。
+
+## 监控视频点击全屏观看（2026-11-21）
+
+- [x] Step 1：在 `apps/nsh/DESIGN.md` 写入全屏监控视图规范与动效清单（Motion Inventory）。
+- [x] Step 2：修复 iOS（`CameraMedia.m`）与 Android（`CameraMedia.java`）原生视频预览面单实例交接竞态与即时补帧。
+- [ ] Step 3：扩展 `apps/nsh/ui/HomeIcons.tsx`（`maximize` / `minimize` 图标与 `stageFg` / `stageBg` 语义色调）与 `apps/nsh/i18n/extra-catalog.ts` 双语词条。
+- [ ] Step 4：抽离独立内聚组件 `apps/nsh/ui/CameraMonitor.tsx`（全屏 `Dialog`、安全区避让、4s HUD 自动隐藏、全屏云台方向控制与断流恢复），并接入 `apps/nsh/ui/HomeSpaceView.tsx`。
+- [ ] Step 5：补全并执行自动化测试（`HomeCameraProbe.tsx`、`tests/camera_ui.rs`、`HomeCameraFullscreen.test.tsx`）。
+- [ ] Step 6：执行原生语法与插件检查、类型检查、构建与全套测试，完成独立 Subagent Review（独立子代理代码审查）及修复，更新文档并提交。

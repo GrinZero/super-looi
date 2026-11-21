@@ -1,5 +1,9 @@
 # 当前待办
 
+## 大厅米家监控直播
+
+- [ ] 在 iOS／Android 真机上验证大厅 `039a01` 通过蜂窝网络的自动起播、重连和 UDP 控制命令回执。见[公网直播方案](docs/plans/xiaomi-camera-remote-streaming-plan.md)。
+
 ## 桌面凭据存储
 
 - [ ] 在运行 Secret Service 且配置默认集合的 Linux 桌面执行 `desktop_system_store_round_trip`（`--ignored`），验证真实存储的重开、覆盖与幂等删除，并核对锁定集合解锁交互。macOS 实际钥匙串回归已通过；当前开发机没有 Linux Secret Service 运行环境。
@@ -49,7 +53,7 @@
 ## Codex Cloud 插件
 
 - [ ] 在 App 内通过 `codex_exec` 委派创建／配置环境，再通过 `codex_cloud` 在该环境启动任务，核对真实受理回执；按实际执行结果处理缺少的能力或访问条件，不将单独实现环境管理 API 作为前置条件。
-- [ ] 让 Cloud 封装支持新版环境的会话创建、任务提交与结果查询：同账号的新接口已返回 video2rig；稳定版 0.167.2 的旧 wham 链路不兼容。#50182／#56995 有公开复现，上游新客户端尚未进入该稳定版，不能仅替换 GET 或沿用旧 POST。来源与具体能力差异见 [Cloud 兼容性调研](docs/codex-cloud-cli-compatibility-research.md)。
+- [ ] 让 Cloud 封装支持新版环境的会话创建、任务提交与结果查询。同账号的新版目录已返回 `video2rig`。上游 `0.172.0-alpha.1` 的实验性终端交互入口已接入已发布环境，`0.170.0` 和该预发布版的非交互 `cloud exec` 均仍查询旧目录。见 [Cloud 兼容性调研](docs/codex-cloud-cli-compatibility-research.md)。
 - [ ] 处理 Codex EXEC 默认 sandbox 策略：App Linux 的 PR_SET_PDEATHSIG／getppid 修复及四组回归已通过，CLI 在 App Linux 隔离边界内实际执行 pwd 成功；默认 workspace-write 依赖当前 guest 未提供的 bubblewrap。
 - [ ] 定位 iSH 中 vendored OpenSSL 的记录解密错误：reqwest 0.12.28／native-tls 0.2.14 返回 `0A000119 decryption failed or bad record mac`，X509VerifyResult=ok；同一进程的 rustls 路径成功。Codex 当前已固定使用验证通过的 rustls 路径。
 - [ ] 补齐固定 NSH 版本的 Android 打包 runtime 后完成 APK 编译；本轮命令报告 `/private/tmp/super-looi-nsh-v040/target/android/debug` 不存在，Android 插件打包回归已通过。
@@ -272,10 +276,14 @@
 
 - [ ] 连接已签名开发真机，在横屏（如 `844 × 390 pt`）浅色与深色模式下核验插件配置页角色行与总数摘要、首屏舞台 6 个核心画面（开局准备与双态切换、环视发牌、夜间隐私护盾及 LAN 副屏 `peek` 抽屉、白天桌席发言与 `StageCompanion` 字幕、公投进度条与 LAN 暗票等待、终局角色/时间线标签滑块）、以及顶栏状态胶囊 `[⋯]` `<Menu>` 与 `AlertDialog`/`Dialog` 弹窗交互。本轮检查 `xcrun devicectl list devices` 与 `adb devices -l` 均未发现已连接真机。
 
+## 狼人杀语音与舞台状态
+
+- [ ] 让实时语音根据狼人杀工具回执和当前舞台状态播报阶段。11 月 20 日 23:58 的豆包会话中，`werewolf_open_lobby` 返回 `phase: "lobby"`，随后助手口播进入狼人和预言家环节，期间没有后续工具调用。用户确认后续话轮由外放回录触发。复测时同时核对外放播报是否再次进入用户转写。
+
 ## 任务界面真机验证
 
 - [ ] 在 iOS 与 Android 真机横屏复核任务页的触控、键盘弹出、VoiceOver／TalkBack 朗读顺序，以及减少动态效果设置下的标签切换。
 
-## Codex 插件配置测试
+## 豆包调光工具参数
 
-- [ ] 修正 `tests/codex-plugin.node.ts` 中 `save_cloud_defaults` 回执的深比较断言。回执包含保留的 `cliVersion: "0.167.2"`，断言只列出 `environment` 与 `branch`，导致 `pnpm test:codex` 的这一个用例失败。
+- [ ] 复测豆包只调亮度时的工具参数。11 月 21 日 09:38 的大厅台灯会话前两次调用都提交 `color_temp_kelvin: "None"`，在 `tool.control_home_device` 阶段被拒绝，错误码为 `INVALID_ARGUMENT`。第三次调用省略该字段后回读亮度 255。
