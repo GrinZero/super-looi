@@ -520,7 +520,7 @@ test("Scenario 2: Cold reboot restores persisted match_checkpoint_v1 into hostPa
   }
 });
 
-test("Scenario 3: Voice muted_broadcast + verbatim prompt + error phase self-healing + standby auto-close", async () => {
+test("Scenario 3: Voice muted_broadcast + verbatim prompt + recovery after connection failure + standby auto-close", async () => {
   // 3A: OpenAI verbatim proactive speech prompt
   const openAi = createOpenAiRealtimeProtocol({ providerId: "openai" });
   const payloads = openAi.encodeProactiveSpeech({
@@ -533,7 +533,7 @@ test("Scenario 3: Voice muted_broadcast + verbatim prompt + error phase self-hea
   assert.match(promptText, /Verbatim|word-for-word/i);
   assert.ok(payloads.some((p) => p.type === "response.create"));
 
-  // 3B: VoiceRuntime muted_broadcast, error self-healing, and closeToStandbyOnComplete
+  // 3B: VoiceRuntime muted_broadcast, connection failure recovery, and closeToStandbyOnComplete
   let captureState = "idle";
   let captureMode = "idle";
   let mutedState: boolean[] = [];
@@ -630,11 +630,12 @@ test("Scenario 3: Voice muted_broadcast + verbatim prompt + error phase self-hea
   voice.setWakeEnabled(true);
   voice.configure("TEST_KEY");
 
-  // Force voice into `"error"` phase via failed manual start()
+  // A failed connection restores local wake listening.
   await voice.start().catch(() => {});
-  assert.equal(voice.snapshot().phase, "error");
+  assert.equal(voice.snapshot().phase, "standby");
+  assert.equal(voice.snapshot().error, "");
 
-  // Night muted_broadcast self-heals out of `"error"` with initialMuted=true & keeps session muted
+  // Night muted_broadcast reconnects from standby and keeps the session muted.
   const nightSpeakPromise = voice.speak({
     spokenText: "天黑请闭眼",
     capturePolicy: "muted_broadcast",

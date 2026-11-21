@@ -208,7 +208,7 @@ test("Codex registers its own approval guard via ctx.ai.interceptToolCall and su
       environment: "prod-env",
       branch: "release",
     });
-    assert.deepEqual(updated, { environment: "prod-env", branch: "release" });
+    assert.deepEqual(updated, { environment: "prod-env", branch: "release", cliVersion: "0.167.2" });
     assert.equal(f.snapshot().configuration.environment, "prod-env");
     assert.equal(f.snapshot().configuration.branch, "release");
   } finally {
