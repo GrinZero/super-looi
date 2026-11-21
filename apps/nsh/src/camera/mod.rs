@@ -15,6 +15,8 @@ mod crypto;
 mod media;
 #[cfg(target_os = "android")]
 mod media_android;
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+mod relay;
 mod transport;
 mod video;
 #[cfg(target_os = "ios")]

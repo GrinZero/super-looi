@@ -28,6 +28,8 @@ pub struct Provision {
     pub public: [u8; 32],
     pub key: [u8; 32],
     pub sign: String,
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    pub relay: Option<super::relay::Parameters>,
 }
 #[derive(Default)]
 struct Attempt {
@@ -615,6 +617,12 @@ impl Cloud {
             return Err("camera_vendor_unsupported".into());
         }
         Ok(Provision {
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            relay: if std::env::var_os("LOOI_CAMERA_RELAY_PROBE").is_some() {
+                Some(super::relay::Parameters::from_cloud(&result["vendor"]["vendor_params"])?)
+            } else {
+                None
+            },
             public,
             key: crypto::shared(
                 crypto::unhex32(

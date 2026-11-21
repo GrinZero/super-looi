@@ -18,10 +18,10 @@ use tokio::{
     task::JoinHandle,
     time::{Instant, timeout},
 };
-const LIMIT: usize = 8 * 1024 * 1024;
-type Incoming = Result<(u8, Vec<u8>), String>;
-type Outgoing = (Vec<u8>, Option<oneshot::Sender<Result<(), String>>>);
-fn message(kind: u8, data: &[u8]) -> Vec<u8> {
+pub(super) const LIMIT: usize = 8 * 1024 * 1024;
+pub(super) type Incoming = Result<(u8, Vec<u8>), String>;
+pub(super) type Outgoing = (Vec<u8>, Option<oneshot::Sender<Result<(), String>>>);
+pub(super) fn message(kind: u8, data: &[u8]) -> Vec<u8> {
     let mut out = vec![0xf1, kind];
     out.extend((data.len() as u16).to_be_bytes());
     out.extend(data);
@@ -64,7 +64,7 @@ struct Connection {
     sender: mpsc::Sender<Outgoing>,
     receiver: mpsc::Receiver<Incoming>,
     reader: JoinHandle<()>,
-    writer: JoinHandle<()>,
+    writer: Option<JoinHandle<()>>,
     sequence: Arc<AtomicU16>,
 }
 
@@ -106,6 +106,21 @@ impl CommandHandle {
     }
 }
 impl Connection {
+    #[cfg(all(target_os = "ios", target_abi = "sim"))]
+    async fn connect_relay(parameters: &super::relay::Parameters) -> Result<Self, String> {
+        let peer = super::relay::Peer::connect(parameters).await?;
+        let (sender, commands) = mpsc::channel::<Outgoing>(8);
+        let (incoming, receiver) = mpsc::channel::<Incoming>(16);
+        let reader = tokio::spawn(peer.run(commands, incoming));
+        Ok(Self {
+            sender,
+            receiver,
+            reader,
+            writer: None,
+            sequence: Arc::new(AtomicU16::new(0)),
+        })
+    }
+
     async fn connect(host: &str) -> Result<Self, String> {
         let ip: Ipv4Addr = host.parse().map_err(|_| "camera_lan_ip_missing")?;
         let mut remote = SocketAddr::from((ip, 32108));
@@ -226,7 +241,7 @@ impl Connection {
             sender,
             receiver,
             reader,
-            writer,
+            writer: Some(writer),
             sequence: Arc::new(AtomicU16::new(0)),
         })
     }
@@ -254,7 +269,9 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         self.reader.abort();
-        self.writer.abort();
+        if let Some(writer) = &self.writer {
+            writer.abort();
+        }
     }
 }
 pub struct Miss {
@@ -272,13 +289,32 @@ impl Miss {
         model: &str,
         start_video: bool,
     ) -> Result<Self, String> {
-        let mut connection = Connection::connect(host).await?;
-        let auth = json!({"public_key":crypto::hex(&provision.public),"sign":provision.sign,"uuid":"","support_encrypt":0});
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let relay = provision.relay.as_ref();
+        #[cfg(all(target_os = "ios", target_abi = "sim"))]
+        let (mut connection, uuid, support_encrypt) = match relay {
+            Some(parameters) => (
+                Connection::connect_relay(parameters).await?,
+                uuid::Uuid::new_v4().to_string(),
+                15,
+            ),
+            None => (Connection::connect(host).await?, String::new(), 0),
+        };
+        #[cfg(not(all(target_os = "ios", target_abi = "sim")))]
+        let (mut connection, uuid, support_encrypt) = (Connection::connect(host).await?, "", 0);
+        let auth = json!({"public_key":crypto::hex(&provision.public),"sign":provision.sign,"uuid":uuid,"support_encrypt":support_encrypt});
         connection
             .command(0x100, auth.to_string().as_bytes())
             .await?;
         loop {
-            let (channel, response) = connection.receive().await?;
+            let result = connection.receive().await;
+            #[cfg(all(target_os = "ios", target_abi = "sim"))]
+            let result = if relay.is_some() {
+                result.map_err(|error| format!("[stage=camera.relay.miss_auth] {error}"))
+            } else {
+                result
+            };
+            let (channel, response) = result?;
             if channel != 0 {
                 continue;
             }
