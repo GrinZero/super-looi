@@ -31,7 +31,7 @@ import {
   type WerewolfSeatPublicView,
 } from "../contracts";
 import { QrCodeCanvas } from "./QrCodeCanvas";
-import { readWerewolfState } from "./StageCapsule";
+import { readWerewolfDiagnostic, readWerewolfState } from "./StageCapsule";
 import {
   WerewolfRoleIcon,
   WerewolfStageIcon,
@@ -162,14 +162,14 @@ function roleFactionTag(
     return {
       label: locale === "en-US" ? "Priesthood" : "神职阵营",
       cardClass:
-        "rounded-2xl border border-face-amber-edge bg-lighting-bg p-3 gap-1.5",
+        "rounded-2xl border border-stage-amber-border bg-stage-amber-bg p-3 gap-1.5",
       badgeTextClass: "text-face-amber-core text-xs font-semibold",
     };
   }
   return {
     label: locale === "en-US" ? "Villagers" : "平民阵营",
     cardClass:
-      "rounded-2xl border border-face-sage-edge bg-air-quality-bg p-3 gap-1.5",
+      "rounded-2xl border border-stage-sage-border bg-stage-sage-bg p-3 gap-1.5",
     badgeTextClass: "text-face-sage-core text-xs font-semibold",
   };
 }
@@ -306,13 +306,13 @@ export function WerewolfStageCompanion(props: {
       <If when={phase() === "game_over"}>
         <View
           testID="werewolf-winner-banner"
-          class="items-center gap-1"
+          class="items-center gap-0.5"
         >
           <Text
             class={
               goodWon()
-                ? "text-face-sage-core text-xl font-bold text-center"
-                : "text-face-rose-core text-xl font-bold text-center"
+                ? "text-face-sage-core text-lg font-bold text-center"
+                : "text-face-rose-core text-lg font-bold text-center"
             }
             style={{ numberOfLines: 1 }}
           >
@@ -337,6 +337,20 @@ export function WerewolfStageCompanion(props: {
     </View>
   );
 }
+
+const COMPACT_ROLE_LABELS: Record<
+  WerewolfRole,
+  Record<"zh-CN" | "en-US", string>
+> = {
+  werewolf: { "zh-CN": "狼", "en-US": "W" },
+  white_wolf_king: { "zh-CN": "白狼", "en-US": "WWK" },
+  seer: { "zh-CN": "预", "en-US": "S" },
+  witch: { "zh-CN": "巫", "en-US": "Wi" },
+  hunter: { "zh-CN": "猎", "en-US": "H" },
+  guard: { "zh-CN": "守", "en-US": "G" },
+  idiot: { "zh-CN": "愚", "en-US": "Id" },
+  villager: { "zh-CN": "民", "en-US": "V" },
+};
 
 function LobbyStagePanel(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
@@ -378,6 +392,27 @@ function LobbyStagePanel(props: {
       ? "grid grid-cols-3 gap-2"
       : "grid grid-cols-4 gap-1.5";
 
+  const roleSummaryLine = () => {
+    const entries = activeRoleEntries();
+    const useCompact = entries.length >= 6;
+    return entries
+      .map(
+        (entry) =>
+          `${useCompact ? COMPACT_ROLE_LABELS[entry.role][loc()] : entry.label}×${entry.count}`,
+      )
+      .join(" · ");
+  };
+
+  const formatLanAddress = () => {
+    const raw = st().lan.baseUrl?.trim() ?? "";
+    return raw.replace(/^https?:\/\//, "");
+  };
+
+  const claimedCount = () => st().lan.claimedSeats.length;
+  const targetPlayers = () => st().rules.playerCount;
+  const allClaimed = () =>
+    targetPlayers() > 0 && claimedCount() >= targetPlayers();
+
   const panelEnter = createMotion(
     reduceMotion() ? {} : { enter: "fadeIn", duration: 180 },
   );
@@ -388,28 +423,41 @@ function LobbyStagePanel(props: {
       class="flex-1 min-h-0 flex-row gap-3"
       style={{ pointerEvents: "auto", opacity: panelEnter.opacity }}
     >
-      {/* Left Panel (54%): Title + Presets + Distribution + Sliding Surface + Rule Chips */}
-      <View class="flex-[1.18] min-w-0 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3.5">
-        <Scroll class="flex-1 min-h-0" contentClass="justify-between gap-2 pb-0.5">
-          <View class="gap-0.5">
-          <Text
-            class="text-stage-fg text-xl font-bold"
-            style={{ numberOfLines: 1 }}
+      {/* Left Panel (54%): Header + Presets + Compact Distribution + Sliding Surface + Single-Row Rule Chips */}
+      <View class="flex-[1.18] min-w-0 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3 justify-between gap-2">
+        <View class="flex-row items-start justify-between gap-2 shrink-0">
+          <View class="flex-1 min-w-0 gap-0.5">
+            <Text
+              class="text-stage-fg text-lg font-bold"
+              style={{ numberOfLines: 1 }}
+            >
+              {loc() === "en-US" ? "Tonight, let's play." : "今晚，来一局。"}
+            </Text>
+            <Text
+              class="text-stage-pill-muted text-xs"
+              style={{ numberOfLines: 1 }}
+            >
+              {loc() === "en-US"
+                ? "Choose a board and let LOOI host"
+                : "选择板子，让 LOOI 主持"}
+            </Text>
+          </View>
+
+          <Button
+            testID="werewolf-open-settings-btn"
+            hitSlop={6}
+            onPress={() => props.ctx.openPluginSettings()}
+            class="h-8 px-2.5 -mr-1 rounded-full flex-row items-center gap-0.5 shrink-0 active:opacity-75"
           >
-            {loc() === "en-US" ? "Tonight, let's play." : "今晚，来一局。"}
-          </Text>
-          <Text
-            class="text-stage-pill-muted text-xs"
-            style={{ numberOfLines: 1 }}
-          >
-            {loc() === "en-US"
-              ? "Choose a board and let LOOI host"
-              : "选择板子，让 LOOI 主持"}
-          </Text>
+            <Text class="text-stage-pill-fg text-xs font-medium">
+              {loc() === "en-US" ? "Rules" : "调整规则"}
+            </Text>
+            <WerewolfStageIcon name="chevron_right" tone="stageMuted" size={14} />
+          </Button>
         </View>
 
         {/* Single-row presets */}
-        <View class="flex-row items-center gap-1.5">
+        <View class="flex-row items-center gap-1.5 shrink-0">
           <Each of={PRESET_TABS} key={(item) => item.id}>
             {(tabAcc) => {
               const tab = () => tabAcc();
@@ -418,6 +466,7 @@ function LobbyStagePanel(props: {
                 <Button
                   testID={`werewolf-preset-${tab().id}`}
                   selected={active()}
+                  hitSlop={{ top: 2, bottom: 2 }}
                   onPress={() => {
                     void props.ctx.sendCommand({
                       type: "select_preset",
@@ -426,8 +475,8 @@ function LobbyStagePanel(props: {
                   }}
                   class={
                     active()
-                      ? "flex-1 min-w-0 min-h-11 px-1.5 rounded-xl border border-face-amber-edge bg-lighting-bg items-center justify-center transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100"
-                      : "flex-1 min-w-0 min-h-11 px-1.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100"
+                      ? "flex-1 min-w-0 h-10 px-1.5 rounded-xl border border-stage-amber-border bg-stage-amber-bg items-center justify-center transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100"
+                      : "flex-1 min-w-0 h-10 px-1.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100"
                   }
                 >
                   <Text
@@ -446,31 +495,24 @@ function LobbyStagePanel(props: {
           </Each>
         </View>
 
-        {/* Role composition summary */}
-        <View class="flex-row flex-wrap items-center gap-x-3 gap-y-1 px-0.5">
-          <Each of={activeRoleEntries()} key={(item) => item.role}>
-            {(entryAcc) => (
-              <Text
-                class="text-stage-fg text-xs font-medium"
-                style={{ fontVariant: ["tabular-nums"] }}
-              >
-                {entryAcc().label}{" "}
-                <Text class="text-stage-pill-muted">×{entryAcc().count}</Text>
-              </Text>
-            )}
-          </Each>
-        </View>
+        {/* Compact single-line role composition summary */}
+        <Text
+          class="text-stage-fg text-xs font-medium px-0.5 shrink-0"
+          style={{ numberOfLines: 1, fontVariant: ["tabular-nums"] }}
+        >
+          {roleSummaryLine()}
+        </Text>
 
-        <View class="h-px bg-stage-pill-border" />
+        <View class="h-px bg-stage-pill-border shrink-0" />
 
         {/* Surface mode segmented toggle with 240ms sliding indicator */}
         <View
           onLayout={(ev) => surfaceTrackWidth.set(ev.bounds.size.width)}
-          class="relative rounded-2xl border border-stage-pill-border bg-stage-tile p-1 flex-row items-center"
+          class="relative rounded-2xl border border-stage-pill-border bg-stage-tile p-1 flex-row items-center shrink-0"
         >
           <If when={surfaceTrackWidth() > 8}>
             <View
-              class="absolute top-1 bottom-1 left-1 rounded-xl border border-face-amber-edge bg-lighting-bg"
+              class="absolute top-1 bottom-1 left-1 rounded-xl border border-stage-amber-border bg-stage-amber-bg"
               style={{
                 width: Math.max(0, (surfaceTrackWidth() - 8) / 2),
                 pointerEvents: "none",
@@ -492,7 +534,7 @@ function LobbyStagePanel(props: {
                 enabled: false,
               });
             }}
-            class="flex-1 min-h-11 px-2 rounded-xl items-center justify-center active:opacity-80"
+            class="flex-1 h-9 px-2 rounded-xl items-center justify-center active:opacity-80"
           >
             <Text
               class={
@@ -514,7 +556,7 @@ function LobbyStagePanel(props: {
                 patch: { surfaceMode: "lan_companion" },
               });
             }}
-            class="flex-1 min-h-11 px-2 rounded-xl items-center justify-center active:opacity-80"
+            class="flex-1 h-9 px-2 rounded-xl items-center justify-center active:opacity-80"
           >
             <Text
               class={
@@ -528,170 +570,164 @@ function LobbyStagePanel(props: {
           </Button>
         </View>
 
-        <View class="h-px bg-stage-pill-border" />
+        <View class="h-px bg-stage-pill-border shrink-0" />
 
-        {/* Bottom quick chips + Rules settings entry */}
-        <View class="flex-row items-center justify-between gap-2">
-          <View class="flex-row flex-wrap items-center gap-1.5 flex-1 min-w-0">
-            <Button
-              testID="werewolf-toggle-sheriff"
-              selected={st().rules.hasSheriff}
-              onPress={() => {
-                void props.ctx.sendCommand({
-                  type: "update_rules",
-                  patch: { hasSheriff: !st().rules.hasSheriff },
-                });
-              }}
+        {/* Bottom single-row quick chips */}
+        <View class="flex-row items-center gap-1.5 shrink-0">
+          <Button
+            testID="werewolf-toggle-sheriff"
+            selected={st().rules.hasSheriff}
+            hitSlop={{ top: 4, bottom: 4 }}
+            onPress={() => {
+              void props.ctx.sendCommand({
+                type: "update_rules",
+                patch: { hasSheriff: !st().rules.hasSheriff },
+              });
+            }}
+            class={
+              st().rules.hasSheriff
+                ? "flex-1 min-w-0 h-9 px-2 rounded-full border border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-75"
+                : "flex-1 min-w-0 h-9 px-2 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+            }
+          >
+            <Text
               class={
                 st().rules.hasSheriff
-                  ? "min-h-11 px-2.5 rounded-xl border border-lighting-border bg-lighting-bg items-center justify-center active:opacity-75"
-                  : "min-h-11 px-2.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+                  ? "text-face-amber-core text-xs font-semibold"
+                  : "text-stage-pill-muted text-xs"
               }
+              style={{ numberOfLines: 1 }}
             >
-              <Text
-                class={
-                  st().rules.hasSheriff
-                    ? "text-face-amber-core text-xs font-semibold"
-                    : "text-stage-pill-muted text-xs"
-                }
-              >
-                {st().rules.hasSheriff
-                  ? loc() === "en-US"
-                    ? "Sheriff On"
-                    : "警长开启"
-                  : loc() === "en-US"
-                    ? "Sheriff Off"
-                    : "警长关闭"}
-              </Text>
-            </Button>
-
-            <Button
-              testID="werewolf-toggle-winmode"
-              selected={st().rules.winMode === "slaughter_all"}
-              onPress={() => {
-                void props.ctx.sendCommand({
-                  type: "update_rules",
-                  patch: {
-                    winMode:
-                      st().rules.winMode === "slaughter_all"
-                        ? "slaughter_side"
-                        : "slaughter_all",
-                  },
-                });
-              }}
-              class={
-                st().rules.winMode === "slaughter_all"
-                  ? "min-h-11 px-2.5 rounded-xl border border-lighting-border bg-lighting-bg items-center justify-center active:opacity-75"
-                  : "min-h-11 px-2.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
-              }
-            >
-              <Text
-                class={
-                  st().rules.winMode === "slaughter_all"
-                    ? "text-face-amber-core text-xs font-semibold"
-                    : "text-stage-pill-muted text-xs"
-                }
-              >
-                {st().rules.winMode === "slaughter_all"
-                  ? loc() === "en-US"
-                    ? "Slaughter All"
-                    : "屠城模式"
-                  : loc() === "en-US"
-                    ? "Slaughter Side"
-                    : "屠边模式"}
-              </Text>
-            </Button>
-
-            <If when={hasGuardInDeck()}>
-              <Button
-                testID="werewolf-toggle-same-guard-save"
-                selected={st().rules.sameGuardSameSaveDies}
-                onPress={() => {
-                  void props.ctx.sendCommand({
-                    type: "update_rules",
-                    patch: {
-                      sameGuardSameSaveDies: !st().rules.sameGuardSameSaveDies,
-                    },
-                  });
-                }}
-                class={
-                  st().rules.sameGuardSameSaveDies
-                    ? "min-h-11 px-2.5 rounded-xl border border-lighting-border bg-lighting-bg items-center justify-center active:opacity-75"
-                    : "min-h-11 px-2.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
-                }
-              >
-                <Text
-                  class={
-                    st().rules.sameGuardSameSaveDies
-                      ? "text-face-amber-core text-xs font-semibold"
-                      : "text-stage-pill-muted text-xs"
-                  }
-                >
-                  {st().rules.sameGuardSameSaveDies
-                    ? loc() === "en-US"
-                      ? "Clash Dies"
-                      : "同守同救"
-                    : loc() === "en-US"
-                      ? "Clash Lives"
-                      : "奶守存活"}
-                </Text>
-              </Button>
-            </If>
-
-            <Button
-              testID="werewolf-toggle-motion"
-              selected={st().rules.motionMode === "embodied_patrol"}
-              onPress={() => {
-                void props.ctx.sendCommand({
-                  type: "update_rules",
-                  patch: {
-                    motionMode:
-                      st().rules.motionMode === "embodied_patrol"
-                        ? "stationary_gaze"
-                        : "embodied_patrol",
-                  },
-                });
-              }}
-              class={
-                st().rules.motionMode === "embodied_patrol"
-                  ? "min-h-11 px-2.5 rounded-xl border border-airflow-border bg-airflow-bg items-center justify-center active:opacity-75"
-                  : "min-h-11 px-2.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
-              }
-            >
-              <Text
-                class={
-                  st().rules.motionMode === "embodied_patrol"
-                    ? "text-face-mist-core text-xs font-semibold"
-                    : "text-stage-pill-muted text-xs"
-                }
-              >
-                {st().rules.motionMode === "embodied_patrol"
-                  ? loc() === "en-US"
-                    ? "Embodied"
-                    : "具身环视"
-                  : loc() === "en-US"
-                    ? "Gaze Only"
-                    : "纯眼神"}
-              </Text>
-            </Button>
-          </View>
+              {st().rules.hasSheriff
+                ? loc() === "en-US"
+                  ? "Sheriff"
+                  : "警长开"
+                : loc() === "en-US"
+                  ? "No Sheriff"
+                  : "警长关"}
+            </Text>
+          </Button>
 
           <Button
-            testID="werewolf-open-settings-btn"
-            onPress={() => props.ctx.openPluginSettings()}
-            class="min-h-11 px-2 rounded-xl flex-row items-center gap-0.5 shrink-0 active:opacity-75"
+            testID="werewolf-toggle-winmode"
+            selected={st().rules.winMode === "slaughter_all"}
+            hitSlop={{ top: 4, bottom: 4 }}
+            onPress={() => {
+              void props.ctx.sendCommand({
+                type: "update_rules",
+                patch: {
+                  winMode:
+                    st().rules.winMode === "slaughter_all"
+                      ? "slaughter_side"
+                      : "slaughter_all",
+                },
+              });
+            }}
+            class={
+              st().rules.winMode === "slaughter_all"
+                ? "flex-1 min-w-0 h-9 px-2 rounded-full border border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-75"
+                : "flex-1 min-w-0 h-9 px-2 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+            }
           >
-            <Text class="text-stage-fg text-xs font-medium">
-              {loc() === "en-US" ? "Rules" : "调整规则"}
+            <Text
+              class={
+                st().rules.winMode === "slaughter_all"
+                  ? "text-face-amber-core text-xs font-semibold"
+                  : "text-stage-pill-muted text-xs"
+              }
+              style={{ numberOfLines: 1 }}
+            >
+              {st().rules.winMode === "slaughter_all"
+                ? loc() === "en-US"
+                  ? "Slaughter All"
+                  : "屠城"
+                : loc() === "en-US"
+                  ? "Slaughter Side"
+                  : "屠边"}
             </Text>
-            <WerewolfStageIcon name="chevron_right" tone="stageMuted" size={14} />
+          </Button>
+
+          <If when={hasGuardInDeck()}>
+            <Button
+              testID="werewolf-toggle-same-guard-save"
+              selected={st().rules.sameGuardSameSaveDies}
+              hitSlop={{ top: 4, bottom: 4 }}
+              onPress={() => {
+                void props.ctx.sendCommand({
+                  type: "update_rules",
+                  patch: {
+                    sameGuardSameSaveDies: !st().rules.sameGuardSameSaveDies,
+                  },
+                });
+              }}
+              class={
+                st().rules.sameGuardSameSaveDies
+                  ? "flex-1 min-w-0 h-9 px-2 rounded-full border border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-75"
+                  : "flex-1 min-w-0 h-9 px-2 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+              }
+            >
+              <Text
+                class={
+                  st().rules.sameGuardSameSaveDies
+                    ? "text-face-amber-core text-xs font-semibold"
+                    : "text-stage-pill-muted text-xs"
+                }
+                style={{ numberOfLines: 1 }}
+              >
+                {st().rules.sameGuardSameSaveDies
+                  ? loc() === "en-US"
+                    ? "Clash Dies"
+                    : "同守救倒"
+                  : loc() === "en-US"
+                    ? "Clash Lives"
+                    : "同守救活"}
+              </Text>
+            </Button>
+          </If>
+
+          <Button
+            testID="werewolf-toggle-motion"
+            selected={st().rules.motionMode === "embodied_patrol"}
+            hitSlop={{ top: 4, bottom: 4 }}
+            onPress={() => {
+              void props.ctx.sendCommand({
+                type: "update_rules",
+                patch: {
+                  motionMode:
+                    st().rules.motionMode === "embodied_patrol"
+                      ? "stationary_gaze"
+                      : "embodied_patrol",
+                },
+              });
+            }}
+            class={
+              st().rules.motionMode === "embodied_patrol"
+                ? "flex-1 min-w-0 h-9 px-2 rounded-full border border-stage-mist-border bg-stage-mist-bg items-center justify-center active:opacity-75"
+                : "flex-1 min-w-0 h-9 px-2 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+            }
+          >
+            <Text
+              class={
+                st().rules.motionMode === "embodied_patrol"
+                  ? "text-face-mist-core text-xs font-semibold"
+                  : "text-stage-pill-muted text-xs"
+              }
+              style={{ numberOfLines: 1 }}
+            >
+              {st().rules.motionMode === "embodied_patrol"
+                ? loc() === "en-US"
+                  ? "Embodied"
+                  : "具身环视"
+                : loc() === "en-US"
+                  ? "Gaze Only"
+                  : "纯眼神"}
+            </Text>
           </Button>
         </View>
-        </Scroll>
       </View>
 
       {/* Right Panel (46%): QR Companion Join OR On-Device Summary + Start CTA */}
-      <View class="flex-1 min-w-0 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3.5 justify-between gap-2">
+      <View class="flex-1 min-w-0 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3 justify-between gap-2">
         <If
           when={isLanMode()}
           else={
@@ -714,26 +750,37 @@ function LobbyStagePanel(props: {
                 <View class={seatGridColsClass()}>
                   <Each of={st().seats} key={(item) => item.seat}>
                     {(seatAcc) => (
-                      <View class="h-10 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center">
-                        <Text
-                          class="text-stage-fg text-xs font-bold"
-                          style={{ fontVariant: ["tabular-nums"] }}
+                      <View class="items-center justify-center">
+                        <View
+                          class={
+                            st().rules.playerCount <= 9
+                              ? "w-10 h-10 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center"
+                              : "w-9 h-9 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center"
+                          }
                         >
-                          {String(seatAcc().seat)}
-                        </Text>
+                          <Text
+                            class="text-stage-fg text-xs font-bold"
+                            style={{ fontVariant: ["tabular-nums"] }}
+                          >
+                            {String(seatAcc().seat)}
+                          </Text>
+                        </View>
                       </View>
                     )}
                   </Each>
                 </View>
 
-                <Text class="text-stage-pill-muted text-xs">
+                <Text
+                  class="text-stage-pill-muted text-xs text-center"
+                  style={{ numberOfLines: 1 }}
+                >
                   {st().visionAvailable
                     ? loc() === "en-US"
-                      ? "Pass the host seat-by-seat; vision tracker aligns and snapshots portraits."
-                      : "按座位轮流传递主机查看底牌；视觉追踪就绪，发牌可自动对准抓拍。"
+                      ? "Pass seat-by-seat; camera aligns & captures portraits."
+                      : "按座位轮流传递主机查看底牌；视觉追踪就绪可抓拍。"
                     : loc() === "en-US"
-                      ? "Pass the host seat-by-seat; hold the shield to peek, release to hide."
-                      : "按座位轮流传递主机查看底牌，按住查看、松手立即遮蔽防窥。"}
+                      ? "Pass seat-by-seat; hold shield to peek, release to hide."
+                      : "按座位轮流传递主机查看底牌，按住查看、松手遮蔽。"}
                 </Text>
               </View>
             </View>
@@ -746,21 +793,29 @@ function LobbyStagePanel(props: {
               </Text>
               <View class="flex-row items-center gap-1.5">
                 <Text
-                  class="text-face-sage-core text-xs font-semibold"
+                  class={
+                    allClaimed()
+                      ? "text-face-sage-core text-xs font-semibold"
+                      : claimedCount() > 0
+                        ? "text-face-amber-core text-xs font-semibold"
+                        : "text-stage-pill-muted text-xs font-semibold"
+                  }
                   style={{ fontVariant: ["tabular-nums"] }}
                 >
                   {loc() === "en-US"
-                    ? `${st().lan.claimedSeats.length} / ${st().rules.playerCount} Ready`
-                    : `${st().lan.claimedSeats.length} / ${st().rules.playerCount} 已就绪`}
+                    ? `${claimedCount()} / ${targetPlayers()} Ready`
+                    : `${claimedCount()} / ${targetPlayers()} 已就绪`}
                 </Text>
-                <WerewolfStageIcon name="check_circle" tone="sage" size={14} />
+                <If when={allClaimed()}>
+                  <WerewolfStageIcon name="check_circle" tone="sage" size={14} />
+                </If>
               </View>
             </View>
 
             <View class="flex-1 min-h-0 flex-row items-center gap-2.5">
               <QrCodeCanvas
                 value={st().lan.baseUrl ?? ""}
-                size={96}
+                size={104}
                 locale={loc()}
                 surface="stage"
                 onNotify={(msg) => props.ctx.notify(msg)}
@@ -771,15 +826,17 @@ function LobbyStagePanel(props: {
                   <Each of={st().seats} key={(item) => item.seat}>
                     {(seatAcc) => {
                       const s = () => seatAcc();
+                      const circleClass = () =>
+                        targetPlayers() <= 9
+                          ? s().lanClaimed
+                            ? "relative w-9 h-9 rounded-full border border-face-sage-edge bg-stage-sage-bg items-center justify-center"
+                            : "relative w-9 h-9 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center"
+                          : s().lanClaimed
+                            ? "relative w-8 h-8 rounded-full border border-face-sage-edge bg-stage-sage-bg items-center justify-center"
+                            : "relative w-8 h-8 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center";
                       return (
-                        <View class="relative items-center justify-center p-0.5">
-                          <View
-                            class={
-                              s().lanClaimed
-                                ? "w-9 h-9 rounded-full border border-face-sage-edge bg-air-quality-bg items-center justify-center"
-                                : "w-9 h-9 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center"
-                            }
-                          >
+                        <View class="items-center justify-center p-0.5">
+                          <View class={circleClass()}>
                             <Text
                               class={
                                 s().lanClaimed
@@ -790,16 +847,16 @@ function LobbyStagePanel(props: {
                             >
                               {String(s().seat)}
                             </Text>
+                            <If when={s().lanClaimed}>
+                              <View class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-stage-panel border border-face-sage-edge items-center justify-center">
+                                <WerewolfStageIcon
+                                  name="check"
+                                  tone="sage"
+                                  size={10}
+                                />
+                              </View>
+                            </If>
                           </View>
-                          <If when={s().lanClaimed}>
-                            <View class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-stage-panel items-center justify-center">
-                              <WerewolfStageIcon
-                                name="check_circle"
-                                tone="sage"
-                                size={13}
-                              />
-                            </View>
-                          </If>
                         </View>
                       );
                     }}
@@ -815,11 +872,11 @@ function LobbyStagePanel(props: {
                   <WerewolfStageIcon name="wifi" tone="stageMuted" size={14} />
                   <Text
                     testID="werewolf-lan-url"
-                    class="text-stage-pill-muted text-xs flex-1"
+                    class="text-stage-pill-muted text-xs flex-1 font-mono"
                     style={{ numberOfLines: 1 }}
                   >
-                    {st().lan.baseUrl
-                      ? `${loc() === "en-US" ? "Same Wi-Fi" : "连接同一 Wi-Fi 后扫码"} · ${st().lan.baseUrl}`
+                    {formatLanAddress()
+                      ? `${loc() === "en-US" ? "Same Wi-Fi" : "同 Wi-Fi 扫码"} · ${formatLanAddress()}`
                       : loc() === "en-US"
                         ? "Starting LAN room…"
                         : "正在开启局域网房间…"}
@@ -827,7 +884,7 @@ function LobbyStagePanel(props: {
                 </View>
               }
             >
-              <Text class="text-destructive text-xs" style={{ numberOfLines: 1 }}>
+              <Text class="text-face-rose-core text-xs" style={{ numberOfLines: 1 }}>
                 {st().lan.error}
               </Text>
             </If>
@@ -928,9 +985,9 @@ function DealingStageCard(props: {
                 <View
                   class={
                     s().dealtConfirmed
-                      ? "w-6 h-6 rounded-full border border-face-sage-edge bg-air-quality-bg items-center justify-center"
+                      ? "w-6 h-6 rounded-full border border-face-sage-edge bg-stage-sage-bg items-center justify-center"
                       : isCurrent()
-                        ? "w-6 h-6 rounded-full border-2 border-face-amber-edge bg-lighting-bg items-center justify-center"
+                        ? "w-6 h-6 rounded-full border-2 border-face-amber-edge bg-stage-amber-bg items-center justify-center"
                         : "w-6 h-6 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center"
                   }
                 >
@@ -949,7 +1006,7 @@ function DealingStageCard(props: {
                       </Text>
                     }
                   >
-                    <WerewolfStageIcon name="check_circle" tone="sage" size={14} />
+                    <WerewolfStageIcon name="check" tone="sage" size={12} />
                   </If>
                 </View>
               );
@@ -1037,13 +1094,13 @@ function DealingStageCard(props: {
         <View class="flex-1 min-h-0 justify-between gap-2">
           {/* Two-column body separated by single thin hairline (zero nested card-in-card) */}
           <View class="flex-1 min-h-0 flex-row items-stretch gap-3">
-            {/* Left column: 72x72 Camera ring or seat portrait */}
-            <View class="w-28 shrink-0 items-center justify-center gap-1.5">
+            {/* Left column: 56x56 Camera ring or seat portrait */}
+            <View class="w-24 shrink-0 items-center justify-center gap-1.5">
               <View
                 class={
                   st().dealingFaceAligned
-                    ? "w-[72px] h-[72px] rounded-full border-2 border-face-sage-edge bg-stage-tile overflow-hidden items-center justify-center"
-                    : "w-[72px] h-[72px] rounded-full border border-stage-pill-border bg-stage-tile overflow-hidden items-center justify-center"
+                    ? "w-14 h-14 rounded-full border-2 border-face-sage-edge bg-stage-tile overflow-hidden items-center justify-center"
+                    : "w-14 h-14 rounded-full border border-stage-pill-border bg-stage-tile overflow-hidden items-center justify-center"
                 }
               >
                 <If
@@ -1055,7 +1112,7 @@ function DealingStageCard(props: {
                         <WerewolfStageIcon
                           name="avatar_silhouette"
                           tone="stageMuted"
-                          size={34}
+                          size={26}
                         />
                       }
                     >
@@ -1086,13 +1143,14 @@ function DealingStageCard(props: {
                   {st().dealingFaceAligned
                     ? loc() === "en-US"
                       ? "Aligned"
-                      : "已对准镜头"
+                      : "已对准"
                     : loc() === "en-US"
                       ? "Align Face"
-                      : "请正对镜头"}
+                      : "请对准"}
                 </Text>
                 <Button
                   testID="werewolf-capture-portrait-btn"
+                  hitSlop={4}
                   onPress={() => {
                     const seat = currentSeatNum();
                     if (seat === null) return;
@@ -1101,7 +1159,7 @@ function DealingStageCard(props: {
                       seat,
                     });
                   }}
-                  class="min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+                  class="h-9 px-3 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
                 >
                   <Text class="text-stage-pill-fg text-xs font-medium">
                     {loc() === "en-US" ? "Capture" : "抓拍头像"}
@@ -1122,7 +1180,7 @@ function DealingStageCard(props: {
                     else={
                       <View
                         testID="werewolf-deal-masked-card"
-                        class="flex-1 items-center justify-center gap-1.5 px-2"
+                        class="items-center justify-center gap-1.5 px-2 py-3"
                       >
                         <WerewolfStageIcon
                           name="privacy_shield"
@@ -1148,7 +1206,7 @@ function DealingStageCard(props: {
                       return (
                         <View
                           testID="werewolf-deal-role-card"
-                          class={`flex-1 justify-center ${tag.cardClass}`}
+                          class={`justify-center py-3.5 px-4 ${tag.cardClass}`}
                         >
                           <View class="flex-row items-center justify-between gap-2">
                             <View class="flex-row items-center gap-2">
@@ -1276,7 +1334,7 @@ function DealingStageCard(props: {
                     }}
                     class={
                       isRevealing()
-                        ? "flex-1 min-w-0 min-h-11 px-3 rounded-full border border-face-amber-edge bg-lighting-bg flex-row items-center justify-center gap-1.5 active:opacity-80"
+                        ? "flex-1 min-w-0 min-h-11 px-3 rounded-full border border-stage-amber-border bg-stage-amber-bg flex-row items-center justify-center gap-1.5 active:opacity-80"
                         : !hasPeekedCurrent()
                           ? "flex-1 min-w-0 min-h-11 px-3 rounded-full bg-eye-core flex-row items-center justify-center gap-1.5 transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100"
                           : "flex-1 min-w-0 min-h-11 px-3 rounded-full border border-stage-pill-border bg-stage-tile flex-row items-center justify-center gap-1.5 active:opacity-80"
@@ -1434,6 +1492,9 @@ export function WerewolfNightActionBody(props: {
 
   const roleWakeTitle = () => {
     const r = activeRole();
+    if (r === "seer" && prompt()?.seerResult) {
+      return loc() === "en-US" ? "Inspection Result" : "查验结果";
+    }
     if (loc() === "en-US") {
       if (r === "guard") return "Guard, Choose Tonight's Target";
       if (r === "werewolf") return "Werewolves, Choose Your Target";
@@ -1451,6 +1512,11 @@ export function WerewolfNightActionBody(props: {
   const roleSubtitle = () => {
     const r = activeRole();
     const p = prompt();
+    if (r === "seer" && p?.seerResult) {
+      return loc() === "en-US"
+        ? "Confirm alignment below before closing your eyes."
+        : "确认下方查验结论后，点击闭眼结束。";
+    }
     if (r === "guard") {
       return p?.lastGuardedSeat !== null && p?.lastGuardedSeat !== undefined
         ? loc() === "en-US"
@@ -1554,7 +1620,7 @@ export function WerewolfNightActionBody(props: {
               onPressDown={nightGateHold.onPressDown}
               onPressUp={nightGateHold.onPressUp}
               onPress={nightGateHold.onPress}
-              class="min-h-11 px-6 rounded-full border border-face-amber-edge bg-lighting-bg items-center justify-center active:opacity-80"
+              class="min-h-11 px-6 rounded-full border border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-80"
             >
               <Text class="text-face-amber-core text-sm font-bold">
                 {loc() === "en-US" ? "Unlock Night Turn" : "解锁夜间行动"}
@@ -1566,7 +1632,7 @@ export function WerewolfNightActionBody(props: {
     >
       <View
         testID="werewolf-night-unlocked-panel"
-        class="flex-1 min-h-0 justify-between gap-2.5"
+        class="flex-1 min-h-0 justify-between gap-2"
       >
         {/* Header: Title + Witch status chips + sole subtitle + Mask Now */}
         <View class="flex-row items-start justify-between gap-3 shrink-0">
@@ -1580,7 +1646,7 @@ export function WerewolfNightActionBody(props: {
                 <View
                   class={
                     prompt()?.witchContext?.antidoteAvailable
-                      ? "px-2.5 py-0.5 rounded-full border border-air-quality-border bg-air-quality-bg"
+                      ? "px-2.5 py-0.5 rounded-full border border-stage-sage-border bg-stage-sage-bg"
                       : "px-2.5 py-0.5 rounded-full border border-stage-pill-border bg-stage-tile"
                   }
                 >
@@ -1674,7 +1740,7 @@ export function WerewolfNightActionBody(props: {
           when={activeRole() === "seer" && Boolean(prompt()?.seerResult)}
           else={
             <View class="flex-1 min-h-0 flex-row items-stretch gap-3">
-              <Scroll class="flex-1 min-w-0 min-h-0" contentClass="justify-center">
+              <Scroll class="flex-1 min-w-0 min-h-0" contentClass="min-h-full justify-center py-0.5">
                 <View class={seatGridClass()}>
                   <Each of={st().seats} key={(item) => item.seat}>
                     {(seatAcc) => {
@@ -1682,6 +1748,11 @@ export function WerewolfNightActionBody(props: {
                       const canSelect = () =>
                         Boolean(prompt()?.selectableSeats.includes(s().seat));
                       const isPicked = () => selectedSeat() === s().seat;
+                      const compact = () => st().seats.length > 9;
+                      const baseTile = () =>
+                        compact()
+                          ? "min-w-0 h-11 px-2 rounded-xl border"
+                          : "min-w-0 min-h-11 px-2.5 rounded-xl border";
                       return (
                         <Button
                           testID={`werewolf-night-seat-${s().seat}`}
@@ -1696,17 +1767,19 @@ export function WerewolfNightActionBody(props: {
                           class={
                             isPicked()
                               ? isRoseAction()
-                                ? "min-w-0 min-h-11 px-2.5 rounded-xl border border-stage-rose-border bg-stage-rose-bg flex-row items-center justify-between gap-1.5 transition-colors duration-120 active:opacity-80 disabled:opacity-30"
-                                : "min-w-0 min-h-11 px-2.5 rounded-xl border border-face-amber-edge bg-lighting-bg flex-row items-center justify-between gap-1.5 transition-colors duration-120 active:opacity-80 disabled:opacity-30"
-                              : "min-w-0 min-h-11 px-2.5 rounded-xl border border-stage-pill-border bg-stage-tile flex-row items-center gap-2 transition-colors duration-120 active:opacity-80 disabled:opacity-30"
+                                ? `${baseTile()} border-stage-rose-border bg-stage-rose-bg flex-row items-center justify-between gap-1 transition-colors duration-120 active:opacity-80 disabled:opacity-30`
+                                : `${baseTile()} border-stage-amber-border bg-stage-amber-bg flex-row items-center justify-between gap-1 transition-colors duration-120 active:opacity-80 disabled:opacity-30`
+                              : `${baseTile()} border-stage-pill-border bg-stage-tile flex-row items-center gap-1.5 transition-colors duration-120 active:opacity-80 disabled:opacity-30`
                           }
                         >
-                          <View class="flex-row items-center gap-2 min-w-0 flex-1">
+                          <View class="flex-row items-center gap-1.5 min-w-0 flex-1">
                             <View
                               class={
                                 isPicked() && isRoseAction()
-                                  ? "w-6 h-6 rounded-full bg-face-rose-core/25 items-center justify-center shrink-0"
-                                  : "w-6 h-6 rounded-full bg-stage-bg/60 items-center justify-center shrink-0"
+                                  ? "w-6 h-6 rounded-full bg-stage-rose-bg items-center justify-center shrink-0"
+                                  : isPicked()
+                                    ? "w-6 h-6 rounded-full bg-stage-amber-bg items-center justify-center shrink-0"
+                                    : "w-6 h-6 rounded-full bg-stage-bg/60 items-center justify-center shrink-0"
                               }
                             >
                               <WerewolfStageIcon
@@ -1718,7 +1791,7 @@ export function WerewolfNightActionBody(props: {
                                       : "amber"
                                     : "stageMuted"
                                 }
-                                size={14}
+                                size={13}
                               />
                             </View>
                             <Text
@@ -1731,21 +1804,15 @@ export function WerewolfNightActionBody(props: {
                               }
                               style={{ fontVariant: ["tabular-nums"], numberOfLines: 1 }}
                             >
-                              {loc() === "en-US"
-                                ? isPicked()
-                                  ? `#${s().seat} Selected`
-                                  : `#${s().seat}`
-                                : isPicked()
-                                  ? `${s().seat}号 已选择`
-                                  : `${s().seat}号`}
+                              {loc() === "en-US" ? `#${s().seat}` : `${s().seat}号`}
                             </Text>
                           </View>
 
                           <If when={isPicked()}>
                             <WerewolfStageIcon
-                              name="check_circle"
+                              name="check"
                               tone={isRoseAction() ? "rose" : "amber"}
-                              size={15}
+                              size={13}
                             />
                           </If>
                         </Button>
@@ -1812,7 +1879,7 @@ export function WerewolfNightActionBody(props: {
                 class={
                   res.isWolf
                     ? "flex-1 rounded-2xl border border-stage-rose-border bg-stage-rose-bg px-5 py-4 flex-row items-center justify-between gap-4"
-                    : "flex-1 rounded-2xl border border-face-amber-edge bg-lighting-bg px-5 py-4 flex-row items-center justify-between gap-4"
+                    : "flex-1 rounded-2xl border border-stage-amber-border bg-stage-amber-bg px-5 py-4 flex-row items-center justify-between gap-4"
                 }
               >
                 <View class="flex-row items-center gap-3">
@@ -2052,10 +2119,10 @@ export function WerewolfNightActionBody(props: {
                       <Button
                         testID="werewolf-witch-poison-btn"
                         disabled={true}
-                        class="min-h-11 px-3 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center disabled:opacity-40"
+                        class="flex-1 min-h-11 px-3 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center disabled:opacity-40"
                       >
                         <Text class="text-stage-pill-muted text-xs font-medium">
-                          {loc() === "en-US" ? "Poison" : "选座用毒"}
+                          {loc() === "en-US" ? "Select Poison" : "选座用毒"}
                         </Text>
                       </Button>
                       <Button
@@ -2067,18 +2134,18 @@ export function WerewolfNightActionBody(props: {
                             poisonTargetSeat: null,
                           });
                         }}
-                        class="flex-1 min-h-11 px-4 rounded-full bg-eye-core items-center justify-center active:opacity-75"
+                        class="flex-[1.15] min-h-11 px-3.5 rounded-full bg-eye-core items-center justify-center active:opacity-75"
                       >
                         <Text class="text-stage-bg text-xs font-bold">
                           {loc() === "en-US"
                             ? `Save #${prompt()?.witchContext?.attackedSeat}`
-                            : `使用解药救 ${prompt()?.witchContext?.attackedSeat}号`}
+                            : `解药救 ${prompt()?.witchContext?.attackedSeat}号`}
                         </Text>
                       </Button>
                     </If>
                   }
                 >
-                  {/* Poison target selected: pass left + PRIMARY ivory/rose poison button right */}
+                  {/* Poison target selected: pass left + optional save middle + PRIMARY ivory/rose poison button right */}
                   <Button
                     testID="werewolf-witch-pass-btn"
                     onPress={() => {
@@ -2088,7 +2155,7 @@ export function WerewolfNightActionBody(props: {
                         poisonTargetSeat: null,
                       });
                     }}
-                    class="flex-1 min-h-11 px-3.5 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+                    class="flex-1 min-h-11 px-3 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
                   >
                     <Text class="text-stage-pill-fg text-xs font-semibold">
                       {loc() === "en-US" ? "Close Eyes" : "不用药，闭眼"}
@@ -2104,7 +2171,7 @@ export function WerewolfNightActionBody(props: {
                           poisonTargetSeat: null,
                         });
                       }}
-                      class="min-h-11 px-3.5 rounded-full border border-face-sage-edge bg-air-quality-bg items-center justify-center active:opacity-75"
+                      class="flex-1 min-h-11 px-3 rounded-full border border-stage-sage-border bg-stage-sage-bg items-center justify-center active:opacity-75"
                     >
                       <Text class="text-face-sage-core text-xs font-semibold">
                         {loc() === "en-US"
@@ -2124,7 +2191,7 @@ export function WerewolfNightActionBody(props: {
                         poisonTargetSeat: target,
                       });
                     }}
-                    class="flex-1 min-h-11 px-4 rounded-full bg-eye-core flex-row items-center justify-center gap-1.5 active:opacity-75"
+                    class="flex-[1.15] min-h-11 px-3.5 rounded-full bg-eye-core flex-row items-center justify-center gap-1.5 active:opacity-75"
                   >
                     <WerewolfStageIcon
                       name="potion_bottle"
@@ -2233,7 +2300,7 @@ function TabletopRingStage(props: {
   return (
     <View
       testID="werewolf-tabletop-stage"
-      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3.5 justify-between gap-2.5"
+      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3 justify-between gap-2"
       style={{ pointerEvents: "auto", opacity: panelEnter.opacity }}
     >
       {/* Top Row: Heading + Countdown ring & MM:SS */}
@@ -2305,97 +2372,120 @@ function TabletopRingStage(props: {
       <View class="h-px bg-stage-pill-border shrink-0" />
 
       {/* Tabletop Seat Grid */}
-      <Scroll class="flex-1 min-h-0" contentClass="justify-center gap-2">
+      <Scroll class="flex-1 min-h-0" contentClass="min-h-full justify-center gap-2">
         <View class={seatGridClass()}>
           <Each of={st().seats} key={(item) => item.seat}>
             {(seatAcc) => {
               const s = () => seatAcc();
               const isSpeaking = () => st().speakingSeat === s().seat;
               const isPk = () => st().pkCandidates.includes(s().seat);
+              const compact = () => st().seats.length > 9;
+              const tileBase = () =>
+                compact()
+                  ? "min-w-0 h-11 rounded-2xl border px-2 py-1.5 flex-row items-center gap-1.5"
+                  : "min-w-0 min-h-11 rounded-2xl border px-2.5 py-2 flex-row items-center gap-2";
               return (
                 <View
                   testID={`werewolf-table-seat-${s().seat}`}
                   class={
                     !s().alive
-                      ? "min-w-0 min-h-12 rounded-2xl border border-stage-pill-border bg-stage-tile px-2.5 py-2 flex-row items-center gap-2"
+                      ? `${tileBase()} border-stage-pill-border bg-stage-tile`
                       : isSpeaking()
-                        ? "min-w-0 min-h-12 rounded-2xl border border-face-amber-edge bg-lighting-bg px-2.5 py-2 flex-row items-center gap-2"
+                        ? `${tileBase()} border-stage-amber-border bg-stage-amber-bg`
                         : isPk()
-                          ? "min-w-0 min-h-12 rounded-2xl border border-warning bg-stage-tile px-2.5 py-2 flex-row items-center gap-2"
-                          : "min-w-0 min-h-12 rounded-2xl border border-stage-pill-border bg-stage-tile px-2.5 py-2 flex-row items-center gap-2"
+                          ? `${tileBase()} border-face-amber-edge bg-stage-tile`
+                          : `${tileBase()} border-stage-pill-border bg-stage-tile`
                   }
                   style={{ opacity: s().alive ? 1 : 0.45 }}
                 >
-                  <View class="w-7 h-7 rounded-full border border-stage-pill-border bg-stage-bg overflow-hidden items-center justify-center shrink-0">
-                    <If
-                      when={Boolean(s().portraitDataUri)}
-                      else={
+                  <View class="relative w-7 h-7 shrink-0 items-center justify-center">
+                    <View class="w-7 h-7 rounded-full border border-stage-pill-border bg-stage-bg overflow-hidden items-center justify-center">
+                      <If
+                        when={Boolean(s().portraitDataUri)}
+                        else={
+                          <Text
+                            class={
+                              isSpeaking()
+                                ? "text-face-amber-core text-xs font-bold"
+                                : "text-stage-fg text-xs font-bold"
+                            }
+                            style={{ fontVariant: ["tabular-nums"] }}
+                          >
+                            {String(s().seat)}
+                          </Text>
+                        }
+                      >
+                        <Image
+                          src={s().portraitDataUri ?? ""}
+                          class="w-full h-full rounded-full"
+                        />
+                      </If>
+                    </View>
+                    <If when={Boolean(s().portraitDataUri)}>
+                      <View class="absolute -bottom-0.5 -right-1 px-1 rounded-full bg-stage-bg border border-stage-pill-border items-center justify-center">
                         <Text
-                          class={
-                            isSpeaking()
-                              ? "text-face-amber-core text-xs font-bold"
-                              : "text-stage-fg text-xs font-bold"
-                          }
+                          class="text-stage-fg text-[10px] font-bold"
                           style={{ fontVariant: ["tabular-nums"] }}
                         >
                           {String(s().seat)}
                         </Text>
-                      }
-                    >
-                      <Image
-                        src={s().portraitDataUri ?? ""}
-                        class="w-full h-full rounded-full"
-                      />
+                      </View>
                     </If>
                   </View>
 
                   <View class="flex-1 min-w-0 flex-row items-center gap-1">
-                    <If when={Boolean(s().portraitDataUri)}>
-                      <Text
-                        class="text-stage-fg text-xs font-bold shrink-0"
-                        style={{ fontVariant: ["tabular-nums"] }}
-                      >
-                        {loc() === "en-US" ? `#${s().seat}` : `${s().seat}号`}
-                      </Text>
-                    </If>
                     <If when={isSpeaking()}>
-                      <WerewolfStageIcon name="waveform" tone="amber" size={14} />
+                      <WerewolfStageIcon name="waveform" tone="amber" size={13} />
                     </If>
                     <Text
                       class={
                         !s().alive
-                          ? "text-stage-pill-muted text-xs flex-1"
+                          ? "text-stage-pill-muted text-xs flex-1 min-w-0"
                           : isSpeaking()
-                            ? "text-face-amber-core text-xs font-semibold flex-1"
+                            ? "text-face-amber-core text-xs font-semibold flex-1 min-w-0"
                             : s().idiotRevealed || isPk()
-                              ? "text-face-amber-core text-xs font-medium flex-1"
+                              ? "text-face-amber-core text-xs font-medium flex-1 min-w-0"
                               : s().isCandidate
-                                ? "text-face-mist-core text-xs font-medium flex-1"
-                                : "text-stage-pill-muted text-xs flex-1"
+                                ? "text-face-mist-core text-xs font-medium flex-1 min-w-0"
+                                : "text-stage-pill-muted text-xs flex-1 min-w-0"
                       }
                       style={{ numberOfLines: 1 }}
                     >
                       {!s().alive
                         ? loc() === "en-US"
                           ? "Out"
-                          : "已出局"
+                          : compact()
+                            ? "出局"
+                            : "已出局"
                         : isSpeaking()
                           ? loc() === "en-US"
-                            ? "Speaking"
-                            : "发言中"
+                            ? compact()
+                              ? "Talk"
+                              : "Speaking"
+                            : compact()
+                              ? "发言"
+                              : "发言中"
                           : s().idiotRevealed
                             ? loc() === "en-US"
                               ? "Idiot"
-                              : "白痴翻牌"
+                              : compact()
+                                ? "白痴"
+                                : "白痴翻牌"
                             : isPk()
                               ? "PK"
                               : s().isCandidate
                                 ? loc() === "en-US"
-                                  ? "Candidate"
-                                  : "警上候选"
+                                  ? compact()
+                                    ? "Cand."
+                                    : "Candidate"
+                                  : compact()
+                                    ? "候选"
+                                    : "警上候选"
                                 : loc() === "en-US"
-                                  ? "Waiting"
-                                  : "等待发言"}
+                                  ? "Wait"
+                                  : compact()
+                                    ? "待发"
+                                    : "等待发言"}
                     </Text>
                     <If when={s().isSheriff}>
                       <Text class="text-face-amber-core text-xs font-bold shrink-0">
@@ -2460,7 +2550,7 @@ function TabletopRingStage(props: {
                   seat: spk,
                 });
               }}
-              class="min-h-11 px-3.5 rounded-full border border-lighting-border bg-lighting-bg items-center justify-center active:opacity-75"
+              class="min-h-11 px-3.5 rounded-full border border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-75"
             >
               <Text class="text-face-amber-core text-xs font-semibold">
                 {loc() === "en-US"
@@ -2585,7 +2675,25 @@ function VotingStagePanel(props: {
     totalVoters() > 0 ? Math.min(1, votedCount() / totalVoters()) : 0;
 
   const voterGridClass = () =>
-    totalVoters() <= 6 ? "grid grid-cols-2 gap-2" : "grid grid-cols-3 gap-1.5";
+    totalVoters() <= 6
+      ? "grid grid-cols-3 gap-2"
+      : totalVoters() <= 9
+        ? "grid grid-cols-3 gap-1.5"
+        : "grid grid-cols-4 gap-1.5";
+  const isDenseOnDevice = () =>
+    totalVoters() > 9 || validTargets().length + 1 > 9;
+  const onDeviceVoterGridClass = () =>
+    totalVoters() <= 6
+      ? "grid grid-cols-3 gap-2"
+      : totalVoters() <= 9
+        ? "grid grid-cols-3 gap-1.5"
+        : "grid grid-cols-5 gap-1";
+  const onDeviceTargetGridClass = () => {
+    const count = validTargets().length + 1;
+    if (count <= 6) return "grid grid-cols-3 gap-1.5";
+    if (count <= 9) return "grid grid-cols-4 gap-1.5";
+    return "grid grid-cols-5 gap-1";
+  };
 
   const panelEnter = createMotion(
     reduceMotion() ? {} : { enter: "fadeIn", duration: 180 },
@@ -2594,7 +2702,7 @@ function VotingStagePanel(props: {
   return (
     <View
       testID="werewolf-voting-panel"
-      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-4 flex-row items-stretch gap-4"
+      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3.5 flex-row items-stretch gap-3.5"
       style={{ pointerEvents: "auto", opacity: panelEnter.opacity }}
     >
       <If
@@ -2602,14 +2710,27 @@ function VotingStagePanel(props: {
         else={
           /* On-Device / Host Override Two-Step Ballot Collection */
           <>
-            <Scroll class="flex-[1.35] min-w-0 min-h-0" contentClass="gap-2.5 pr-1">
-              <View class="gap-1.5">
-                <Text class="text-stage-fg text-sm font-bold">
+            <Scroll
+              class="flex-[1.38] min-w-0 min-h-0"
+              contentClass={
+                isDenseOnDevice()
+                  ? "min-h-full justify-center gap-1.5 pr-1"
+                  : "min-h-full justify-center gap-2 pr-1"
+              }
+            >
+              <View class={isDenseOnDevice() ? "gap-1" : "gap-1.5"}>
+                <Text
+                  class={
+                    isDenseOnDevice()
+                      ? "text-stage-fg text-sm font-bold"
+                      : "text-stage-fg text-base font-bold"
+                  }
+                >
                   {loc() === "en-US"
                     ? `1. Select Voter (${votedCount()}/${totalVoters()})`
                     : `1. 选择投票座位（已投 ${votedCount()}/${totalVoters()}）`}
                 </Text>
-                <View class="flex-row flex-wrap gap-1.5">
+                <View class={onDeviceVoterGridClass()}>
                   <Each of={st().eligibleVoterSeats} key={(v) => v}>
                     {(voterAcc) => {
                       const v = () => voterAcc();
@@ -2621,37 +2742,53 @@ function VotingStagePanel(props: {
                         st().sheriffSeat === v();
 
                       const pillLabel = () => {
-                        const prefix = `#${v()}${isSheriffWeight() ? "(1.5)" : ""}`;
-                        if (!hasVoted()) return prefix;
+                        const prefix = `${v()}${isSheriffWeight() ? "★" : "#"}`;
+                        const compactPrefix = `#${v()}${isSheriffWeight() ? "★" : ""}`;
+                        if (!hasVoted()) {
+                          return totalVoters() > 6
+                            ? compactPrefix
+                            : `#${v()}${isSheriffWeight() ? "(1.5)" : ""}`;
+                        }
                         const tgt = recordedTarget();
                         if (tgt === undefined) return `${prefix} ✓`;
                         return tgt === null
-                          ? `${prefix}→${loc() === "en-US" ? "Pass" : "弃"}`
-                          : `${prefix}→#${tgt}`;
+                          ? `${compactPrefix}→${loc() === "en-US" ? "P" : "弃"}`
+                          : `${compactPrefix}→${tgt}`;
                       };
 
                       return (
                         <Button
                           testID={`werewolf-voter-${v()}`}
                           selected={isSelected()}
+                          hitSlop={
+                            isDenseOnDevice()
+                              ? { top: 6, bottom: 6 }
+                              : { top: 2, bottom: 2 }
+                          }
                           onPress={() => activeVoter.set(v())}
                           class={
-                            isSelected()
-                              ? "min-h-11 px-3 rounded-xl border-2 border-face-amber-edge bg-lighting-bg items-center justify-center active:opacity-80"
-                              : hasVoted()
-                                ? "min-h-11 px-3 rounded-xl border border-air-quality-border bg-air-quality-bg items-center justify-center active:opacity-80"
-                                : "min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-80"
+                            isDenseOnDevice()
+                              ? isSelected()
+                                ? "min-w-0 h-8 px-1 rounded-xl border-2 border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-80"
+                                : hasVoted()
+                                  ? "min-w-0 h-8 px-1 rounded-xl border border-stage-sage-border bg-stage-sage-bg items-center justify-center active:opacity-80"
+                                  : "min-w-0 h-8 px-1 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-80"
+                              : isSelected()
+                                ? "min-w-0 h-10 px-1.5 rounded-xl border-2 border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-80"
+                                : hasVoted()
+                                  ? "min-w-0 h-10 px-1.5 rounded-xl border border-stage-sage-border bg-stage-sage-bg items-center justify-center active:opacity-80"
+                                  : "min-w-0 h-10 px-1.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-80"
                           }
                         >
                           <Text
                             class={
                               isSelected()
-                                ? "text-face-amber-core text-xs font-bold"
+                                ? "text-face-amber-core text-xs font-bold text-center"
                                 : hasVoted()
-                                  ? "text-face-sage-core text-xs font-semibold"
-                                  : "text-stage-fg text-xs font-medium"
+                                  ? "text-face-sage-core text-xs font-semibold text-center"
+                                  : "text-stage-fg text-xs font-medium text-center"
                             }
-                            style={{ fontVariant: ["tabular-nums"] }}
+                            style={{ numberOfLines: 1, fontVariant: ["tabular-nums"] }}
                           >
                             {pillLabel()}
                           </Text>
@@ -2662,7 +2799,7 @@ function VotingStagePanel(props: {
                 </View>
               </View>
 
-              <View class="gap-1.5">
+              <View class={isDenseOnDevice() ? "gap-1" : "gap-1.5"}>
                 <Text class="text-stage-pill-muted text-xs font-semibold">
                   {activeVoter() !== null
                     ? loc() === "en-US"
@@ -2672,7 +2809,7 @@ function VotingStagePanel(props: {
                       ? "2. Cast Ballot"
                       : "2. 选择投票目标"}
                 </Text>
-                <View class="flex-row flex-wrap gap-1.5">
+                <View class={onDeviceTargetGridClass()}>
                   <Each of={validTargets()} key={(t) => t}>
                     {(targetAcc) => {
                       const target = () => targetAcc();
@@ -2680,12 +2817,21 @@ function VotingStagePanel(props: {
                         <Button
                           testID={`werewolf-vote-target-${target()}`}
                           disabled={activeVoter() === null}
+                          hitSlop={
+                            isDenseOnDevice()
+                              ? { top: 6, bottom: 6 }
+                              : { top: 2, bottom: 2 }
+                          }
                           onPress={() => castForActiveVoter(target())}
-                          class="min-w-14 min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 disabled:opacity-35"
+                          class={
+                            isDenseOnDevice()
+                              ? "min-w-0 h-8 px-1 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 disabled:opacity-35"
+                              : "min-w-0 h-10 px-1.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 disabled:opacity-35"
+                          }
                         >
                           <Text
-                            class="text-stage-fg text-xs font-bold"
-                            style={{ fontVariant: ["tabular-nums"] }}
+                            class="text-stage-fg text-xs font-bold text-center"
+                            style={{ numberOfLines: 1, fontVariant: ["tabular-nums"] }}
                           >
                             {`→ #${target()}`}
                           </Text>
@@ -2697,10 +2843,22 @@ function VotingStagePanel(props: {
                   <Button
                     testID="werewolf-vote-abstain"
                     disabled={activeVoter() === null}
+                    hitSlop={
+                      isDenseOnDevice()
+                        ? { top: 6, bottom: 6 }
+                        : { top: 2, bottom: 2 }
+                    }
                     onPress={() => castForActiveVoter(null)}
-                    class="min-h-11 px-3.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 disabled:opacity-35"
+                    class={
+                      isDenseOnDevice()
+                        ? "min-w-0 h-8 px-1 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 disabled:opacity-35"
+                        : "min-w-0 h-10 px-1.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 disabled:opacity-35"
+                    }
                   >
-                    <Text class="text-stage-pill-muted text-xs font-semibold">
+                    <Text
+                      class="text-stage-pill-muted text-xs font-semibold text-center"
+                      style={{ numberOfLines: 1 }}
+                    >
                       {loc() === "en-US" ? "Abstain" : "弃票"}
                     </Text>
                   </Button>
@@ -2728,7 +2886,7 @@ function VotingStagePanel(props: {
                 class="flex-1 min-h-0"
                 contentClass="gap-1.5"
               >
-                <Text class="text-stage-fg text-sm font-bold">
+                <Text class="text-stage-fg text-base font-bold">
                   {st().rules.surfaceMode === "lan_companion" &&
                   st().voteTallies.length === 0
                     ? loc() === "en-US"
@@ -2809,53 +2967,70 @@ function VotingStagePanel(props: {
               </Text>
             </View>
 
-            <Scroll class="flex-1 min-h-0" contentClass="justify-center">
+            <Scroll class="flex-1 min-h-0" contentClass="min-h-full justify-center">
               <View class={voterGridClass()}>
                 <Each of={st().eligibleVoterSeats} key={(v) => v}>
                   {(voterAcc) => {
                     const v = () => voterAcc();
                     const hasVoted = () => st().votedSeats.includes(v());
+                    const compact = () => totalVoters() > 9;
                     return (
                       <View
                         testID={`werewolf-voter-status-${v()}`}
-                        class="min-w-0 min-h-11 rounded-2xl border border-stage-pill-border bg-stage-tile px-3 py-2 flex-row items-center gap-2"
+                        class={
+                          compact()
+                            ? "min-w-0 h-10 rounded-xl border border-stage-pill-border bg-stage-tile px-1.5 flex-row items-center gap-1"
+                            : "min-w-0 min-h-11 rounded-2xl border border-stage-pill-border bg-stage-tile px-2.5 py-2 flex-row items-center gap-1.5"
+                        }
                       >
                         <Text
-                          class="text-stage-fg text-sm font-bold shrink-0"
+                          class="text-stage-fg text-xs font-bold shrink-0"
                           style={{ fontVariant: ["tabular-nums"] }}
                         >
                           {`#${v()}`}
                         </Text>
-                        <View class="w-px h-3.5 bg-stage-pill-border shrink-0" />
+                        <If when={!compact()}>
+                          <View class="w-px h-3.5 bg-stage-pill-border shrink-0" />
+                        </If>
                         <If
                           when={hasVoted()}
                           else={
-                            <View class="flex-row items-center gap-1.5 flex-1 min-w-0">
+                            <View class="flex-row items-center gap-1 flex-1 min-w-0">
                               <WerewolfStageIcon
                                 name="clock"
                                 tone="stageMuted"
-                                size={15}
+                                size={compact() ? 12 : 14}
                               />
                               <Text
-                                class="text-stage-pill-muted text-xs font-medium"
+                                class="text-stage-pill-muted text-xs font-medium flex-1 min-w-0"
                                 style={{ numberOfLines: 1 }}
                               >
-                                {loc() === "en-US" ? "Waiting" : "等待投票"}
+                                {loc() === "en-US"
+                                  ? compact()
+                                    ? "Wait"
+                                    : "Waiting"
+                                  : compact()
+                                    ? "待投"
+                                    : "等待投票"}
                               </Text>
                             </View>
                           }
                         >
-                          <View class="flex-row items-center gap-1.5 flex-1 min-w-0">
+                          <View class="flex-row items-center gap-1 flex-1 min-w-0">
                             <WerewolfStageIcon
                               name="check_circle"
                               tone="sage"
-                              size={15}
+                              size={compact() ? 12 : 14}
                             />
                             <Text
-                              class="text-face-sage-core text-xs font-semibold"
+                              class="text-face-sage-core text-xs font-semibold flex-1 min-w-0"
                               style={{ numberOfLines: 1 }}
                             >
-                              {loc() === "en-US" ? "Voted" : "已投票"}
+                              {loc() === "en-US"
+                                ? "Voted"
+                                : compact()
+                                  ? "已投"
+                                  : "已投票"}
                             </Text>
                           </View>
                         </If>
@@ -2881,7 +3056,7 @@ function VotingStagePanel(props: {
           <View class="w-px bg-stage-pill-border my-1 shrink-0" />
 
           <View class="flex-1 min-w-0 justify-between items-center py-0.5">
-            <Text class="text-stage-fg text-base font-bold self-start">
+            <Text class="text-stage-fg text-lg font-bold self-start">
               {loc() === "en-US" ? "Collecting Ballots" : "选票收集中"}
             </Text>
 
@@ -2977,7 +3152,7 @@ function SheriffSignupStagePanel(props: {
   return (
     <View
       testID="werewolf-sheriff-signup-panel"
-      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-4 justify-between gap-2.5"
+      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3 justify-between gap-2"
       style={{ pointerEvents: "auto", opacity: panelEnter.opacity }}
     >
       <View class="flex-row items-center justify-between gap-2 shrink-0">
@@ -3005,11 +3180,12 @@ function SheriffSignupStagePanel(props: {
 
       <View class="h-px bg-stage-pill-border shrink-0" />
 
-      <Scroll class="flex-1 min-h-0" contentClass="justify-center">
+      <Scroll class="flex-1 min-h-0" contentClass="min-h-full justify-center">
         <View class={seatGridClass()}>
           <Each of={st().seats} key={(item) => item.seat}>
             {(seatAcc) => {
               const s = () => seatAcc();
+              const compact = () => st().seats.length > 9;
               return (
                 <Button
                   testID={`werewolf-sheriff-cand-${s().seat}`}
@@ -3023,8 +3199,12 @@ function SheriffSignupStagePanel(props: {
                   }}
                   class={
                     s().isCandidate
-                      ? "min-w-0 min-h-11 px-3 rounded-xl border border-face-amber-edge bg-lighting-bg flex-row items-center justify-between gap-1.5 active:opacity-80 disabled:opacity-30"
-                      : "min-w-0 min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-tile flex-row items-center justify-between gap-1.5 active:opacity-80 disabled:opacity-30"
+                      ? compact()
+                        ? "min-w-0 h-11 px-2.5 rounded-xl border border-stage-amber-border bg-stage-amber-bg flex-row items-center justify-between gap-1.5 active:opacity-80 disabled:opacity-30"
+                        : "min-w-0 min-h-11 px-3 rounded-xl border border-stage-amber-border bg-stage-amber-bg flex-row items-center justify-between gap-1.5 active:opacity-80 disabled:opacity-30"
+                      : compact()
+                        ? "min-w-0 h-11 px-2.5 rounded-xl border border-stage-pill-border bg-stage-tile flex-row items-center justify-between gap-1.5 active:opacity-80 disabled:opacity-30"
+                        : "min-w-0 min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-tile flex-row items-center justify-between gap-1.5 active:opacity-80 disabled:opacity-30"
                   }
                 >
                   <Text
@@ -3044,7 +3224,7 @@ function SheriffSignupStagePanel(props: {
                         : `${s().seat}号`}
                   </Text>
                   <If when={s().isCandidate}>
-                    <WerewolfStageIcon name="check_circle" tone="amber" size={14} />
+                    <WerewolfStageIcon name="check" tone="amber" size={13} />
                   </If>
                 </Button>
               );
@@ -3153,7 +3333,7 @@ function LeaveResolutionStagePanel(props: {
           </View>
         }
       >
-        <Scroll class="flex-1 min-h-0" contentClass="justify-center">
+        <Scroll class="flex-1 min-h-0" contentClass="min-h-full justify-center">
           <View class="grid grid-cols-4 gap-2">
             <Each of={selectableSeats()} key={(n) => n}>
               {(seatNumAcc) => {
@@ -3166,7 +3346,7 @@ function LeaveResolutionStagePanel(props: {
                     onPress={() => targetSeat.set(picked() ? null : num())}
                     class={
                       picked()
-                        ? "min-w-0 min-h-11 px-3 rounded-xl border border-face-amber-edge bg-lighting-bg items-center justify-center active:opacity-80"
+                        ? "min-w-0 min-h-11 px-3 rounded-xl border border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-80"
                         : "min-w-0 min-h-11 px-3 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-80"
                     }
                   >
@@ -3361,7 +3541,7 @@ function GameOverStage(props: {
   );
 
   const seatGridClass = () =>
-    st().seats.length <= 9 ? "grid grid-cols-3 gap-2" : "grid grid-cols-4 gap-1.5";
+    st().seats.length <= 9 ? "grid grid-cols-3 gap-1.5" : "grid grid-cols-4 gap-1";
 
   const fallbackRecapText = () => {
     const timeline = st().fullTimelineReveal;
@@ -3380,17 +3560,17 @@ function GameOverStage(props: {
   return (
     <View
       testID="werewolf-gameover-panel"
-      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3.5 justify-between gap-2.5"
+      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-2 justify-between gap-1.5"
       style={{ pointerEvents: "auto", opacity: revealMotion.opacity }}
     >
       {/* Top 240ms sliding tab switcher */}
       <View
         onLayout={(ev) => tabTrackWidth.set(ev.bounds.size.width)}
-        class="relative self-start w-64 rounded-full border border-stage-pill-border bg-stage-tile p-0.5 flex-row items-center shrink-0"
+        class="relative self-start w-60 rounded-full border border-stage-pill-border bg-stage-tile p-0.5 flex-row items-center shrink-0"
       >
         <If when={tabTrackWidth() > 4}>
           <View
-            class="absolute top-0.5 bottom-0.5 left-0.5 rounded-full border border-face-amber-edge bg-lighting-bg"
+            class="absolute top-0.5 bottom-0.5 left-0.5 rounded-full border border-stage-amber-border bg-stage-amber-bg"
             style={{
               width: Math.max(0, (tabTrackWidth() - 4) / 2),
               pointerEvents: "none",
@@ -3402,8 +3582,9 @@ function GameOverStage(props: {
         <Button
           testID="werewolf-gameover-tab-roles"
           selected={activeTab() === "roles"}
+          hitSlop={{ top: 6, bottom: 6 }}
           onPress={() => activeTab.set("roles")}
-          class="flex-1 min-h-11 px-3 rounded-full items-center justify-center active:opacity-80"
+          class="flex-1 h-8 px-3 rounded-full items-center justify-center active:opacity-80"
         >
           <Text
             class={
@@ -3419,8 +3600,9 @@ function GameOverStage(props: {
         <Button
           testID="werewolf-gameover-tab-timeline"
           selected={activeTab() === "timeline"}
+          hitSlop={{ top: 6, bottom: 6 }}
           onPress={() => activeTab.set("timeline")}
-          class="flex-1 min-h-11 px-3 rounded-full items-center justify-center active:opacity-80"
+          class="flex-1 h-8 px-3 rounded-full items-center justify-center active:opacity-80"
         >
           <Text
             class={
@@ -3434,19 +3616,19 @@ function GameOverStage(props: {
         </Button>
       </View>
 
-      {/* Main Content */}
+      {/* Main Content (scrollable independently above fixed recap bar) */}
       <If
         when={activeTab() === "roles"}
         else={
           <Scroll
             testID="werewolf-truth-timeline"
             class="flex-1 min-h-0"
-            contentClass="gap-1.5"
+            contentClass="min-h-full gap-1.5"
           >
             <If
               when={st().fullTimelineReveal.length > 0}
               else={
-                <View class="flex-1 items-center justify-center py-8">
+                <View class="flex-1 items-center justify-center py-6">
                   <Text class="text-stage-pill-muted text-xs">
                     {loc() === "en-US"
                       ? "No timeline events recorded."
@@ -3462,7 +3644,7 @@ function GameOverStage(props: {
                 {(entryAcc) => {
                   const item = () => entryAcc();
                   return (
-                    <View class="flex-row items-start gap-2.5 rounded-2xl border border-stage-pill-border bg-stage-tile px-3 py-2">
+                    <View class="flex-row items-start gap-2.5 rounded-2xl border border-stage-pill-border bg-stage-tile px-3 py-1.5">
                       <Text
                         class="text-face-mist-core text-xs font-semibold shrink-0"
                         style={{ fontVariant: ["tabular-nums"] }}
@@ -3480,12 +3662,13 @@ function GameOverStage(props: {
           </Scroll>
         }
       >
-        <Scroll class="flex-1 min-h-0" contentClass="gap-2 justify-between">
+        <Scroll class="flex-1 min-h-0" contentClass="min-h-full justify-center">
           {/* Role reveal grid */}
           <View testID="werewolf-role-reveal-grid" class={seatGridClass()}>
             <Each of={st().seats} key={(item) => item.seat}>
               {(seatAcc) => {
                 const s = () => seatAcc();
+                const compact = () => st().seats.length > 9;
                 const role = () => s().revealedRole ?? "villager";
                 const roleLabel = () => {
                   const r = s().revealedRole;
@@ -3503,19 +3686,25 @@ function GameOverStage(props: {
                   return "text-face-sage-core text-xs font-semibold";
                 };
                 return (
-                  <View class="min-w-0 min-h-14 rounded-2xl border border-stage-pill-border bg-stage-tile px-2.5 py-1.5 flex-row items-center gap-2">
+                  <View
+                    class={
+                      compact()
+                        ? "min-w-0 h-[38px] rounded-xl border border-stage-pill-border bg-stage-tile px-1.5 py-0.5 flex-row items-center gap-1"
+                        : "min-w-0 min-h-[46px] rounded-2xl border border-stage-pill-border bg-stage-tile px-2.5 py-1.5 flex-row items-center gap-2"
+                    }
+                  >
                     <WerewolfRoleIcon
                       role={role()}
                       tone={s().revealedRole ? roleFactionTone(role()) : "stageMuted"}
-                      size={20}
+                      size={compact() ? 14 : 19}
                     />
-                    <View class="flex-1 min-w-0 gap-0.5">
+                    <View class={compact() ? "flex-1 min-w-0" : "flex-1 min-w-0 gap-0.5"}>
                       <View class="flex-row items-center gap-1 min-w-0">
                         <Text
                           class="text-stage-fg text-xs font-bold shrink-0"
                           style={{ fontVariant: ["tabular-nums"] }}
                         >
-                          {loc() === "en-US"
+                          {compact() || loc() === "en-US"
                             ? `#${s().seat}${s().isSheriff ? "★" : ""}`
                             : `${s().seat}号${s().isSheriff ? "★" : ""}`}
                         </Text>
@@ -3532,11 +3721,17 @@ function GameOverStage(props: {
                       >
                         {s().alive
                           ? loc() === "en-US"
-                            ? "Survived"
-                            : "存活至终局"
+                            ? compact()
+                              ? "Alive"
+                              : "Survived"
+                            : compact()
+                              ? "存活"
+                              : "存活至终局"
                           : loc() === "en-US"
-                            ? `Out D${s().deathDay ?? "?"}`
-                            : `第${s().deathDay ?? "?"}天出局`}
+                            ? `D${s().deathDay ?? "?"} Out`
+                            : compact()
+                              ? `D${s().deathDay ?? "?"}出局`
+                              : `第${s().deathDay ?? "?"}天出局`}
                       </Text>
                     </View>
                   </View>
@@ -3544,94 +3739,95 @@ function GameOverStage(props: {
               }}
             </Each>
           </View>
-
-          {/* Compact single-strip AI recap bar */}
-          <View
-            testID="werewolf-mvp-card"
-            class="rounded-2xl border border-lighting-border bg-lighting-bg px-3 py-2 flex-row items-center justify-between gap-2.5"
-          >
-            <View class="flex-row items-center gap-2 flex-1 min-w-0">
-              <Text class="text-face-amber-core text-xs font-bold shrink-0">
-                {loc() === "en-US" ? "LOOI Recap" : "LOOI 复盘"}
-              </Text>
-              <View class="w-px h-3.5 bg-lighting-border shrink-0" />
-
-              <If when={st().aiMvpReview.status === "generating"}>
-                <View class="flex-1 min-w-0 py-0.5">
-                  <LoadingIndicator
-                    testID="werewolf-mvp-loading"
-                    stage={true}
-                    inline={true}
-                    label={
-                      loc() === "en-US"
-                        ? "Reviewing match..."
-                        : "AI 法官正在复盘…"
-                    }
-                  />
-                </View>
-              </If>
-
-              <If
-                when={
-                  st().aiMvpReview.status === "ready" &&
-                  Boolean(st().aiMvpReview.text)
-                }
-              >
-                <Text
-                  testID="werewolf-mvp-text"
-                  class="text-stage-fg text-xs flex-1"
-                  style={{ numberOfLines: 2 }}
-                >
-                  {st().aiMvpReview.text}
-                </Text>
-              </If>
-
-              <If
-                when={
-                  st().aiMvpReview.status === "failed" &&
-                  Boolean(st().aiMvpReview.error)
-                }
-              >
-                <Text
-                  testID="werewolf-mvp-error"
-                  class="text-destructive text-xs flex-1"
-                  style={{ numberOfLines: 2 }}
-                >
-                  {st().aiMvpReview.error}
-                </Text>
-              </If>
-
-              <If when={st().aiMvpReview.status === "idle"}>
-                <Text
-                  class="text-stage-fg text-xs flex-1"
-                  style={{ numberOfLines: 2 }}
-                >
-                  {fallbackRecapText()}
-                </Text>
-              </If>
-            </View>
-
-            <Button
-              testID="werewolf-regen-mvp-btn"
-              disabled={st().aiMvpReview.status === "generating"}
-              onPress={() => {
-                void props.ctx.sendCommand({ type: "regenerate_mvp_review" });
-              }}
-              class="min-h-11 px-3 rounded-xl border border-lighting-border bg-stage-tile items-center justify-center shrink-0 active:opacity-75 disabled:opacity-40"
-            >
-              <Text class="text-face-amber-core text-xs font-semibold">
-                {st().aiMvpReview.status === "ready"
-                  ? loc() === "en-US"
-                    ? "Refresh"
-                    : "重新点评"
-                  : loc() === "en-US"
-                    ? "Generate"
-                    : "生成复盘"}
-              </Text>
-            </Button>
-          </View>
         </Scroll>
       </If>
+
+      {/* Fixed compact single-strip AI recap bar outside Scroll */}
+      <View
+        testID="werewolf-mvp-card"
+        class="rounded-2xl border border-stage-amber-border bg-stage-amber-bg px-2.5 py-1 flex-row items-center justify-between gap-2 shrink-0"
+      >
+        <View class="flex-row items-center gap-2 flex-1 min-w-0">
+          <Text class="text-face-amber-core text-xs font-bold shrink-0">
+            {loc() === "en-US" ? "LOOI Recap" : "LOOI 复盘"}
+          </Text>
+          <View class="w-px h-3.5 bg-stage-amber-border shrink-0" />
+
+          <If when={st().aiMvpReview.status === "generating"}>
+            <View class="flex-1 min-w-0 py-0.5">
+              <LoadingIndicator
+                testID="werewolf-mvp-loading"
+                stage={true}
+                inline={true}
+                label={
+                  loc() === "en-US"
+                    ? "Reviewing match..."
+                    : "AI 法官正在复盘…"
+                }
+              />
+            </View>
+          </If>
+
+          <If
+            when={
+              st().aiMvpReview.status === "ready" &&
+              Boolean(st().aiMvpReview.text)
+            }
+          >
+            <Text
+              testID="werewolf-mvp-text"
+              class="text-stage-fg text-xs flex-1"
+              style={{ numberOfLines: 1 }}
+            >
+              {st().aiMvpReview.text}
+            </Text>
+          </If>
+
+          <If
+            when={
+              st().aiMvpReview.status === "failed" &&
+              Boolean(st().aiMvpReview.error)
+            }
+          >
+            <Text
+              testID="werewolf-mvp-error"
+              class="text-face-rose-core text-xs flex-1"
+              style={{ numberOfLines: 1 }}
+            >
+              {st().aiMvpReview.error}
+            </Text>
+          </If>
+
+          <If when={st().aiMvpReview.status === "idle"}>
+            <Text
+              class="text-stage-fg text-xs flex-1"
+              style={{ numberOfLines: 1 }}
+            >
+              {fallbackRecapText()}
+            </Text>
+          </If>
+        </View>
+
+        <Button
+          testID="werewolf-regen-mvp-btn"
+          hitSlop={4}
+          disabled={st().aiMvpReview.status === "generating"}
+          onPress={() => {
+            void props.ctx.sendCommand({ type: "regenerate_mvp_review" });
+          }}
+          class="h-8 px-3 rounded-full border border-stage-amber-border bg-stage-tile items-center justify-center shrink-0 active:opacity-75 disabled:opacity-40"
+        >
+          <Text class="text-face-amber-core text-xs font-semibold">
+            {st().aiMvpReview.status === "ready"
+              ? loc() === "en-US"
+                ? "Refresh"
+                : "重新点评"
+              : loc() === "en-US"
+                ? "Generate"
+                : "生成复盘"}
+          </Text>
+        </Button>
+      </View>
 
       {/* Bottom dual actions */}
       <View class="flex-row items-center gap-2.5 shrink-0">
@@ -3667,15 +3863,11 @@ function GameOverStage(props: {
 export function WerewolfStageError(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
 }) {
-  const diagnostic = () => {
-    const error = props.ctx.lastError();
-    const code = error?.code === undefined ? "" : ` code=${String(error.code)}`;
-    return props.ctx.uiError() || (error ? `[stage=${error.stage}${code}] ${error.reason}` : "");
-  };
+  const diagnostic = () => readWerewolfDiagnostic(props.ctx);
   return (
     <If when={Boolean(diagnostic())}>
-      <View class="shrink-0 rounded-xl border border-destructive bg-stage-tile px-3 py-1.5" selectable={true}>
-        <Text class="text-destructive text-xs" role="alert">{diagnostic()}</Text>
+      <View class="shrink-0 rounded-xl border border-stage-rose-border bg-stage-tile px-3 py-1.5" selectable={true}>
+        <Text class="text-face-rose-core text-xs" role="alert">{diagnostic()}</Text>
       </View>
     </If>
   );
@@ -3724,24 +3916,18 @@ export function WerewolfStageCanvas(props: {
   const nightEnter = createMotion(
     reduceMotion() ? {} : { enter: "fadeIn", duration: 180 },
   );
-  const drawerOwnsNight = () => {
-    const phase = st().phase;
-    return st().rules.surfaceMode === "lan_companion" &&
-      (phase === "night_guard" || phase === "night_wolf" || phase === "night_witch" || phase === "night_seer");
-  };
   const judgeSubtitle = () => {
     const { phase, voiceStatus, lastJudgeSpeech } = st();
-    const hasNoOtherSubtitle = isOnDeviceNightTurn() || isVotingPhase() || isSheriffSignup() ||
+    const isFullPostureRest =
       phase === "night_intro" || phase === "dawn_settle";
-    return hasNoOtherSubtitle && (voiceStatus.mutedByHost || voiceStatus.degradedToSubtitles)
-      ? lastJudgeSpeech : "";
+    return isFullPostureRest &&
+      (voiceStatus.mutedByHost || voiceStatus.degradedToSubtitles)
+      ? lastJudgeSpeech
+      : "";
   };
 
   return (
     <View class="flex-1 min-h-0 gap-1.5" style={{ pointerEvents: "box-none" }}>
-      <If when={!drawerOwnsNight()}>
-        <WerewolfStageError ctx={props.ctx} />
-      </If>
       <If when={Boolean(judgeSubtitle())}>
         <View class="shrink-0 rounded-xl border border-stage-pill-border bg-stage-panel px-3 py-1.5">
           <Text class="text-stage-fg text-xs" style={{ numberOfLines: 2 }}>{judgeSubtitle()}</Text>

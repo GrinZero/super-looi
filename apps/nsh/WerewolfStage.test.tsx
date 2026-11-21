@@ -143,7 +143,7 @@ async function runFullLandscapeMatch(variant: {
     await app.press("id:werewolf-settings-toggle-lan");
     await app.waitFor("id:werewolf-settings-qr");
     await app.waitUntil(
-      () => app.texts().some((txt) => txt.includes("http://")),
+      () => app.texts().some((txt) => /\d+\.\d+\.\d+\.\d+:\d+/.test(txt)),
       { timeout: 5000 },
     );
     expect(app.shows("id:werewolf-settings-qr-canvas")).toBe(true);
@@ -188,7 +188,7 @@ async function runFullLandscapeMatch(variant: {
     await app.press("id:werewolf-surface-lan_companion");
     await app.waitFor("id:werewolf-qr-card");
     await app.waitUntil(
-      () => app.texts().some((txt) => txt.includes("http://")),
+      () => app.texts().some((txt) => /\d+\.\d+\.\d+\.\d+:\d+/.test(txt)),
       { timeout: 5000 },
     );
     expect(app.shows("id:werewolf-qr-canvas")).toBe(true);

@@ -980,6 +980,25 @@ function drawEye(
       cx.translate(-baseX, -baseY);
     }
 
+    // Clip eyelid BEFORE drawing halo/ripples/orb so half-closed eyes do not leak a dome halo above the lid.
+    cx.save();
+    if (spec.eyelid) {
+      const topCut = clamp(spec.eyelid.top ?? 0, 0, 0.85);
+      const bottomCut = clamp(spec.eyelid.bottom ?? 0, 0, 0.85);
+      const angleRad = ((spec.eyelid.angleDeg ?? 0) * Math.PI) / 180;
+      const clipTop =
+        topCut > 0 ? -radius + topCut * 2 * radius : -radius * 1.68;
+      const clipBottom =
+        bottomCut > 0 ? radius - bottomCut * 2 * radius : radius * 1.68;
+      const clipHeight = Math.max(4, clipBottom - clipTop);
+      cx.translate(baseX, baseY);
+      if (angleRad !== 0) cx.rotate(angleRad);
+      cx.beginPath();
+      cx.rect(-radius * 1.68, clipTop, radius * 3.36, clipHeight);
+      cx.clip();
+      cx.translate(-baseX, -baseY);
+    }
+
     // 4a. Eye perimeter soft halo bloom
     const halo = cx.createRadialGradient(
       baseX,
@@ -1013,22 +1032,7 @@ function drawEye(
       }
     }
 
-    // 4b. Solid flat/soft-focus OLED emissive round eye (with optional eyelid clip)
-    cx.save();
-    if (spec.eyelid) {
-      const topCut = clamp(spec.eyelid.top ?? 0, 0, 0.85);
-      const bottomCut = clamp(spec.eyelid.bottom ?? 0, 0, 0.85);
-      const angleRad = ((spec.eyelid.angleDeg ?? 0) * Math.PI) / 180;
-      const yTop = -radius + topCut * 2 * radius;
-      const visibleHeight = Math.max(4, (1 - topCut - bottomCut) * 2 * radius);
-      cx.translate(baseX, baseY);
-      if (angleRad !== 0) cx.rotate(angleRad);
-      cx.beginPath();
-      cx.rect(-radius * 1.45, yTop, radius * 2.9, visibleHeight);
-      cx.clip();
-      cx.translate(-baseX, -baseY);
-    }
-
+    // 4b. Solid flat/soft-focus OLED emissive round eye
     const orb = cx.createRadialGradient(baseX, baseY, 0, baseX, baseY, radius);
     if (isCoralTint) {
       orb.addColorStop(0, palette.core);

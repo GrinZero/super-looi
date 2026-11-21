@@ -333,15 +333,17 @@ export function WerewolfSettingsView(props: {
                         >
                           {WEREWOLF_ROLE_LABELS[role()][loc()]}
                         </Text>
-                        <Text class="text-muted-foreground text-xs">
-                          {`· ${factionHint()}`}
-                        </Text>
+                        <If when={role() !== "werewolf" && role() !== "villager"}>
+                          <Text class="text-muted-foreground text-xs">
+                            {`· ${factionHint()}`}
+                          </Text>
+                        </If>
                       </View>
 
                       <View class="flex-row items-center gap-1.5 shrink-0">
                         <Button
                           testID={`werewolf-role-dec-${role()}`}
-                          hitSlop={4}
+                          hitSlop={6}
                           disabled={
                             !enabled() || !editableDeck() || count() <= 0
                           }
@@ -357,7 +359,7 @@ export function WerewolfSettingsView(props: {
                               count: Math.max(0, count() - 1),
                             });
                           }}
-                          class="w-11 h-11 rounded-xl border border-border bg-muted items-center justify-center active:bg-secondary disabled:opacity-35"
+                          class="w-8 h-8 rounded-lg border border-border bg-muted items-center justify-center hover:bg-accent transition-colors duration-150 active:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-35"
                         >
                           <Text class="text-foreground text-base font-bold">
                             −
@@ -374,7 +376,7 @@ export function WerewolfSettingsView(props: {
 
                         <Button
                           testID={`werewolf-role-inc-${role()}`}
-                          hitSlop={4}
+                          hitSlop={6}
                           disabled={
                             !enabled() ||
                             !editableDeck() ||
@@ -392,7 +394,7 @@ export function WerewolfSettingsView(props: {
                               count: Math.min(maxAllowed(), count() + 1),
                             });
                           }}
-                          class="w-11 h-11 rounded-xl border border-border bg-muted items-center justify-center active:bg-secondary disabled:opacity-35"
+                          class="w-8 h-8 rounded-lg border border-border bg-muted items-center justify-center hover:bg-accent transition-colors duration-150 active:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-35"
                         >
                           <Text class="text-foreground text-base font-bold">
                             +
@@ -432,15 +434,15 @@ export function WerewolfSettingsView(props: {
                       value: "on_device",
                       title:
                         loc() === "en-US"
-                          ? "On-Device Privacy Shield"
-                          : "本机防窥按压",
+                          ? "On-Device Shield"
+                          : "本机防窥",
                     },
                     {
                       value: "lan_companion",
                       title:
                         loc() === "en-US"
-                          ? "LAN Phone QR Companion"
-                          : "局域网扫码手机副屏",
+                          ? "LAN QR Companion"
+                          : "手机扫码副屏",
                     },
                   ]}
                   onChange={(surfaceMode) => {
@@ -458,7 +460,7 @@ export function WerewolfSettingsView(props: {
                 />
               </View>
 
-              <View class={wide() ? "w-32 shrink-0" : ""}>
+              <View class={wide() ? "w-24 shrink-0" : ""}>
                 <SelectField<string>
                   testID="werewolf-settings-speech-sec"
                   compact
@@ -514,41 +516,44 @@ export function WerewolfSettingsView(props: {
               }}
             />
 
-            <SwitchRow
-              testID="werewolf-settings-sheriff"
-              variant="flat"
-              disabled={!enabled() || !editableDeck()}
-              label={
-                loc() === "en-US"
-                  ? "Sheriff Election (1.5x Vote)"
-                  : "警长竞选（1.5 票归票权）"
-              }
-              checked={st().rules.hasSheriff}
-              onChange={(hasSheriff) => {
-                void props.ctx.sendCommand({
-                  type: "update_rules",
-                  patch: { hasSheriff },
-                });
-              }}
-            />
+            <View class="border-y border-border">
+              <SwitchRow
+                testID="werewolf-settings-sheriff"
+                variant="flat"
+                disabled={!enabled() || !editableDeck()}
+                label={
+                  loc() === "en-US"
+                    ? "Sheriff Election (1.5x Vote)"
+                    : "警长竞选（1.5 票归票权）"
+                }
+                checked={st().rules.hasSheriff}
+                onChange={(hasSheriff) => {
+                  void props.ctx.sendCommand({
+                    type: "update_rules",
+                    patch: { hasSheriff },
+                  });
+                }}
+              />
 
-            <SwitchRow
-              testID="werewolf-settings-guard-save"
-              variant="flat"
-              disabled={!enabled() || !editableDeck()}
-              label={
-                loc() === "en-US"
-                  ? "Same Guard + Witch Save Dies"
-                  : "同守同救判定倒牌（奶穿）"
-              }
-              checked={st().rules.sameGuardSameSaveDies}
-              onChange={(sameGuardSameSaveDies) => {
-                void props.ctx.sendCommand({
-                  type: "update_rules",
-                  patch: { sameGuardSameSaveDies },
-                });
-              }}
-            />
+              <SwitchRow
+                testID="werewolf-settings-guard-save"
+                variant="flat"
+                showDivider={false}
+                disabled={!enabled() || !editableDeck()}
+                label={
+                  loc() === "en-US"
+                    ? "Same Guard + Witch Save Dies"
+                    : "同守同救判定倒牌（奶穿）"
+                }
+                checked={st().rules.sameGuardSameSaveDies}
+                onChange={(sameGuardSameSaveDies) => {
+                  void props.ctx.sendCommand({
+                    type: "update_rules",
+                    patch: { sameGuardSameSaveDies },
+                  });
+                }}
+              />
+            </View>
 
             <SelectField<WerewolfWinMode>
               testID="werewolf-settings-winmode"

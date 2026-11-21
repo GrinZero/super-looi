@@ -7,7 +7,7 @@ import {
   View,
   windowSize,
 } from "nsh";
-import { Button, Input, Switch } from "nsh/base";
+import { Button, Input } from "nsh/base";
 import { t } from "../i18n";
 import type { PluginSnapshot } from "../generated/looi-runtime";
 import {
@@ -16,7 +16,7 @@ import {
   type PluginDependencyStatus,
 } from "../runtime/plugins/shared-types";
 import type { createAppStore } from "../store";
-import { ActionButton } from "./Controls";
+import { ActionButton, ToggleSwitch } from "./Controls";
 import {
   normalizePluginIconName,
   PluginVectorIcon,
@@ -141,8 +141,8 @@ function PluginDependencyChips(props: {
             }}
             class={
               props.compact
-                ? "max-w-52 min-h-10 px-2.5 rounded-xl bg-muted border border-border flex-row items-center gap-1.5 shrink active:opacity-75 disabled:opacity-100"
-                : "min-h-10 px-3 rounded-xl bg-muted border border-border flex-row items-center gap-1.5 active:opacity-75 disabled:opacity-100"
+                ? "max-w-52 min-h-11 px-3 rounded-full bg-muted border border-border flex-row items-center gap-1.5 shrink hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-100"
+                : "min-h-11 px-3 rounded-full bg-muted border border-border flex-row items-center gap-1.5 hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-100"
             }
           >
             <View
@@ -150,7 +150,7 @@ function PluginDependencyChips(props: {
                 dep().satisfied
                   ? "w-2 h-2 rounded-full bg-verified shrink-0"
                   : dep().optional
-                    ? "w-2 h-2 rounded-full bg-subtle-text shrink-0"
+                    ? "w-2 h-2 rounded-full bg-muted-foreground shrink-0"
                     : "w-2 h-2 rounded-full bg-warning shrink-0"
               }
             />
@@ -186,7 +186,7 @@ export function PluginsContextBar(props: {
     <If
       when={Boolean(inspectedId())}
       else={
-        <View class="flex-1 min-w-0 h-11 flex-row items-center gap-2.5">
+        <View class="flex-1 min-w-0 h-11 flex-row items-baseline gap-2.5">
           <Text
             class="text-foreground text-base font-bold"
             style={{ numberOfLines: 1 }}
@@ -208,7 +208,7 @@ export function PluginsContextBar(props: {
             testID="plugin-back-to-list"
             accessibilityLabel={t("pluginBackToList")}
             onPress={() => props.store.setInspectedPluginId(null)}
-            class="min-h-11 px-2.5 -ml-1.5 rounded-xl flex-row items-center gap-1 shrink-0 active:bg-muted focus:border-ring"
+            class="min-h-11 px-2.5 -ml-1.5 rounded-xl flex-row items-center gap-1 shrink-0 hover:bg-muted active:bg-muted transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
           >
             <PluginVectorIcon name="chevron_left" tone="muted" size={16} />
             <Text class="text-muted-foreground text-sm font-medium">
@@ -230,11 +230,9 @@ export function PluginsContextBar(props: {
             {localizedPluginName(plugin(), locale())}
           </Text>
           <If when={wide() && Boolean(plugin()?.version)}>
-            <View class="px-1.5 py-0.5 rounded-md bg-muted border border-border shrink-0">
-              <Text class="text-muted-foreground text-xs font-mono">
-                v{plugin()?.version}
-              </Text>
-            </View>
+            <Text class="text-muted-foreground text-xs font-mono shrink-0">
+              v{plugin()?.version}
+            </Text>
           </If>
         </View>
 
@@ -252,21 +250,18 @@ export function PluginsContextBar(props: {
             <Text class="text-foreground text-xs font-medium">
               {t("pluginEnabled")}
             </Text>
-            <Switch
+            <ToggleSwitch
               testID="plugin-enabled"
               accessibilityLabel={t("pluginEnabled")}
               checked={plugin()?.enabled ?? false}
               disabled={busy()}
               hitSlop={10}
-              onChange={(ev) => {
+              onChange={(checked) => {
                 const id = inspectedId();
                 if (id) {
-                  void props.store.setPluginEnabled(id, ev.checked);
+                  void props.store.setPluginEnabled(id, checked);
                 }
               }}
-              class="min-h-11 flex-row items-center justify-center disabled:opacity-40"
-              trackClass="w-11 h-6 rounded-full bg-border border border-border p-0.5 justify-center checked:bg-primary checked:border-primary"
-              thumbClass="w-5 h-5 rounded-full bg-card checked:bg-primary-foreground checked:translate-x-5"
             />
           </View>
         </View>
@@ -434,8 +429,8 @@ export function PluginsSpaceView(props: {
             <View
               class={
                 wide()
-                  ? "w-64 shrink-0 h-11 rounded-2xl border border-border bg-card px-3 flex-row items-center gap-2"
-                  : "h-11 rounded-2xl border border-border bg-card px-3.5 flex-row items-center gap-2.5"
+                  ? "w-60 shrink-0 min-h-11 rounded-full border border-border bg-card px-3.5 flex-row items-center gap-2"
+                  : "min-h-11 rounded-full border border-border bg-card px-3.5 flex-row items-center gap-2.5"
               }
             >
               <PluginVectorIcon name="search" tone="muted" size={17} />
@@ -448,14 +443,14 @@ export function PluginsSpaceView(props: {
                 autoCorrect={false}
                 autoCapitalize="none"
                 maxLength={256}
-                class="flex-1 min-w-0 h-11 text-foreground text-sm"
+                class="flex-1 min-w-0 min-h-11 text-foreground text-sm"
               />
               <If when={Boolean(searchQuery().trim())}>
                 <Button
                   testID="plugin-search-clear"
-                  hitSlop={4}
+                  hitSlop={6}
                   onPress={() => searchQuery.set("")}
-                  class="min-h-10 px-2.5 rounded-lg bg-muted items-center justify-center shrink-0 active:opacity-75"
+                  class="h-8 px-2.5 rounded-full bg-muted items-center justify-center shrink-0 hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Text class="text-muted-foreground text-xs font-medium">
                     {t("pluginClearSearch")}
@@ -478,8 +473,8 @@ export function PluginsSpaceView(props: {
                 onPress={() => selectedCategory.set("all")}
                 class={
                   selectedCategory() === "all"
-                    ? "min-h-11 px-4 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
-                    : "min-h-11 px-4 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
+                    ? "min-h-11 px-4 rounded-full bg-primary border border-transparent items-center justify-center transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    : "min-h-11 px-4 rounded-full bg-muted border border-border items-center justify-center hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 }
               >
                 <Text
@@ -502,8 +497,8 @@ export function PluginsSpaceView(props: {
                     onPress={() => selectedCategory.set(cat())}
                     class={
                       selectedCategory() === cat()
-                        ? "min-h-11 px-4 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
-                        : "min-h-11 px-4 rounded-full bg-muted border border-border items-center justify-center active:opacity-75"
+                        ? "min-h-11 px-4 rounded-full bg-primary border border-transparent items-center justify-center transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        : "min-h-11 px-4 rounded-full bg-muted border border-border items-center justify-center hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     }
                   >
                     <Text
@@ -535,16 +530,23 @@ export function PluginsSpaceView(props: {
             >
               <View
                 testID="plugin-catalog-grid"
-                class={wide() ? "grid grid-cols-3 gap-3 items-stretch" : "gap-3"}
+                class={
+                  windowSize().width >= 960
+                    ? "grid grid-cols-3 gap-3 items-stretch"
+                    : wide()
+                      ? "grid grid-cols-2 gap-3 items-stretch"
+                      : "flex-col gap-3"
+                }
               >
                 <Each of={filteredPlugins()} key={(item) => item.id}>
                   {(item) => (
                     <Button
                       testID={`plugin-${item().id}`}
+                      accessibilityLabel={`${localizedPluginName(item(), locale())} · ${cardStatusText(item())}`}
                       onPress={() =>
                         props.store.setInspectedPluginId(item().id)
                       }
-                      class="min-w-0 rounded-2xl border border-border bg-card p-3.5 gap-2.5 items-stretch justify-between active:bg-muted focus:border-ring"
+                      class="min-w-0 rounded-2xl border border-border bg-card p-3.5 gap-2.5 items-stretch justify-between hover:bg-muted/40 active:bg-muted transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       <View class="gap-2 min-w-0">
                         <View class="flex-row items-center justify-between gap-2">
@@ -566,7 +568,7 @@ export function PluginsSpaceView(props: {
                                 {localizedPluginName(item(), locale())}
                               </Text>
                               <Text
-                                class="text-subtle-text text-xs font-mono"
+                                class="text-muted-foreground text-xs font-mono"
                                 style={{ numberOfLines: 1 }}
                               >
                                 v{item().version}
@@ -601,7 +603,7 @@ export function PluginsSpaceView(props: {
                           </Text>
                         </View>
                         <Text
-                          class="text-subtle-text text-xs shrink-0"
+                          class="text-muted-foreground text-xs shrink-0"
                           style={{ numberOfLines: 1 }}
                         >
                           {categoryLabel(item().category)}

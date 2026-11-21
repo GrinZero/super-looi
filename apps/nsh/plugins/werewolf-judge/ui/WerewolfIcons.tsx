@@ -20,6 +20,8 @@ export type WerewolfStageIconName =
   | "potion_bottle"
   | "waveform"
   | "check_circle"
+  | "check"
+  | "alert"
   | "clock"
   | "wifi"
   | "replay"
@@ -72,6 +74,7 @@ export function WerewolfRoleIcon(props: {
       style={{
         width: iconSize(),
         height: iconSize(),
+        flexShrink: 0,
         pointerEvents: "none",
       }}
       draw={(cx, canvasSize) => {
@@ -93,14 +96,14 @@ export function WerewolfRoleIcon(props: {
         switch (role) {
           case "werewolf":
           case "white_wolf_king": {
-            const dy = role === "white_wolf_king" ? 1.5 : 0;
+            const dy = role === "white_wolf_king" ? 2.0 : 0;
             if (role === "white_wolf_king") {
               cx.beginPath();
-              cx.moveTo(8.5, 5.2);
-              cx.lineTo(9.8, 2.8);
-              cx.lineTo(12, 4.6);
-              cx.lineTo(14.2, 2.8);
-              cx.lineTo(15.5, 5.2);
+              cx.moveTo(9.0, 4.6);
+              cx.lineTo(10.1, 2.1);
+              cx.lineTo(12.0, 3.7);
+              cx.lineTo(13.9, 2.1);
+              cx.lineTo(15.0, 4.6);
               cx.stroke();
             }
             cx.beginPath();
@@ -112,16 +115,16 @@ export function WerewolfRoleIcon(props: {
             cx.lineTo(17.8, 10.2 + dy);
             cx.lineTo(20.2, 12.8 + dy);
             cx.lineTo(16.8, 15.8 + dy);
-            cx.lineTo(14.5, 19.4 + dy);
-            cx.lineTo(12, 20.6 + dy);
-            cx.lineTo(9.5, 19.4 + dy);
+            cx.lineTo(14.5, 19.2 + dy);
+            cx.lineTo(12, Math.min(22.2, 20.6 + dy));
+            cx.lineTo(9.5, 19.2 + dy);
             cx.lineTo(7.2, 15.8 + dy);
             cx.lineTo(3.8, 12.8 + dy);
             cx.closePath();
             cx.stroke();
             // Crisp nose point
             cx.beginPath();
-            cx.arc(12, 16.2 + dy, 0.9, 0, Math.PI * 2);
+            cx.arc(12, 16.0 + dy, 0.9, 0, Math.PI * 2);
             cx.fill();
             break;
           }
@@ -167,20 +170,21 @@ export function WerewolfRoleIcon(props: {
             break;
           }
           case "hunter": {
+            // Bow arc on the left + taut vertical bowstring + piercing horizontal arrow
             cx.beginPath();
-            cx.moveTo(5.8, 15.8);
-            cx.quadraticCurveTo(5.2, 5.4, 15.8, 5.8);
+            cx.moveTo(7.4, 5.2);
+            cx.quadraticCurveTo(3.4, 12.0, 7.4, 18.8);
             cx.stroke();
             cx.beginPath();
-            cx.moveTo(5.8, 15.8);
-            cx.lineTo(15.8, 5.8);
+            cx.moveTo(7.4, 5.2);
+            cx.lineTo(7.4, 18.8);
             cx.stroke();
             cx.beginPath();
-            cx.moveTo(5.2, 18.8);
-            cx.lineTo(18.8, 5.2);
-            cx.moveTo(14.5, 5.0);
-            cx.lineTo(19.0, 5.0);
-            cx.lineTo(19.0, 9.5);
+            cx.moveTo(4.0, 12.0);
+            cx.lineTo(20.0, 12.0);
+            cx.moveTo(16.0, 8.6);
+            cx.lineTo(20.0, 12.0);
+            cx.lineTo(16.0, 15.4);
             cx.stroke();
             break;
           }
@@ -247,6 +251,7 @@ export function WerewolfStageIcon(props: {
       style={{
         width: iconSize(),
         height: iconSize(),
+        flexShrink: 0,
         pointerEvents: "none",
       }}
       draw={(cx, canvasSize) => {
@@ -365,6 +370,31 @@ export function WerewolfStageIcon(props: {
             cx.stroke();
             break;
           }
+          case "check": {
+            cx.beginPath();
+            cx.lineWidth = sw * 1.15;
+            cx.moveTo(5.2, 12.6);
+            cx.lineTo(10.0, 17.2);
+            cx.lineTo(18.8, 7.2);
+            cx.stroke();
+            break;
+          }
+          case "alert": {
+            cx.beginPath();
+            cx.moveTo(12, 3.8);
+            cx.lineTo(20.4, 18.8);
+            cx.lineTo(3.6, 18.8);
+            cx.closePath();
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(12, 9.5);
+            cx.lineTo(12, 13.8);
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 16.4, 0.95, 0, Math.PI * 2);
+            cx.fill();
+            break;
+          }
           case "clock": {
             cx.beginPath();
             cx.arc(12, 12, 8.4, 0, Math.PI * 2);
@@ -392,13 +422,17 @@ export function WerewolfStageIcon(props: {
             break;
           }
           case "replay": {
+            const startAngle = -Math.PI * 0.78;
+            const radius = 6.8;
+            const tipX = 12 + radius * Math.cos(startAngle);
+            const tipY = 12 + radius * Math.sin(startAngle);
             cx.beginPath();
-            cx.arc(12, 12, 7.0, -Math.PI * 0.72, Math.PI * 0.88);
+            cx.arc(12, 12, radius, startAngle, Math.PI * 0.88);
             cx.stroke();
             cx.beginPath();
-            cx.moveTo(5.6, 5.6);
-            cx.lineTo(5.6, 9.4);
-            cx.lineTo(9.4, 9.4);
+            cx.moveTo(tipX - 0.5, tipY - 3.3);
+            cx.lineTo(tipX, tipY);
+            cx.lineTo(tipX + 3.4, tipY + 0.1);
             cx.stroke();
             break;
           }
@@ -484,14 +518,13 @@ export function WerewolfStageIcon(props: {
           }
           case "avatar_silhouette": {
             cx.beginPath();
-            cx.arc(12, 8.8, 3.4, 0, Math.PI * 2);
-            cx.fill();
+            cx.arc(12, 8.4, 3.2, 0, Math.PI * 2);
+            cx.stroke();
             cx.beginPath();
-            cx.moveTo(5.2, 20.0);
-            cx.quadraticCurveTo(5.6, 14.0, 12, 14.0);
-            cx.quadraticCurveTo(18.4, 14.0, 18.8, 20.0);
-            cx.closePath();
-            cx.fill();
+            cx.moveTo(5.2, 19.6);
+            cx.quadraticCurveTo(5.8, 14.2, 12, 14.2);
+            cx.quadraticCurveTo(18.2, 14.2, 18.8, 19.6);
+            cx.stroke();
             break;
           }
         }

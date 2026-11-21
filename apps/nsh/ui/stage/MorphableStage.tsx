@@ -785,9 +785,9 @@ export function MorphableStage(props: MorphableStageProps) {
                             }
                             userDetentOverride.set(snapped);
                           }}
-                          class="flex-row items-center justify-between px-3 h-9 border-b border-stage-pill-border shrink-0"
+                          class="flex-row items-center justify-between px-3 h-7 border-b border-stage-pill-border shrink-0"
                         >
-                          <View class="w-11 h-9" style={{ pointerEvents: "none" }} />
+                          <View class="w-11 h-7" style={{ pointerEvents: "none" }} />
                           <Button
                             testID="stage-drawer-grabber"
                             accessibilityLabel={t("pluginStageDrawerHandle")}
@@ -800,7 +800,7 @@ export function MorphableStage(props: MorphableStageProps) {
                                 ),
                               );
                             }}
-                            class="flex-1 h-9 rounded-lg border border-transparent items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
+                            class="flex-1 h-7 rounded-lg border border-transparent items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
                           >
                             <View class="w-10 h-1.5 rounded-full bg-stage-pill-border" />
                           </Button>
@@ -811,7 +811,7 @@ export function MorphableStage(props: MorphableStageProps) {
                                 accessibilityLabel={t("pluginStageDrawerCollapse")}
                                 hitSlop={8}
                                 onPress={() => userDetentOverride.set("closed")}
-                                class="w-9 h-8 rounded-full border border-transparent items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
+                                class="w-9 h-7 rounded-full border border-transparent items-center justify-center active:opacity-75 focus:border-stage-pill-fg"
                               >
                                 <HomeHeaderIcon kind="chevronDown" />
                               </Button>
@@ -819,7 +819,7 @@ export function MorphableStage(props: MorphableStageProps) {
                           </View>
                         </View>
 
-                        <View class="flex-1 min-h-0 px-3.5 py-1.5">
+                        <View class="flex-1 min-h-0 px-3.5 py-1">
                           <PluginStageSlotBoundary
                             pluginId={pluginId}
                             slot="StageDrawer"

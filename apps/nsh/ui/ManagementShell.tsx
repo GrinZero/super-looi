@@ -61,6 +61,9 @@ export function ManagementShell(props: {
   ) => {
     const isSelected = () => props.store.activeSpace() === space;
     const widthClass = rail ? "w-full min-h-11 px-1" : "min-h-11 min-w-11 px-2.5";
+    const focusRingClass = rail
+      ? "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+      : "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
     return (
       <Button
         testID={testId}
@@ -69,8 +72,8 @@ export function ManagementShell(props: {
         onPress={() => props.store.openSpace(space)}
         class={
           isSelected()
-            ? `${widthClass} rounded-xl bg-primary items-center justify-center active:opacity-75`
-            : `${widthClass} rounded-xl items-center justify-center active:opacity-75`
+            ? `${widthClass} rounded-xl bg-primary items-center justify-center transition-colors duration-150 active:opacity-75 ${focusRingClass}`
+            : `${widthClass} rounded-xl items-center justify-center hover:bg-muted transition-colors duration-150 active:opacity-75 ${focusRingClass}`
         }
       >
         <View class="w-full items-center justify-center relative">
@@ -136,8 +139,8 @@ export function ManagementShell(props: {
                   onPress={() => selectedBrandId.set(b().brandId)}
                   class={
                     isSelected()
-                      ? "min-h-11 px-2.5 rounded-full bg-primary border border-transparent flex-row items-center gap-1.5 active:opacity-75"
-                      : "min-h-11 px-2.5 rounded-full border border-border bg-muted flex-row items-center gap-1.5 active:opacity-75"
+                      ? "min-h-11 px-2.5 rounded-full bg-primary border border-transparent flex-row items-center gap-1.5 transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                      : "min-h-11 px-2.5 rounded-full border border-border bg-muted flex-row items-center gap-1.5 hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
                   }
                 >
                   <If when={hasCreds()}>
@@ -181,8 +184,8 @@ export function ManagementShell(props: {
               onPress={() => props.store.setHomeSubView("devices")}
               class={
                 props.store.homeSubView() === "devices"
-                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent flex-row items-center gap-1.5 active:opacity-75"
-                  : "min-h-11 px-3 rounded-full border border-border bg-muted flex-row items-center gap-1.5 active:opacity-75"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent flex-row items-center gap-1.5 transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted flex-row items-center gap-1.5 hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
               }
             >
               <Text
@@ -204,8 +207,8 @@ export function ManagementShell(props: {
               onPress={() => props.store.setHomeSubView("services")}
               class={
                 props.store.homeSubView() === "services"
-                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent flex-row items-center gap-1.5 active:opacity-75"
-                  : "min-h-11 px-3 rounded-full border border-border bg-muted flex-row items-center gap-1.5 active:opacity-75"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent flex-row items-center gap-1.5 transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted flex-row items-center gap-1.5 hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
               }
             >
               <If when={props.store.homeConnection()?.healthy}>
@@ -234,7 +237,7 @@ export function ManagementShell(props: {
               onPress={() =>
                 void props.store.configureHome({ mode: "disabled" })
               }
-              class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center shrink-0 active:opacity-75"
+              class="min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center shrink-0 hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
             >
               <Text class="text-muted-foreground text-xs font-medium">{t("disableHome95")}</Text>
             </Button>
@@ -275,8 +278,8 @@ export function ManagementShell(props: {
               }
               class={
                 props.store.bodyStatus().mode !== "simulation"
-                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
-                  : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
               }
             >
               <Text
@@ -297,8 +300,8 @@ export function ManagementShell(props: {
               }
               class={
                 props.store.bodyStatus().mode === "simulation"
-                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center active:opacity-75"
-                  : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center active:opacity-75"
+                  ? "min-h-11 px-3 rounded-full bg-primary border border-transparent items-center justify-center transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                  : "min-h-11 px-3 rounded-full border border-border bg-muted items-center justify-center hover:bg-accent transition-colors duration-150 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
               }
             >
               <Text
@@ -412,7 +415,7 @@ export function ManagementShell(props: {
               testID="back-to-face"
               accessibilityLabel={t("backToLooi")}
               onPress={() => props.store.backToFace()}
-              class="min-h-11 px-2.5 rounded-xl bg-stage-bg border border-border flex-row items-center justify-center gap-1 active:opacity-75"
+              class="min-h-11 px-2.5 rounded-xl bg-stage-bg border border-border flex-row items-center justify-center gap-1 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
             >
               <View class="w-2 h-2 rounded-full bg-eye-core" />
               <View class="w-2 h-2 rounded-full bg-eye-core" />
@@ -487,7 +490,7 @@ export function ManagementShell(props: {
             testID="back-to-face"
             accessibilityLabel={t("backToLooi")}
             onPress={() => props.store.backToFace()}
-            class="w-11 h-11 rounded-xl bg-stage-bg border border-border flex-row items-center justify-center gap-1.5 active:opacity-75"
+            class="w-11 h-11 rounded-xl bg-stage-bg border border-border flex-row items-center justify-center gap-1.5 active:opacity-75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
             <View class="w-2 h-2 rounded-full bg-eye-core" />
             <View class="w-2 h-2 rounded-full bg-eye-core" />
@@ -508,6 +511,11 @@ export function ManagementShell(props: {
           </Scroll>
 
           <View
+            accessibilityLabel={
+              props.store.ready()
+                ? t("pluginDependencyReady")
+                : t("runtimeLocalRuntimeIsNotReady")
+            }
             class={
               props.store.ready()
                 ? "w-2 h-2 rounded-full bg-verified"

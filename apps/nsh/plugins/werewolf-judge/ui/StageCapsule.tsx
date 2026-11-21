@@ -1,6 +1,8 @@
 import {
+  Clipboard,
   effect,
   reduceMotion,
+  Scroll,
   signal,
   Text,
   View,
@@ -16,7 +18,6 @@ import {
 } from "nsh/base";
 import type { PluginViewContext } from "../../../ui/plugins/ui-contracts";
 import {
-  WEREWOLF_PHASE_LABELS,
   WEREWOLF_PRESET_LABELS,
   type WerewolfCommand,
   type WerewolfPhase,
@@ -113,6 +114,14 @@ export function readWerewolfState(
   return raw as WerewolfPublicState;
 }
 
+export function readWerewolfDiagnostic(
+  ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>,
+): string {
+  const error = ctx.lastError();
+  const code = error?.code === undefined ? "" : ` code=${String(error.code)}`;
+  return ctx.uiError() || (error ? `[stage=${error.stage}${code}] ${error.reason}` : "");
+}
+
 function isNightAtmospherePhase(phase: WerewolfPhase): boolean {
   return (
     phase === "night_intro" ||
@@ -124,37 +133,44 @@ function isNightAtmospherePhase(phase: WerewolfPhase): boolean {
   );
 }
 
-function formatSheriffSubphase(
+const SHERIFF_CAPSULE_LABELS: Record<
+  WerewolfSheriffSubphase,
+  Record<"zh-CN" | "en-US", string>
+> = {
+  signup: { "zh-CN": "上警报名", "en-US": "Sheriff" },
+  speech: { "zh-CN": "警上发言", "en-US": "Sheriff" },
+  voting: { "zh-CN": "警长投票", "en-US": "Sheriff Vote" },
+  pk_speech: { "zh-CN": "警长PK", "en-US": "Sheriff PK" },
+  pk_voting: { "zh-CN": "警长PK投", "en-US": "Sheriff PK" },
+};
+
+const PHASE_CAPSULE_LABELS: Partial<
+  Record<WerewolfPhase, Record<"zh-CN" | "en-US", string>>
+> = {
+  night_intro: { "zh-CN": "入夜", "en-US": "Night" },
+  night_guard: { "zh-CN": "守卫", "en-US": "Guard" },
+  night_wolf: { "zh-CN": "狼人", "en-US": "Wolves" },
+  night_witch: { "zh-CN": "女巫", "en-US": "Witch" },
+  night_seer: { "zh-CN": "预言家", "en-US": "Seer" },
+  sheriff_election: { "zh-CN": "警长竞选", "en-US": "Sheriff" },
+  day_voting: { "zh-CN": "放逐公投", "en-US": "Vote" },
+  day_pk_speech: { "zh-CN": "平票PK", "en-US": "Tie PK" },
+  day_pk_voting: { "zh-CN": "平票重投", "en-US": "Tie Vote" },
+  day_discussion: { "zh-CN": "白天发言", "en-US": "Discuss" },
+  dawn_settle: { "zh-CN": "天亮结算", "en-US": "Dawn" },
+  dawn_announce: { "zh-CN": "昨夜公告", "en-US": "Dawn" },
+  leave_resolution: { "zh-CN": "离场结算", "en-US": "Leave" },
+};
+
+function formatCapsulePhaseLabel(
+  phase: WerewolfPhase,
   sub: WerewolfSheriffSubphase | null,
   locale: "zh-CN" | "en-US",
 ): string {
-  if (!sub) return "";
-  if (locale === "en-US") {
-    switch (sub) {
-      case "signup":
-        return " · Sign-Up";
-      case "speech":
-        return " · Speech";
-      case "voting":
-        return " · Vote";
-      case "pk_speech":
-        return " · Tie Speech";
-      case "pk_voting":
-        return " · Tie Vote";
-    }
+  if (phase === "sheriff_election" && sub) {
+    return SHERIFF_CAPSULE_LABELS[sub][locale];
   }
-  switch (sub) {
-    case "signup":
-      return " · 上警报名";
-    case "speech":
-      return " · 竞选发言";
-    case "voting":
-      return " · 警下投票";
-    case "pk_speech":
-      return " · PK发言";
-    case "pk_voting":
-      return " · PK投票";
-  }
+  return PHASE_CAPSULE_LABELS[phase]?.[locale] ?? phase;
 }
 
 export function WerewolfStageCapsule(props: {
@@ -162,8 +178,12 @@ export function WerewolfStageCapsule(props: {
 }) {
   const explodeDialogOpen = signal(false);
   const explodeAttempted = signal(false);
+  const seatManageDialogOpen = signal(false);
+  const errorDialogOpen = signal(false);
+  const errorCopied = signal(false);
   const st = () => readWerewolfState(props.ctx);
   const loc = () => props.ctx.locale();
+  const diagnosticError = () => readWerewolfDiagnostic(props.ctx);
 
   const aliveCount = () => st().seats.filter((s) => s.alive).length;
   const totalCount = () => st().seats.length || st().rules.playerCount;
@@ -212,18 +232,13 @@ export function WerewolfStageCapsule(props: {
       s.day > 0
         ? isNightAtmospherePhase(s.phase)
           ? loc() === "en-US"
-            ? `Night ${s.day} · `
-            : `第${s.day}夜 · `
+            ? `N${s.day}·`
+            : `第${s.day}夜·`
           : loc() === "en-US"
-            ? `Day ${s.day} · `
-            : `第${s.day}天 · `
+            ? `D${s.day}·`
+            : `第${s.day}天·`
         : "";
-    const base = WEREWOLF_PHASE_LABELS[s.phase]?.[loc()] ?? s.phase;
-    const sub =
-      s.phase === "sheriff_election"
-        ? formatSheriffSubphase(s.sheriffSubphase, loc())
-        : "";
-    return `${dayPrefix}${base}${sub}`;
+    return `${dayPrefix}${formatCapsulePhaseLabel(s.phase, s.sheriffSubphase, loc())}`;
   };
 
   const secondaryInfo = () => {
@@ -262,27 +277,18 @@ export function WerewolfStageCapsule(props: {
     const vs = st().voiceStatus;
     if (vs.mutedByHost) return loc() === "en-US" ? "Muted" : "已静音";
     if (vs.degradedToSubtitles) {
-      return loc() === "en-US" ? "Subtitles" : "字幕模式";
+      return loc() === "en-US" ? "Subtitles" : "字幕";
     }
     if (vs.speaking) return loc() === "en-US" ? "Speaking" : "播报中";
     return loc() === "en-US" ? "Voice" : "语音";
   };
 
-  const voiceStatusPillClass = () => {
-    const vs = st().voiceStatus;
-    if (vs.mutedByHost || vs.speaking || vs.degradedToSubtitles) {
-      return "px-1.5 py-0.5 rounded-full bg-lighting-bg border border-face-amber-edge shrink-0";
-    }
-    return "px-1.5 py-0.5 rounded-full bg-stage-pill-bg border border-stage-pill-border shrink-0";
-  };
-
   const voiceStatusTextClass = () => {
     const vs = st().voiceStatus;
-    if (vs.mutedByHost || vs.speaking) {
-      return "text-face-amber-core text-xs font-semibold";
+    if (vs.mutedByHost || vs.speaking || vs.degradedToSubtitles) {
+      return "text-face-amber-core text-xs font-semibold shrink-0";
     }
-    if (vs.degradedToSubtitles) return "text-warning text-xs font-semibold";
-    return "text-stage-pill-muted text-xs font-medium";
+    return "text-stage-muted text-xs font-medium shrink-0";
   };
 
   const confirmEarlyFinalize = async () => {
@@ -374,17 +380,17 @@ export function WerewolfStageCapsule(props: {
   };
 
   const menuPopupClass =
-    "min-w-52 rounded-2xl border border-border bg-popover p-1.5 shadow-lg";
+    "min-w-52 rounded-2xl border border-stage-pill-border bg-stage-panel p-1.5 shadow-lg";
   const menuItemClass =
-    "min-h-11 rounded-xl px-3 py-2 flex-row items-center justify-between active:bg-muted focus:bg-muted";
+    "min-h-11 rounded-xl px-3 py-2 flex-row items-center justify-between active:bg-stage-tile focus:bg-stage-tile";
 
   return (
     <View
       testID="werewolf-stage-capsule"
-      class="flex-row items-center gap-1.5 max-w-full overflow-hidden"
+      class="flex-row items-center gap-1.5 max-w-full"
     >
       {/* Left status cluster */}
-      <View class="flex-row items-center gap-1.5 min-w-0 shrink overflow-hidden">
+      <View class="flex-row items-center gap-1 min-w-0 shrink">
         <View class={dotClass()} />
         <Text
           testID="werewolf-capsule-phase"
@@ -406,41 +412,40 @@ export function WerewolfStageCapsule(props: {
         </If>
 
         <If when={showJudgeVoiceControls()}>
-          <View class={voiceStatusPillClass()}>
-            <Text
-              testID="werewolf-capsule-voice-status"
-              class={voiceStatusTextClass()}
-            >
-              {voiceStatusLabel()}
-            </Text>
-          </View>
+          <View class="w-px h-3 bg-stage-pill-border shrink-0" />
+          <Text
+            testID="werewolf-capsule-voice-status"
+            class={voiceStatusTextClass()}
+            style={{ numberOfLines: 1 }}
+          >
+            {voiceStatusLabel()}
+          </Text>
         </If>
       </View>
 
-      {/* Right compact quick actions */}
-      <View class="flex-row items-center gap-1 shrink-0">
-        <If when={showJudgeVoiceControls() && canReplaySpeech()}>
+      {/* Right compact 44x44pt quick actions */}
+      <View class="flex-row items-center gap-1.5 shrink-0">
+        <If when={Boolean(diagnosticError())}>
           <Button
-            testID="werewolf-replay-speech-btn"
-            hitSlop={6}
+            testID="werewolf-stage-error-btn"
+            hitSlop={4}
             accessibilityLabel={
-              loc() === "en-US"
-                ? "Replay last judge announcement"
-                : "重播上一条法官播报"
+              loc() === "en-US" ? "View error details" : "查看异常详情"
             }
             onPress={() => {
-              void props.ctx.sendCommand({ type: "replay_last_speech" });
+              errorCopied.set(false);
+              errorDialogOpen.set(true);
             }}
-            class="w-8 h-8 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
+            class="w-11 h-11 rounded-full border border-stage-rose-border bg-stage-rose-bg items-center justify-center active:opacity-75 focus-visible:border-face-rose-edge"
           >
-            <WerewolfStageIcon name="replay" tone="stageFg" size={15} />
+            <WerewolfStageIcon name="alert" tone="rose" size={17} />
           </Button>
         </If>
 
         <If when={showJudgeVoiceControls()}>
           <Button
             testID="werewolf-mute-speech-btn"
-            hitSlop={6}
+            hitSlop={4}
             selected={st().voiceStatus.mutedByHost}
             accessibilityLabel={
               st().voiceStatus.mutedByHost
@@ -448,8 +453,8 @@ export function WerewolfStageCapsule(props: {
                   ? "Unmute"
                   : "取消静音"
                 : loc() === "en-US"
-                  ? "Mute judge voice"
-                  : "静音法官语音播报"
+                  ? "Mute"
+                  : "静音"
             }
             onPress={() => {
               void props.ctx.sendCommand({
@@ -459,14 +464,14 @@ export function WerewolfStageCapsule(props: {
             }}
             class={
               st().voiceStatus.mutedByHost
-                ? "w-8 h-8 rounded-full border border-face-amber-edge bg-lighting-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
-                : "w-8 h-8 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
+                ? "w-11 h-11 rounded-full border border-stage-amber-border bg-stage-amber-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
+                : "w-11 h-11 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
             }
           >
             <WerewolfStageIcon
               name={st().voiceStatus.mutedByHost ? "speaker_off" : "speaker_on"}
               tone={st().voiceStatus.mutedByHost ? "amber" : "stageFg"}
-              size={15}
+              size={17}
             />
           </Button>
         </If>
@@ -481,13 +486,27 @@ export function WerewolfStageCapsule(props: {
               accessibilityLabel={
                 loc() === "en-US" ? "More match actions" : "更多对局操作"
               }
-              hitSlop={6}
-              class="w-8 h-8 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
+              hitSlop={4}
+              class="w-11 h-11 rounded-full border border-stage-pill-border bg-stage-pill-bg items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
             >
-              <WerewolfStageIcon name="more_dots" tone="stageFg" size={15} />
+              <WerewolfStageIcon name="more_dots" tone="stageFg" size={17} />
             </View>
           }
         >
+          <If when={showJudgeVoiceControls() && canReplaySpeech()}>
+            <MenuItem
+              testID="werewolf-replay-speech-btn"
+              class={menuItemClass}
+              onSelect={() => {
+                void props.ctx.sendCommand({ type: "replay_last_speech" });
+              }}
+            >
+              <Text class="text-stage-fg text-sm font-medium">
+                {loc() === "en-US" ? "Replay Last Speech" : "重播本轮语音"}
+              </Text>
+            </MenuItem>
+          </If>
+
           <If when={canExplode()}>
             <MenuItem
               testID="werewolf-open-explode-btn"
@@ -497,7 +516,7 @@ export function WerewolfStageCapsule(props: {
                 explodeDialogOpen.set(true);
               }}
             >
-              <Text class="text-destructive text-sm font-semibold">
+              <Text class="text-face-rose-core text-sm font-semibold">
                 {loc() === "en-US" ? "Werewolf Self-Explode…" : "狼人自爆…"}
               </Text>
             </MenuItem>
@@ -516,7 +535,7 @@ export function WerewolfStageCapsule(props: {
                 void confirmEarlyFinalize();
               }}
             >
-              <Text class="text-foreground text-sm font-medium">
+              <Text class="text-stage-fg text-sm font-medium">
                 {loc() === "en-US"
                   ? "Finalize Early (Unvoted = Abstain)…"
                   : "提前结算（未投视为弃票）…"}
@@ -524,7 +543,7 @@ export function WerewolfStageCapsule(props: {
             </MenuItem>
           </If>
 
-          <If when={st().lan.claimedSeats.length > 0}>
+          <If when={st().lan.claimedSeats.length > 0 && st().lan.claimedSeats.length <= 3}>
             <Each of={st().lan.claimedSeats} key={(s) => s}>
               {(seatAcc) => {
                 const seat = () => seatAcc();
@@ -539,7 +558,7 @@ export function WerewolfStageCapsule(props: {
                       });
                     }}
                   >
-                    <Text class="text-foreground text-sm font-medium">
+                    <Text class="text-stage-fg text-sm font-medium">
                       {loc() === "en-US"
                         ? `Unbind Seat #${seat()}`
                         : `解绑 #${seat()} 座位`}
@@ -550,6 +569,22 @@ export function WerewolfStageCapsule(props: {
             </Each>
           </If>
 
+          <If when={st().lan.claimedSeats.length > 3}>
+            <MenuItem
+              testID="werewolf-manage-lan-seats-btn"
+              class={menuItemClass}
+              onSelect={() => {
+                seatManageDialogOpen.set(true);
+              }}
+            >
+              <Text class="text-stage-fg text-sm font-medium">
+                {loc() === "en-US"
+                  ? `Manage Claimed Seats (${st().lan.claimedSeats.length})…`
+                  : `管理已入座副屏 (${st().lan.claimedSeats.length})…`}
+              </Text>
+            </MenuItem>
+          </If>
+
           <If when={st().lan.active}>
             <MenuItem
               testID="werewolf-refresh-lan-btn"
@@ -558,7 +593,7 @@ export function WerewolfStageCapsule(props: {
                 void props.ctx.sendCommand({ type: "refresh_lan_address" });
               }}
             >
-              <Text class="text-foreground text-sm font-medium">
+              <Text class="text-stage-fg text-sm font-medium">
                 {loc() === "en-US" ? "Refresh LAN Address" : "刷新局域网地址"}
               </Text>
             </MenuItem>
@@ -569,7 +604,7 @@ export function WerewolfStageCapsule(props: {
             class={menuItemClass}
             onSelect={() => props.ctx.openPluginSettings()}
           >
-            <Text class="text-foreground text-sm font-medium">
+            <Text class="text-stage-fg text-sm font-medium">
               {loc() === "en-US" ? "Rules & Deck Settings" : "规则与配牌设置"}
             </Text>
           </MenuItem>
@@ -581,7 +616,7 @@ export function WerewolfStageCapsule(props: {
               st().phase !== "game_over"
             }
           >
-            <MenuSeparator class="my-1 h-px bg-border" />
+            <MenuSeparator class="my-1 h-px bg-stage-pill-border" />
             <MenuItem
               testID="werewolf-abort-match-btn"
               class={menuItemClass}
@@ -589,7 +624,7 @@ export function WerewolfStageCapsule(props: {
                 void confirmAbortMatch();
               }}
             >
-              <Text class="text-destructive text-sm font-semibold">
+              <Text class="text-face-rose-core text-sm font-semibold">
                 {loc() === "en-US" ? "Abort Match…" : "终止本局…"}
               </Text>
             </MenuItem>
@@ -600,7 +635,7 @@ export function WerewolfStageCapsule(props: {
                 void confirmQuitWerewolf();
               }}
             >
-              <Text class="text-destructive text-sm font-medium">
+              <Text class="text-face-rose-core text-sm font-medium">
                 {loc() === "en-US" ? "Quit Werewolf…" : "退出狼人杀…"}
               </Text>
             </MenuItem>
@@ -626,6 +661,7 @@ export function WerewolfStageCapsule(props: {
         class="m-auto rounded-2xl border border-stage-rose-border bg-stage-panel p-4 shadow-lg"
         style={{
           width: Math.min(440, windowSize().width - 32),
+          maxHeight: Math.max(180, windowSize().height - 32),
         }}
       >
         <View testID="werewolf-explode-picker" class="gap-3">
@@ -642,43 +678,54 @@ export function WerewolfStageCapsule(props: {
             </Text>
           </View>
 
-          <View class="flex-row flex-wrap gap-2">
-            <Each
-              of={st().seats.filter((s) => s.alive)}
-              key={(item) => item.seat}
+          <Scroll
+            class="min-h-0"
+            style={{ maxHeight: Math.max(100, windowSize().height - 180) }}
+          >
+            <View
+              class={
+                st().seats.filter((s) => s.alive).length > 6
+                  ? "grid grid-cols-4 gap-2"
+                  : "grid grid-cols-3 gap-2"
+              }
             >
-              {(seatAcc) => {
-                const s = () => seatAcc();
-                return (
-                  <Button
-                    testID={`werewolf-explode-seat-${s().seat}`}
-                    onPress={() => {
-                      explodeAttempted.set(true);
-                      void props.ctx
-                        .sendCommand({
-                          type: "trigger_wolf_explode",
-                          wolfSeat: s().seat,
-                        })
-                        .then(() => {
-                          if (!props.ctx.uiError()) {
-                            explodeAttempted.set(false);
-                            explodeDialogOpen.set(false);
-                          }
-                        });
-                    }}
-                    class="min-w-14 min-h-11 px-3 rounded-xl border border-stage-rose-border bg-stage-rose-bg items-center justify-center active:opacity-75"
-                  >
-                    <Text
-                      class="text-face-rose-core text-xs font-bold"
-                      style={{ fontVariant: ["tabular-nums"] }}
+              <Each
+                of={st().seats.filter((s) => s.alive)}
+                key={(item) => item.seat}
+              >
+                {(seatAcc) => {
+                  const s = () => seatAcc();
+                  return (
+                    <Button
+                      testID={`werewolf-explode-seat-${s().seat}`}
+                      onPress={() => {
+                        explodeAttempted.set(true);
+                        void props.ctx
+                          .sendCommand({
+                            type: "trigger_wolf_explode",
+                            wolfSeat: s().seat,
+                          })
+                          .then(() => {
+                            if (!props.ctx.uiError()) {
+                              explodeAttempted.set(false);
+                              explodeDialogOpen.set(false);
+                            }
+                          });
+                      }}
+                      class="min-h-11 px-3 rounded-xl border border-stage-rose-border bg-stage-rose-bg items-center justify-center active:opacity-75"
                     >
-                      {loc() === "en-US" ? `#${s().seat}` : `${s().seat}号`}
-                    </Text>
-                  </Button>
-                );
-              }}
-            </Each>
-          </View>
+                      <Text
+                        class="text-face-rose-core text-xs font-bold"
+                        style={{ fontVariant: ["tabular-nums"] }}
+                      >
+                        {loc() === "en-US" ? `#${s().seat}` : `${s().seat}号`}
+                      </Text>
+                    </Button>
+                  );
+                }}
+              </Each>
+            </View>
+          </Scroll>
 
           <If when={explodeAttempted() && Boolean(props.ctx.uiError())}>
             <Text class="text-face-rose-core text-xs font-medium">
@@ -690,10 +737,158 @@ export function WerewolfStageCapsule(props: {
             <Button
               testID="werewolf-cancel-explode-btn"
               onPress={() => explodeDialogOpen.set(false)}
-              class="min-h-11 px-4 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+              class="min-h-11 px-5 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
             >
               <Text class="text-stage-pill-fg text-xs font-semibold">
                 {loc() === "en-US" ? "Cancel" : "取消"}
+              </Text>
+            </Button>
+          </View>
+        </View>
+      </Dialog>
+
+      {/* Claimed LAN seats management Dialog (>3 seats) */}
+      <Dialog
+        testID="werewolf-manage-lan-seats-dialog"
+        open={seatManageDialogOpen() && st().lan.claimedSeats.length > 0}
+        animation={reduceMotion() ? "none" : "fade"}
+        presentation="fullScreen"
+        accessibilityLabel={
+          loc() === "en-US" ? "Manage Claimed LAN Seats" : "管理已入座副屏"
+        }
+        closeOnEscape={true}
+        closeOnBackdropPress={true}
+        onOpenChange={(e) => {
+          if (!e.open) seatManageDialogOpen.set(false);
+        }}
+        backdropClass="bg-backdrop"
+        class="m-auto rounded-2xl border border-stage-pill-border bg-stage-panel p-4 shadow-lg"
+        style={{
+          width: Math.min(440, windowSize().width - 32),
+          maxHeight: Math.max(180, windowSize().height - 32),
+        }}
+      >
+        <View class="gap-3">
+          <View class="gap-1">
+            <Text class="text-stage-fg text-base font-bold">
+              {loc() === "en-US" ? "Manage Claimed Seats" : "管理已入座副屏"}
+            </Text>
+            <Text class="text-stage-muted text-xs">
+              {loc() === "en-US"
+                ? "Tap a seat below to release its phone binding so another phone can scan and join."
+                : "轻触以下已绑定座位可解除副屏绑定，便于更换手机重新扫码。"}
+            </Text>
+          </View>
+
+          <View class="grid grid-cols-4 gap-2">
+            <Each of={st().lan.claimedSeats} key={(s) => s}>
+              {(seatAcc) => {
+                const seat = () => seatAcc();
+                return (
+                  <Button
+                    testID={`werewolf-release-seat-${seat()}`}
+                    onPress={() => {
+                      void props.ctx.sendCommand({
+                        type: "release_lan_seat",
+                        seat: seat(),
+                      });
+                    }}
+                    class="min-h-11 px-2.5 rounded-xl border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+                  >
+                    <Text
+                      class="text-stage-pill-fg text-xs font-semibold"
+                      style={{ fontVariant: ["tabular-nums"] }}
+                    >
+                      {loc() === "en-US" ? `Unbind #${seat()}` : `解绑 #${seat()}`}
+                    </Text>
+                  </Button>
+                );
+              }}
+            </Each>
+          </View>
+
+          <View class="flex-row justify-end">
+            <Button
+              testID="werewolf-manage-lan-seats-close-btn"
+              onPress={() => seatManageDialogOpen.set(false)}
+              class="min-h-11 px-5 rounded-full bg-eye-core items-center justify-center active:opacity-75"
+            >
+              <Text class="text-stage-bg text-xs font-bold">
+                {loc() === "en-US" ? "Done" : "完成"}
+              </Text>
+            </Button>
+          </View>
+        </View>
+      </Dialog>
+
+      {/* Stage error diagnostic Dialog (Rule 16: exposes full stage/code/reason) */}
+      <Dialog
+        testID="werewolf-stage-error-dialog"
+        open={errorDialogOpen() && Boolean(diagnosticError())}
+        animation={reduceMotion() ? "none" : "fade"}
+        presentation="fullScreen"
+        accessibilityLabel={
+          loc() === "en-US" ? "Stage Error Diagnostic" : "舞台运行异常详情"
+        }
+        closeOnEscape={true}
+        closeOnBackdropPress={true}
+        onOpenChange={(e) => {
+          if (!e.open) errorDialogOpen.set(false);
+        }}
+        backdropClass="bg-backdrop"
+        class="m-auto rounded-2xl border border-stage-rose-border bg-stage-panel p-4 shadow-lg"
+        style={{
+          width: Math.min(480, windowSize().width - 32),
+          maxHeight: Math.max(180, windowSize().height - 32),
+        }}
+      >
+        <View class="gap-3">
+          <View class="flex-row items-center gap-2">
+            <WerewolfStageIcon name="alert" tone="rose" size={18} />
+            <Text class="text-face-rose-core text-base font-bold">
+              {loc() === "en-US" ? "Stage Error Details" : "舞台运行异常详情"}
+            </Text>
+          </View>
+
+          <Scroll class="max-h-40 rounded-xl border border-stage-pill-border bg-stage-tile">
+            <View class="px-3 py-2.5" selectable={true}>
+              <Text
+                testID="werewolf-stage-error-text"
+                class="text-face-rose-core text-xs font-mono"
+                role="alert"
+              >
+                {diagnosticError()}
+              </Text>
+            </View>
+          </Scroll>
+
+          <View class="flex-row items-center justify-end gap-2">
+            <Button
+              testID="werewolf-stage-error-copy-btn"
+              onPress={() => {
+                const text = diagnosticError();
+                if (!text) return;
+                void Clipboard.writeText(text).then(() => errorCopied.set(true));
+              }}
+              class="min-h-11 px-4 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75"
+            >
+              <Text class="text-stage-pill-fg text-xs font-semibold">
+                {errorCopied()
+                  ? loc() === "en-US"
+                    ? "Copied"
+                    : "已复制"
+                  : loc() === "en-US"
+                    ? "Copy Details"
+                    : "复制详情"}
+              </Text>
+            </Button>
+            <Button
+              testID="werewolf-stage-error-close-btn"
+              onPress={() => errorDialogOpen.set(false)}
+              class="min-h-11 px-5 rounded-full bg-eye-core items-center justify-center active:opacity-75"
+            >
+              <Text class="text-stage-bg text-xs font-bold">
+                {loc() === "en-US" ? "Close" : "关闭"}
               </Text>
             </Button>
           </View>

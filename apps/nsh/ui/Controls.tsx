@@ -52,7 +52,7 @@ export function IconButton(props: {
           <Text class="text-popover-foreground text-xs">{props.label}</Text>
         </Tooltip>
       }
-      class={`w-11 h-11 shrink-0 rounded-full border items-center justify-center active:opacity-70 focus:border-ring ${
+      class={`w-11 h-11 shrink-0 rounded-full border items-center justify-center active:opacity-70 transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card ${
         props.kind === "primary"
           ? "bg-primary border-transparent"
           : props.kind === "outline"
@@ -144,7 +144,7 @@ export function ExternalLink(props: {
           props.onError(`openUrl${code} ${href}: ${cause instanceof Error ? cause.message : String(cause)}`);
         });
       }}
-      class="min-h-12 min-w-12 px-2 rounded-lg items-center justify-center hover:bg-muted active:bg-muted focus-visible:bg-muted focus-visible:border-ring transition-colors duration-150"
+      class="min-h-12 min-w-12 px-2 rounded-lg items-center justify-center hover:bg-muted active:bg-muted focus-visible:bg-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card transition-colors duration-150"
     >
       <Text class="text-muted-foreground text-xs underline">{props.label} ↗</Text>
     </Link>
@@ -163,20 +163,20 @@ export function ActionButton(props: {
   const containerClass = () => {
     if (props.compact) {
       if (props.kind === "primary") {
-        return "min-h-11 rounded-xl bg-primary px-3.5 items-center justify-center active:opacity-70 focus:border-ring disabled:opacity-35";
+        return "min-h-11 rounded-xl bg-primary px-3.5 items-center justify-center active:opacity-70 transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-35";
       }
       if (props.kind === "danger") {
-        return "min-h-11 rounded-xl border border-destructive px-3.5 items-center justify-center active:opacity-60 disabled:opacity-35";
+        return "min-h-11 rounded-xl border border-destructive px-3.5 items-center justify-center hover:bg-muted active:opacity-60 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-35";
       }
-      return "min-h-11 rounded-xl border border-border bg-card px-3.5 items-center justify-center active:bg-muted focus:border-ring disabled:opacity-35";
+      return "min-h-11 rounded-xl border border-border bg-card px-3.5 items-center justify-center hover:bg-muted active:bg-muted transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-35";
     }
     if (props.kind === "primary") {
-      return "min-h-12 rounded-full bg-primary px-5 items-center justify-center active:opacity-70 focus:border-ring disabled:opacity-35";
+      return "min-h-12 rounded-full bg-primary px-5 items-center justify-center active:opacity-70 transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-35";
     }
     if (props.kind === "danger") {
-      return "min-h-12 rounded-full border border-destructive px-5 items-center justify-center active:opacity-60 disabled:opacity-35";
+      return "min-h-12 rounded-full border border-destructive px-5 items-center justify-center hover:bg-muted active:opacity-60 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-35";
     }
-    return "min-h-12 rounded-full border border-border bg-card px-5 items-center justify-center active:bg-muted focus:border-ring disabled:opacity-35";
+    return "min-h-12 rounded-full border border-border bg-card px-5 items-center justify-center hover:bg-muted active:bg-muted transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-35";
   };
 
   const textClass = () => {
@@ -231,8 +231,8 @@ export function TextField(props: {
         onSubmit={() => props.onSubmit?.()}
         class={
           props.compact
-            ? "h-10 rounded-xl border border-input bg-background px-3.5 text-foreground text-xs focus:border-ring"
-            : "h-12 rounded-xl border border-input bg-background px-4 text-foreground text-base focus:border-ring"
+            ? "min-h-11 py-2 rounded-xl border border-input bg-background px-3.5 text-foreground text-sm focus:border-ring focus-visible:ring-2 focus-visible:ring-ring"
+            : "h-12 rounded-xl border border-input bg-background px-4 text-foreground text-base focus:border-ring focus-visible:ring-2 focus-visible:ring-ring"
         }
       />
     </View>
@@ -256,12 +256,12 @@ export function SelectField<T extends string = string>(props: {
   const triggerClass = () => {
     if (props.compact) {
       return open()
-        ? "min-h-11 flex-row items-center justify-between gap-2 rounded-xl border border-ring bg-muted px-3 active:bg-muted disabled:opacity-40"
-        : "min-h-11 flex-row items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 active:bg-muted focus:border-ring disabled:opacity-40";
+        ? "min-h-11 flex-row items-center justify-between gap-2 rounded-xl border border-ring bg-muted px-3 active:bg-muted transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-40"
+        : "min-h-11 flex-row items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 hover:bg-muted active:bg-muted transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-40";
     }
     return open()
-      ? "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-ring bg-muted px-4 active:bg-muted disabled:opacity-40"
-      : "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-input bg-background px-4 active:bg-muted focus:border-ring disabled:opacity-40";
+      ? "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-ring bg-muted px-4 active:bg-muted transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-40"
+      : "min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-input bg-background px-4 hover:bg-muted active:bg-muted transition-colors duration-150 focus:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-40";
   };
 
   return (
@@ -329,26 +329,39 @@ export function SelectField<T extends string = string>(props: {
             <Text
               class={
                 props.compact
-                  ? "flex-1 text-xs font-semibold text-foreground"
+                  ? "flex-1 text-sm font-medium text-foreground"
                   : "flex-1 text-base font-medium text-foreground"
               }
               style={{ numberOfLines: 1 }}
             >
               {selectedTitle()}
             </Text>
-            <Text
-              class={
-                props.compact
-                  ? open()
-                    ? "text-xs text-foreground"
-                    : "text-xs text-muted-foreground"
-                  : open()
-                    ? "text-base text-foreground"
-                    : "text-base text-muted-foreground"
-              }
-            >
-              ▾
-            </Text>
+            <Canvas
+              style={{ width: 12, height: 12, flexShrink: 0 }}
+              draw={(cx, canvasSize) => {
+                const w = canvasSize.width || 12;
+                const h = canvasSize.height || 12;
+                cx.clearRect(0, 0, w, h);
+                cx.save();
+                cx.scale(w / 12, h / 12);
+                cx.strokeStyle = token(open() ? "foreground" : "muted-foreground");
+                cx.lineWidth = 1.6;
+                cx.lineCap = "round";
+                cx.lineJoin = "round";
+                cx.beginPath();
+                if (open()) {
+                  cx.moveTo(2.5, 7.5);
+                  cx.lineTo(6, 4);
+                  cx.lineTo(9.5, 7.5);
+                } else {
+                  cx.moveTo(2.5, 4.5);
+                  cx.lineTo(6, 8);
+                  cx.lineTo(9.5, 4.5);
+                }
+                cx.stroke();
+                cx.restore();
+              }}
+            />
           </View>
         }
       />
@@ -677,36 +690,59 @@ export function Panel(props: {
 }
 
 /** App-owned toggle switch row using `Switch` from `nsh/base` with styled track and thumb parts. */
+export function ToggleSwitch(props: {
+  checked: boolean;
+  disabled?: boolean;
+  testID?: string;
+  accessibilityLabel: string;
+  hitSlop?: number | { top?: number; bottom?: number; left?: number; right?: number };
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <Switch
+      testID={props.testID}
+      accessibilityLabel={props.accessibilityLabel}
+      checked={props.checked}
+      disabled={props.disabled}
+      hitSlop={props.hitSlop ?? { top: 10, bottom: 10, left: 6, right: 6 }}
+      onChange={(ev) => props.onChange(ev.checked)}
+      class="min-h-11 flex-row items-center justify-center rounded-full disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+      trackClass="w-11 h-6 rounded-full bg-border p-0.5 justify-center checked:bg-primary transition-colors duration-150"
+      thumbClass="w-5 h-5 rounded-full bg-card checked:bg-primary-foreground checked:translate-x-5 transition-transform duration-150"
+    />
+  );
+}
+
 export function SwitchRow(props: {
   label: string;
   checked: boolean;
   disabled?: boolean;
   testID?: string;
   variant?: "boxed" | "flat";
+  showDivider?: boolean;
   onChange: (checked: boolean) => void;
 }) {
   const isFlat = () => props.variant === "flat";
+  const showDivider = () => props.showDivider ?? true;
   return (
     <View
       class={
         isFlat()
-          ? "min-h-11 py-1.5 border-b border-border flex-row items-center justify-between gap-3"
+          ? showDivider()
+            ? "min-h-11 py-1.5 border-b border-border flex-row items-center justify-between gap-3"
+            : "min-h-11 py-1.5 flex-row items-center justify-between gap-3"
           : "min-h-12 rounded-xl bg-muted border border-border px-3.5 py-2 flex-row items-center justify-between gap-3"
       }
     >
       <Text class="text-foreground text-sm font-medium flex-1" style={{ numberOfLines: 1 }}>
         {props.label}
       </Text>
-      <Switch
+      <ToggleSwitch
         testID={props.testID}
         accessibilityLabel={props.label}
         checked={props.checked}
         disabled={props.disabled}
-        hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-        onChange={(ev) => props.onChange(ev.checked)}
-        class="flex-row items-center justify-center disabled:opacity-40"
-        trackClass="w-11 h-6 rounded-full bg-border border border-border p-0.5 justify-center checked:bg-primary checked:border-primary"
-        thumbClass="w-5 h-5 rounded-full bg-card checked:bg-primary-foreground checked:translate-x-5"
+        onChange={props.onChange}
       />
     </View>
   );

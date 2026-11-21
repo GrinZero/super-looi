@@ -551,10 +551,9 @@ function QrMatrixCanvas(props: {
           const quietModules = 4;
           const totalGrid = moduleCount + quietModules * 2;
           const side = Math.min(canvasSize.width, canvasSize.height);
-          const cell = Math.max(1, Math.floor(side / totalGrid));
-          const drawnSpan = cell * totalGrid;
-          const originX = Math.floor((canvasSize.width - drawnSpan) / 2);
-          const originY = Math.floor((canvasSize.height - drawnSpan) / 2);
+          const step = side / totalGrid;
+          const originX = (canvasSize.width - side) / 2;
+          const originY = (canvasSize.height - side) / 2;
 
           cx.fillStyle = token("face-ivory-core");
           cx.fillRect(0, 0, canvasSize.width, canvasSize.height);
@@ -562,11 +561,15 @@ function QrMatrixCanvas(props: {
           cx.fillStyle = token("stage-bg");
           for (let r = 0; r < moduleCount; r += 1) {
             const row = matrix[r]!;
-            const py = originY + (r + quietModules) * cell;
+            const y0 = Math.floor(originY + (r + quietModules) * step);
+            const y1 = Math.floor(originY + (r + quietModules + 1) * step);
+            const hPx = Math.max(1, y1 - y0);
             for (let c = 0; c < moduleCount; c += 1) {
               if (row[c]) {
-                const px = originX + (c + quietModules) * cell;
-                cx.fillRect(px, py, cell, cell);
+                const x0 = Math.floor(originX + (c + quietModules) * step);
+                const x1 = Math.floor(originX + (c + quietModules + 1) * step);
+                const wPx = Math.max(1, x1 - x0);
+                cx.fillRect(x0, y0, wPx, hPx);
               }
             }
           }
@@ -621,8 +624,10 @@ export function QrCodeCanvas(props: {
     backgroundColor: token("face-ivory-core"),
   });
 
+  const isStageSurface = () => props.surface === "stage";
+
   const baseCardClass = () =>
-    `rounded-2xl border ${borderClass()} p-1.5 items-center justify-center shrink-0 overflow-hidden`;
+    `rounded-2xl border ${borderClass()} p-0 items-center justify-center shrink-0 overflow-hidden`;
 
   const triggerFocusClass = () =>
     props.surface === "stage"
@@ -742,7 +747,11 @@ export function QrCodeCanvas(props: {
           }}
           backdropClass="bg-backdrop"
           backdropTestID={`${cardTestId()}-zoom-backdrop`}
-          class="m-auto rounded-2xl border border-border bg-popover p-4 shadow-lg"
+          class={
+            isStageSurface()
+              ? "m-auto rounded-2xl border border-stage-pill-border bg-stage-panel p-4 shadow-lg"
+              : "m-auto rounded-2xl border border-border bg-popover p-4 shadow-lg"
+          }
           style={{
             width: Math.min(560, windowSize().width - 32),
             maxHeight: maxDialogHeight(),
@@ -758,7 +767,11 @@ export function QrCodeCanvas(props: {
                 isEn() ? "Collapse enlarged QR code" : "收起放大二维码"
               }
               onPress={() => expanded.set(false)}
-              class="rounded-xl border border-border p-2 items-center justify-center shrink-0 overflow-hidden transition-transform duration-180 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:border-ring dark:focus-visible:border-face-amber-edge"
+              class={
+                isStageSurface()
+                  ? "rounded-xl border border-stage-pill-border p-0 items-center justify-center shrink-0 overflow-hidden transition-transform duration-180 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:border-face-amber-edge"
+                  : "rounded-xl border border-border p-0 items-center justify-center shrink-0 overflow-hidden transition-transform duration-180 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:border-ring dark:focus-visible:border-face-amber-edge"
+              }
               style={{
                 width: enlargedSize(),
                 height: enlargedSize(),
@@ -779,22 +792,42 @@ export function QrCodeCanvas(props: {
             >
               <View class="gap-1">
                 <Text
-                  class="text-foreground text-base font-bold"
+                  class={
+                    isStageSurface()
+                      ? "text-stage-fg text-base font-bold"
+                      : "text-foreground text-base font-bold"
+                  }
                   role="header"
                 >
                   {titleText()}
                 </Text>
-                <Text class="text-muted-foreground text-xs">
+                <Text
+                  class={
+                    isStageSurface()
+                      ? "text-stage-muted text-xs"
+                      : "text-muted-foreground text-xs"
+                  }
+                >
                   {isEn()
                     ? "Scan with your phone camera or browser to join. Tap QR code or backdrop to close."
-                    : "使用手机相机或浏览器扫码加入房间，点击二维码或空白处可收起"}
+                    : "使用手机相机或浏览器扫码加入房间，点击二维码或空白处可收起。"}
                 </Text>
               </View>
 
-              <View class="rounded-lg border border-border bg-muted px-3 py-2">
+              <View
+                class={
+                  isStageSurface()
+                    ? "rounded-xl border border-stage-pill-border bg-stage-tile px-3 py-2"
+                    : "rounded-lg border border-border bg-muted px-3 py-2"
+                }
+              >
                 <Text
                   testID={`${cardTestId()}-zoom-url`}
-                  class="text-foreground text-xs font-mono"
+                  class={
+                    isStageSurface()
+                      ? "text-stage-pill-fg text-xs font-mono"
+                      : "text-foreground text-xs font-mono"
+                  }
                   style={{ numberOfLines: 2 }}
                 >
                   {props.value}
@@ -804,53 +837,107 @@ export function QrCodeCanvas(props: {
               <If when={Boolean(copyError())}>
                 <Text
                   testID={`${cardTestId()}-zoom-copy-error`}
-                  class="text-destructive text-xs"
+                  class={
+                    isStageSurface()
+                      ? "text-face-rose-core text-xs"
+                      : "text-destructive text-xs"
+                  }
                 >
                   {copyError()}
                 </Text>
               </If>
 
-              <View class="flex-row flex-wrap items-center gap-2">
-                <ActionButton
-                  testID={`${cardTestId()}-zoom-copy`}
-                  compact
-                  label={
-                    copied()
-                      ? isEn()
-                        ? "URL Copied"
-                        : "已复制链接"
-                      : isEn()
-                        ? "Copy URL"
-                        : "复制链接"
-                  }
-                  onPress={() => {
-                    const url = props.value.trim();
-                    if (!url) return;
-                    void Clipboard.writeText(url)
-                      .then(() => {
-                        copyError.set("");
-                        copied.set(true);
-                      })
-                      .catch((err) => {
-                        const detail =
-                          err instanceof Error ? err.message : String(err);
-                        const message = detail.includes("code=")
-                          ? detail
-                          : `[stage=qr.copy code=ERR_CLIPBOARD_WRITE] ${detail || "Clipboard write failed"}`;
-                        copied.set(false);
-                        copyError.set(message);
-                        props.onNotify?.(message);
-                      });
-                  }}
-                />
-                <ActionButton
-                  testID={`${cardTestId()}-zoom-close`}
-                  compact
-                  kind="primary"
-                  label={isEn() ? "Close QR" : "收起二维码"}
-                  onPress={() => expanded.set(false)}
-                />
-              </View>
+              <If
+                when={isStageSurface()}
+                else={
+                  <View class="flex-row flex-wrap items-center gap-2">
+                    <ActionButton
+                      testID={`${cardTestId()}-zoom-copy`}
+                      compact
+                      label={
+                        copied()
+                          ? isEn()
+                            ? "URL Copied"
+                            : "已复制链接"
+                          : isEn()
+                            ? "Copy URL"
+                            : "复制链接"
+                      }
+                      onPress={() => {
+                        const url = props.value.trim();
+                        if (!url) return;
+                        void Clipboard.writeText(url)
+                          .then(() => {
+                            copyError.set("");
+                            copied.set(true);
+                          })
+                          .catch((err) => {
+                            const detail =
+                              err instanceof Error ? err.message : String(err);
+                            const message = detail.includes("code=")
+                              ? detail
+                              : `[stage=qr.copy code=ERR_CLIPBOARD_WRITE] ${detail || "Clipboard write failed"}`;
+                            copied.set(false);
+                            copyError.set(message);
+                            props.onNotify?.(message);
+                          });
+                      }}
+                    />
+                    <ActionButton
+                      testID={`${cardTestId()}-zoom-close`}
+                      compact
+                      kind="primary"
+                      label={isEn() ? "Close QR" : "收起二维码"}
+                      onPress={() => expanded.set(false)}
+                    />
+                  </View>
+                }
+              >
+                <View class="flex-row flex-wrap items-center gap-2">
+                  <Button
+                    testID={`${cardTestId()}-zoom-copy`}
+                    onPress={() => {
+                      const url = props.value.trim();
+                      if (!url) return;
+                      void Clipboard.writeText(url)
+                        .then(() => {
+                          copyError.set("");
+                          copied.set(true);
+                        })
+                        .catch((err) => {
+                          const detail =
+                            err instanceof Error ? err.message : String(err);
+                          const message = detail.includes("code=")
+                            ? detail
+                            : `[stage=qr.copy code=ERR_CLIPBOARD_WRITE] ${detail || "Clipboard write failed"}`;
+                          copied.set(false);
+                          copyError.set(message);
+                          props.onNotify?.(message);
+                        });
+                    }}
+                    class="min-h-11 px-4 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg"
+                  >
+                    <Text class="text-stage-pill-fg text-xs font-semibold">
+                      {copied()
+                        ? isEn()
+                          ? "URL Copied"
+                          : "已复制链接"
+                        : isEn()
+                          ? "Copy URL"
+                          : "复制链接"}
+                    </Text>
+                  </Button>
+                  <Button
+                    testID={`${cardTestId()}-zoom-close`}
+                    onPress={() => expanded.set(false)}
+                    class="min-h-11 px-5 rounded-full bg-eye-core items-center justify-center active:opacity-75 focus-visible:border-face-amber-edge"
+                  >
+                    <Text class="text-stage-bg text-xs font-bold">
+                      {isEn() ? "Close QR" : "收起二维码"}
+                    </Text>
+                  </Button>
+                </View>
+              </If>
             </Scroll>
           </View>
         </Dialog>

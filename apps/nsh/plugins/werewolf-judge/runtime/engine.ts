@@ -518,8 +518,7 @@ export class WerewolfEngine {
       voiceStatus: extras.voiceStatus ?? DEFAULT_VOICE_STATUS,
       hasResumableMatch: extras.hasResumableMatch ?? false,
       canStepBackDeal:
-        this.phase === "dealing" &&
-        (this.dealingRevealingSeat !== null || this.dealingHistorySeats.length > 0),
+        this.phase === "dealing" && this.dealingHistorySeats.length > 0,
     };
   }
 
@@ -980,11 +979,6 @@ export class WerewolfEngine {
         "ERR_WEREWOLF_INVALID_PHASE",
         "仅发牌阶段支持退回上一位",
       );
-    }
-    if (this.dealingRevealingSeat !== null && this.dealingHistorySeats.length === 0) {
-      this.dealingRevealingSeat = null;
-      this.bumpRevision();
-      return {};
     }
     const prevSeat = this.dealingHistorySeats.pop();
     if (prevSeat === undefined) {

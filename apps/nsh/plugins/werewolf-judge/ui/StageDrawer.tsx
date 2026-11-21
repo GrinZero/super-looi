@@ -6,7 +6,7 @@ import type {
 } from "../../../ui/plugins/ui-contracts";
 import type { WerewolfCommand, WerewolfPublicState } from "../contracts";
 import { readWerewolfState } from "./StageCapsule";
-import { WerewolfNightActionBody, WerewolfStageError } from "./StageCanvas";
+import { WerewolfNightActionBody } from "./StageCanvas";
 
 export function WerewolfStageDrawer(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
@@ -42,12 +42,11 @@ export function WerewolfStageDrawer(props: {
     return isNightTurn && st().rules.surfaceMode === "lan_companion";
   };
 
-  const showLanDesensitizedBar = () => isLanNightTurn() && !lanOverride();
+  const showLanDesensitizedBar = () =>
+    isLanNightTurn() && !lanOverride() && props.detent() !== "large";
 
   return (
     <View testID="werewolf-stage-drawer" class="flex-1 min-h-0 gap-1.5">
-      <WerewolfStageError ctx={props.ctx} />
-
       <If when={isLanNightTurn()}>
         <If
           when={!showLanDesensitizedBar()}
@@ -71,11 +70,12 @@ export function WerewolfStageDrawer(props: {
               </View>
               <Button
                 testID="werewolf-lan-host-override-btn"
+                hitSlop={4}
                 onPress={() => {
                   lanOverride.set(true);
                   props.requestDetent?.("large");
                 }}
-                class="min-h-11 px-3.5 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 shrink-0"
+                class="h-9 px-3.5 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 focus-visible:border-stage-pill-fg shrink-0"
               >
                 <Text class="text-stage-pill-fg text-xs font-medium">
                   {loc() === "en-US" ? "Host Panel" : "主机代操作"}

@@ -17,6 +17,7 @@ import { defaultCsprngInt, type RandomIntFn } from "./presets.js";
 
 export type WerewolfFaceSlot =
   | "judge_lobby"
+  | "judge_dealing"
   | "night_slumber"
   | "wolf_prowl"
   | "witch_brew"
@@ -37,6 +38,18 @@ export const WEREWOLF_DYNAMIC_FACE_RECIPES: Readonly<
   >
 > = {
   judge_lobby: {
+    recipe: {
+      tint: "ivory",
+      ambientOpacity: 0.92,
+      allowsBreath: true,
+      eyes: [
+        { shape: "orb", scale: 1.0 },
+        { shape: "orb", scale: 1.0 },
+      ],
+      mouth: { kind: "smile" },
+    },
+  },
+  judge_dealing: {
     recipe: {
       tint: "ivory",
       ambientOpacity: 0.92,
@@ -443,8 +456,11 @@ export class WerewolfChoreographer {
   applyPhaseAtmosphere(phase: WerewolfPhase): void {
     switch (phase) {
       case "lobby":
-      case "dealing":
         this.setFaceSlot("judge_lobby", { x: 0, y: 0 });
+        void this.safeSetHeadAndLight(60, false, 0);
+        break;
+      case "dealing":
+        this.setFaceSlot("judge_dealing", { x: 0, y: 0 });
         void this.safeSetHeadAndLight(60, false, 0);
         break;
       case "night_intro":
