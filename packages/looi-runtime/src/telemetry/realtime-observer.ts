@@ -15,6 +15,7 @@ export interface VoiceConversationMessage {
 export interface ObservedVoiceSocket extends Socket {
   finalizeSession(reason?: string, failure?: VoiceSessionFailure): void;
   getToolTraceContext(callId: string): TraceContext | undefined;
+  recordToolOutput(callId: string, output: unknown): TraceContext | undefined;
   setResponseTraceContext(context?: TraceContext): void;
 }
 export interface VoiceSessionFailure {
@@ -63,6 +64,14 @@ export function observeVoiceSocket(socket: Socket, options: {
     }
   };
   const toolSpans = new Map<string, Observation>();
+  const seenToolCalls = new Set<string>();
+  const recordToolOutput = (callId: string, output: unknown): TraceContext | undefined => {
+    const span = toolSpans.get(callId);
+    if (!span) return;
+    span.end({ "langfuse.observation.output": output });
+    toolSpans.delete(callId);
+    return span.context;
+  };
   const finishTurn = (target: Turn, transcript?: string) => {
     const text = transcript || target.transcript;
     if (text) {
@@ -200,6 +209,7 @@ export function observeVoiceSocket(socket: Socket, options: {
     get closeReason() { return socket.closeReason; },
     finalizeSession,
     getToolTraceContext: (callId) => toolSpans.get(callId)?.context,
+    recordToolOutput,
     setResponseTraceContext: (context) => { nextResponseContext = context; },
     async read() {
       const raw = await socket.read();
@@ -257,7 +267,8 @@ export function observeVoiceSocket(socket: Socket, options: {
         case "text_done": ensureResponse(); responseText = normalized.text; break;
         case "tool_calls":
           for (const call of normalized.calls) {
-            if (!call.callId || toolSpans.has(call.callId)) continue;
+            if (!call.callId || seenToolCalls.has(call.callId)) continue;
+            seenToolCalls.add(call.callId);
             toolSpans.set(call.callId, tracer.start("realtime.tool_call", "tool", response?.context ?? root.context, { "langfuse.observation.input": { name: call.name, arguments: call.argumentsJson }, "langfuse.observation.metadata.callId": call.callId }));
             tools++;
           }
@@ -336,8 +347,7 @@ export function observeVoiceSocket(socket: Socket, options: {
           }
           if (frameType === "conversation.item.create") {
             const callId = String(event.item?.call_id || event.items?.[0]?.call_id || "");
-            const span = toolSpans.get(callId);
-            if (span) { span.end({ "langfuse.observation.output": event.item?.output || event.items?.[0]?.content }); toolSpans.delete(callId); }
+            recordToolOutput(callId, event.item?.output ?? event.items?.[0]?.content);
           }
         } catch { /* Socket owns malformed frame errors. */ }
       }

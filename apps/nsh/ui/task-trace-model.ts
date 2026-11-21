@@ -1,13 +1,20 @@
 import type { NativeObservation } from "../generated/looi-runtime.js";
+import { readVoiceToolCall } from "../runtime/voice-tool-history";
 
 export const traceInput = (node: NativeObservation) => node.attributes["langfuse.observation.input"];
-export const traceOutput = (node: NativeObservation) => node.attributes["langfuse.observation.output"];
+export const traceOutput = (node: NativeObservation) => node.name === "realtime.tool_call"
+  ? readVoiceToolCall(node).output : node.attributes["langfuse.observation.output"];
 export const traceError = (node: NativeObservation) => node.attributes["langfuse.observation.status_message"];
 
 export function traceState(node: NativeObservation): "active" | "ended" | "error" | "cancelled" | "interrupted" {
   if (node.attributes["langfuse.observation.metadata.interrupted"] === true) return "interrupted";
   if (node.attributes["langfuse.observation.metadata.state"] === "cancelled" || node.attributes["langfuse.observation.metadata.cancelled"] === true) return "cancelled";
   if (node.attributes["langfuse.observation.level"] === "ERROR") return "error";
+  if (node.name === "realtime.tool_call") {
+    const { failed, interrupted } = readVoiceToolCall(node);
+    if (failed) return "error";
+    if (interrupted) return "interrupted";
+  }
   return node.endedAt === undefined ? "active" : "ended";
 }
 
@@ -45,6 +52,7 @@ export function traceText(value: unknown): string {
 
 export function tracePreview(node: NativeObservation): string {
   const input = traceInput(node) as Record<string, unknown> | undefined;
+  if (node.name === "realtime.tool_call") return String(input?.name ?? "");
   const output = traceOutput(node) as Record<string, unknown> | undefined;
   if (node.name === "agent.context") return String(output?.historyMessages ?? "");
   if (node.name === "agent.tool.web_search") {
@@ -52,7 +60,6 @@ export function tracePreview(node: NativeObservation): string {
     return action?.queries?.join(" · ") ?? action?.url ?? traceText(action);
   }
   if (node.type === "generation") return String(node.attributes["langfuse.observation.model.name"] ?? "");
-  if (node.name === "realtime.tool_call") return String(input?.name ?? "");
   return traceText(traceError(node) ?? traceInput(node) ?? traceOutput(node)).replace(/\s+/g, " ").slice(0, 160);
 }
 

@@ -8,6 +8,7 @@ import { RetainedPage } from "./RetainedPage";
 import { TaskReceipts } from "./TaskReceipts";
 import { TaskShellOutput } from "./TaskShellOutput";
 import { TaskTraceView } from "./TaskTraceView";
+import { traceText } from "./task-trace-model";
 
 type TaskStore = Pick<
   ReturnType<typeof createAppStore>,
@@ -17,6 +18,16 @@ type TaskStore = Pick<
 const pageSize = 10;
 const panel = "min-w-0 min-h-0 rounded-2xl border border-border bg-card overflow-hidden";
 const timestampStyle = { fontVariant: ["tabular-nums"] as ["tabular-nums"], numberOfLines: 1 };
+
+function taskTitle(item: NativeTaskSummary): string {
+  if (!item.voiceToolName) return item.prompt;
+  const tool = item.voiceToolName;
+  const label = tool === "control_home_device" ? t("taskVoiceHomeControl")
+    : tool === "list_home_devices" ? t("taskVoiceHomeQuery")
+    : tool === "control_looi_body" ? t("taskVoiceBodyControl")
+    : t("taskVoiceTool", { name: tool });
+  return item.prompt ? `${label} · ${item.prompt}` : label;
+}
 
 function taskStatus(state: string) {
   switch (state) {
@@ -28,6 +39,7 @@ function taskStatus(state: string) {
     case "succeeded": return { label: t("completed"), dot: "bg-verified", active: false };
     case "failed": return { label: t("taskFailed"), dot: "bg-destructive", active: false };
     case "cancelled": return { label: t("stopped"), dot: "bg-subtle-text", active: false };
+    case "needs_selection": return { label: t("taskNeedsSelection"), dot: "bg-warning", active: false };
     case "unknown": return { label: t("resultUnverified"), dot: "bg-destructive", active: false };
     default: return { label: t("stateUnverified"), dot: "bg-subtle-text", active: false };
   }
@@ -62,7 +74,7 @@ function TaskRow(props: {
   return (
     <Button
       testID={`task-${props.item.id}`}
-      accessibilityLabel={`${props.item.prompt} · ${taskStatus(props.item.state).label} · ${fullDate()}`}
+      accessibilityLabel={`${taskTitle(props.item)} · ${taskStatus(props.item.state).label} · ${fullDate()}`}
       selected={props.selected}
       onPress={props.onPress}
       class="min-h-14 rounded-xl border border-transparent px-3 py-2.5 justify-center gap-1.5 selected:bg-muted selected:border-border hover:bg-muted active:bg-accent focus-visible:border-ring transition-colors duration-120 motion-reduce:duration-0"
@@ -72,7 +84,7 @@ function TaskRow(props: {
         style={{ pointerEvents: "none" }}
       />
       <Text class="text-foreground text-sm font-semibold" style={{ numberOfLines: 2 }}>
-        {props.item.prompt}
+        {taskTitle(props.item)}
       </Text>
       <View class="min-w-0 flex-row items-center justify-between gap-1.5">
         <TaskStatus state={props.item.state} />
@@ -156,7 +168,8 @@ function TaskInspector(props: {
     (props.task.result?.executions?.length ?? 0) +
     (props.task.result?.artifacts?.length ?? 0) +
     props.task.homeActions.length +
-    (props.task.bodyActions?.length ?? 0);
+    (props.task.bodyActions?.length ?? 0) +
+    Number(props.task.voiceToolCall?.output !== undefined);
   const commandOutput = () => {
     const output = props.output;
     if (!output || output.taskId !== props.task.id) return;
@@ -176,7 +189,7 @@ function TaskInspector(props: {
           <IconButton testID="task-detail-close" icon="back" label={t("backToTaskList")} onPress={() => props.onBack?.()} />
         </If>
         <Text class="text-foreground text-sm font-semibold flex-1 min-w-0" role="header" style={{ numberOfLines: 1 }}>
-          {props.task.prompt}
+          {taskTitle(props.task)}
         </Text>
         <View class="px-2.5 py-1 rounded-full bg-muted shrink-0">
           <TaskStatus state={props.task.state} />
@@ -213,7 +226,7 @@ function TaskInspector(props: {
             </View>
           </If>
           <If when={Boolean(props.task.result?.answer)} else={
-            <If when={!props.task.error}>
+            <If when={!props.task.error && (!props.task.voiceToolCall || active())}>
               <Text class="text-muted-foreground text-sm">
                 {active() ? t("taskResultPending") : t("taskNoAnswer")}
               </Text>
@@ -225,9 +238,11 @@ function TaskInspector(props: {
             </View>
           </If>
           <View class="gap-2 border-t border-border pt-3 min-w-0">
-            <Text class="text-foreground text-sm font-semibold" role="header">{t("taskRequest")}</Text>
+            <Text class="text-foreground text-sm font-semibold" role="header">{t(props.task.voiceToolCall ? "traceInput" : "taskRequest")}</Text>
             <View selectable={true}>
-              <Text class="text-foreground text-sm">{props.task.prompt}</Text>
+              <Text class={props.task.voiceToolCall ? "text-foreground text-xs font-mono" : "text-foreground text-sm"}>
+                {props.task.voiceToolCall ? traceText(props.task.voiceToolCall.input) : props.task.prompt}
+              </Text>
             </View>
           </View>
           <View class="gap-1.5 border-t border-border pt-3 min-w-0" selectable={true}>

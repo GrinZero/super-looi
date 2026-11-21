@@ -7,10 +7,11 @@ import type {
   RealtimeTransportLayer,
   RealtimeTransportEventTypes,
 } from "@openai/agents-realtime";
-import { observeVoiceSocket } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
+import { observeVoiceSocket, type ObservedVoiceSocket } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 import {
   NOOP_TRACER,
   type LangfuseTracer,
+  type TraceContext,
 } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type {
   NormalizedRealtimeEvent,
@@ -46,7 +47,7 @@ export class NativeRealtimeTransport
 {
   status: RealtimeTransportLayer["status"] = "disconnected";
   muted = false;
-  socket?: VoiceSocket;
+  socket?: ObservedVoiceSocket;
   private closed = false;
   private writes = 0;
   private writeQueue: Promise<void> = Promise.resolve();
@@ -157,12 +158,21 @@ export class NativeRealtimeTransport
     }
   }
 
-  private sendFrames(frames: unknown[], stage: string): Promise<boolean> {
+  private sendFrames(frames: unknown[], stage: string, trace?: TraceContext): Promise<boolean> {
     // Enqueue the entire operation before returning to SDK; graceful close must
     // wait for both a function output and its follow-up request.
     return Promise.all(frames.map((frame) => this.write(frame)))
       .then(() => true)
       .catch((error) => {
+        if (trace && this.options.tracer) {
+          const failure = describeVoiceFailure(stage, error, this.secret);
+          this.options.tracer.start("realtime.error", "span", trace).end({
+            "langfuse.observation.level": "ERROR",
+            "langfuse.observation.status_message": failure.message,
+            "langfuse.observation.metadata.failureStage": failure.stage,
+            "langfuse.observation.metadata.errorCode": failure.code,
+          });
+        }
         this.report(stage, error);
         return false;
       });
@@ -234,12 +244,14 @@ export class NativeRealtimeTransport
     // SDK can replay a cached result. Do not make a provider resume the same call twice.
     if (this.submittedCalls.has(call.callId)) return;
     this.submittedCalls.add(call.callId);
+    const trace = this.socket?.recordToolOutput(call.callId, output);
     if (startResponse && this.options.protocol.providerId === "moss")
       this.waitingToolResponses.set(call.callId, call.responseId);
     const frames = this.options.protocol.encodeToolReply(call.callId, output);
     void this.sendFrames(
       frames.filter((frame) => frame.type !== "response.create"),
       "tool.output",
+      trace,
     ).then((sent) => {
       if (!sent || this.closed) return;
       if (this.options.protocol.providerId !== "moss" || !startResponse) {

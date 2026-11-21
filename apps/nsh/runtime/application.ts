@@ -44,6 +44,7 @@ import { deviceControlInstructions } from "./device-control-instructions.js";
 import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import { VoiceConversationWindow } from "./voice/conversation-window.js";
+import { directVoiceToolName, voiceToolTask, voiceToolTaskPrefix } from "./voice-tool-history.js";
 import { PluginHost } from "./plugins/host.js";
 import type {
   NshPackageEnvelope,
@@ -167,7 +168,7 @@ export class MobileRuntime {
     secretKey: process.env.LANGFUSE_SECRET_KEY,
     onObservation: (observation) => {
       this.storage.saveObservation(observation);
-      this.emitTaskActivity(false);
+      this.emitTaskActivity(Boolean(directVoiceToolName(observation)));
     },
   });
   private readonly home: HomeRuntime;
@@ -811,22 +812,32 @@ export class MobileRuntime {
     if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
     if (!Number.isSafeInteger(offset) || offset < 0)
       throw new Error("@looi:runtimeInvalidTaskPage");
-    const tasks = this.executor?.listTaskSummaries() ?? this.storage.tasks.load();
-    tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const { total, entries } = this.storage.taskHistoryPage(offset, 10);
     return {
-      total: tasks.length,
+      total,
       offset,
-      items: tasks.slice(offset, offset + 10).map((task) => ({
-        id: task.id,
-        prompt: task.prompt.slice(0, 160),
-        state: task.state,
-        updatedAt: task.updatedAt,
-      })),
+      items: entries.map((entry) => {
+        if (!("spanId" in entry)) return entry;
+        const { id, voiceToolName, prompt, state, updatedAt } = voiceToolTask(entry, directVoiceToolName(entry)!);
+        return { id, voiceToolName, prompt, state, updatedAt };
+      }),
     };
   }
 
   taskDetails(id: string) {
     if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    if (id.startsWith(voiceToolTaskPrefix)) {
+      const observation = this.storage.observation(id.slice(voiceToolTaskPrefix.length));
+      const name = observation && directVoiceToolName(observation);
+      if (!observation || !name) throw new Error("@looi:runtimeTaskNotFound");
+      return {
+        ...voiceToolTask(observation, name),
+        sessionId: String(observation.attributes["session.id"] ?? ""),
+        steps: [],
+        homeActions: [],
+        observations: this.storage.traceObservations(observation.traceId),
+      };
+    }
     const task = this.executor ? this.executor.getTask(id) : this.storage.task(id);
     if (!task) throw new Error("@looi:runtimeTaskNotFound");
     const homeActions = this.database

@@ -43,6 +43,49 @@ test("local trace persists starts, merged ends and relationships without Langfus
   } finally { await tracer.shutdown(); storage.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("task history pages merge historical voice tool observations with agent tasks", () => {
+  const directory = mkdtempSync(join(tmpdir(), "looi-task-history-"));
+  const file = join(directory, "runtime.sqlite");
+  let storage = new SqliteRuntimeStore(new DatabaseSync(file));
+  const startedAt = 1_700_000_000_000;
+  const updatedAt = new Date(startedAt + 2_000).toISOString();
+  const call = (spanId: string, name: string): TraceObservation => ({
+    traceId: "voice-trace", spanId, name: "realtime.tool_call", type: "tool", startedAt,
+    attributes: { "langfuse.observation.input": { name }, "langfuse.observation.metadata.callId": spanId },
+  });
+  try {
+    const control = call("control", "control_home_device");
+    const query = call("query", "list_home_devices");
+    storage.saveObservation(control);
+    storage.saveObservation({ ...control, spanId: "duplicate-control", startedAt: startedAt + 1 });
+    storage.saveObservation(query);
+    storage.saveObservation(call("delegated", "run_agent_task"));
+    storage.saveObservation(call("manage", "manage_agent_task"));
+    storage.saveObservation({ ...query, spanId: "chat", name: "realtime.response" });
+    storage.tasks.save({
+      id: "agent-task", prompt: "列出工具", state: "succeeded", sessionId: "voice", workspaceRoot: "/home",
+      createdAt: updatedAt, updatedAt, steps: [],
+    });
+    assert.deepEqual(storage.taskHistoryPage(0, 1), {
+      total: 3, entries: [{ id: "agent-task", prompt: "列出工具", state: "succeeded", updatedAt }],
+    });
+
+    const output = [{ type: "input_text", text: JSON.stringify({ receipt: { status: "verified", brightness: 255 } }) }];
+    storage.saveObservation({ ...control, endedAt: startedAt + 3_000, attributes: {
+      ...control.attributes, "langfuse.observation.output": output,
+    } });
+    storage.close();
+    storage = new SqliteRuntimeStore(new DatabaseSync(file));
+    const first = storage.taskHistoryPage(0, 1);
+    assert.equal(first.total, 3);
+    assert.deepEqual(first.entries, [storage.observation("control")]);
+    assert.deepEqual(storage.observation("control")?.attributes["langfuse.observation.output"], output);
+    const last = storage.taskHistoryPage(2, 1);
+    assert.deepEqual(last.entries, [storage.observation("query")]);
+    assert.equal(storage.observation("query")?.attributes["langfuse.observation.metadata.interrupted"], true);
+  } finally { storage.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("a task's delivered response keeps its parent across a new voice connection and records interruption", async () => {
   const storage = new SqliteRuntimeStore(new DatabaseSync(":memory:"));
   const tracer = createLangfuseTracer({ onObservation: node => storage.saveObservation(node) });

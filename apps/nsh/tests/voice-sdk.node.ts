@@ -289,6 +289,9 @@ test("MOSS combines confirmed tool outputs into one continuation and ignores rep
     h.writes.filter((frame) => frame.action === "response.create").length,
     1,
   );
+  const calls = h.records.filter(record => record.name === "realtime.tool_call");
+  assert.equal(new Set(calls.map(record => record.spanId)).size, 2);
+  assert.equal(calls.filter(record => record.endedAt !== undefined).length, 2);
 });
 
 test("MOSS preserves an unrelated active voice run across either tool-batch event order", async t => {
@@ -347,4 +350,27 @@ test("SDK business-tool failure keeps the native stage, code and cause in its re
     (record) => record.name === "realtime.tool_call" && record.endedAt,
   );
   assert.match(JSON.stringify(toolRecord?.attributes), /GATT_WRITE_FAILED/);
+});
+
+test("a tool result survives a failed send and keeps the delivery error on its trace", async (t) => {
+  const h = await fixture(t, createOpenAiRealtimeProtocol(), [fixtureTool()]);
+  h.setWrite(async (raw) => {
+    if (typeof raw === "string" && JSON.parse(raw).item?.type === "function_call_output") {
+      throw Object.assign(new Error("socket write rejected"), { code: "EPIPE" });
+    }
+  });
+  h.push({
+    type: "response.function_call_arguments.done", response_id: "r", call_id: "c",
+    name: "read", arguments: "{}",
+  });
+  await flush();
+  h.session.close();
+  await flush();
+  const call = h.records.find(record => record.name === "realtime.tool_call" && record.endedAt !== undefined);
+  assert.ok(call);
+  assert.deepEqual(JSON.parse(String(call.attributes["langfuse.observation.output"])), { value: 1 });
+  const failedDelivery = h.records.find(record => record.parentSpanId === call.spanId && record.endedAt !== undefined);
+  assert.equal(failedDelivery?.attributes["langfuse.observation.metadata.failureStage"], "tool.output");
+  assert.equal(failedDelivery?.attributes["langfuse.observation.metadata.errorCode"], "EPIPE");
+  assert.match(String(failedDelivery?.attributes["langfuse.observation.status_message"]), /socket write rejected/);
 });

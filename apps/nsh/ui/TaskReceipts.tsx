@@ -2,6 +2,7 @@ import { signal, Text, View, type JSX } from "nsh";
 import { Accordion, AccordionHeader, AccordionItem, AccordionPanel, AccordionTrigger } from "nsh/base";
 import type { NativeTask } from "../generated/looi-runtime.js";
 import { formatDate, t } from "../i18n";
+import { traceText } from "./task-trace-model";
 
 function ReceiptItem(props: {
   id: string;
@@ -59,6 +60,11 @@ export function TaskReceipts(props: { task: NativeTask; count: number }) {
       <Text class="text-muted-foreground text-sm">{t("taskNoReceipts")}</Text>
     }>
       <Accordion multiple={true} value={expanded()} onChange={(event) => expanded.set(event.value)} class="gap-4 min-w-0">
+        <If when={props.task.voiceToolCall?.output !== undefined}>
+          <View class="rounded-xl border border-border bg-background p-3 min-w-0" selectable={true}>
+            <ReceiptData label={t("traceOutput")} value={traceText(props.task.voiceToolCall?.output)} />
+          </View>
+        </If>
         <If when={executions().length > 0}>
           <View class="gap-2 min-w-0">
             <Text class="text-foreground text-sm font-semibold" role="header">{t("shellCommandReceipts")}</Text>

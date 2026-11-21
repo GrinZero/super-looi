@@ -60,6 +60,19 @@ fn trace_inspector_expands_context_and_updates_the_same_tool_row() -> Result<(),
     app.wait_for("第 1 / 2 页")?;
     assert!(app.screen().selected("task-fixture-task")?);
 
+    app.press("task-voice_tool_brightness-failed")?;
+    app.wait_for("语音控制家居 · 大厅台灯")?;
+    app.wait_for("tool.control_home_device · INVALID_ARGUMENT · expected integer, got string")?;
+    app.press("task-tab-activity")?;
+    app.press("trace-brightness-failed")?;
+    app.wait_for("返回内容")?;
+    assert!(app.screen().texts().iter().any(|text| text.contains("INVALID_ARGUMENT")));
+    app.press("task-voice_tool_brightness-applied")?;
+    app.press("task-tab-receipts")?;
+    app.wait_for("返回内容")?;
+    assert!(app.screen().texts().iter().any(|text| text.contains("\"brightness\": 255")));
+    app.press("task-fixture-task")?;
+
     app.set_viewport(size(Points(568.0), Points(320.0)))?;
     app.press("task-detail-close")?;
     app.wait_for("task-fixture-task")?;

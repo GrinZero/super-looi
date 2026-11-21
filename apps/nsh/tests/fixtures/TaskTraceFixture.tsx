@@ -2,6 +2,7 @@ import { mount, signal, View } from "nsh";
 import type { NativeObservation, NativeTask } from "../../generated/looi-runtime.js";
 import { TasksSpaceView } from "../../ui/TasksSpaceView";
 import { ActionButton } from "../../ui/Controls";
+import { voiceToolTask } from "../../runtime/voice-tool-history";
 
 const startedAt = 1_700_000_000_000;
 const nodes: NativeObservation[] = [
@@ -15,13 +16,27 @@ const nodes: NativeObservation[] = [
 ];
 const initial: NativeTask = { id: "fixture-task", sessionId: "fixture-session", prompt: "我上一轮问了什么？", state: "running", createdAt: new Date(startedAt).toISOString(), updatedAt: new Date(startedAt).toISOString(), homeActions: [], steps: [], trace: { traceId: "trace", spanId: "task" }, observations: nodes };
 const legacy: NativeTask = { ...initial, id: "legacy", prompt: "旧任务的请求", state: "failed", error: "[stage=write code=EIO] 写入失败", trace: undefined, observations: [], steps: [{ step: 1, phase: "tool_start", summary: "旧版步骤甲" }, { step: 1, phase: "tool_end", summary: "旧版步骤乙" }] };
-const history = Array.from({ length: 9 }, (_, index) => ({ ...initial, id: `history-${index}`, prompt: `历史任务 ${index + 1}`, state: "succeeded" }));
+const voiceTool = (spanId: string, output: unknown): NativeObservation => ({
+  traceId: "voice", spanId, name: "realtime.tool_call", type: "tool", startedAt, endedAt: startedAt + 100,
+  attributes: {
+    "langfuse.observation.input": { name: "control_home_device", arguments: '{"target":{"name":"大厅台灯"},"brightness":255}' },
+    "langfuse.observation.output": [{ type: "input_text", text: JSON.stringify(output) }],
+  },
+});
+const voiceCalls = [
+  voiceTool("brightness-failed", { error: { stage: "tool.control_home_device", code: "INVALID_ARGUMENT", message: "expected integer, got string" } }),
+  voiceTool("brightness-applied", { receipt: { status: "verified", readback: { brightness: 255 } } }),
+];
+const voiceTasks: NativeTask[] = voiceCalls.map(node => ({
+  ...initial, ...voiceToolTask(node, "control_home_device"), observations: voiceCalls,
+}));
+const history = Array.from({ length: 7 }, (_, index) => ({ ...initial, id: `history-${index}`, prompt: `历史任务 ${index + 1}`, state: "succeeded" }));
 
 function Fixture() {
   const task = signal(initial);
   const offset = signal(0);
   const selected = signal<string | undefined>(initial.id);
-  const firstPage = () => [task(), ...history];
+  const firstPage = () => [task(), ...voiceTasks, ...history];
   const items = () => offset() === 0 ? firstPage() : [legacy];
   const store = {
     task: () => items().find(item => item.id === selected()),

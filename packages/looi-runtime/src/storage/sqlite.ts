@@ -14,6 +14,17 @@ export interface RuntimeDatabase {
 }
 
 const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
+// Earlier observers could record a repeated provider event after the first tool result.
+const voiceToolCalls = `FROM runtime_observations WHERE rowid IN (
+  SELECT min(rowid) FROM runtime_observations
+  WHERE json_extract(snapshot, '$.name') = 'realtime.tool_call'
+    AND json_type(snapshot, '$.attributes."langfuse.observation.input".name') = 'text'
+    AND json_extract(snapshot, '$.attributes."langfuse.observation.input".name')
+      NOT IN ('', 'run_agent_task', 'manage_agent_task')
+  GROUP BY trace_id, coalesce(nullif(json_extract(snapshot, '$.attributes."langfuse.observation.metadata.callId"'), ''), span_id)
+)`;
+
+type TaskSummary = Pick<AgentTask, "id" | "prompt" | "state" | "updatedAt">;
 function decodeTask(row: Record<string, unknown>): AgentTask {
   const task = JSON.parse(String(row.snapshot)) as AgentTask;
   if (task.id !== row.id) throw new Error("Task snapshot identity mismatch");
@@ -66,6 +77,32 @@ export class SqliteRuntimeStore {
     this.assertOpen();
     const row = this.db.prepare("SELECT id,snapshot FROM runtime_tasks WHERE id = ?").get(id);
     return row ? decodeTask(row) : undefined;
+  }
+
+  taskHistoryPage(offset: number, limit: number) {
+    this.assertOpen();
+    const total = this.db.prepare(`SELECT
+      (SELECT count(*) FROM runtime_tasks) + (SELECT count(*) ${voiceToolCalls}) AS total`).get();
+    const rows = this.db.prepare(`SELECT id, prompt, state, updatedAt, observation FROM (
+      SELECT id, substr(json_extract(snapshot, '$.prompt'), 1, 160) AS prompt,
+        json_extract(snapshot, '$.state') AS state, json_extract(snapshot, '$.updatedAt') AS updatedAt,
+        NULL AS observation FROM runtime_tasks
+      UNION ALL
+      SELECT span_id, NULL, NULL,
+        strftime('%Y-%m-%dT%H:%M:%fZ', coalesce(json_extract(snapshot, '$.endedAt'), started_at) / 1000.0, 'unixepoch'),
+        snapshot ${voiceToolCalls}
+    ) ORDER BY updatedAt DESC, id LIMIT ? OFFSET ?`).all(limit, offset);
+    return {
+      total: Number(total?.total),
+      entries: rows.map(({ observation, ...summary }): TaskSummary | TraceObservation =>
+        typeof observation === "string" ? JSON.parse(observation) as TraceObservation : summary as TaskSummary),
+    };
+  }
+
+  observation(spanId: string): TraceObservation | undefined {
+    this.assertOpen();
+    const row = this.db.prepare("SELECT snapshot FROM runtime_observations WHERE span_id = ?").get(spanId);
+    return row ? JSON.parse(String(row.snapshot)) as TraceObservation : undefined;
   }
 
   saveObservation(observation: TraceObservation): void {
