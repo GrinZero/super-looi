@@ -73,6 +73,10 @@ export class VoiceCredentialStore {
     return this.voiceIds[providerId] ?? (providerId === "moss" ? MOSS_DEFAULT_VOICE_ID : "");
   }
 
+  usesModelApiKey(providerId: string): boolean {
+    return providerId !== "doubao" && !this.apiKeys[providerId];
+  }
+
   resolveApiKey(providerId: string): string {
     const own = this.apiKeys[providerId];
     if (own) return own;

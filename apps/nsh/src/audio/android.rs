@@ -36,12 +36,12 @@ fn with_java<T>(
         .ok_or("Android audio application plugin is not initialized")?;
     let mut env = vm
         .attach_current_thread()
-        .map_err(|_| "Android audio VM attachment failed")?;
+        .map_err(|error| format!("Android audio VM attachment failed: {error}"))?;
     let result = env.with_local_frame(16, |env| operation(env, class.as_obj().into()));
     if result.is_err() {
         let _ = env.exception_clear();
     }
-    result.map_err(|_| "Android audio application plugin call failed".into())
+    result.map_err(|error| format!("Android audio application plugin call failed: {error}"))
 }
 
 fn java_string(method: &str) -> Result<String, String> {
@@ -52,6 +52,66 @@ fn java_string(method: &str) -> Result<String, String> {
         let value = JString::from(value);
         Ok(env.get_string(&value)?.into())
     })
+}
+
+pub fn wake_focus() -> String {
+    java_string("voiceWakeFocus").unwrap_or_default()
+}
+
+pub fn release_focus() {
+    let _ = with_java(|env, class| {
+        env.call_static_method(class, "endVoiceAudio", "()V", &[])?;
+        Ok(())
+    });
+}
+
+fn report_interruption(shared: &SharedAudio) -> bool {
+    match java_string("voiceAudioInterruption") {
+        Ok(code) if code.is_empty() => false,
+        Ok(code) => {
+            let detail = match code.as_str() {
+                "ACTIVITY_PAUSED" => "The Android Activity paused",
+                "AUDIOFOCUS_LOSS" => "Android revoked the audio focus request (-1)",
+                "AUDIOFOCUS_LOSS_TRANSIENT" => "Android temporarily took audio focus (-2)",
+                "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK" => "Android requested audio ducking (-3)",
+                _ => "Android reported an audio focus change",
+            };
+            fail(shared, &code, detail);
+            true
+        }
+        Err(error) => {
+            fail(shared, "ANDROID_AUDIO_BRIDGE", &error);
+            true
+        }
+    }
+}
+
+pub fn report_focus_end(shared: &SharedAudio) {
+    if let Ok(code) = java_string("voiceAudioInterruption") {
+        let detail = match code.as_str() {
+            "AUDIOFOCUS_LOSS" => "Android revoked the audio focus request (-1)",
+            "ACTIVITY_PAUSED" => "The Android Activity paused",
+            _ => return,
+        };
+        if let Ok(mut state) = shared.lock()
+            && matches!(
+                state.error_code.as_str(),
+                "AUDIOFOCUS_LOSS_TRANSIENT"
+                    | "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK"
+                    | "AUDIO_FOCUS_NOT_READY"
+            )
+        {
+            state.error = detail.into();
+            state.error_code = code;
+        }
+    }
+}
+
+fn end_streams() {
+    let _ = with_java(|env, class| {
+        env.call_static_method(class, "endVoiceStreams", "()V", &[])?;
+        Ok(())
+    });
 }
 
 pub fn permission() -> String {
@@ -262,8 +322,9 @@ impl Api {
             {
                 return Err("Native device cannot provide the required mono PCM format".into());
             }
-            if (self.start)(handle) != 0 {
-                return Err("Native voice audio stream did not start".into());
+            let status = (self.start)(handle);
+            if status != 0 {
+                return Err(format!("AAudioStream_requestStart failed ({status})"));
             }
             Ok(stream)
         }
@@ -316,29 +377,29 @@ pub struct Audio {
 }
 
 impl Audio {
-    pub fn start(shared: SharedAudio, capture: bool) -> Result<Self, String> {
+    pub fn start(shared: SharedAudio, capture: bool, resume_focus: bool) -> Result<Self, String> {
         let api = Api::get()?;
         if capture && permission() != "granted" {
             return Err(format!("Microphone permission is {}", permission()));
         }
-        let focus_result = with_java(|env, class| {
-            env.call_static_method(
-                class,
-                "beginVoiceAudio",
-                "(Z)Z",
-                &[JValue::Bool(capture as u8)],
-            )?
-            .z()
-        });
-        if !matches!(focus_result, Ok(true)) {
-            let _ = with_java(|env, class| {
-                env.call_static_method(class, "endVoiceAudio", "()V", &[])
-                    .map(|_| ())
-            });
-        }
-        let focused = focus_result?;
-        if !focused {
-            return Err("Voice audio focus was denied".into());
+        let focus_error: String = with_java(|env, class| {
+            let result = env
+                .call_static_method(
+                    class,
+                    "beginVoiceAudio",
+                    "(ZZ)Ljava/lang/String;",
+                    &[
+                        JValue::Bool(capture as u8),
+                        JValue::Bool(resume_focus as u8),
+                    ],
+                )?
+                .l()?;
+            let result = JString::from(result);
+            Ok(env.get_string(&result)?.into())
+        })?;
+        if let Some((code, detail)) = focus_error.split_once(": ") {
+            fail(&shared, code, detail);
+            return Err(focus_error);
         }
         let mut audio = Self {
             shared,
@@ -371,7 +432,13 @@ impl Audio {
                         )
                     };
                     if count < 0 {
-                        fail(&shared, "Native microphone interrupted");
+                        if running.load(Ordering::Acquire) && !report_interruption(&shared) {
+                            fail(
+                                &shared,
+                                &format!("AAUDIO_{count}"),
+                                "AAudioStream_read failed",
+                            );
+                        }
                         running.store(false, Ordering::Release);
                         break;
                     }
@@ -405,13 +472,7 @@ impl Audio {
                         Ordering::Release,
                     );
                 }
-                if focus_tick % 5 == 0
-                    && !matches!(java_string("voiceAudioFocus").as_deref(), Ok("granted"))
-                {
-                    fail(
-                        &shared,
-                        "Voice audio focus interrupted; restart after returning to the app",
-                    );
+                if focus_tick % 5 == 0 && report_interruption(&shared) {
                     running.store(false, Ordering::Release);
                     break;
                 }
@@ -433,7 +494,9 @@ impl Audio {
                 if generation != seen_generation {
                     played_chunks.clear();
                     if let Err(error) = api.clear_output(output.handle as Handle, &running) {
-                        fail(&shared, &error);
+                        if running.load(Ordering::Acquire) {
+                            fail(&shared, "", &error);
+                        }
                         running.store(false, Ordering::Release);
                         break;
                     }
@@ -461,7 +524,13 @@ impl Audio {
                     )
                 };
                 if written < 0 {
-                    fail(&shared, "Native speaker interrupted");
+                    if running.load(Ordering::Acquire) && !report_interruption(&shared) {
+                        fail(
+                            &shared,
+                            &format!("AAUDIO_{written}"),
+                            "AAudioStream_write failed",
+                        );
+                    }
                     running.store(false, Ordering::Release);
                     break;
                 }
@@ -496,10 +565,7 @@ impl Audio {
                 );
             }
             drop(output);
-            let _ = with_java(|env, class| {
-                env.call_static_method(class, "endVoiceAudio", "()V", &[])
-                    .map(|_| ())
-            });
+            end_streams();
         }));
         Ok(audio)
     }
@@ -510,15 +576,8 @@ impl Audio {
     pub fn clear_playback(&mut self) { /* Worker observes generation and flushes native output. */
     }
     pub fn refresh(&mut self) {
-        match java_string("voiceAudioFocus").as_deref() {
-            Ok("granted") => {}
-            _ => {
-                self.running.store(false, Ordering::Release);
-                fail(
-                    &self.shared,
-                    "Voice audio focus interrupted; restart after returning to the app",
-                );
-            }
+        if self.running.load(Ordering::Acquire) && report_interruption(&self.shared) {
+            self.running.store(false, Ordering::Release);
         }
     }
     pub fn route(&self) -> String {
@@ -526,9 +585,13 @@ impl Audio {
     }
 }
 
-fn fail(shared: &SharedAudio, error: &str) {
+fn fail(shared: &SharedAudio, code: &str, error: &str) {
     if let Ok(mut state) = shared.lock() {
+        if !state.error.is_empty() {
+            return;
+        }
         state.error = error.into();
+        state.error_code = code.into();
         state.capture.clear();
         state.partial.clear();
         state.clear_playback();
@@ -541,9 +604,6 @@ impl Drop for Audio {
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
-        let _ = with_java(|env, class| {
-            env.call_static_method(class, "endVoiceAudio", "()V", &[])
-                .map(|_| ())
-        });
+        end_streams();
     }
 }

@@ -543,6 +543,16 @@ export function VoiceSpaceView(props: {
           </If>
         </If>
 
+        <If when={state().phase === "error" && state().wakeEnabled && !state().wakeNeedsConfiguration && props.store.voiceConfigured()}>
+          <Button
+            testID="voice-retry-wake"
+            onPress={() => void props.store.retryVoiceWake()}
+            class="min-h-12 px-5 rounded-full border border-foreground bg-card items-center justify-center active:bg-muted"
+          >
+            <Text class="text-foreground text-sm font-medium">{t("voiceRetryWake")}</Text>
+          </Button>
+        </If>
+
         <Button
           testID="voice-space-toggle"
           disabled={

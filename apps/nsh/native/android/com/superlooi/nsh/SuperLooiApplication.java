@@ -28,16 +28,16 @@ public final class SuperLooiApplication extends Application {
     private static native void registerShellVm(String nativeLibraryDir);
     private static SuperLooiApplication instance;
     private static volatile WeakReference<Activity> activity = new WeakReference<>(null);
-    private static volatile String focus = "lost";
+    private static int focusChange;
+    private static String audioInterruption = "";
     private static AudioManager manager;
     private static AudioFocusRequest focusRequest;
     private static int previousMode;
     private static int previousVolumeStream = AudioManager.USE_DEFAULT_STREAM_TYPE;
     private static WeakReference<Activity> voiceVolumeActivity = new WeakReference<>(null);
-    private static boolean ownsAudio;
+    private static boolean ownsStreams;
     private static boolean ownsSpeakerRoute;
     private static long audioGeneration;
-    private static volatile boolean interrupted = true;
     private static volatile boolean permissionPending;
     private static volatile boolean permissionCancelled;
     private static View cutoutView;
@@ -72,11 +72,12 @@ public final class SuperLooiApplication extends Application {
                 MiotLoginDialog.background(value);
                 LooiBleBridge.background();
                 if (activity.get() == value) {
-                    synchronized (SuperLooiApplication.class) { restoreVolumeControlStream(value); }
-                    activity.clear();
-                    // The native worker observes this even when JS is suspended.
-                    interrupted = true;
-                    focus = "lost";
+                    synchronized (SuperLooiApplication.class) {
+                        restoreVolumeControlStream(value);
+                        activity.clear();
+                        audioInterruption = "ACTIVITY_PAUSED";
+                        if (!ownsStreams) endVoiceAudio();
+                    }
                 }
             }
             public void onActivityDestroyed(Activity value) { stopObservingDisplayCutout(); MiotLoginDialog.background(value); LooiBleBridge.background(); if (activity.get() == value) activity.clear(); }
@@ -202,74 +203,107 @@ public final class SuperLooiApplication extends Application {
         }
     }
 
-    public static synchronized boolean beginVoiceAudio(boolean capture) {
-        if (instance == null || activity.get() == null || Build.VERSION.SDK_INT < 26) return false;
-        endVoiceAudio();
-        final long generation = audioGeneration;
-        interrupted = false;
-        try {
-        manager = (AudioManager) instance.getSystemService(AUDIO_SERVICE);
-        if (manager == null) return false;
-        previousMode = manager.getMode();
-        AudioAttributes attributes = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
-        focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-            .setAudioAttributes(attributes)
-            .setOnAudioFocusChangeListener(change -> {
-                synchronized (SuperLooiApplication.class) {
-                if (generation != audioGeneration) return;
-                if (change != AudioManager.AUDIOFOCUS_GAIN) interrupted = true;
-                focus = change == AudioManager.AUDIOFOCUS_GAIN ? "granted" : change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ? "duck" : change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ? "transient" : "lost";
-                }
-            }, new Handler(Looper.getMainLooper())).build();
-        if (manager.requestAudioFocus(focusRequest) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            focusRequest = null; manager = null; focus = "lost"; return false;
+    public static synchronized String beginVoiceAudio(boolean capture, boolean resumeFocus) {
+        if (instance == null || activity.get() == null)
+            return "ACTIVITY_NOT_RESUMED: Android audio requires a resumed Activity";
+        if (resumeFocus && !"ready".equals(voiceWakeFocus())) {
+            String code = "waiting".equals(voiceWakeFocus()) ? "AUDIO_FOCUS_NOT_READY" : audioInterruption;
+            return code + ": Android focus changed before the audio stream could reopen";
         }
-        ownsAudio = true;
-        if (capture) manager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-        selectVoiceSpeaker();
-        final Activity owner = activity.get();
-        if (owner != null) owner.runOnUiThread(() -> {
-            synchronized (SuperLooiApplication.class) {
-                if (generation != audioGeneration || !ownsAudio || activity.get() != owner) return;
-                if (voiceVolumeActivity.get() != owner) {
-                    previousVolumeStream = owner.getVolumeControlStream();
-                    voiceVolumeActivity = new WeakReference<>(owner);
+        if (!resumeFocus) endVoiceAudio();
+        final long generation = audioGeneration;
+        try {
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build();
+            if (!resumeFocus) {
+                manager = (AudioManager) instance.getSystemService(AUDIO_SERVICE);
+                if (manager == null) return "AUDIO_SERVICE_UNAVAILABLE: Android AudioManager is unavailable";
+                focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    .setAudioAttributes(attributes)
+                    .setOnAudioFocusChangeListener(change -> {
+                        synchronized (SuperLooiApplication.class) {
+                            if (generation != audioGeneration) return;
+                            focusChange = change;
+                            if (change < 0) audioInterruption = focusCode(change);
+                        }
+                    }, new Handler(Looper.getMainLooper())).build();
+                int result = manager.requestAudioFocus(focusRequest);
+                if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                    endVoiceAudio();
+                    return "AUDIOFOCUS_REQUEST_FAILED: requestAudioFocus returned " + result;
                 }
-                owner.setVolumeControlStream(attributes.getVolumeControlStream());
+                focusChange = AudioManager.AUDIOFOCUS_GAIN;
             }
-        });
-        focus = "granted";
-        return true;
-        } catch (RuntimeException error) { endVoiceAudio(); return false; }
+            audioInterruption = "";
+            previousMode = manager.getMode();
+            ownsStreams = true;
+            if (capture) manager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+            selectVoiceSpeaker();
+            final Activity owner = activity.get();
+            if (owner != null) owner.runOnUiThread(() -> {
+                synchronized (SuperLooiApplication.class) {
+                    if (generation != audioGeneration || !ownsStreams || activity.get() != owner) return;
+                    if (voiceVolumeActivity.get() != owner) {
+                        previousVolumeStream = owner.getVolumeControlStream();
+                        voiceVolumeActivity = new WeakReference<>(owner);
+                    }
+                    owner.setVolumeControlStream(attributes.getVolumeControlStream());
+                }
+            });
+            return "";
+        } catch (RuntimeException error) {
+            endVoiceAudio();
+            return "AUDIO_FOCUS_SETUP_FAILED: " + error;
+        }
+    }
+
+    public static synchronized void endVoiceStreams() {
+        closeVoiceRoute();
+        if (voiceWakeFocus().isEmpty()) endVoiceAudio();
     }
 
     public static synchronized void endVoiceAudio() {
         ++audioGeneration;
-        final long generation = audioGeneration;
-        interrupted = true;
-        focus = "lost";
-        final AudioManager oldManager = manager;
-        final AudioFocusRequest oldRequest = focusRequest;
-        final boolean owned = ownsAudio;
-        final boolean speakerOwned = ownsSpeakerRoute;
-        ownsSpeakerRoute = false;
-        ownsAudio = false; focusRequest = null; manager = null;
-        final Activity volumeOwner = voiceVolumeActivity.get();
-        if (volumeOwner != null) volumeOwner.runOnUiThread(() -> {
+        closeVoiceRoute();
+        if (manager != null && focusRequest != null) manager.abandonAudioFocusRequest(focusRequest);
+        focusChange = 0;
+        focusRequest = null;
+        manager = null;
+    }
+
+    private static void closeVoiceRoute() {
+        if (!ownsStreams) return;
+        ownsStreams = false;
+        final Activity owner = voiceVolumeActivity.get();
+        if (owner != null) owner.runOnUiThread(() -> {
             synchronized (SuperLooiApplication.class) {
-                if (generation == audioGeneration && !ownsAudio) restoreVolumeControlStream(volumeOwner);
+                if (!ownsStreams) restoreVolumeControlStream(owner);
             }
         });
-        if (oldManager != null && owned) {
-            if (speakerOwned) {
-                if (Build.VERSION.SDK_INT >= 31) oldManager.clearCommunicationDevice();
-                else oldManager.setSpeakerphoneOn(false);
-            }
-            try { if (oldManager.getMode() == AudioManager.MODE_IN_COMMUNICATION) oldManager.setMode(previousMode); }
-            catch (RuntimeException ignored) {}
-            try { if (Build.VERSION.SDK_INT >= 26 && oldRequest != null) oldManager.abandonAudioFocusRequest(oldRequest); }
-            catch (RuntimeException ignored) {}
+        if (ownsSpeakerRoute) {
+            if (Build.VERSION.SDK_INT >= 31) manager.clearCommunicationDevice();
+            else manager.setSpeakerphoneOn(false);
+            ownsSpeakerRoute = false;
         }
+        if (manager.getMode() == AudioManager.MODE_IN_COMMUNICATION) manager.setMode(previousMode);
+    }
+
+    private static String focusCode(int change) {
+        switch (change) {
+            case AudioManager.AUDIOFOCUS_LOSS: return "AUDIOFOCUS_LOSS";
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT: return "AUDIOFOCUS_LOSS_TRANSIENT";
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: return "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK";
+            default: return "AUDIOFOCUS_CHANGE_" + change;
+        }
+    }
+
+    public static synchronized String voiceWakeFocus() {
+        if (focusRequest == null || activity.get() == null
+                || !(audioInterruption.equals("AUDIOFOCUS_LOSS_TRANSIENT")
+                    || audioInterruption.equals("AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK"))) return "";
+        return focusChange == AudioManager.AUDIOFOCUS_GAIN ? "ready" : "waiting";
     }
 
     /** Use the loudspeaker for hands-free voice; retain an active headset route. */
@@ -296,5 +330,5 @@ public final class SuperLooiApplication extends Application {
         voiceVolumeActivity.clear();
     }
 
-    public static String voiceAudioFocus() { return interrupted || activity.get() == null ? "lost" : focus; }
+    public static synchronized String voiceAudioInterruption() { return audioInterruption; }
 }

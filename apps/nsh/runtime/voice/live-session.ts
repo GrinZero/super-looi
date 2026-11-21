@@ -23,7 +23,7 @@ import {
   type RealtimeItem,
 } from "@openai/agents-realtime";
 import { NativeRealtimeTransport } from "./sdk-transport.js";
-import { describeVoiceFailure } from "./failure.js";
+import { describeVoiceFailure, nativeAudioFailure } from "./failure.js";
 import type {
   AiTurnDraft,
   PluginVoiceTool,
@@ -109,7 +109,7 @@ export interface LiveVoiceSessionOptions {
   ) => void;
   onAudioLevel?: (level: number) => void;
   onSessionComplete: () => void;
-  onSessionError: (errorMessage: string) => void;
+  onSessionError: (errorMessage: string, failure?: ReturnType<typeof describeVoiceFailure>) => void;
 }
 
 /**
@@ -836,9 +836,9 @@ ${JSON.stringify(this.previewSample())}`;
     this.options.onStatePatch(patch);
   }
 
-  private fail(message: string): void {
+  private fail(message: string, failure?: ReturnType<typeof describeVoiceFailure>): void {
     if (this.disposed) return;
-    this.options.onSessionError(message);
+    this.options.onSessionError(message, failure);
   }
 
   private failWithCause(stage: string, error: unknown): void {
@@ -889,6 +889,7 @@ ${JSON.stringify(this.previewSample())}`;
         stage,
         detail: failure.message,
       })}`,
+      failure,
     );
   }
 
@@ -1038,10 +1039,23 @@ ${JSON.stringify(this.previewSample())}`;
       if (this.phase !== "connecting") return false;
       if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
       this.deadlineTimer = undefined;
-      if (this.purpose === "preview") {
-        if (this.options.audio.status().state !== "running") {
-          this.options.audio.start(false);
+      const audio = this.options.audio;
+      try {
+        const status = audio.status();
+        if (status.errorCode) throw nativeAudioFailure(status);
+        if (this.purpose === "preview") {
+          if (status.state !== "running") audio.start(false);
+        } else {
+          audio.setCaptureMode("conversation");
+          audio.setMuted(this.muted);
+          audio.playReadyCue();
         }
+      } catch (error) {
+        const status = audio.status();
+        this.failWithCause("audio.start", status.errorCode ? nativeAudioFailure(status) : error);
+        return true;
+      }
+      if (this.purpose === "preview") {
         const sample = this.previewSample();
         const previewFrames = this.options.protocol.encodePreviewSpeech
           ? this.options.protocol.encodePreviewSpeech(sample)
@@ -1065,9 +1079,6 @@ ${JSON.stringify(this.previewSample())}`;
         this.tick();
         return true;
       }
-      this.options.audio.setCaptureMode("conversation");
-      this.options.audio.setMuted(this.muted);
-      this.options.audio.playReadyCue();
       this.turnActivity = "waiting_user";
       this.silenceSince = Date.now();
       this.phase = "listening";
@@ -1475,7 +1486,7 @@ ${JSON.stringify(this.previewSample())}`;
     try {
       const status = this.options.audio.status();
       if (status.state !== "running") {
-        throw new Error(status.error || `Native audio state: ${status.state}`);
+        throw nativeAudioFailure(status);
       }
       const { peakLevel, drained, completedChunks } = this.audioPipeline.step(
         this.options.audio,
@@ -1561,7 +1572,12 @@ ${JSON.stringify(this.previewSample())}`;
 
       this.tickTimer = setTimeout(() => this.tick(), TICK_INTERVAL_MS);
     } catch (error) {
-      this.failWithCause("audio.pipeline", error);
+      const status = this.options.audio.status();
+      const detail = error instanceof Error ? error.message : String(error);
+      const cause = status.errorCode && status.error && detail.includes(status.error)
+        ? nativeAudioFailure(status)
+        : error;
+      this.failWithCause("audio.pipeline", cause);
     }
   }
 

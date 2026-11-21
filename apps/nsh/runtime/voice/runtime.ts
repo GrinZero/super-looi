@@ -6,7 +6,8 @@ import {
 import { LiveVoiceSession } from "./live-session.js";
 import { VoiceConversationWindow } from "./conversation-window.js";
 import { VoiceHomeReferences } from "./tools/home.js";
-import type { VoiceConversationMessage } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
+import { describeVoiceFailure, nativeAudioFailure } from "./failure.js";
+import type { VoiceConversationMessage, VoiceSessionFailure } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 import {
   createVoiceProtocol,
   type RealtimeProtocolAdapter,
@@ -79,6 +80,7 @@ export class VoiceRuntime {
       model: process.env.VOICE_MODEL,
     });
     this.credentials.setProviderId(this.protocol.providerId);
+    this.publish({ wakeNeedsConfiguration: false });
     this.stop();
     if (
       this.state.wakeEnabled &&
@@ -89,7 +91,12 @@ export class VoiceRuntime {
     return this.configuration();
   }
 
-  refreshCredentials(autoStandby = true): VoiceConfigurationSnapshot {
+  refreshCredentials(autoStandby = true, modelProviderId?: string): VoiceConfigurationSnapshot {
+    if (this.state.wakeNeedsConfiguration && modelProviderId === this.protocol.providerId &&
+        this.credentials.usesModelApiKey(modelProviderId)) {
+      this.publish({ wakeNeedsConfiguration: false });
+      this.stop();
+    }
     const configuration = this.configuration();
     if (!configuration.hasKey && !["idle", "error"].includes(this.state.phase)) {
       this.stop();
@@ -108,6 +115,7 @@ export class VoiceRuntime {
     if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
     this.suppressAutoStandbyPrompt = false;
     const next = this.credentials.setApiKey(this.protocol.providerId, value);
+    this.publish({ wakeNeedsConfiguration: false });
     this.stop();
     this.options.tracer?.registerSecret(next);
     if (this.state.wakeEnabled) void this.enterStandby();
@@ -117,12 +125,17 @@ export class VoiceRuntime {
     if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
     this.suppressAutoStandbyPrompt = false;
     this.credentials.clearApiKey(this.protocol.providerId);
+    this.publish({ wakeNeedsConfiguration: false });
     this.stop();
   }
 
   configureVoiceId(value: string): void {
     if (this.closed) throw new Error("@looi:runtimeVoiceClosed");
     this.credentials.setVoiceId(this.protocol.providerId, value);
+    if (this.state.wakeNeedsConfiguration) {
+      this.publish({ wakeNeedsConfiguration: false });
+      void this.enterStandby();
+    }
   }
 
   setWakeEnabled(enabled: boolean, options: { autoStandby?: boolean } = {}): void {
@@ -284,9 +297,11 @@ export class VoiceRuntime {
     });
   }
 
-  async enterStandby(options: { preserveError?: string } = {}): Promise<void> {
+  async enterStandby(): Promise<void> {
     if (
       this.closed ||
+      this.options.canAutoStandby?.() === false ||
+      this.state.wakeNeedsConfiguration ||
       !this.credentials.resolveApiKey(this.protocol.providerId) ||
       !this.state.wakeEnabled
     ) {
@@ -294,7 +309,12 @@ export class VoiceRuntime {
     }
     if (this.state.phase === "standby" || this.standbyPreparing !== undefined) return;
 
-    const permission = this.options.audio.status().permission;
+    const initial = this.options.audio.status();
+    if (initial.errorCode === "AUDIOFOCUS_LOSS") {
+      this.failWake("wake.focus", nativeAudioFailure(initial));
+      return;
+    }
+    const permission = initial.permission;
     if (permission !== "granted") {
       if (this.suppressAutoStandbyPrompt) {
         return;
@@ -328,6 +348,11 @@ export class VoiceRuntime {
       }
     }
 
+    if (initial.wakeFocus === "waiting") {
+      this.waitForAudioFocus();
+      return;
+    }
+
     const generation = ++this.standbyGeneration;
     this.standbyPreparing = generation;
     try {
@@ -335,25 +360,41 @@ export class VoiceRuntime {
         this.clearCueStopTimer();
         this.options.audio.stop();
       }
-      const started = await this.options.audio.startWake(this.options.audio.beginWake());
-      if (!this.isStandbyGeneration(generation) || !started) return;
+      const resumeFocus = initial.wakeFocus === "ready";
+      const started = await this.options.audio.startWake(this.options.audio.beginWake(), resumeFocus);
+      if (!this.isStandbyGeneration(generation)) return;
       const status = this.options.audio.status();
+      if (!started) {
+        if (status.wakeFocus) this.waitForAudioFocus();
+        else if (resumeFocus) this.failWake("wake.focus", nativeAudioFailure(status));
+        return;
+      }
+      if (status.wakeFocus) {
+        this.failWake("wake.capture", nativeAudioFailure(status), true);
+        this.waitForAudioFocus();
+        return;
+      }
       if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady) {
-        throw new Error("");
+        throw nativeAudioFailure(status);
       }
       this.clearStandbyTimer();
+      this.standbyPreparing = undefined;
       this.publish({
         phase: "standby",
         muted: false,
         purpose: undefined,
         activeVoiceId: undefined,
-        error: options.preserveError ?? "",
+        error: "",
       });
       this.pollStandby(generation);
-    } catch {
+    } catch (error) {
       if (!this.isStandbyGeneration(generation)) return;
-      this.options.audio.stop();
-      this.publish({ phase: "error", muted: false, error: "" });
+      const status = this.options.audio.status();
+      const detail = error instanceof Error ? error.message : String(error);
+      const cause = status.errorCode && status.error && detail.includes(status.error)
+        ? nativeAudioFailure(status)
+        : error;
+      this.failWake("wake.start", cause);
     } finally {
       if (this.standbyPreparing === generation) this.standbyPreparing = undefined;
     }
@@ -449,14 +490,16 @@ export class VoiceRuntime {
       stopVoiceMotion: this.options.stopVoiceMotion,
       redactSecrets: this.options.redactSecrets,
       onStatePatch: (patch) => {
-        if (this.session === session) this.publish(patch);
+        if (this.session === session) {
+          this.publish(patch.phase === "listening" ? { ...patch, wakeNeedsConfiguration: false } : patch);
+        }
       },
       onAudioLevel: this.options.onAudioLevel,
       onSessionComplete: () => {
         if (this.session === session) this.endSession();
       },
-      onSessionError: (message) => {
-        if (this.session === session) this.fail(message);
+      onSessionError: (message, failure) => {
+        if (this.session === session) this.fail(message, failure);
       },
     });
     this.session = session;
@@ -512,8 +555,8 @@ export class VoiceRuntime {
       onSessionComplete: () => {
         if (this.session === session) this.endSession();
       },
-      onSessionError: (message) => {
-        if (this.session === session) this.fail(message);
+      onSessionError: (message, failure) => {
+        if (this.session === session) this.fail(message, failure);
       },
     });
     this.session = session;
@@ -629,19 +672,20 @@ export class VoiceRuntime {
           this.pushPendingNotice(pending);
         }
       }
-      active.dispose("graceful");
+      active.dispose(preserveError ? "immediate" : "graceful");
     } else {
       this.options.audio.clearPlayback();
       this.options.onAudioLevel?.(0);
     }
     if (wasPreview) {
-      this.options.audio.stop();
+      if (!this.options.audio.status().wakeFocus) this.options.audio.stop();
       this.options.onAudioLevel?.(0);
     }
     (this.options.onSessionEnd ?? this.options.cancelTask)?.();
     const canResumeWake =
       this.state.wakeEnabled &&
       !this.closed &&
+      this.options.canAutoStandby?.() !== false &&
       (!wasPreview || this.options.audio.status().permission === "granted");
     if (canResumeWake) {
       this.publish({
@@ -652,7 +696,7 @@ export class VoiceRuntime {
         ...(restoredTranscript !== undefined ? { transcript: restoredTranscript } : {}),
         ...(preserveError ? { error: preserveError } : {}),
       });
-      void this.enterStandby({ preserveError });
+      void this.enterStandby();
     } else {
       this.stop(restoredTranscript, preserveError);
     }
@@ -660,7 +704,8 @@ export class VoiceRuntime {
 
   /** Cancel pending or active local wake without ending a live conversation. */
   stopStandby(): void {
-    if (this.standbyPreparing !== undefined || ["standby", "permission"].includes(this.state.phase)) {
+    if (this.standbyPreparing !== undefined || this.standbyTimer !== undefined ||
+        ["standby", "permission"].includes(this.state.phase)) {
       this.stop();
     }
   }
@@ -700,7 +745,7 @@ export class VoiceRuntime {
       purpose: preparingPreview ? "preview" : undefined,
       activeVoiceId: undefined,
       ...(restoredTranscript !== undefined ? { transcript: restoredTranscript } : {}),
-      error,
+      error: error || (this.state.wakeNeedsConfiguration && !preparingPreview ? this.state.error : ""),
     });
   }
 
@@ -734,8 +779,12 @@ export class VoiceRuntime {
     }
     const status = this.options.audio.status();
     if (status.state !== "running" || status.captureMode !== "kws" || !status.kwsReady) {
-      this.options.audio.stop();
-      this.publish({ phase: "error", muted: false, error: "" });
+      if (status.errorCode === "ACTIVITY_PAUSED") {
+        this.stop();
+        return;
+      }
+      this.failWake("wake.capture", nativeAudioFailure(status), Boolean(status.wakeFocus));
+      if (status.wakeFocus) void this.enterStandby();
       return;
     }
     if (status.wakeWord) {
@@ -745,17 +794,51 @@ export class VoiceRuntime {
     this.standbyTimer = setTimeout(() => this.pollStandby(generation), STANDBY_POLL_MS);
   }
 
-  private fail(message: string): void {
-    if (
-      this.state.wakeEnabled &&
-      this.state.phase !== "standby" &&
-      this.options.audio.status().state === "running"
-    ) {
-      this.endSession(message);
-      this.publish({ error: message });
+  private waitForAudioFocus(): void {
+    const generation = ++this.standbyGeneration;
+    this.clearStandbyTimer();
+    this.standbyTimer = setTimeout(() => {
+      if (!this.isStandbyGeneration(generation) || !this.state.wakeEnabled ||
+          this.options.canAutoStandby?.() === false) return;
+      const status = this.options.audio.status();
+      if (status.wakeFocus) void this.enterStandby();
+      else if (status.errorCode === "ACTIVITY_PAUSED") this.stop();
+      else this.failWake("wake.focus", nativeAudioFailure(status));
+    }, PERMISSION_POLL_MS);
+  }
+
+  private failWake(stage: string, error: unknown, recovering = false): void {
+    const secret = this.credentials.resolveApiKey(this.protocol.providerId);
+    const failure = describeVoiceFailure(stage, error, secret);
+    this.options.tracer?.start("voice.wake", "span", { traceId: "", traceName: "voice.wake" }).end({
+      "langfuse.observation.level": "ERROR",
+      "langfuse.observation.status_message": failure.message,
+      "langfuse.observation.metadata.failureStage": failure.stage,
+      ...(failure.code ? { "langfuse.observation.metadata.errorCode": failure.code } : {}),
+    });
+    const message = `@looi:runtimeWakeStageFailed|${JSON.stringify({ stage, detail: failure.message })}`;
+    if (!recovering) this.options.audio.stop();
+    this.publish({ phase: "error", muted: false, error: message });
+  }
+
+  private fail(message: string, failure?: VoiceSessionFailure): void {
+    const status = this.options.audio.status();
+    const code = failure?.code;
+    const audioCode = status.errorCode || (failure?.stage.startsWith("audio.") ? code : undefined);
+    if (audioCode === "ACTIVITY_PAUSED") {
+      this.stop();
       return;
     }
-    this.stop(undefined, message);
+    const configurationRejected = code === "invalid_api_key" || code === "authentication_error" ||
+      code === "401" || code === "403" ||
+      (!code && failure?.stage === "provider.error" && this.state.phase === "connecting");
+    if (configurationRejected) this.publish({ wakeNeedsConfiguration: true });
+    if (audioCode === "AUDIOFOCUS_LOSS" || configurationRejected ||
+        (status.permission !== "granted" && !status.wakeFocus)) {
+      this.stop(undefined, message);
+      return;
+    }
+    this.endSession(message);
   }
 
   private isStandbyGeneration(generation: number): boolean {

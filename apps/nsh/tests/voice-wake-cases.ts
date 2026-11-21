@@ -31,24 +31,32 @@ export async function verifyWakeRuntime() {
     originalTimeout(handler, delay && delay >= 6000 && delay <= 12000 ? Math.round(delay * 180 / 12000) : delay, ...args)) as typeof setTimeout;
   try {
     let state = "idle", mode = "idle", permission = "granted", ready = true;
+    let wakeFocus = "", audioError = "";
+    let wakeStartFailure: Error | undefined;
+    let wakeAttempts = 0;
     let wakeWord = "", muted = false, playback = 0, starts = 0, stops = 0, cues = 0;
     const audio: VoiceAudioPort = {
-      beginWake: () => 0, startWake: async () => { audio.setCaptureMode("kws"); return true; },
+      beginWake: () => 0, startWake: async () => {
+        wakeAttempts++;
+        if (wakeStartFailure) throw wakeStartFailure;
+        audio.setCaptureMode("kws");
+        return true;
+      },
       requestPermission: () => permission,
-      start: () => { state = "running"; starts++; },
+      start: () => { state = "running"; wakeFocus = ""; audioError = ""; starts++; },
       setCaptureMode: (next) => {
         if (state !== "running") audio.start(true);
         mode = next; muted = false; wakeWord = "";
       },
       playReadyCue: () => { cues++; },
-      stop: () => { state = "idle"; mode = "idle"; stops++; },
+      stop: () => { state = "idle"; mode = "idle"; wakeFocus = ""; audioError = ""; stops++; },
       enqueue: (pcm) => { playback += pcm.length; },
       clearPlayback: () => { playback = 0; },
       setMuted: (next) => { muted = next; },
       drainCapture: () => [],
       status: () => {
         const detected = wakeWord; wakeWord = "";
-        return { state, permission, error: "", queuedPlaybackMs: playback ? 10 : 0, captureMode: mode, wakeWord: detected, kwsReady: ready };
+        return { state, permission, error: audioError, errorCode: audioError, wakeFocus, queuedPlaybackMs: playback ? 10 : 0, captureMode: mode, wakeWord: detected, kwsReady: ready };
       },
     };
     const saved = new Map([["voice", JSON.stringify({ apiKey: "test-key" })]]);
@@ -120,11 +128,86 @@ export async function verifyWakeRuntime() {
     await wait(155);
     check(voice.snapshot().phase === "standby", "late transcription completion restarted the silence window");
 
+    const initialStarts = Number(starts);
+    const initialSockets = sockets.length;
+    wakeWord = "Hey_LOOI";
+    await wait(85);
+    sockets.at(-1)!.push({ type: "session.created" });
+    await wait(35);
+    state = "error";
+    audioError = "AUDIOFOCUS_LOSS_TRANSIENT";
+    wakeFocus = "waiting";
+    await wait(300);
+    check(voice.snapshot().phase === "error" && voice.snapshot().error.includes(audioError),
+      "temporary focus loss did not surface through the failed session");
+    check(starts === initialStarts && sockets.length === initialSockets + 1,
+      "temporary focus loss restarted capture or opened a cloud connection before gain");
+
+    wakeFocus = "ready";
+    await wait(300);
+    check(voice.snapshot().phase === "standby" && !voice.snapshot().error && starts === initialStarts + 1,
+      "audio focus gain did not rebuild local wake and clear the visible error");
+    check(sockets.length === initialSockets + 1, "recovery opened a cloud connection");
+    wakeWord = "Hey_LOOI";
+    await wait(85);
+    check(sockets.length === initialSockets + 2, "the next wake word did not start a new session");
+    const recovered = sockets.at(-1)!;
+    recovered.push({ type: "session.created" });
+    await wait(35);
+    recovered.push(null);
+    await wait(45);
+    check(voice.snapshot().phase === "standby" && !voice.snapshot().error &&
+      starts === initialStarts + 1, "a network failure did not reuse healthy audio for standby");
+
+    state = "error";
+    audioError = "AUDIOFOCUS_LOSS_TRANSIENT";
+    wakeFocus = "waiting";
+    await wait(85);
+    voice.setWakeEnabled(false);
+    wakeFocus = "ready";
+    await wait(280);
+    check(state === "idle" && starts === initialStarts + 1,
+      "late focus gain reopened the microphone after wake was disabled");
+
+    wakeFocus = "";
+    voice.setWakeEnabled(true, { autoStandby: false });
+    await voice.enterStandby();
+    state = "error";
+    audioError = "AUDIOFOCUS_LOSS_TRANSIENT";
+    wakeFocus = "waiting";
+    await wait(85);
+    const attemptsBeforeModelFailure = wakeAttempts;
+    wakeStartFailure = Object.assign(new Error("Wake model could not be loaded"), { code: "MODEL_LOAD" });
+    wakeFocus = "ready";
+    await wait(570);
+    check(wakeAttempts === attemptsBeforeModelFailure + 1, "failed model load repeatedly retried after focus gain");
+    check(voice.snapshot().phase === "error" && voice.snapshot().error.includes("MODEL_LOAD"),
+      "the resume attempt lost the wake model's original failure");
+    wakeStartFailure = undefined;
+
+    await voice.enterStandby();
+    state = "error";
+    audioError = "AUDIOFOCUS_LOSS_TRANSIENT";
+    wakeFocus = "waiting";
+    await wait(85);
+    const beforePermanentLoss = wakeAttempts;
+    audioError = "AUDIOFOCUS_LOSS";
+    wakeFocus = "";
+    await wait(300);
+    check(wakeAttempts === beforePermanentLoss && voice.snapshot().phase === "error" &&
+      voice.snapshot().error.includes('"stage":"wake.focus"'),
+      "permanent focus loss silently requested a new focus or lost its terminal error");
+    await voice.enterStandby();
+    check(voice.snapshot().phase === "standby", "explicit retry after permanent loss did not restart listening");
+
+
     voice.stop();
     ready = false;
+    voice.setWakeEnabled(true, { autoStandby: false });
     await voice.enterStandby();
-    check(voice.snapshot().phase === "error" && voice.snapshot().error === "" && state === "idle" && stops > 0,
-      "unavailable KWS was shown as listening or leaked model error");
+    check(voice.snapshot().phase === "error" && voice.snapshot().error.includes("wake.start") &&
+      voice.snapshot().error.includes("wake model ready: false") && state === "idle" && stops > 0,
+      "unavailable KWS was shown as listening or lost its failure details");
     voice.close();
 
     let completeAppend!: () => void;

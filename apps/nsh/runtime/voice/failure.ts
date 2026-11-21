@@ -1,3 +1,4 @@
+import type { VoiceAudioPort } from "./types.js";
 import type { VoiceSessionFailure } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 
 export function describeVoiceFailure(
@@ -24,6 +25,8 @@ export function describeVoiceFailure(
         .filter((key) => info[key] !== undefined)
         .map((key) => `${key}=${String(info[key])}`);
       if (!code && info.code !== undefined) code = String(info.code);
+      const status = String(info.statusCode ?? info.status ?? "");
+      if (!code && (status === "401" || status === "403")) code = status;
       const reason =
         typeof info.message === "string" ? info.message : JSON.stringify(cause);
       details.push([fields.join(" "), reason].filter(Boolean).join(": "));
@@ -42,4 +45,10 @@ export function describeVoiceFailure(
       details.length ? details.join("; caused by: ") : String(error),
     ),
   };
+}
+
+export function nativeAudioFailure(status: ReturnType<VoiceAudioPort["status"]>): Error {
+  const error = new Error(status.error ||
+    `Native audio state: ${status.state}; capture mode: ${status.captureMode}; wake model ready: ${status.kwsReady}`);
+  return status.errorCode ? Object.assign(error, { code: status.errorCode }) : error;
 }

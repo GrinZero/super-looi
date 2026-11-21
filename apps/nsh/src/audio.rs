@@ -108,6 +108,7 @@ pub(super) struct AudioBuffers {
     generation: u64,
     muted: bool,
     error: String,
+    error_code: String,
     mode: CaptureMode,
     kws_queue: VecDeque<Vec<u8>>,
     kws_epoch: u64,
@@ -130,6 +131,7 @@ impl Default for AudioBuffers {
             generation: 0,
             muted: false,
             error: String::new(),
+            error_code: String::new(),
             mode: CaptureMode::RealtimeCapture,
             kws_queue: VecDeque::with_capacity(MAX_KWS_CHUNKS),
             kws_epoch: 0,
@@ -227,6 +229,9 @@ pub struct VoiceAudioStatus {
     pub dropped_capture_packets: u32,
     /// Sanitized failure, without audio or credentials.
     pub error: String,
+    pub error_code: String,
+    /// Android focus request retained for wake recovery: waiting, ready, or empty.
+    pub wake_focus: String,
     pub capture_mode: String,
     pub wake_word: String,
     pub kws_ready: bool,
@@ -276,37 +281,19 @@ impl VoiceAudio {
     /// Start output and optionally microphone capture after explicit user action.
     pub fn start(&mut self, capture: bool) -> Result<(), String> {
         self.stop();
-        if AUDIO_OWNER
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Err("Another voice audio session is active".into());
-        }
-        self.owns_session = true;
-        // Completion handlers from a stopped session retain its old buffers;
-        // they can never decrement a subsequent session's playback counters.
-        self.shared = Arc::new(Mutex::new(AudioBuffers::default()));
-        match platform::Audio::start(self.shared.clone(), capture) {
-            Ok(native) => {
-                self.native = Some(native);
-                self.capture = capture;
-                Ok(())
-            }
-            Err(error) => {
-                if let Ok(mut buffers) = self.shared.lock() {
-                    buffers.error = error.clone();
-                }
-                self.release_owner();
-                Err(error)
-            }
-        }
+        self.start_device(capture, false)
     }
 
     /// Queue bounded 24 kHz mono PCM16LE. A full queue fails with backpressure.
     pub fn enqueue(&mut self, pcm: Vec<u8>, sample_rate: u32) -> Result<(), String> {
         self.refresh_native();
         if self.native.is_none() {
-            return Err("Voice audio is not running".into());
+            let state = self.shared.lock().map_err(|_| "Audio state unavailable")?;
+            return Err(if state.error.is_empty() {
+                "Voice audio is not running".into()
+            } else {
+                state.error.clone()
+            });
         }
         if sample_rate != pcm::PLAYBACK_RATE
             || pcm.len() % 2 != 0
@@ -356,11 +343,17 @@ impl VoiceAudio {
 
     /// Load the wake model off the engine thread, then start local capture.
     /// False means stop cancelled this preparation before capture began.
-    pub async fn start_wake(this: Instance<Self>, generation: u32) -> Result<bool, String> {
+    pub async fn start_wake(
+        this: Instance<Self>,
+        generation: u32,
+        resume_focus: Option<bool>,
+    ) -> Result<bool, String> {
+        let resume_focus = resume_focus == Some(true);
         if this.with(|audio| audio.wake_generation != generation) {
             return Ok(false);
         }
         let prepared = this.with_mut(|audio| -> Result<Option<PathBuf>, String> {
+            audio.refresh_native();
             if audio.native.is_some() && audio.capture && audio.kws_worker.is_some() {
                 audio.set_capture_mode("kws".into())?;
                 return Ok(None);
@@ -378,7 +371,27 @@ impl VoiceAudio {
             return Ok(false);
         }
         this.with_mut(|audio| {
-            audio.start(true)?;
+            audio.refresh_native();
+            if resume_focus {
+                match audio.wake_focus().as_str() {
+                    "waiting" => return Ok(false),
+                    "ready" => {}
+                    _ => {
+                        let state = audio.shared.lock().map_err(|_| "Audio state unavailable")?;
+                        return Err(format!("{}: {}", state.error_code, state.error));
+                    }
+                }
+                audio.clear_streams();
+                if let Err(error) = audio.start_device(true, true) {
+                    if error.starts_with("AUDIO_FOCUS_NOT_READY:") && !audio.wake_focus().is_empty()
+                    {
+                        return Ok(false);
+                    }
+                    return Err(error);
+                }
+            } else {
+                audio.start(true)?;
+            }
             audio.kws_worker = Some(KwsWorker::with_spotter(audio.shared.clone(), spotter)?);
             audio
                 .shared
@@ -559,6 +572,8 @@ impl VoiceAudio {
                 / 24.0,
             dropped_capture_packets: buffers.dropped_packets,
             error: buffers.error.clone(),
+            error_code: buffers.error_code.clone(),
+            wake_focus: self.wake_focus(),
             capture_mode: if self.native.is_none() {
                 "idle"
             } else if buffers.mode == CaptureMode::KwsStandby {
@@ -575,6 +590,13 @@ impl VoiceAudio {
     /// Idempotently stop devices, release audio focus, and discard all audio.
     pub fn stop(&mut self) {
         self.wake_generation = self.wake_generation.wrapping_add(1);
+        self.clear_streams();
+        self.release_owner();
+    }
+}
+
+impl VoiceAudio {
+    fn clear_streams(&mut self) {
         if let Some(mut worker) = self.kws_worker.take() {
             worker.stop(&self.shared);
         }
@@ -583,37 +605,81 @@ impl VoiceAudio {
         if let Ok(mut buffers) = self.shared.lock() {
             *buffers = AudioBuffers::default();
         }
-        self.release_owner();
     }
-}
 
-impl VoiceAudio {
+    fn wake_focus(&self) -> String {
+        #[cfg(target_os = "android")]
+        if self.owns_session {
+            return platform::wake_focus();
+        }
+        String::new()
+    }
+
+    fn start_device(&mut self, capture: bool, resume_focus: bool) -> Result<(), String> {
+        if !resume_focus
+            && AUDIO_OWNER
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            return Err("Another voice audio session is active".into());
+        }
+        self.owns_session = true;
+        // Completion handlers from a stopped session retain its old buffers;
+        // they can never decrement a subsequent session's playback counters.
+        self.shared = Arc::new(Mutex::new(AudioBuffers::default()));
+        #[cfg(target_os = "android")]
+        let started = platform::Audio::start(self.shared.clone(), capture, resume_focus);
+        #[cfg(not(target_os = "android"))]
+        let started = platform::Audio::start(self.shared.clone(), capture);
+        match started {
+            Ok(native) => {
+                self.native = Some(native);
+                self.capture = capture;
+                Ok(())
+            }
+            Err(error) => {
+                if let Ok(mut buffers) = self.shared.lock() {
+                    if buffers.error.is_empty() {
+                        buffers.error = error.clone();
+                    }
+                }
+                if !(resume_focus
+                    && error.starts_with("AUDIO_FOCUS_NOT_READY:")
+                    && !self.wake_focus().is_empty())
+                {
+                    self.release_owner();
+                }
+                Err(error)
+            }
+        }
+    }
+
     fn refresh_native(&mut self) {
         if let Some(native) = self.native.as_mut() {
             native.refresh();
         }
-        let error = self.shared.lock().ok().and_then(|s| {
-            if s.error.is_empty() {
-                None
-            } else {
-                Some(s.error.clone())
-            }
-        });
-        if let Some(error) = error {
+        if self.native.is_some()
+            && self
+                .shared
+                .lock()
+                .is_ok_and(|state| !state.error.is_empty())
+        {
             self.native.take();
             self.capture = false;
-            if let Ok(mut state) = self.shared.lock() {
-                // The KWS worker may still be waiting on this exact Condvar.
-                let kws_notify = state.kws_notify.clone();
-                *state = AudioBuffers::default();
-                state.kws_notify = kws_notify;
-                state.error = error;
+            if let Some(mut worker) = self.kws_worker.take() {
+                worker.stop(&self.shared);
             }
+        }
+        if self.native.is_none() && self.owns_session && self.wake_focus().is_empty() {
+            #[cfg(target_os = "android")]
+            platform::report_focus_end(&self.shared);
             self.release_owner();
         }
     }
     fn release_owner(&mut self) {
         if self.owns_session {
+            #[cfg(target_os = "android")]
+            platform::release_focus();
             AUDIO_OWNER.store(false, Ordering::Release);
             self.owns_session = false;
         }

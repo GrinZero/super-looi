@@ -1157,6 +1157,7 @@ export function createAppStore() {
         defaultLanguage: effectiveLocale,
         tracer: opened.tracer,
         audio: new VoiceAudio(),
+        canAutoStandby,
         previewInput: async () => new Uint8Array(await (await fetch(mossPreviewInputUrl)).arrayBuffer()),
         connect,
         onState: (state) => {
@@ -1596,7 +1597,7 @@ export function createAppStore() {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
       const snap = await runtime.saveProviderApiKey(input, action());
       llmSnapshot.set(snap);
-      const refreshedVoice = voice?.refreshCredentials(canAutoStandby());
+      const refreshedVoice = voice?.refreshCredentials(canAutoStandby(), input.providerId);
       voiceConfigured.set(refreshedVoice?.hasKey ?? false);
       voiceConfiguredProviders.set(refreshedVoice?.configuredProviders ?? {});
       voiceKeyHint.set(refreshedVoice?.keyHint ?? "");
@@ -1633,7 +1634,7 @@ export function createAppStore() {
           action(),
         );
         llmSnapshot.set(snap);
-        const refreshedVoice = voice?.refreshCredentials(canAutoStandby());
+        const refreshedVoice = voice?.refreshCredentials(canAutoStandby(), providerId);
         voiceConfigured.set(refreshedVoice?.hasKey ?? false);
         voiceConfiguredProviders.set(refreshedVoice?.configuredProviders ?? {});
         voiceKeyHint.set(refreshedVoice?.keyHint ?? "");
@@ -1814,6 +1815,9 @@ export function createAppStore() {
       } catch (error) {
         fail(error);
       }
+    },
+    async retryVoiceWake() {
+      await voice?.enterStandby();
     },
     async restartVoiceSession() {
       api.dismissWakeGuide();

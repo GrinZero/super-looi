@@ -16,7 +16,7 @@ export interface VoiceAudioPort {
   requestPermission(): string;
   start(capture: boolean): void;
   beginWake(): number;
-  startWake(ticket: number): Promise<boolean>;
+  startWake(ticket: number, resumeFocus?: boolean): Promise<boolean>;
   stop(): void;
   enqueue(pcm: Uint8Array, rate: number): void;
   clearPlayback(): void;
@@ -33,6 +33,8 @@ export interface VoiceAudioPort {
     state: string;
     permission: string;
     error: string;
+    errorCode?: string;
+    wakeFocus?: string;
     queuedPlaybackMs: number;
     captureMode: string;
     wakeWord: string;
@@ -62,6 +64,7 @@ export interface VoiceState {
     | "error";
   muted: boolean;
   wakeEnabled: boolean;
+  wakeNeedsConfiguration?: boolean;
   transcript: string;
   userTranscript?: string;
   purpose?: "conversation" | "preview";
@@ -118,6 +121,7 @@ export interface VoiceRuntimeOptions {
   conversationId?: () => string;
   defaultLanguage?: () => "zh-CN" | "en-US";
   audio: VoiceAudioPort;
+  canAutoStandby?: () => boolean;
   /** Prerecorded 16 kHz mono PCM input for a real MOSS preview turn; never microphone capture. */
   previewInput?: () => Promise<Uint8Array>;
   connect: (
