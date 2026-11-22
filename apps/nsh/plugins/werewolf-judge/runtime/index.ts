@@ -3,6 +3,7 @@ import type {
   EffectScope,
   LanRoomSession,
   PluginContext,
+  PluginContextSlice,
   PluginDefinition,
   PluginFailure,
   PluginRuntime,
@@ -313,8 +314,7 @@ export class WerewolfJudgePluginRuntime
   private nightScope: EffectScope | null = null;
   private nightTaskAbort: AbortController | null = null;
 
-  private dayContextScope: EffectScope | null = null;
-  private dayContextDispose: Dispose | null = null;
+  private dayContext: { scope: EffectScope; slice: PluginContextSlice } | null = null;
 
   private lanScope: EffectScope | null = null;
   private lanSession: LanRoomSession | null = null;
@@ -1346,12 +1346,8 @@ export class WerewolfJudgePluginRuntime
   }
 
   private syncLifecycleScopesForCurrentPhase(): void {
-    const phase = this.engine.getPhase();
     const inNight = this.engine.isNightPhase() && !this.hostPaused;
-    const inDayOrMatch =
-      !this.engine.isNightPhase() && phase !== "idle" && !this.hostPaused;
 
-    // 1. Night silence scope (`interceptUserTurn`)
     if (inNight) {
       if (!this.nightScope || !this.nightScope.active) {
         const ns = this.ctx.forkScope(`night-round-${this.engine.getDay()}`);
@@ -1380,39 +1376,37 @@ export class WerewolfJudgePluginRuntime
       void old.dispose();
     }
 
-    // 2. Daytime public-only Judge persona & context slice
-    if (inDayOrMatch) {
-      if (!this.dayContextScope || !this.dayContextScope.active) {
-        const ds = this.ctx.forkScope("werewolf-day-context");
-        this.dayContextScope = ds;
-        this.ctx.ai?.usePersonaOverlay(
-          {
-            mode: "append_rules",
-            instructions:
-              "你正在担任线下聚会狼人杀的 AI 法官主持。仅根据公开台面状态简要回答存活座位、公投票型或阶段规则，严禁编造任何未公开身份。",
-          },
-          ds,
-        );
-      }
-      if (this.dayContextDispose) {
-        void this.dayContextDispose();
-        this.dayContextDispose = null;
-      }
-      if (this.dayContextScope?.active && this.ctx.ai) {
-        this.dayContextDispose = this.ctx.ai.useContextSlice(
-          {
-            summary: this.engine.exportPublicDayContextSummary(),
-            priority: 80,
-          },
-          this.dayContextScope,
-        );
-      }
-    } else if (this.dayContextScope) {
-      this.dayContextDispose = null;
-      const old = this.dayContextScope;
-      this.dayContextScope = null;
-      void old.dispose();
+    const ai = this.ctx.ai;
+    if (!ai || !this.hasPublicDayContext()) {
+      void this.disposeDayContext();
+      return;
     }
+    if (this.dayContext?.scope.active) return;
+
+    const scope = this.ctx.forkScope("werewolf-day-context");
+    ai.usePersonaOverlay(
+      {
+        mode: "append_rules",
+        instructions:
+          "你正在担任线下聚会狼人杀的 AI 法官主持。仅根据公开台面状态简要回答存活座位、公投票型或阶段规则，严禁编造任何未公开身份。",
+      },
+      scope,
+    );
+    const slice = ai.useContextSlice(
+      { summary: this.engine.exportPublicDayContextSummary(), priority: 80 },
+      scope,
+    );
+    this.dayContext = { scope, slice };
+  }
+
+  private hasPublicDayContext(): boolean {
+    return !this.hostPaused && !this.engine.isNightPhase() && this.engine.getPhase() !== "idle";
+  }
+
+  private disposeDayContext(): Promise<void> | undefined {
+    const scope = this.dayContext?.scope;
+    this.dayContext = null;
+    return scope?.dispose();
   }
 
   private syncDealingCameraSubscription(): void {
@@ -1588,12 +1582,7 @@ export class WerewolfJudgePluginRuntime
       this.nightScope = null;
       await ns.dispose();
     }
-    if (this.dayContextScope) {
-      this.dayContextDispose = null;
-      const ds = this.dayContextScope;
-      this.dayContextScope = null;
-      await ds.dispose();
-    }
+    await this.disposeDayContext();
     if (this.stagePresentationDispose) {
       await this.stagePresentationDispose();
       this.stagePresentationDispose = null;
@@ -2008,24 +1997,8 @@ export class WerewolfJudgePluginRuntime
     this.syncResumableSession();
     this.lanSession?.notifyRevision(nextState.revision);
 
-    // Keep daytime context slice fresh when public events/votes advance
-    if (
-      this.dayContextScope?.active &&
-      !this.engine.isNightPhase() &&
-      this.engine.getPhase() !== "idle" &&
-      !this.hostPaused &&
-      this.ctx.ai
-    ) {
-      if (this.dayContextDispose) {
-        void this.dayContextDispose();
-      }
-      this.dayContextDispose = this.ctx.ai.useContextSlice(
-        {
-          summary: this.engine.exportPublicDayContextSummary(),
-          priority: 80,
-        },
-        this.dayContextScope,
-      );
+    if (this.dayContext && this.hasPublicDayContext()) {
+      this.dayContext.slice.updateSummary(this.engine.exportPublicDayContextSummary());
     }
   }
 
@@ -2039,12 +2012,7 @@ export class WerewolfJudgePluginRuntime
       this.nightScope = null;
       await ns.dispose();
     }
-    if (this.dayContextScope) {
-      this.dayContextDispose = null;
-      const ds = this.dayContextScope;
-      this.dayContextScope = null;
-      await ds.dispose();
-    }
+    await this.disposeDayContext();
     if (this.stagePresentationDispose) {
       await this.stagePresentationDispose();
       this.stagePresentationDispose = null;

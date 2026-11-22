@@ -205,11 +205,15 @@ export interface PluginSpeakOptions {
   readonly closeToStandbyOnComplete?: boolean;
 }
 
+export type PluginContextSlice = Dispose & {
+  updateSummary(summary: string): void;
+};
+
 export interface PluginAiCapability {
   useContextSlice(
     slice: { readonly summary: string; readonly priority?: number },
     scope?: EffectScope,
-  ): Dispose;
+  ): PluginContextSlice;
   usePersonaOverlay(
     overlay: { readonly mode: "append_rules" | "stage_persona"; readonly instructions: string },
     scope?: EffectScope,

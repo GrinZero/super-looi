@@ -37,7 +37,7 @@ export interface DualLoopAiBusBridge {
 
 interface RegisteredSlice {
   readonly pluginId: string;
-  readonly summary: string;
+  summary: string;
   readonly priority: number;
 }
 
@@ -404,7 +404,7 @@ export class DualLoopAiBus {
     if (!hasAnyAiPermission) return undefined;
 
     return {
-      useContextSlice: (slice, scope = defaultScope): Dispose => {
+      useContextSlice: (slice, scope = defaultScope) => {
         assertPermission(manifest, "ai.context", "plugin.ai.useContextSlice");
         const record: RegisteredSlice = {
           pluginId: manifest.id,
@@ -421,10 +421,17 @@ export class DualLoopAiBus {
           this.notifyAmbientChanged();
         };
         const detach = scope.onDispose(remove);
-        return () => {
+        const dispose = () => {
           detach();
           remove();
         };
+        return Object.assign(dispose, {
+          updateSummary: (summary: string) => {
+            if (!scope.active || removed || record.summary === summary) return;
+            record.summary = summary;
+            this.notifyAmbientChanged();
+          },
+        });
       },
 
       usePersonaOverlay: (overlay, scope = defaultScope): Dispose => {

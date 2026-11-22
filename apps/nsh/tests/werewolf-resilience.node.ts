@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+import { createDoubaoDuplexV3Protocol, createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
 import { visionPersonTrackerDefinition } from "../plugins/vision-person-tracker/runtime/index.js";
 import {
   WEREWOLF_PLUGIN_ID,
@@ -380,6 +380,76 @@ async function createHarness(options: {
     },
   };
 }
+
+test("Dealing keeps Doubao connected during repeated card reveals on a slow socket", async (t) => {
+  const h = await createHarness();
+  t.after(async () => { await h.dispose(); h.db.close(); });
+  await h.host.startAll();
+  await h.send({ type: "open_lobby", presetId: "6p_joy" });
+
+  const writes: { type: string; text?: string; session?: { instructions: string } }[] = [];
+  const errors: string[] = [];
+  let receive!: (raw: string | null) => void;
+  let slowWrite: Promise<void> | undefined;
+  const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const session = new LiveVoiceSession({
+    apiKey: "TEST_KEY", voiceId: "", fromWakeWord: false, initialLanguage: "zh-CN",
+    initialMuted: true, initialPluginContext: h.host.ai.renderAmbientInstructions(),
+    protocol: createDoubaoDuplexV3Protocol(),
+    audio: {
+      requestPermission: () => "granted", start: () => {}, stop: () => {},
+      beginWake: () => 0, startWake: async () => true, setCaptureMode: () => {},
+      playReadyCue: () => {}, enqueue: () => {}, clearPlayback: () => {},
+      setMuted: () => {}, drainCapture: () => [],
+      status: () => ({ state: "running", permission: "granted", error: "", queuedPlaybackMs: 0,
+        captureMode: "conversation", wakeWord: "", kwsReady: true }),
+    },
+    connect: async () => ({
+      read: () => new Promise((resolve) => { receive = resolve; }),
+      write: async (raw) => { writes.push(JSON.parse(String(raw))); await slowWrite; },
+      close: async () => { receive(null); },
+    }),
+    onStatePatch: () => {}, onSessionComplete: () => {},
+    onSessionError: (error) => { errors.push(error); session.dispose("immediate"); },
+  });
+  t.after(() => session.dispose("immediate"));
+  h.host.ai.setBridge({
+    onVoiceContextUpdated: (text) => session.updatePluginContext(text, true),
+    speak: ({ spokenText, contextNote }) => new Promise((onResult) => {
+      session.enqueueNotice({ id: spokenText, spokenText, contextNote, onResult });
+    }),
+  });
+  await session.open();
+  receive(JSON.stringify({ type: "session.created" }));
+  await flush();
+
+  const blocked = Promise.withResolvers<void>();
+  slowWrite = blocked.promise;
+  try {
+    await h.send({ type: "start_dealing" });
+    for (let reveal = 0; reveal < 5; reveal++) {
+      await h.send({ type: "set_deal_reveal", seat: 1, revealing: true });
+      await h.send({ type: "set_deal_reveal", seat: 1, revealing: false });
+    }
+  } finally {
+    blocked.resolve();
+  }
+  await flush();
+  assert.deepEqual(errors, []);
+  assert.equal(writes.filter((frame) => frame.type === "session.update").length, 2);
+  assert.ok(writes.some((frame) => frame.type === "speech_text_buffer.commit" && /1 号玩家/.test(frame.text ?? "")));
+
+  const beforeRename = writes.length;
+  await h.send({ type: "set_seat_nickname", seat: 1, nickname: "小林" });
+  await flush();
+  const updates = writes.slice(beforeRename).filter((frame) => frame.type === "session.update");
+  assert.equal(updates.length, 1);
+  assert.match(updates[0]?.session?.instructions ?? "", /1号\(小林\)/);
+
+  await h.send({ type: "exit_to_idle" });
+  await flush();
+  assert.doesNotMatch(writes.findLast((frame) => frame.type === "session.update")?.session?.instructions ?? "", /狼人杀公开台面状态/);
+});
 
 async function advance6pMatchToDay(
   send: (cmd: WerewolfCommand) => Promise<WerewolfPublicState>,
