@@ -9,6 +9,7 @@ import { visionPersonTrackerDefinition } from "../plugins/vision-person-tracker/
 import {
   WEREWOLF_PLUGIN_ID,
   type WerewolfCommand,
+  type WerewolfMatchRecord,
   type WerewolfPublicState,
 } from "../plugins/werewolf-judge/contracts.js";
 import { WerewolfEngine } from "../plugins/werewolf-judge/runtime/engine.js";
@@ -314,6 +315,7 @@ async function createHarness(options: {
   now?: () => number;
   speakerTickMs?: number;
   speakImpl?: PluginHostAiBridge["speak"];
+  reviewImpl?: PluginHostAiBridge["runBackgroundTask"];
 } = {}) {
   const db = options.db ?? new DatabaseSync(":memory:");
   const cameraPort = new MockCameraPort();
@@ -348,7 +350,7 @@ async function createHarness(options: {
           (async () => ({
             completed: true,
           })),
-        runBackgroundTask: async () => ({ taskId: "t-mvp", answer: "MVP: 3号" }),
+        runBackgroundTask: options.reviewImpl ?? (async () => ({ taskId: "t-mvp", answer: "MVP: 3号" })),
       },
     },
   );
@@ -366,6 +368,10 @@ async function createHarness(options: {
     bodyRuntime,
     send,
     readState,
+    readMatch: (matchId: string) =>
+      host.sendCommand<WerewolfCommand, WerewolfMatchRecord>(
+        WEREWOLF_PLUGIN_ID, { type: "read_match_replay", source: { matchId } },
+      ),
     async dispose() {
       await host.close();
       lanBroker.close();
@@ -418,8 +424,12 @@ test("Host votes and LAN actions archive settled matches once across a database 
     try {
       await h.host.startAll();
       assert.deepEqual(h.readState().matchHistory, []);
+      await h.send({ type: "set_seat_nickname", seat: 4, nickname: "小林" });
       await prepareHistoryMatch(h);
       assert.deepEqual(h.readState().matchHistory, []);
+      await assert.rejects(h.host.sendCommand(WEREWOLF_PLUGIN_ID, {
+        type: "read_match_replay", source: { current: true },
+      }), { stage: "history.read", code: "ERR_WEREWOLF_MATCH_NOT_OVER" });
 
       await h.send({ type: "start_voting" });
       for (const [voterSeat, targetSeat] of [[2, 3], [3, 2], [4, 2], [5, 3], [6, null]] as const) {
@@ -465,6 +475,7 @@ test("Host votes and LAN actions archive settled matches once across a database 
       assert.equal(finish.status, 200);
       assert.equal(finish.json.view.phase, "game_over");
       assert.equal("matchHistory" in finish.json.view, false);
+      assert.equal("replayEvents" in finish.json.view, false);
       history = h.readState().matchHistory;
       assert.equal(history.length, 2);
       assert.equal(history[0]?.endedAtMs, nowMs);
@@ -486,12 +497,148 @@ test("Host votes and LAN actions archive settled matches once across a database 
       assert.deepEqual(next.readState().matchHistory, history);
       await next.host.setEnabled(WEREWOLF_PLUGIN_ID, true);
       assert.deepEqual(next.readState().matchHistory, history);
+      const firstReplay = (await next.readMatch(history[1]!.id)).replay;
+      const secondReplay = (await next.readMatch(history[0]!.id)).replay;
+      assert.ok(firstReplay && secondReplay);
+      assert.equal(firstReplay.partialTimeline, false);
+      assert.equal(firstReplay.seats[3]?.nickname, "小林");
+      assert.equal(firstReplay.seats[3]?.role, "witch");
+      assert.equal(firstReplay.seats[1]?.deathPhase, "vote");
+      assert.match(firstReplay.winReason, /狼人/);
+      assert.equal("replay" in history[0]!, false);
+      const ballots = firstReplay.events.filter((event) => event.type === "ballot");
+      assert.deepEqual(ballots.map(({ kind, outcome, votes }) => ({ kind, outcome, votes })), [
+        { kind: "exile", outcome: "runoff", votes: { 2: 3, 3: 2, 4: 2, 5: 3, 6: null } },
+        { kind: "exile_pk", outcome: "exiled", votes: { 4: 2, 5: null, 6: null } },
+      ]);
+      const poison = firstReplay.events.find((event) =>
+        event.type === "event" && event.visibility === "postgame" && event.text.includes("毒药"),
+      );
+      const dawn = firstReplay.events.find((event) => event.type === "dawn");
+      assert.ok(poison && dawn && poison.sequence < dawn.sequence);
+      assert.equal(dawn.round, "night");
+      assert.deepEqual(poison.seats, [1]);
+      assert.equal(secondReplay.events.some((event) => event.type === "ballot"), false);
     } finally {
       await next.dispose();
       reopened.close();
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Reviews settle on the original match, and deleting it also survives late reviews and restart", async () => {
+  type ReviewResponse = Awaited<ReturnType<PluginHostAiBridge["runBackgroundTask"]>>;
+  const requests: {
+    prompt: string;
+    resolve: (result: ReviewResponse) => void;
+    reject: (error: unknown) => void;
+  }[] = [];
+  const db = new DatabaseSync(":memory:");
+  const h = await createHarness({
+    db,
+    reviewImpl: ({ prompt }) => new Promise((resolve, reject) => requests.push({ prompt, resolve, reject })),
+  });
+  let survivor: string;
+  let deleted: string;
+  try {
+    await h.host.startAll();
+    async function finishMatch() {
+      await prepareHistoryMatch(h);
+      await h.send({ type: "start_voting" });
+      await h.send({ type: "cast_on_device_vote", voterSeat: 4, targetSeat: 2 });
+      await h.send({ type: "finalize_votes" });
+      const id = h.readState().completedMatchId;
+      assert.ok(id);
+      return id;
+    }
+    survivor = await finishMatch();
+    await h.send({ type: "select_preset", presetId: "12p_guard" });
+    await h.send({ type: "regenerate_mvp_review" });
+    assert.match(requests[1]!.prompt, /6人局/);
+    assert.equal(requests[1]!.prompt, requests[0]!.prompt);
+    await h.send({ type: "play_again" });
+    deleted = await finishMatch();
+    assert.equal(requests.length, 3);
+    assert.equal((await h.readMatch(survivor)).replay?.review?.status, "generating");
+    requests[1]!.resolve({ taskId: "new-review", answer: "第一局点评" });
+    requests[0]!.resolve({ taskId: "old-review", answer: "过期点评" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal((await h.readMatch(survivor)).replay?.review?.text, "第一局点评");
+    assert.equal(h.readState().aiMvpReview.status, "generating");
+
+    const failure = { stage: "provider.review", code: "E_REVIEW", reason: "fixture review failure" };
+    requests[2]!.reject(Object.assign(new Error(failure.reason), failure));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(h.host.snapshot(WEREWOLF_PLUGIN_ID).lastError, failure);
+    assert.match((await h.readMatch(deleted)).replay?.review?.error ?? "", /E_REVIEW/);
+    await h.send({ type: "regenerate_mvp_review" });
+    await h.send({ type: "delete_match_record", matchId: deleted });
+    requests[3]!.resolve({ taskId: "late-review", answer: "已删除的点评" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await h.send({ type: "play_again" });
+    assert.deepEqual(h.readState().matchHistory.map(({ id }) => id), [survivor]);
+  } finally {
+    await h.dispose();
+  }
+
+  const reopened = await createHarness({ db });
+  try {
+    await reopened.host.startAll();
+    assert.equal((await reopened.readMatch(survivor)).replay?.review?.text, "第一局点评");
+    await assert.rejects(reopened.readMatch(deleted), { code: "ERR_WEREWOLF_HISTORY_NOT_FOUND" });
+  } finally {
+    await reopened.dispose();
+    db.close();
+  }
+});
+
+test("Summary-only history and checkpoints saved before replays still open", async () => {
+  const db = new DatabaseSync(":memory:");
+  const h = await createHarness({ db });
+  try {
+    await h.host.startAll();
+    await prepareHistoryMatch(h);
+  } finally {
+    await h.dispose();
+  }
+  const legacy: WerewolfMatchRecord = {
+    id: "legacy-summary",
+    endedAtMs: 0,
+    presetId: "6p_joy",
+    playerCount: 6,
+    winner: "good",
+    day: 1,
+    highlight: null,
+  };
+  const checkpointRow = db.prepare("SELECT value FROM plugin_kv_storage WHERE plugin_id = ? AND key = ?")
+    .get(WEREWOLF_PLUGIN_ID, "match_checkpoint_v1") as { value: string };
+  const { replayEvents: _events, partialReplayTimeline: _partial, ...legacyCheckpoint } = JSON.parse(checkpointRow.value);
+  db.prepare("UPDATE plugin_kv_storage SET value = ? WHERE plugin_id = ? AND key = ?")
+    .run(JSON.stringify(legacyCheckpoint), WEREWOLF_PLUGIN_ID, "match_checkpoint_v1");
+  db.prepare("INSERT INTO plugin_kv_storage (plugin_id, key, value) VALUES (?, ?, ?)")
+    .run(WEREWOLF_PLUGIN_ID, "match_history_v1", JSON.stringify([legacy]));
+
+  const reopened = await createHarness({ db });
+  try {
+    await reopened.host.startAll();
+    assert.deepEqual(await reopened.readMatch(legacy.id), legacy);
+    assert.equal(reopened.readState().hostPaused, true);
+    await reopened.send({ type: "resume_stage" });
+    await reopened.send({ type: "start_voting" });
+    await reopened.send({ type: "cast_on_device_vote", voterSeat: 4, targetSeat: 2 });
+    await reopened.send({ type: "finalize_votes" });
+    const [summary] = reopened.readState().matchHistory;
+    assert.ok(summary);
+    const resumed = (await reopened.readMatch(summary.id)).replay;
+    assert.ok(resumed?.partialTimeline);
+    assert.equal(resumed.seats.length, 6);
+    assert.ok(resumed.events.some((event) => event.type === "ballot"));
+    assert.equal(resumed.events.some((event) => event.round === "night"), false);
+  } finally {
+    await reopened.dispose();
+    db.close();
   }
 });
 
@@ -530,6 +677,7 @@ test("An archive write failure keeps the terminal checkpoint recoverable", async
       });
       await assert.rejects(h.send({ type: "play_again" }), failure);
       assert.equal(h.readState().phase, "game_over");
+      await h.send({ type: "select_preset", presetId: "12p_guard" });
       assert.ok(checkpointRow());
     } finally {
       await h.dispose();
@@ -545,6 +693,10 @@ test("An archive write failure keeps the terminal checkpoint recoverable", async
       await reopened.host.startAll();
       assert.equal(reopened.readState().phase, "idle");
       assert.deepEqual(reopened.readState().matchHistory, [completed]);
+      const recovered = await reopened.readMatch(completed.id);
+      assert.equal(recovered.replay?.seats.length, 6);
+      assert.ok(recovered.replay?.events.some((event) => event.type === "ballot"));
+      assert.equal(recovered.replay?.review?.text, "MVP: 3号");
       assert.equal(checkpointRow(), undefined);
     } finally {
       await reopened.dispose();

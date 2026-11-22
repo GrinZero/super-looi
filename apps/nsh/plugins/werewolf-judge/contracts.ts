@@ -168,6 +168,73 @@ export interface WerewolfMatchSummary {
   readonly highlight: WerewolfMatchHighlight | null;
 }
 
+export interface WerewolfReplaySeat {
+  readonly seat: number;
+  readonly nickname: string;
+  readonly role: WerewolfRole;
+  readonly alive: boolean;
+  readonly isSheriff: boolean;
+  readonly deathDay: number | null;
+  readonly deathPhase: WerewolfDeathCause | null;
+}
+
+export type WerewolfReplayVoteKind = "sheriff" | "sheriff_pk" | "exile" | "exile_pk";
+
+export type WerewolfReplayVoteOutcome =
+  | "elected"
+  | "badge_lost"
+  | "runoff"
+  | "exiled"
+  | "idiot_revealed"
+  | "no_votes"
+  | "tied_again";
+
+interface WerewolfReplayEventPosition {
+  readonly sequence: number;
+  readonly day: number;
+  readonly round: "deal" | "night" | "day";
+}
+
+export type WerewolfReplayEventContent =
+  | {
+      readonly type: "event" | "dawn";
+      readonly visibility: "public" | "postgame";
+      readonly text: string;
+      readonly seats: readonly number[];
+      readonly highlight?: WerewolfMatchHighlight["kind"];
+    }
+  | {
+      readonly type: "speaking_order";
+      readonly kind: "sheriff" | "sheriff_pk" | "discussion" | "exile_pk";
+      readonly seats: readonly number[];
+    }
+  | {
+      readonly type: "ballot";
+      readonly kind: WerewolfReplayVoteKind;
+      readonly votes: Readonly<Record<number, number | null>>;
+      readonly tallies: readonly WerewolfVoteTallyItem[];
+      readonly outcome: WerewolfReplayVoteOutcome;
+      readonly seats: readonly number[];
+    };
+
+export type WerewolfReplayEvent = WerewolfReplayEventPosition & WerewolfReplayEventContent;
+
+export interface WerewolfMatchReplay {
+  readonly winReason: string;
+  readonly seats: readonly WerewolfReplaySeat[];
+  readonly events: readonly WerewolfReplayEvent[];
+  readonly partialTimeline: boolean;
+  readonly review?: WerewolfAiMvpReview;
+}
+
+export interface WerewolfMatchRecord extends WerewolfMatchSummary {
+  readonly replay?: WerewolfMatchReplay;
+}
+
+export type WerewolfReplaySource =
+  | { readonly current: true }
+  | { readonly matchId: string };
+
 export interface WerewolfTimelineRevealEntry {
   readonly day: number;
   readonly summary: string;
@@ -240,8 +307,10 @@ export interface WerewolfPublicState {
   readonly winReason: string | null;
   /** Strictly empty `[]` until `phase === "game_over"`. */
   readonly fullTimelineReveal: readonly WerewolfTimelineRevealEntry[];
+  readonly completedMatchId: string | null;
   readonly matchHistory: readonly WerewolfMatchSummary[];
   readonly matchHistoryLoadError: PluginFailure | null;
+  readonly matchHistoryVersion: number;
   readonly aiMvpReview: WerewolfAiMvpReview;
   readonly hostPaused: boolean;
   readonly lastJudgeSpeech: string;
@@ -302,6 +371,8 @@ export type WerewolfCommand =
       readonly wolfSeat: number;
       readonly whiteWolfTargetSeat?: number | null;
     }
+  | { readonly type: "read_match_replay"; readonly source: WerewolfReplaySource }
+  | { readonly type: "delete_match_record"; readonly matchId: string }
   | { readonly type: "regenerate_mvp_review" }
   | { readonly type: "play_again" };
 

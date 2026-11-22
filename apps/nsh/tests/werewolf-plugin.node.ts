@@ -908,6 +908,17 @@ test("Day 1 Sheriff election before Night 1 death announce: PK tie, double-tie b
     assert.equal(postElectionPub.sheriffSeat, null);
     assert.deepEqual(postElectionPub.dawnDeathsToday, [9]);
     assert.equal(postElectionPub.seats[8]!.alive, false);
+    const events = engine.exportCheckpoint({ lanSeatTokens: [], mutedByHost: false })?.replayEvents;
+    assert.ok(events);
+    const ballots = events.filter((event) => event.type === "ballot");
+    assert.deepEqual(ballots.map(({ kind, outcome }) => [kind, outcome]), [
+      ["sheriff", "runoff"], ["sheriff_pk", "badge_lost"],
+    ]);
+    assert.equal(ballots[0]?.votes[2], 1);
+    assert.equal(ballots[1]?.votes[6], 5);
+    const dawn = events.find((event) => event.type === "dawn");
+    assert.equal(dawn?.round, "night");
+    assert.ok(dawn && ballots[1] && dawn.sequence > ballots[1].sequence);
   }
 
   // Part B: Elected Sheriff speaks last, carries 1.5 vote weight to break 1-vs-1 tie, and transfers badge on death
@@ -918,8 +929,8 @@ test("Day 1 Sheriff election before Night 1 death announce: PK tie, double-tie b
     engine.beginFirstNight();
     engine.advanceFromNightIntro();
     engine.submitGuardAction(null, 8);
-    engine.submitWolfAction(null); // Peaceful night
-    engine.submitWitchAction({ save: false, poisonTargetSeat: null }, 6);
+    engine.submitWolfAction(9);
+    engine.submitWitchAction({ save: true, poisonTargetSeat: null }, 6);
     engine.submitSeerCheck(1, 5);
     engine.finishSeerTurn(5);
 
@@ -929,6 +940,13 @@ test("Day 1 Sheriff election before Night 1 death announce: PK tie, double-tie b
     assert.equal(engine.getPhase(), "day_discussion");
     const discussPub = engine.projectPublicState(DEFAULT_PUBLIC_EXTRAS);
     assert.equal(discussPub.sheriffSeat, 5);
+    const nightEvents = engine.exportCheckpoint({ lanSeatTokens: [], mutedByHost: false })?.replayEvents;
+    const save = nightEvents?.find((event) =>
+      event.type === "event" && event.visibility === "postgame" && event.text.includes("解药"),
+    );
+    const peaceful = nightEvents?.find((event) => event.type === "dawn" && event.highlight === "peaceful_night");
+    assert.ok(save && peaceful && save.sequence < peaceful.sequence);
+    assert.deepEqual(save.seats, [9]);
     assert.equal(
       discussPub.speakingOrder[discussPub.speakingOrder.length - 1],
       5,

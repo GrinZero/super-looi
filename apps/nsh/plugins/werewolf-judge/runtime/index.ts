@@ -17,9 +17,11 @@ import {
 import {
   WEREWOLF_PHASE_LABELS,
   WEREWOLF_PLUGIN_ID,
+  type WerewolfAiMvpReview,
   type WerewolfCommand,
   type WerewolfLanStatus,
-  type WerewolfMatchSummary,
+  type WerewolfMatchRecord,
+  type WerewolfReplaySource,
   type WerewolfPhase,
   type WerewolfPresetId,
   type WerewolfPublicState,
@@ -51,18 +53,38 @@ const STORAGE_MATCH_HISTORY_KEY = "match_history_v1";
 
 type MatchHistoryState = Pick<WerewolfPublicState, "matchHistory" | "matchHistoryLoadError">;
 
-function readMatchHistory(storage: PluginStorage): MatchHistoryState {
+interface MatchHistory {
+  readonly records: readonly WerewolfMatchRecord[];
+  readonly state: MatchHistoryState;
+}
+
+function projectMatchHistory(
+  records: readonly WerewolfMatchRecord[],
+  error: PluginFailure | null = null,
+): MatchHistory {
+  return {
+    records,
+    state: {
+      matchHistory: records.map(({ replay: _replay, ...summary }) => summary),
+      matchHistoryLoadError: error,
+    },
+  };
+}
+
+function readMatchHistory(storage: PluginStorage): MatchHistory {
   try {
-    return {
-      matchHistory: storage.get<readonly WerewolfMatchSummary[]>(STORAGE_MATCH_HISTORY_KEY) ?? [],
-      matchHistoryLoadError: null,
-    };
+    return projectMatchHistory(storage.get<readonly WerewolfMatchRecord[]>(STORAGE_MATCH_HISTORY_KEY) ?? []);
   } catch (error) {
-    return {
-      matchHistory: [],
-      matchHistoryLoadError: toPluginFailure(error, "history.read", "ERR_WEREWOLF_HISTORY_READ"),
-    };
+    return projectMatchHistory([], toPluginFailure(error, "history.read", "ERR_WEREWOLF_HISTORY_READ"));
   }
+}
+
+type ReadReplayCommand = Extract<WerewolfCommand, { type: "read_match_replay" }>;
+type MatchCommand = Exclude<WerewolfCommand, ReadReplayCommand>;
+
+interface TerminalMatch {
+  readonly record: WerewolfMatchRecord;
+  readonly battleReport: string;
 }
 
 function isMatchActivePhase(phase: WerewolfPhase): boolean {
@@ -255,7 +277,8 @@ export function werewolfJudgeDefinition(
       });
       return {
         ...bootstrapState,
-        ...readMatchHistory(storage),
+        ...readMatchHistory(storage).state,
+        matchHistoryVersion: 0,
         voiceStatus: {
           ...bootstrapState.voiceStatus,
           mutedByHost,
@@ -268,7 +291,7 @@ export function werewolfJudgeDefinition(
 }
 
 export class WerewolfJudgePluginRuntime
-  implements PluginRuntime<WerewolfCommand, WerewolfPublicState>
+  implements PluginRuntime<WerewolfCommand, WerewolfPublicState | WerewolfMatchRecord>
 {
   private readonly engine: WerewolfEngine;
   private readonly choreographer: WerewolfChoreographer;
@@ -301,8 +324,12 @@ export class WerewolfJudgePluginRuntime
   private speakerInterval: ReturnType<typeof setInterval> | null = null;
   private hostPaused = false;
   private appForegroundActive = true;
-  private mvpRequestToken = 0;
-  private history: MatchHistoryState;
+  private readonly pendingMvpReviews = new Map<string, symbol>();
+  private history: MatchHistory;
+  private matchHistoryVersion = 0;
+  private terminalMatch: TerminalMatch | null = null;
+  private terminalCheckpoint: WerewolfMatchCheckpointV1 | null = null;
+  private archivedMatchId: string | null = null;
   private opQueue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -405,7 +432,9 @@ export class WerewolfJudgePluginRuntime
         this.hostPaused = true;
         if (this.engine.getCompletedMatch()) {
           try {
+            const recovered = this.unarchivedMatch();
             this.clearCheckpoint();
+            if (recovered && !recovered.replay?.review) void this.generateEndgameMvpReview();
             this.engine.exitToIdle();
             this.hostPaused = false;
           } catch (error) {
@@ -431,8 +460,8 @@ export class WerewolfJudgePluginRuntime
     });
 
     this.syncSpeakerClockForCurrentPhase();
-    if (this.history.matchHistoryLoadError) {
-      this.ctx.setLastError(this.history.matchHistoryLoadError);
+    if (this.history.state.matchHistoryLoadError) {
+      this.ctx.setLastError(this.history.state.matchHistoryLoadError);
     }
     this.syncPublicState();
   }
@@ -468,10 +497,16 @@ export class WerewolfJudgePluginRuntime
     this.syncPublicState();
   }
 
-  async handleCommand(command: WerewolfCommand): Promise<WerewolfPublicState> {
+  handleCommand(command: ReadReplayCommand): Promise<WerewolfMatchRecord>;
+  handleCommand(command: MatchCommand): Promise<WerewolfPublicState>;
+  handleCommand(command: WerewolfCommand): Promise<WerewolfPublicState | WerewolfMatchRecord>;
+  async handleCommand(command: WerewolfCommand): Promise<WerewolfPublicState | WerewolfMatchRecord> {
     return this.enqueueOperation(async () => {
       this.ctx.setLastError(undefined);
       try {
+        if (command.type === "read_match_replay") {
+          return this.readReplay(command.source);
+        }
         await this.dispatchCommand(command);
         return this.ctx.getState();
       } catch (error) {
@@ -495,7 +530,7 @@ export class WerewolfJudgePluginRuntime
   // Command Dispatch
   // ===========================================================================
 
-  private async dispatchCommand(command: WerewolfCommand): Promise<void> {
+  private async dispatchCommand(command: MatchCommand): Promise<void> {
     switch (command.type) {
       case "open_lobby": {
         this.clearCheckpoint();
@@ -887,6 +922,12 @@ export class WerewolfJudgePluginRuntime
         return;
       }
 
+      case "delete_match_record": {
+        this.deleteMatchRecord(command.matchId);
+        this.publishHistoryState();
+        return;
+      }
+
       case "regenerate_mvp_review": {
         if (this.engine.getPhase() !== "game_over") {
           throw new WerewolfRuleError(
@@ -1035,8 +1076,9 @@ export class WerewolfJudgePluginRuntime
   ): Promise<void> {
     let settlementFailure: PluginFailure | undefined;
     if (outcome.gameEnded) {
+      this.currentMatch();
       try {
-        // Keep a completed checkpoint only until its summary is durably archived.
+        // Keep a completed checkpoint until the replay is durably archived.
         this.persistCheckpoint();
         this.clearCheckpoint();
       } catch (error) {
@@ -1703,69 +1745,83 @@ export class WerewolfJudgePluginRuntime
   }
 
   private async generateEndgameMvpReview(): Promise<void> {
-    if (this.engine.getPhase() !== "game_over") return;
-    if (!this.ctx.ai) {
-      const failure: PluginFailure = {
-        stage: "mvp_review",
-        code: "ERR_WEREWOLF_AI_UNAVAILABLE",
-        reason: "AI 后台复盘服务未启用",
-      };
-      this.engine.setAiMvpReview({
-        status: "failed",
-        text: null,
-        error: `[stage=${failure.stage} code=${String(failure.code)}] ${failure.reason}`,
-      });
-      this.syncPublicState();
-      return;
-    }
-
-    const token = ++this.mvpRequestToken;
-    const battleReport = this.engine.exportMatchBattleReportForAi();
-    this.engine.setAiMvpReview({
-      status: "generating",
-      text: null,
-      error: null,
-    });
+    const match = this.currentMatch();
+    if (!match) return;
+    const { record: { id }, battleReport } = match;
+    const token = Symbol();
+    this.pendingMvpReviews.set(id, token);
+    this.engine.setAiMvpReview({ status: "generating", text: null, error: null });
     this.syncPublicState();
 
-    const prompt = [
-      "你是线下聚会狼人杀的毒舌幽默 AI 法官。请严格根据下方真实战报，在 110 字以内颁出本局【全场 MVP】与一针见血的名场面复盘颁奖词（不要使用 Markdown 标题，直接给出适合语音朗读的精彩中文点评）：",
-      "",
-      battleReport,
-    ].join("\n");
-
+    let result: WerewolfAiMvpReview;
+    let reviewFailure: PluginFailure | undefined;
     try {
-      const res = await this.ctx.ai.runBackgroundTask(prompt);
-      if (token !== this.mvpRequestToken || this.engine.getPhase() !== "game_over") {
-        return;
+      if (!this.ctx.ai) {
+        throw new WerewolfRuleError("mvp_review", "ERR_WEREWOLF_AI_UNAVAILABLE", "AI 后台复盘服务未启用");
       }
-      const reviewText = res.answer.trim();
-      if (!reviewText) {
-        throw Object.assign(new Error("后台模型返回空复盘文本"), {
-          stage: "mvp_review",
-          code: "ERR_WEREWOLF_EMPTY_MVP_REVIEW",
-        });
+      const prompt = [
+        "你是线下聚会狼人杀的毒舌幽默 AI 法官。请严格根据下方真实战报，在 110 字以内颁出本局【全场 MVP】与一针见血的名场面复盘颁奖词（不要使用 Markdown 标题，直接给出适合语音朗读的精彩中文点评）：",
+        "",
+        battleReport,
+      ].join("\n");
+      const response = await this.ctx.ai.runBackgroundTask(prompt);
+      const text = response.answer.trim();
+      if (!text) {
+        throw new WerewolfRuleError("mvp_review", "ERR_WEREWOLF_EMPTY_MVP_REVIEW", "后台模型返回空复盘文本");
       }
-      this.engine.setAiMvpReview({
-        status: "ready",
-        text: reviewText,
-        error: null,
-      });
-      this.syncPublicState();
-      void this.speakJudgeLine(reviewText);
+      result = { status: "ready", text, error: null };
     } catch (error) {
-      if (token !== this.mvpRequestToken || this.engine.getPhase() !== "game_over") {
-        return;
-      }
-      const failure = toPluginFailure(error, "mvp_review");
-      this.ctx.setLastError(failure);
-      this.engine.setAiMvpReview({
-        status: "failed",
-        text: null,
-        error: `[stage=${failure.stage} code=${String(failure.code)}] ${failure.reason}`,
-      });
-      this.syncPublicState();
+      reviewFailure = toPluginFailure(error, "mvp_review");
+      result = this.failedMvpReview(reviewFailure);
     }
+
+    await this.enqueueOperation(() => {
+      if (!this.ctx.scope.active || !this.ctx.enabled() || this.pendingMvpReviews.get(id) !== token) return;
+      this.pendingMvpReviews.delete(id);
+      const current = this.engine.getCompletedMatch()?.id === id;
+      if (reviewFailure) this.ctx.setLastError(reviewFailure);
+      try {
+        const archived = this.history.records.find((entry) => entry.id === id);
+        const replay = archived?.replay;
+        if (archived && replay) {
+          this.writeMatchHistory(
+            this.history.records.map((record) =>
+              record === archived ? { ...archived, replay: { ...replay, review: result } } : record,
+            ),
+            "history.mvp",
+          );
+        } else if (current && this.archivedMatchId !== id) {
+          this.persistCheckpoint(result);
+        }
+      } catch (error) {
+        const failure = toPluginFailure(error, "history.mvp");
+        this.ctx.setLastError(failure);
+        result = this.failedMvpReview(failure);
+        this.matchHistoryVersion += 1;
+      }
+      if (current) {
+        const terminal = this.currentMatch();
+        if (terminal?.record.replay) {
+          this.terminalMatch = {
+            ...terminal,
+            record: { ...terminal.record, replay: { ...terminal.record.replay, review: result } },
+          };
+        }
+        this.engine.setAiMvpReview(result);
+        this.syncPublicState();
+        if (result.status === "ready" && result.text) void this.speakJudgeLine(result.text);
+      } else {
+        this.publishHistoryState();
+      }
+    });
+  }
+
+  private failedMvpReview(failure: PluginFailure): WerewolfAiMvpReview {
+    return {
+      status: "failed",
+      text: null,
+      error: `[stage=${failure.stage} code=${String(failure.code)}] ${failure.reason}`,
+    };
   }
 
   private async speakJudgeLine(text: string): Promise<void> {
@@ -1781,48 +1837,113 @@ export class WerewolfJudgePluginRuntime
     this.ctx.storage.set(STORAGE_RULES_KEY, this.engine.getRules());
   }
 
-  private persistCheckpoint(): void {
-    if (this.engine.getPhase() === "game_over" && !this.unarchivedMatch()) {
+  private persistCheckpoint(terminalReview?: WerewolfAiMvpReview): void {
+    const terminal = this.engine.getPhase() === "game_over";
+    if (terminal && !this.unarchivedMatch()) {
       this.ctx.storage.delete(STORAGE_MATCH_CHECKPOINT_KEY);
+      this.terminalCheckpoint = null;
       return;
     }
-    const checkpoint = this.engine.exportCheckpoint({
+    const checkpoint = this.terminalCheckpoint ?? this.engine.exportCheckpoint({
       lanSeatTokens: this.lanCompanion.exportSeatTokens(),
       mutedByHost: this.speechCoordinator.isMutedByHost(),
     });
     if (checkpoint) {
-      this.ctx.storage.set(STORAGE_MATCH_CHECKPOINT_KEY, checkpoint);
+      const saved = terminalReview ? { ...checkpoint, aiMvpReview: terminalReview } : checkpoint;
+      if (terminal) this.terminalCheckpoint = saved;
+      this.ctx.storage.set(STORAGE_MATCH_CHECKPOINT_KEY, saved);
     } else {
       this.ctx.storage.delete(STORAGE_MATCH_CHECKPOINT_KEY);
     }
   }
 
-  private unarchivedMatch(): WerewolfMatchSummary | null {
-    const match = this.engine.getCompletedMatch();
-    return match && !this.history.matchHistory.some(({ id }) => id === match.id) ? match : null;
+  private currentMatch(): TerminalMatch | null {
+    const matchId = this.engine.getCompletedMatch()?.id;
+    if (!matchId) return null;
+    if (this.terminalMatch?.record.id !== matchId) {
+      const record = this.engine.exportCompletedMatch();
+      this.terminalMatch = record ? { record, battleReport: this.engine.exportMatchBattleReportForAi() } : null;
+    }
+    return this.terminalMatch;
+  }
+
+  private unarchivedMatch(): WerewolfMatchRecord | null {
+    const match = this.currentMatch()?.record;
+    if (!match || this.archivedMatchId === match.id || this.history.records.some(({ id }) => id === match.id)) {
+      return null;
+    }
+    return match;
+  }
+
+  private ensureHistoryReadable(): void {
+    if (!this.history.state.matchHistoryLoadError) return;
+    this.history = readMatchHistory(this.ctx.storage);
+    const failure = this.history.state.matchHistoryLoadError;
+    if (failure) throw Object.assign(new Error(failure.reason), failure);
+    this.publishHistoryState();
+  }
+
+  private readReplay(source: WerewolfReplaySource): WerewolfMatchRecord {
+    if ("current" in source) {
+      const match = this.currentMatch()?.record;
+      if (!match) {
+        throw new WerewolfRuleError("history.read", "ERR_WEREWOLF_MATCH_NOT_OVER", "当前对局尚未结算");
+      }
+      return match;
+    }
+    this.ensureHistoryReadable();
+    const record = this.history.records.find(({ id }) => id === source.matchId);
+    if (!record) {
+      throw new WerewolfRuleError("history.read", "ERR_WEREWOLF_HISTORY_NOT_FOUND", "找不到该局历史记录");
+    }
+    if (record.replay && this.pendingMvpReviews.has(record.id)) {
+      return { ...record, replay: { ...record.replay, review: { status: "generating", text: null, error: null } } };
+    }
+    return record;
+  }
+
+  private writeMatchHistory(
+    records: readonly WerewolfMatchRecord[],
+    stage: "history.write" | "history.delete" | "history.mvp",
+  ): void {
+    try {
+      this.ctx.storage.set(STORAGE_MATCH_HISTORY_KEY, records);
+    } catch (error) {
+      rethrowWithStage(error, stage, "ERR_WEREWOLF_HISTORY_WRITE");
+    }
+    this.history = projectMatchHistory(records);
+    this.matchHistoryVersion += 1;
+  }
+
+  private publishHistoryState(): void {
+    this.ctx.setState({ ...this.ctx.getState(), ...this.history.state, matchHistoryVersion: this.matchHistoryVersion });
   }
 
   private clearCheckpoint(): void {
-    if (this.history.matchHistoryLoadError && this.engine.getCompletedMatch()) {
-      this.history = readMatchHistory(this.ctx.storage);
-      if (this.history.matchHistoryLoadError) {
-        const failure = this.history.matchHistoryLoadError;
-        this.ctx.setLastError(failure);
-        throw Object.assign(new Error(failure.reason), failure);
-      }
-    }
+    if (this.engine.getCompletedMatch()) this.ensureHistoryReadable();
     const match = this.unarchivedMatch();
     if (match) {
-      const matchHistory = [match, ...this.history.matchHistory]
-        .sort((a, b) => b.endedAtMs - a.endedAtMs);
-      try {
-        this.ctx.storage.set(STORAGE_MATCH_HISTORY_KEY, matchHistory);
-      } catch (error) {
-        rethrowWithStage(error, "history.write", "ERR_WEREWOLF_HISTORY_WRITE");
-      }
-      this.history = { matchHistory, matchHistoryLoadError: null };
+      const records = [match, ...this.history.records].sort((a, b) => b.endedAtMs - a.endedAtMs);
+      this.writeMatchHistory(records, "history.write");
+      this.archivedMatchId = match.id;
     }
     this.ctx.storage.delete(STORAGE_MATCH_CHECKPOINT_KEY);
+    this.terminalCheckpoint = null;
+  }
+
+  private deleteMatchRecord(matchId: string): void {
+    this.ensureHistoryReadable();
+    if (this.engine.getCompletedMatch()?.id === matchId) {
+      // Remove any recoverable terminal checkpoint before removing its archive.
+      try {
+        this.clearCheckpoint();
+      } catch (error) {
+        rethrowWithStage(error, "history.checkpoint", "ERR_WEREWOLF_HISTORY_CHECKPOINT");
+      }
+      this.archivedMatchId = matchId;
+    }
+    const records = this.history.records.filter(({ id }) => id !== matchId);
+    if (records.length !== this.history.records.length) this.writeMatchHistory(records, "history.delete");
   }
 
   private syncResumableSession(): void {
@@ -1882,7 +2003,8 @@ export class WerewolfJudgePluginRuntime
       hasResumableMatch: isMatchActivePhase(this.engine.getPhase()),
     });
 
-    this.ctx.setState({ ...nextState, ...this.history });
+    if (!nextState.completedMatchId) this.terminalMatch = null;
+    this.ctx.setState({ ...nextState, ...this.history.state, matchHistoryVersion: this.matchHistoryVersion });
     this.syncResumableSession();
     this.lanSession?.notifyRevision(nextState.revision);
 

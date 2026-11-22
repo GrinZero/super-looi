@@ -11,6 +11,11 @@ import {
   type WerewolfLeaveReason,
   type WerewolfMatchHighlight,
   type WerewolfMatchSummary,
+  type WerewolfReplayEvent,
+  type WerewolfReplayEventContent,
+  type WerewolfReplayVoteKind,
+  type WerewolfReplayVoteOutcome,
+  type WerewolfMatchRecord,
   type WerewolfNightPromptPublic,
   type WerewolfPhase,
   type WerewolfPresetId,
@@ -215,6 +220,8 @@ export interface WerewolfMatchCheckpointV1 {
   readonly winReason: string | null;
   readonly latestMatchHighlight?: WerewolfMatchHighlight | null;
   readonly completedMatch?: WerewolfMatchSummary | null;
+  readonly replayEvents?: readonly WerewolfReplayEvent[];
+  readonly partialReplayTimeline?: boolean;
   readonly aiMvpReview: WerewolfAiMvpReview;
   readonly lastJudgeSpeech: string;
   readonly lanSeatTokens: ReadonlyArray<readonly [number, string]>;
@@ -303,6 +310,8 @@ export class WerewolfEngine {
   private eventCounter = 0;
   private publicEvents: WerewolfPublicEvent[] = [];
   private truthTimeline: WerewolfTimelineRevealEntry[] = [];
+  private replayEvents: WerewolfReplayEvent[] = [];
+  private partialReplayTimeline = false;
   private winner: "good" | "werewolf" | null = null;
   private winReason: string | null = null;
   private latestMatchHighlight: WerewolfMatchHighlight | null = null;
@@ -371,6 +380,30 @@ export class WerewolfEngine {
     return this.completedMatch;
   }
 
+  exportCompletedMatch(): WerewolfMatchRecord | null {
+    if (!this.completedMatch || this.winReason === null) return null;
+    return {
+      ...this.completedMatch,
+      replay: {
+        winReason: this.winReason,
+        seats: this.seats.flatMap((seat) => seat.role === null ? [] : [{
+          seat: seat.seat,
+          nickname: seat.nickname,
+          role: seat.role,
+          alive: seat.alive,
+          isSheriff: seat.isSheriff,
+          deathDay: seat.deathDay,
+          deathPhase: seat.deathPhase,
+        }]),
+        events: [...this.replayEvents],
+        partialTimeline: this.partialReplayTimeline,
+        review: this.aiMvpReview.status === "ready" || this.aiMvpReview.status === "failed"
+          ? this.aiMvpReview
+          : undefined,
+      },
+    };
+  }
+
   /**
    * Internal choreography lookup ONLY for active living night role seat(s) when needed
    * inside anti-cheat movement planner; never exposed to public state.
@@ -426,7 +459,7 @@ export class WerewolfEngine {
     readonly hostPaused: boolean;
     readonly voiceStatus?: WerewolfJudgeVoiceStatus;
     readonly hasResumableMatch?: boolean;
-  }): Omit<WerewolfPublicState, "matchHistory" | "matchHistoryLoadError"> {
+  }): Omit<WerewolfPublicState, "matchHistory" | "matchHistoryLoadError" | "matchHistoryVersion"> {
     const claimedSet = new Set(extras.lan.claimedSeats);
     const isGameOver = this.phase === "game_over";
 
@@ -523,6 +556,7 @@ export class WerewolfEngine {
       winner: this.winner,
       winReason: this.winReason,
       fullTimelineReveal: isGameOver ? [...this.truthTimeline] : [],
+      completedMatchId: this.completedMatch?.id ?? null,
       aiMvpReview: this.aiMvpReview,
       hostPaused: extras.hostPaused,
       lastJudgeSpeech: this.lastJudgeSpeech,
@@ -588,6 +622,8 @@ export class WerewolfEngine {
       winReason: this.winReason,
       latestMatchHighlight: this.latestMatchHighlight,
       completedMatch: this.completedMatch,
+      replayEvents: this.replayEvents,
+      partialReplayTimeline: this.partialReplayTimeline,
       aiMvpReview: this.aiMvpReview,
       lastJudgeSpeech: this.lastJudgeSpeech,
       lanSeatTokens: runtimeExtras.lanSeatTokens,
@@ -663,6 +699,8 @@ export class WerewolfEngine {
     this.winReason = cloned.winReason ?? null;
     this.latestMatchHighlight = cloned.latestMatchHighlight ?? null;
     this.completedMatch = cloned.completedMatch ?? null;
+    this.replayEvents = [...(cloned.replayEvents ?? [])];
+    this.partialReplayTimeline = cloned.partialReplayTimeline ?? cloned.replayEvents === undefined;
     this.aiMvpReview = cloned.aiMvpReview ?? { status: "idle", text: null, error: null };
     this.lastJudgeSpeech = cloned.lastJudgeSpeech ?? "";
     return {
@@ -1349,7 +1387,7 @@ export class WerewolfEngine {
       const winnerSeat = candidates[0]!;
       this.assignSheriff(winnerSeat);
       this.sheriffSubphase = null;
-      this.addPublicEvent(`仅 ${winnerSeat} 号上警，自动当选警长。`);
+      this.addPublicEvent(`仅 ${winnerSeat} 号上警，自动当选警长。`, { seats: [winnerSeat] });
       this.recordTruth(this.day, `${winnerSeat} 号单人上警自动当选警长`, [winnerSeat]);
       return this.enterDawnAnnounce();
     }
@@ -1386,7 +1424,7 @@ export class WerewolfEngine {
     }
     target.isCandidate = false;
     target.droppedOutSheriff = true;
-    this.addPublicEvent(`${seat} 号玩家选择退水。`);
+    this.addPublicEvent(`${seat} 号玩家选择退水。`, { seats: [seat] });
     this.recordTruth(this.day, `${seat} 号警上退水`, [seat]);
 
     const remaining = this.seats.filter((s) => s.alive && s.isCandidate).map((s) => s.seat);
@@ -1401,7 +1439,7 @@ export class WerewolfEngine {
       this.assignSheriff(sole);
       this.sheriffSubphase = null;
       this.clearSpeechState();
-      this.addPublicEvent(`其余候选人退水，${sole} 号自动当选警长。`);
+      this.addPublicEvent(`其余候选人退水，${sole} 号自动当选警长。`, { seats: [sole] });
       return this.enterDawnAnnounce();
     }
 
@@ -1617,7 +1655,7 @@ export class WerewolfEngine {
     if (victim !== null) {
       this.killSeat(victim.seat, "hunter_shot");
       const msg = `猎人 ${task.seat} 号翻牌开枪，带走了 ${victim.seat} 号！`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, { seats: [task.seat, victim.seat] });
       this.recordTruth(this.day, msg, [task.seat, victim.seat]);
 
       if (this.evaluateAndEnterGameOverIfFinished()) {
@@ -1630,7 +1668,7 @@ export class WerewolfEngine {
       }
     } else {
       const msg = `${task.seat} 号选择压枪不发动技能。`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, { seats: [task.seat] });
       this.recordTruth(this.day, msg, [task.seat]);
     }
 
@@ -1660,12 +1698,12 @@ export class WerewolfEngine {
     if (heir !== null) {
       this.assignSheriff(heir.seat);
       const msg = `${task.seat} 号将警徽移交给 ${heir.seat} 号。`;
-      this.addPublicEvent(msg, "badge_transfer");
+      this.addPublicEvent(msg, { highlight: "badge_transfer", seats: [task.seat, heir.seat] });
       this.recordTruth(this.day, msg, [task.seat, heir.seat]);
     } else {
       this.clearSheriff();
       const msg = `${task.seat} 号选择撕毁警徽，本局无警长。`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, { seats: [task.seat] });
       this.recordTruth(this.day, msg, [task.seat]);
     }
 
@@ -1675,7 +1713,9 @@ export class WerewolfEngine {
   finishLastWords(): EngineTransitionOutcome {
     const task = this.requireLeaveTask("last_words", "finish_last_words");
     this.leaveQueue.shift();
-    this.recordTruth(this.day, `${task.seat} 号发表完毕遗言`, [task.seat]);
+    const text = `${task.seat} 号发表完毕遗言`;
+    this.recordTruth(this.day, text, [task.seat]);
+    this.addReplayEvent("day", { type: "event", visibility: "public", text, seats: [task.seat] });
     return this.advanceLeaveQueue();
   }
 
@@ -1737,7 +1777,14 @@ export class WerewolfEngine {
           ? `昨晚倒牌玩家为 ${nightDeathsApplied.map((d) => d.seat).join("、")} 号。`
           : "昨晚是平安夜。";
       const msg = `${wolfSeat} 号狼人警上自爆，本局警徽流失！${nightMsg}`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, { seats: [wolfSeat, ...nightDeathsApplied.map(({ seat }) => seat)] });
+      this.addReplayEvent("night", {
+        type: "dawn",
+        visibility: "public",
+        text: nightMsg,
+        seats: nightDeathsApplied.map(({ seat }) => seat),
+        highlight: nightDeathsApplied.length === 0 ? "peaceful_night" : undefined,
+      });
       this.recordTruth(this.day, msg, [wolfSeat, ...nightDeathsApplied.map((d) => d.seat)]);
 
       if (this.evaluateAndEnterGameOverIfFinished()) {
@@ -1788,12 +1835,12 @@ export class WerewolfEngine {
         this.applyWhiteWolfDragTarget(wolfSeat, whiteWolfTargetSeat);
       } else {
         const msg = `白狼王 ${wolfSeat} 号自爆并选择不带人！白天立即结束。`;
-        this.addPublicEvent(msg);
+        this.addPublicEvent(msg, { seats: [wolfSeat] });
         this.recordTruth(this.day, msg, [wolfSeat]);
       }
     } else {
       const msg = `${wolfSeat} 号狼人拍刀自爆！白天发言与投票立即中止。`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, { seats: [wolfSeat] });
       this.recordTruth(this.day, msg, [wolfSeat]);
     }
 
@@ -1838,7 +1885,7 @@ export class WerewolfEngine {
       this.applyWhiteWolfDragTarget(task.seat, victim.seat);
     } else {
       const msg = `白狼王 ${task.seat} 号放弃带人。`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, { seats: [task.seat] });
       this.recordTruth(this.day, msg, [task.seat]);
     }
 
@@ -1856,7 +1903,7 @@ export class WerewolfEngine {
     const victim = this.requireLivingSeat(victimSeat, "white_wolf_drag");
     this.killSeat(victim.seat, "wolf_explode");
     const msg = `白狼王 ${wolfSeat} 号自爆，强行带走了 ${victim.seat} 号！`;
-    this.addPublicEvent(msg);
+    this.addPublicEvent(msg, { seats: [wolfSeat, victim.seat] });
     this.recordTruth(this.day, msg, [wolfSeat, victim.seat]);
 
     if (victim.seat === this.sheriffSeat) {
@@ -2056,7 +2103,11 @@ export class WerewolfEngine {
         : `第 ${this.day} 天天亮了，昨晚倒牌的玩家是 ${deaths
             .map((d) => `${d.seat}号`)
             .join("、")}（排名不分先后）。`;
-    this.addPublicEvent(deathText, deaths.length === 0 ? "peaceful_night" : undefined);
+    this.addPublicEvent(deathText, {
+      dawn: true,
+      highlight: deaths.length === 0 ? "peaceful_night" : undefined,
+      seats: deaths.map(({ seat }) => seat),
+    });
     this.recordTruth(
       this.day,
       deaths.length === 0
@@ -2189,7 +2240,7 @@ export class WerewolfEngine {
 
   private finalizeSheriffVotes(): EngineTransitionOutcome {
     const tallies = this.computeTalliesFromBallots(this.currentBallots, false);
-    this.publishBallotsSnapshot(tallies);
+    const kind = this.sheriffSubphase === "voting" ? "sheriff" : "sheriff_pk";
 
     const topScore = tallies[0]?.weightedVotes ?? 0;
     const topTargets =
@@ -2199,6 +2250,7 @@ export class WerewolfEngine {
 
     if (topTargets.length === 1) {
       const elected = topTargets[0]!;
+      this.publishBallotsSnapshot(tallies, kind, "elected", [elected]);
       this.assignSheriff(elected);
       for (const s of this.seats) {
         s.isCandidate = false;
@@ -2206,7 +2258,7 @@ export class WerewolfEngine {
       this.sheriffSubphase = null;
       this.pkCandidates = [];
       const msg = `${elected} 号高票当选警长！`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, { seats: [elected] });
       this.recordTruth(this.day, msg, [elected]);
       return this.enterDawnAnnounce();
     }
@@ -2220,18 +2272,20 @@ export class WerewolfEngine {
           : this.seats.filter((s) => s.alive && s.isCandidate).map((s) => s.seat);
 
     if (this.sheriffSubphase === "voting" && tiedCandidates.length > 1) {
+      this.publishBallotsSnapshot(tallies, kind, "runoff", tiedCandidates);
       this.sheriffSubphase = "pk_speech";
       this.pkCandidates = tiedCandidates;
       const ordered = this.buildRandomOrderedSeats(tiedCandidates);
       this.startSpeechQueue(ordered);
       const announcement = `警长投票出现平票（${tiedCandidates.join("、")}号），进入 PK 发言，由 ${ordered[0]} 号开始。`;
-      this.addPublicEvent(announcement, "sheriff_tie");
+      this.addPublicEvent(announcement, { highlight: "sheriff_tie", seats: tiedCandidates });
       this.lastJudgeSpeech = announcement;
       this.bumpRevision();
       return { announcement };
     }
 
     // Second tie in pk_voting -> badge lost!
+    this.publishBallotsSnapshot(tallies, kind, "badge_lost", tiedCandidates);
     this.clearSheriff();
     for (const s of this.seats) {
       s.isCandidate = false;
@@ -2269,7 +2323,7 @@ export class WerewolfEngine {
 
   private finalizeDayExileVotes(): EngineTransitionOutcome {
     const tallies = this.computeTalliesFromBallots(this.currentBallots, true);
-    this.publishBallotsSnapshot(tallies);
+    const kind = this.phase === "day_voting" ? "exile" : "exile_pk";
 
     const topScore = tallies[0]?.weightedVotes ?? 0;
     const topTargets =
@@ -2278,6 +2332,7 @@ export class WerewolfEngine {
         : [];
 
     if (topTargets.length === 0) {
+      this.publishBallotsSnapshot(tallies, kind, "no_votes", []);
       const msg = "本轮全员弃票，无人出局，直接进入黑夜。";
       this.addPublicEvent(msg);
       this.recordTruth(this.day, msg, []);
@@ -2289,20 +2344,22 @@ export class WerewolfEngine {
 
       // Check Idiot immunity!
       if (exiled.role === "idiot" && !exiled.idiotRevealed) {
+        this.publishBallotsSnapshot(tallies, kind, "idiot_revealed", [exiled.seat]);
         exiled.idiotRevealed = true;
         exiled.canVote = false;
         if (exiled.seat === this.sheriffSeat) {
           this.clearSheriff();
         }
         const msg = `${exiled.seat} 号得最高票（${topScore}票），翻出【白痴】身份牌免于放逐，后续失去投票权！`;
-        this.addPublicEvent(msg);
+        this.addPublicEvent(msg, { seats: [exiled.seat] });
         this.recordTruth(this.day, msg, [exiled.seat]);
         return this.enterNight(this.day + 1, `${msg} 天黑请闭眼。`);
       }
 
+      this.publishBallotsSnapshot(tallies, kind, "exiled", [exiled.seat]);
       this.killSeat(exiled.seat, "vote");
       const msg = `${exiled.seat} 号以 ${topScore} 票被公投放逐出局。`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, { seats: [exiled.seat] });
       this.recordTruth(this.day, msg, [exiled.seat]);
 
       if (this.evaluateAndEnterGameOverIfFinished()) {
@@ -2328,21 +2385,23 @@ export class WerewolfEngine {
 
     // Tie (`topTargets.length > 1`)
     if (this.phase === "day_voting") {
+      this.publishBallotsSnapshot(tallies, kind, "runoff", topTargets);
       this.phase = "day_pk_speech";
       this.pkCandidates = topTargets;
       const ordered = this.buildRandomOrderedSeats(topTargets);
       this.startSpeechQueue(ordered);
       const announcement = `${topTargets.join("、")} 号同得最高票（${topScore}票），进入平票 PK 发言，请 ${ordered[0]} 号开始。`;
-      this.addPublicEvent(announcement, "day_tie");
+      this.addPublicEvent(announcement, { highlight: "day_tie", seats: topTargets });
       this.recordTruth(this.day, announcement, topTargets);
       this.bumpRevision();
       return { announcement };
     }
 
     // Second tie in `day_pk_voting` -> peaceful day!
+    this.publishBallotsSnapshot(tallies, kind, "tied_again", topTargets);
     this.pkCandidates = [];
     const msg = `${topTargets.join("、")} 号二次平票，今日平安日无人出局。`;
-    this.addPublicEvent(msg);
+    this.addPublicEvent(msg, { seats: topTargets });
     this.recordTruth(this.day, msg, topTargets);
     return this.enterNight(this.day + 1, `${msg} 第 ${this.day + 1} 夜降临，天黑请闭眼。`);
   }
@@ -2432,13 +2491,19 @@ export class WerewolfEngine {
       .sort((a, b) => b.weightedVotes - a.weightedVotes || a.targetSeat - b.targetSeat);
   }
 
-  private publishBallotsSnapshot(tallies: readonly WerewolfVoteTallyItem[]): void {
+  private publishBallotsSnapshot(
+    tallies: readonly WerewolfVoteTallyItem[],
+    kind: WerewolfReplayVoteKind,
+    outcome: WerewolfReplayVoteOutcome,
+    seats: readonly number[],
+  ): void {
     const snapshot: Record<number, number | null> = {};
     for (const [voter, target] of this.currentBallots.entries()) {
       snapshot[voter] = target;
     }
     this.lastPublishedBallots = snapshot;
     this.lastPublishedTallies = [...tallies];
+    this.addReplayEvent("day", { type: "ballot", kind, outcome, seats, votes: snapshot, tallies });
 
     const summaryParts = tallies.map(
       (t) => `${t.targetSeat}号(${t.weightedVotes}票: ${t.voterSeats.join("/")}号)`,
@@ -2453,7 +2518,7 @@ export class WerewolfEngine {
     ]
       .filter(Boolean)
       .join("，");
-    this.addPublicEvent(logLine);
+    this.addPublicEvent(logLine, { skipReplay: true });
     this.recordTruth(this.day, logLine, []);
   }
 
@@ -2782,6 +2847,12 @@ export class WerewolfEngine {
   }
 
   private startSpeechQueue(order: readonly number[]): void {
+    if (order.length > 0) {
+      const kind = this.phase === "sheriff_election"
+        ? this.sheriffSubphase === "pk_speech" ? "sheriff_pk" : "sheriff"
+        : this.phase === "day_pk_speech" ? "exile_pk" : "discussion";
+      this.addReplayEvent("day", { type: "speaking_order", kind, seats: [...order] });
+    }
     this.speakingOrder = [...order];
     this.speakingIndex = 0;
     this.speakingSeat = order[0] ?? null;
@@ -2878,6 +2949,8 @@ export class WerewolfEngine {
     this.lastPublishedTallies = [];
     this.publicEvents = [];
     this.truthTimeline = [];
+    this.replayEvents = [];
+    this.partialReplayTimeline = false;
     this.winner = null;
     this.winReason = null;
     this.latestMatchHighlight = null;
@@ -2885,7 +2958,24 @@ export class WerewolfEngine {
     this.aiMvpReview = { status: "idle", text: null, error: null };
   }
 
-  private addPublicEvent(text: string, highlight?: WerewolfMatchHighlight["kind"]): void {
+  private addReplayEvent(
+    round: WerewolfReplayEvent["round"],
+    event: WerewolfReplayEventContent,
+  ): void {
+    this.replayEvents.push({ ...event, day: this.day, round, sequence: this.replayEvents.length + 1 });
+  }
+
+  private isReplayNight(): boolean {
+    return this.phase.startsWith("night_") || this.phase === "dawn_settle";
+  }
+
+  private addPublicEvent(text: string, options: {
+    readonly highlight?: WerewolfMatchHighlight["kind"];
+    readonly dawn?: boolean;
+    readonly seats?: readonly number[];
+    readonly skipReplay?: boolean;
+  } = {}): void {
+    const { highlight, dawn, seats = [], skipReplay } = options;
     if (highlight) {
       this.latestMatchHighlight = { kind: highlight, day: this.day };
     }
@@ -2897,6 +2987,10 @@ export class WerewolfEngine {
       text,
       timestampMs: this.now(),
     });
+    if (this.day > 0 && this.phase !== "game_over" && !skipReplay) {
+      const round = this.phase === "dealing" ? "deal" : dawn || this.isReplayNight() ? "night" : "day";
+      this.addReplayEvent(round, { type: dawn ? "dawn" : "event", visibility: "public", text, seats, highlight });
+    }
   }
 
   private recordTruth(day: number, summary: string, actors: readonly number[]): void {
@@ -2905,6 +2999,9 @@ export class WerewolfEngine {
       summary,
       actors: [...actors],
     });
+    if (this.isReplayNight()) {
+      this.addReplayEvent("night", { type: "event", visibility: "postgame", text: summary, seats: [...actors] });
+    }
   }
 
   private assertLobbyEditable(stage: string): void {

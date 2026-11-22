@@ -86,8 +86,10 @@ const EMPTY_PUBLIC_STATE: WerewolfPublicState = {
   winner: null,
   winReason: null,
   fullTimelineReveal: [],
+  completedMatchId: null,
   matchHistory: [],
   matchHistoryLoadError: null,
+  matchHistoryVersion: 0,
   aiMvpReview: {
     status: "idle",
     text: null,
