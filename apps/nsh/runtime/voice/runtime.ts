@@ -256,6 +256,7 @@ export class VoiceRuntime {
     delivery?: "when_idle" | "interrupt";
     capturePolicy?: "inherit" | "duplex" | "muted_broadcast";
     verbatim?: boolean;
+    respectQuietHours?: boolean;
     holdAliveMs?: number;
     closeToStandbyOnComplete?: boolean;
     signal?: AbortSignal;
@@ -270,10 +271,16 @@ export class VoiceRuntime {
     if (!text) {
       return { completed: false, interruptedReason: "empty_speech" };
     }
-    this.clearBroadcastHoldTimer();
     if (options.contextNote) {
-      this.latestContextNote = options.contextNote.trim();
+      this.setContextNote(options.contextNote, true);
     }
+    if (options.respectQuietHours && this.options.isQuietHoursNow?.()) {
+      if (this.state.phase !== "speaking") {
+        this.options.audio.clearPlayback();
+      }
+      return { completed: false, interruptedReason: "quiet_hours_suppressed" };
+    }
+    this.clearBroadcastHoldTimer();
 
     const mutedBroadcast = options.capturePolicy === "muted_broadcast";
     if (!this.session || this.session.sessionPurpose !== "conversation" || this.session.isDisposed) {
@@ -309,6 +316,15 @@ export class VoiceRuntime {
           : "session_inactive");
       return { completed: false, interruptedReason: reason };
     }
+    if (options.respectQuietHours && this.options.isQuietHoursNow?.()) {
+      if (this.state.phase !== "speaking") {
+        this.options.audio.clearPlayback();
+      }
+      if (mutedBroadcast && this.sessionOpenedForBroadcast) {
+        this.scheduleBroadcastStandby(active, 600);
+      }
+      return { completed: false, interruptedReason: "quiet_hours_suppressed" };
+    }
 
     const previousMuted = active.isMuted;
     const listeningDuringBroadcast = this.pluginListening?.session === active;
@@ -327,6 +343,7 @@ export class VoiceRuntime {
         contextNote: options.contextNote,
         delivery: options.delivery ?? "when_idle",
         verbatim: options.verbatim,
+        respectQuietHours: options.respectQuietHours,
         onResult: (result) => {
           signal?.removeEventListener("abort", cancel);
           if (mutedBroadcast && this.session === active && !active.isDisposed) {
@@ -511,6 +528,7 @@ export class VoiceRuntime {
     }
     const history = [...this.conversation.messages];
     const home = this.options.home?.();
+    const schedule = this.options.schedule?.();
     const session = new LiveVoiceSession({
       apiKey,
       voiceId: selectedVoiceId,
@@ -542,6 +560,8 @@ export class VoiceRuntime {
       requestTask: this.options.requestTask,
       taskBridge: this.options.taskBridge,
       home: home ? { runtime: home, references: this.conversation.homeReferences } : undefined,
+      schedule,
+      isQuietHoursNow: this.options.isQuietHoursNow,
       onConversationActivity: () => {
         this.conversationWindow.touch();
         this.options.onConversationActivity?.();
@@ -565,7 +585,20 @@ export class VoiceRuntime {
     this.session = session;
     await session.open();
     if (this.session === session && !session.isDisposed) {
-      for (const notice of this.pendingNotices.splice(0)) session.enqueueNotice(notice);
+      for (const notice of this.pendingNotices.splice(0)) {
+        if (notice.contextNote) {
+          this.latestContextNote = notice.contextNote.trim();
+          session.updateContextNote(this.latestContextNote, true);
+        }
+        if (notice.respectQuietHours && this.options.isQuietHoursNow?.()) {
+          if (this.state.phase !== "speaking") {
+            this.options.audio.clearPlayback();
+          }
+          this.settleNotice(notice, "quiet_hours_suppressed");
+          continue;
+        }
+        session.enqueueNotice(notice);
+      }
     }
   }
 

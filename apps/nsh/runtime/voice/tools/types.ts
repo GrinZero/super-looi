@@ -2,6 +2,7 @@ import type { TraceContext } from "../../../../../packages/looi-runtime/src/tele
 import type { PluginVoiceTool, ToolCallBailResult } from "../../plugins/contracts.js";
 import type { VoiceTaskBridge } from "../types.js";
 import type { VoiceHome, VoiceHomeReferences } from "./home.js";
+import type { VoiceSchedule } from "./schedule.js";
 
 export type VoiceToolSchema = {
   type: "function";
@@ -29,6 +30,7 @@ export interface VoiceToolHost {
   requestTask?(prompt: string, traceContext?: TraceContext): Promise<string>;
   taskBridge?: VoiceTaskBridge;
   home?: { runtime: VoiceHome; references: VoiceHomeReferences };
+  schedule?: VoiceSchedule;
   controlBody?(
     action: string,
     durationMs?: number,

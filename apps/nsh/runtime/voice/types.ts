@@ -80,6 +80,7 @@ export interface VoiceProactiveNotice {
   contextNote?: string;
   delivery?: "when_idle" | "interrupt";
   readonly verbatim?: boolean;
+  readonly respectQuietHours?: boolean;
   onResult?: (result: { readonly completed: boolean; readonly interruptedReason?: string }) => void;
 }
 
@@ -116,6 +117,8 @@ export interface VoiceTaskBridge {
 
 export interface VoiceRuntimeOptions {
   home?: () => import("./tools/home.js").VoiceHome | undefined;
+  schedule?: () => import("./tools/schedule.js").VoiceSchedule | undefined;
+  isQuietHoursNow?: () => boolean;
   vault: Vault;
   /** Shared logical conversation used by the backend task runtime. */
   conversationId?: () => string;

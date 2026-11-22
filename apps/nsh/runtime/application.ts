@@ -5,9 +5,38 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { UserActionRef } from "@super-looi/contracts";
 import { PiAgentExecutor } from "@super-looi/runtime/agent/pi-executor";
 import type {
-  AgentStepEvent,
+  AgentInteraction,
   AgentInteractionAnswer,
+  AgentStepEvent,
+  AgentStopResult,
+  AgentTask,
 } from "@super-looi/runtime/agent/executor";
+import {
+  PostTurnScheduleObserver,
+  ScheduleEngine,
+  type CreateScheduleRuleInput,
+  type NativePermissionStatusResult,
+  type NativeScheduleEvent,
+  type NativeSchedulePort,
+  type QuietHoursWindow,
+  type ScheduleActivityEvent,
+  type ScheduleDeliveryContext,
+  type ScheduleExecutionPolicy,
+  type ScheduleFailure,
+  type ScheduleImportance,
+  type ScheduleOrigin,
+  type ScheduleReportSource,
+  type ScheduleRule,
+  type ScheduleRuleState,
+  type ScheduleRunRecord,
+  type ScheduleRunStatus,
+  type ScheduleRunTriggerReason,
+  type ScheduleSettings,
+  type ScheduleSnapshot,
+  type ScheduleToolFailure,
+  type ScheduleTrigger,
+  type UpdateScheduleRuleInput,
+} from "@super-looi/runtime/schedule";
 import { SqliteRuntimeStore } from "@super-looi/runtime/storage/sqlite";
 import { assertFreshUiAction } from "@super-looi/runtime/productivity/authorization";
 import { AgentTaskStore } from "@super-looi/runtime/agent/task-store";
@@ -39,7 +68,26 @@ import {
   type NativeBlePort,
 } from "./body.js";
 import { chooseConnectedModelId, fetchOnlineModels, type OnlineModel } from "./model-list.js";
-import { createBodyTools, createHomeTools } from "./tools/index.js";
+import {
+  clearGitHubToken,
+  createBodyTools,
+  createGitHubPrStatusTool,
+  createHomeTools,
+  createScheduleTools,
+  githubCredentialStatus,
+  readGitHubToken,
+  saveGitHubToken,
+  verifyGitHubToken,
+  type GitHubCredentialStatus,
+  type GitHubTokenVerificationResult,
+} from "./tools/index.js";
+import {
+  createScheduleNativePort,
+  isNativeScheduleHost,
+  type NativeScheduleExactAlarmStatus,
+  type NativeScheduleHost,
+} from "./schedule-native-adapter.js";
+import type { VoiceSchedule } from "./voice/tools/schedule.js";
 import { deviceControlInstructions } from "./device-control-instructions.js";
 import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
 import type { TraceContext } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
@@ -106,7 +154,60 @@ export type {
   BodyStatusSnapshot,
   BodyActionReceipt,
   NativeBlePort,
+  CreateScheduleRuleInput,
+  UpdateScheduleRuleInput,
+  ScheduleRule,
+  ScheduleRunRecord,
+  ScheduleSettings,
+  ScheduleSnapshot,
+  QuietHoursWindow,
+  ScheduleTrigger,
+  ScheduleOrigin,
+  ScheduleExecutionPolicy,
+  ScheduleRuleState,
+  ScheduleRunTriggerReason,
+  ScheduleRunStatus,
+  ScheduleReportSource,
+  ScheduleImportance,
+  ScheduleFailure,
+  ScheduleToolFailure,
+  ScheduleActivityEvent,
+  NativePermissionStatusResult,
+  NativeScheduleEvent,
+  NativeSchedulePort,
+  NativeScheduleHost,
+  NativeScheduleExactAlarmStatus,
+  GitHubCredentialStatus,
+  GitHubTokenVerificationResult,
+  AgentStopResult,
+  VoiceSchedule,
 };
+
+export type ScheduleActivityNotification = ScheduleActivityEvent & {
+  rule?: ScheduleRule;
+  run?: ScheduleRunRecord;
+  merged?: boolean;
+  isQuietHours?: boolean;
+  foregroundActive?: boolean;
+  notificationPosted?: boolean;
+  notificationError?: ScheduleFailure;
+};
+
+export type ScheduleInteractionEvent =
+  | {
+      type: "requested";
+      taskId: string;
+      ruleId?: string;
+      ruleTitle?: string;
+      runId?: string;
+      interaction: AgentInteraction;
+    }
+  | {
+      type: "cleared";
+      taskId: string;
+      interactionId: string;
+      taskState: string;
+    };
 
 export interface LlmModelItem {
   id: string;
@@ -193,7 +294,20 @@ export class MobileRuntime {
   private conversationId = `session_${randomUUID()}`;
   private conversationPersisted = false;
   private taskId?: string;
+  private activeForegroundSessionId?: string;
   private readonly activePluginTaskIds = new Set<string>();
+  private readonly scheduleActivityListeners = new Set<(event: ScheduleActivityNotification) => void>();
+  private readonly scheduleInteractionListeners = new Set<(event: ScheduleInteractionEvent) => void>();
+  private readonly activeScheduleInteractions = new Map<string, ScheduleInteractionEvent & { type: "requested" }>();
+  private readonly mutatedScheduleTaskIds = new Set<string>();
+  private readonly pendingMergedRules = new Set<string>();
+  private readonly handledSettledRuns = new Set<string>();
+  private readonly scheduleEngine: ScheduleEngine;
+  private readonly postTurnObserver: PostTurnScheduleObserver;
+  private attachedSchedulePort: NativeSchedulePort | null = null;
+  private attachedScheduleHost?: NativeScheduleHost;
+  private scheduleForegroundActive = false;
+  private lastDefaultLanguage: "zh-CN" | "en-US" = "zh-CN";
   private closed = false;
   private busy = false;
   private loginPending = false;
@@ -252,6 +366,31 @@ export class MobileRuntime {
         conversationId: () => this.conversationId,
       });
       this.modelsRegistry = createLooiModelsRegistry(this.credentialStore);
+      this.registerGitHubSecret();
+      this.scheduleEngine = new ScheduleEngine({
+        store: this.storage,
+        getExecutor: () => this.executor,
+        tracer: this.tracer,
+        defaultLanguage: () => this.lastDefaultLanguage,
+        onRuleCreated: (rule, merged) => {
+          if (merged) {
+            this.pendingMergedRules.add(rule.id);
+          }
+        },
+        onRunSettled: async (context) => {
+          await this.handleScheduleRunSettled(context);
+        },
+        onActivity: (event) => {
+          this.emitScheduleActivity(event);
+        },
+      });
+      this.postTurnObserver = new PostTurnScheduleObserver({
+        engine: this.scheduleEngine,
+        store: this.storage,
+        tracer: this.tracer,
+        redactSecrets: (text) => this.redactSecrets(text),
+        getModelConfig: () => this.resolveCurrentModelStreamConfig(),
+      });
 
       const raw = vault.get("model");
       if (raw) {
@@ -275,6 +414,11 @@ export class MobileRuntime {
           if (customValid) {
             syncLooiModelsRegistry(this.modelsRegistry, envelope);
             this.executor = this.createExecutorForSelection(envelope.active);
+            queueMicrotask(() => {
+              if (!this.closed) {
+                void this.scheduleEngine.reconcileDueRules().catch(() => {});
+              }
+            });
           }
         }
       }
@@ -290,6 +434,10 @@ export class MobileRuntime {
 
   voiceHome(): import("./voice/tools/home.js").VoiceHome | undefined {
     return this.home.configuration().mode === "disabled" ? undefined : this.home;
+  }
+
+  voiceSchedule(): VoiceSchedule {
+    return this.scheduleEngine;
   }
 
   pluginsSnapshot() { return this.plugins.snapshots(); }
@@ -421,6 +569,7 @@ export class MobileRuntime {
     try {
       const result = await this.executor.run(text, {
         taskId: bgTaskId,
+        lane: "plugin",
         sessionId: `plugin_${pluginId}_${randomUUID()}`,
         mode: "text",
         approvalMode: "ask",
@@ -481,8 +630,8 @@ export class MobileRuntime {
       envelope.credentials[envelope.active.providerId] &&
       !this.closed
     ) {
-      await this.executor?.close();
-      this.executor = this.createExecutorForSelection(envelope.active);
+      await this.closeExecutorForRebuild();
+      this.setExecutorFromSelection(envelope.active);
     }
     return result;
   }
@@ -705,8 +854,8 @@ export class MobileRuntime {
         envelope.credentials[envelope.active.providerId] &&
         !this.closed
       ) {
-        await this.executor?.close();
-        this.executor = this.createExecutorForSelection(envelope.active);
+        await this.closeExecutorForRebuild();
+        this.setExecutorFromSelection(envelope.active);
       }
     }
     return result;
@@ -782,6 +931,10 @@ export class MobileRuntime {
         } catch {
           // Non-JSON slot or empty.
         }
+      }
+      const githubToken = readGitHubToken(this.vault);
+      if (githubToken && githubToken.length >= 4) {
+        scrubbed = scrubbed.replaceAll(githubToken, "[redacted]");
       }
     } catch {
       // Never throw during error redaction.
@@ -921,6 +1074,41 @@ export class MobileRuntime {
     this.conversationId = conversationId;
   }
 
+  activeConversationId(): string {
+    return this.conversationId;
+  }
+
+  adoptConversationSession(
+    sessionId: string,
+    action: UserActionRef,
+  ): { conversationId: string } {
+    if (
+      this.closed ||
+      this.busy ||
+      this.loginPending ||
+      Boolean(this.llmOAuthAbort)
+    ) {
+      throw new Error("@looi:runtimeStopTheCurrentTaskOrCancelSigninFirst");
+    }
+    this.assertUiAction(action);
+    const trimmed = typeof sessionId === "string" ? sessionId.trim() : "";
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(trimmed)) {
+      throw new Error("@looi:runtimeInvalidScheduleSession");
+    }
+    const raw = this.vault.get("model");
+    if (raw) {
+      this.credentialStore.updateEnvelope((draft) => {
+        draft.conversationId = trimmed;
+        return draft;
+      });
+      this.conversationPersisted = true;
+    } else {
+      this.conversationPersisted = false;
+    }
+    this.conversationId = trimmed;
+    return { conversationId: this.conversationId };
+  }
+
   private validate(config: ModelConfiguration): ModelConfiguration {
     if (
       typeof config?.baseUrl !== "string" ||
@@ -1051,8 +1239,7 @@ export class MobileRuntime {
     const prevConversationId = this.conversationId;
     const prevConversationPersisted = this.conversationPersisted;
     try {
-      await this.executor?.close();
-      this.executor = undefined;
+      await this.closeExecutorForRebuild();
       if (this.closed) throw new Error("@looi:runtimePageClosed");
       const conversationId = `session_${randomUUID()}`;
       let nextEnvelope: ModelVaultEnvelope;
@@ -1089,7 +1276,7 @@ export class MobileRuntime {
             customValid = this.isValidCustomEndpoint(prevEnvelope.custom);
           }
           if (customValid) {
-            this.executor = this.createExecutorForSelection(prevEnvelope.active);
+            this.setExecutorFromSelection(prevEnvelope.active);
           }
         }
         throw error;
@@ -1097,7 +1284,7 @@ export class MobileRuntime {
       this.conversationId = conversationId;
       this.conversationPersisted = true;
       syncLooiModelsRegistry(this.modelsRegistry, nextEnvelope);
-      this.executor = this.createExecutorForSelection(nextEnvelope.active!);
+      this.setExecutorFromSelection(nextEnvelope.active!);
     } finally {
       this.busy = false;
     }
@@ -1109,6 +1296,7 @@ export class MobileRuntime {
     process.env.PI_CODING_AGENT_DIR = "/home/agent";
     const credential = this.credentialStore.readEnvelope().credentials[selection.providerId];
     if (credential?.type === "api_key" && credential.key) this.tracer.registerSecret(credential.key);
+    this.registerGitHubSecret();
     const homeEnabled = this.home.configuration().mode !== "disabled";
     const bodyEnabled = this.body.configuration().mode !== "disabled";
     return new PiAgentExecutor({
@@ -1119,29 +1307,77 @@ export class MobileRuntime {
       model: selection.modelId,
       stateDirectory: "/home/agent",
       workspaceRoot: "/workspace",
+      redactSecrets: (text) => this.redactSecrets(text),
       taskPersistence: {
         load: this.storage.tasks.load,
         save: (task) => {
           this.storage.tasks.save(task);
+          this.handlePersistedTaskUpdate(task);
           this.emitTaskActivity(true);
         },
       },
       approvalUiSessionId: this.uiSessionId,
       requireApprovalForAllWrites: true,
-      maxConcurrentTasks: 2,
+      maxConcurrentTasks: 3,
+      laneLimits: {
+        foreground: 1,
+        plugin: 1,
+        schedule: 1,
+      },
       deadlineMs: 600_000,
-      systemPrompt: deviceControlInstructions + "\n家居查询使用 list_home_devices；仅在用户要求控制时，再用返回的 entity_id 和 connectionId 调用 control_home_device。不要先检查底座状态。工具未提供时，说明当前未启用对应能力。",
+      systemPrompt:
+        deviceControlInstructions +
+        "\n家居查询使用 list_home_devices；仅在用户要求控制时，再用返回的 entity_id 和 connectionId 调用 control_home_device。不要先检查底座状态。工具未提供时，说明当前未启用对应能力。" +
+        "\nPR 与云端任务只读查询：使用 github_pr_status 查询 GitHub PR 状态、checks 与 reviews；使用 codex_cloud_status 查询 Codex 云端任务状态。需要定时或延后无打扰复查同一 PR/任务时，调用 manage_schedule（origin 设为 \"agent_inferred\"，executionPolicy 设为 \"check_only\"，使用唯一 dedupeKey，prompt 必须自包含完整 owner/repo/pullNumber 或 taskId 等标识）。",
       additionalTools: [
-        ...(homeEnabled ? this.homeTools() : []),
-        ...(bodyEnabled ? this.bodyTools() : []),
+        createGitHubPrStatusTool({ vault: this.vault }),
       ],
-      taskTools: context => this.plugins.contribution(context),
+      taskTools: context => {
+        const pluginContribution = this.plugins.contribution(context);
+        const taskSessionId =
+          this.executor?.getTask(context.taskId)?.sessionId ??
+          (context.taskId === this.taskId ? this.activeForegroundSessionId : undefined);
+        const scheduleTools = createScheduleTools({
+          engine: this.scheduleEngine,
+          sourceSessionId: taskSessionId,
+          sourceTaskId: context.taskId,
+          checkOnly: context.scheduleExecutionPolicy === "check_only",
+          onMutated: () => {
+            if (context.taskId === this.taskId) {
+              this.mutatedScheduleTaskIds.add(context.taskId);
+            }
+          },
+        });
+        const tools: AgentTool<any>[] = [
+          ...pluginContribution.tools,
+          ...(homeEnabled
+            ? createHomeTools({
+                home: this.home,
+                database: this.database,
+                getActiveTaskId: () => context.taskId,
+              })
+            : []),
+          ...(bodyEnabled
+            ? createBodyTools({
+                body: this.body,
+                database: this.database,
+                getActiveTaskId: () => context.taskId,
+              })
+            : []),
+          ...scheduleTools,
+        ];
+        return {
+          tools,
+          ...(pluginContribution.skillPaths ? { skillPaths: pluginContribution.skillPaths } : {}),
+        };
+      },
       beforeToolCall: call =>
         this.plugins.ai.evaluateToolCall({
           channel: "task",
           toolName: call.toolName,
           approvalMode: call.approvalMode,
           arguments: call.arguments,
+          scheduleExecutionPolicy: call.scheduleExecutionPolicy,
         }),
       assembleTurnContext: async turn => {
         const draft = await this.plugins.ai.assembleTurn({
@@ -1164,22 +1400,6 @@ export class MobileRuntime {
         };
       },
       approvalRequiredTools: homeEnabled ? ["control_home_device"] : [],
-    });
-  }
-
-  private bodyTools(): AgentTool<any>[] {
-    return createBodyTools({
-      body: this.body,
-      database: this.database,
-      getActiveTaskId: () => this.taskId,
-    });
-  }
-
-  private homeTools(): AgentTool<any>[] {
-    return createHomeTools({
-      home: this.home,
-      database: this.database,
-      getActiveTaskId: () => this.taskId,
     });
   }
 
@@ -1248,9 +1468,12 @@ export class MobileRuntime {
         });
         this.conversationPersisted = true;
       }
+      this.lastDefaultLanguage = options.defaultLanguage ?? this.lastDefaultLanguage;
+      this.activeForegroundSessionId = sessionId;
       this.taskId = `task_${randomUUID()}`;
       const result = await this.executor.run(text, {
         taskId: this.taskId,
+        lane: "foreground",
         sessionId,
         mode: options.mode,
         approvalMode: options.approvalMode,
@@ -1259,19 +1482,39 @@ export class MobileRuntime {
         onStep,
         onShellOutput: options.onShellOutput,
       });
+      const manageScheduleMutated = this.mutatedScheduleTaskIds.has(result.taskId);
+      const completedTask =
+        this.executor.getTask(result.taskId) ?? this.storage.task(result.taskId);
+      if (completedTask && completedTask.state === "succeeded") {
+        this.postTurnObserver.maybeObserve({
+          task: completedTask,
+          result,
+          userPrompt: text,
+          manageScheduleMutated,
+        });
+      }
       return {
         answer: result.answer,
         taskId: result.taskId,
         runtimeExited: result.runtimeExited,
       };
     } finally {
+      if (this.taskId) {
+        this.mutatedScheduleTaskIds.delete(this.taskId);
+      }
       if (options.mode === "voice") this.voiceConversation.finish();
+      this.activeForegroundSessionId = undefined;
       this.busy = false;
       this.taskId = undefined;
     }
   }
 
   respond(taskId: string, requestId: string, answer: AgentInteractionAnswer) {
+    if (this.closed || !this.executor) throw new Error("@looi:runtimeRuntimeUnavailable");
+    this.executor.respond(taskId, requestId, answer);
+  }
+
+  respondTask(taskId: string, requestId: string, answer: AgentInteractionAnswer) {
     if (this.closed || !this.executor) throw new Error("@looi:runtimeRuntimeUnavailable");
     this.executor.respond(taskId, requestId, answer);
   }
@@ -1284,13 +1527,21 @@ export class MobileRuntime {
     return this.executor.sendMessage(taskId, message, behavior);
   }
 
-  async cancel() {
+  async cancelTask(taskId: string): Promise<AgentStopResult> {
+    if (this.closed || !this.executor) throw new Error("@looi:runtimeRuntimeUnavailable");
+    if (taskId === this.taskId) {
+      return this.cancel();
+    }
+    return this.executor.cancel(taskId);
+  }
+
+  async cancel(): Promise<AgentStopResult> {
     this.cancelMiotLogin();
     this.cancelProviderOAuth();
     this.home.suspend();
     void this.body.control({ action: "stop" });
     const taskId = this.taskId;
-    const result =
+    const result: AgentStopResult =
       taskId && this.executor
         ? await this.executor.cancel(taskId)
         : { state: "cancelled", runtimeExited: true, confirmed: true };
@@ -1312,8 +1563,17 @@ export class MobileRuntime {
     }
     this.closing = (async () => {
       try {
+        await this.scheduleEngine.close().catch(() => {});
         await this.executor?.close();
       } finally {
+        this.attachedSchedulePort = null;
+        this.attachedScheduleHost = undefined;
+        this.scheduleActivityListeners.clear();
+        this.scheduleInteractionListeners.clear();
+        this.activeScheduleInteractions.clear();
+        this.mutatedScheduleTaskIds.clear();
+        this.pendingMergedRules.clear();
+        this.handledSettledRuns.clear();
         try { await this.plugins.close(); }
         finally {
           this.lanRoomBroker.close();
@@ -1558,6 +1818,8 @@ export class MobileRuntime {
 
     const shouldSetActive = input.setActive !== false;
     const prevEnvelope = envelope;
+    const willRebuildExecutor =
+      shouldSetActive || prevEnvelope.active?.providerId === input.providerId;
     const prevConversationId = this.conversationId;
     const prevConversationPersisted = this.conversationPersisted;
     const nextConversationId = shouldSetActive
@@ -1566,9 +1828,8 @@ export class MobileRuntime {
 
     this.busy = true;
     try {
-      if (shouldSetActive) {
-        await this.executor?.close();
-        this.executor = undefined;
+      if (willRebuildExecutor) {
+        await this.closeExecutorForRebuild();
       }
       let nextEnvelope: ModelVaultEnvelope;
       try {
@@ -1610,6 +1871,7 @@ export class MobileRuntime {
         this.conversationPersisted = prevConversationPersisted;
         syncLooiModelsRegistry(this.modelsRegistry, prevEnvelope);
         if (
+          willRebuildExecutor &&
           prevEnvelope.active &&
           prevEnvelope.credentials[prevEnvelope.active.providerId]
         ) {
@@ -1618,7 +1880,7 @@ export class MobileRuntime {
             customValid = this.isValidCustomEndpoint(prevEnvelope.custom);
           }
           if (customValid) {
-            this.executor = this.createExecutorForSelection(prevEnvelope.active);
+            this.setExecutorFromSelection(prevEnvelope.active);
           }
         }
         throw error;
@@ -1630,10 +1892,11 @@ export class MobileRuntime {
       }
       syncLooiModelsRegistry(this.modelsRegistry, nextEnvelope);
       if (
+        willRebuildExecutor &&
         nextEnvelope.active &&
         nextEnvelope.credentials[nextEnvelope.active.providerId]
       ) {
-        this.executor = this.createExecutorForSelection(nextEnvelope.active);
+        this.setExecutorFromSelection(nextEnvelope.active);
       }
       this.invalidateFetchedModels(input.providerId);
       return this.llmSnapshot();
@@ -1671,6 +1934,7 @@ export class MobileRuntime {
     const changed =
       envelope.active?.providerId !== input.providerId ||
       envelope.active?.modelId !== targetModelId;
+    const willRebuild = changed || !this.executor;
 
     const prevEnvelope = envelope;
     const prevConversationId = this.conversationId;
@@ -1681,9 +1945,8 @@ export class MobileRuntime {
 
     this.busy = true;
     try {
-      if (changed) {
-        await this.executor?.close();
-        this.executor = undefined;
+      if (willRebuild) {
+        await this.closeExecutorForRebuild();
       }
       let nextEnvelope: ModelVaultEnvelope;
       try {
@@ -1724,6 +1987,7 @@ export class MobileRuntime {
         this.conversationPersisted = prevConversationPersisted;
         syncLooiModelsRegistry(this.modelsRegistry, prevEnvelope);
         if (
+          willRebuild &&
           prevEnvelope.active &&
           prevEnvelope.credentials[prevEnvelope.active.providerId]
         ) {
@@ -1732,7 +1996,7 @@ export class MobileRuntime {
             customValid = this.isValidCustomEndpoint(prevEnvelope.custom);
           }
           if (customValid) {
-            this.executor = this.createExecutorForSelection(prevEnvelope.active);
+            this.setExecutorFromSelection(prevEnvelope.active);
           }
         }
         throw error;
@@ -1744,10 +2008,11 @@ export class MobileRuntime {
       }
       syncLooiModelsRegistry(this.modelsRegistry, nextEnvelope);
       if (
+        willRebuild &&
         nextEnvelope.active &&
         nextEnvelope.credentials[nextEnvelope.active.providerId]
       ) {
-        this.executor = this.createExecutorForSelection(nextEnvelope.active);
+        this.setExecutorFromSelection(nextEnvelope.active);
       }
       return this.llmSnapshot();
     } finally {
@@ -1777,8 +2042,7 @@ export class MobileRuntime {
     this.busy = true;
     try {
       if (isActive) {
-        await this.executor?.close();
-        this.executor = undefined;
+        await this.closeExecutorForRebuild();
       }
       const nextEnvelope = await this.credentialStore.updateEnvelopeAsync(
         (draft) => {
@@ -1917,8 +2181,7 @@ export class MobileRuntime {
       this.busy = true;
       try {
         const conversationId = `session_${randomUUID()}`;
-        await this.executor?.close();
-        this.executor = undefined;
+        await this.closeExecutorForRebuild();
         abort.signal.throwIfAborted();
 
         const nextEnvelope = await this.credentialStore.updateEnvelopeAsync(
@@ -1937,7 +2200,7 @@ export class MobileRuntime {
         this.conversationId = conversationId;
         this.conversationPersisted = true;
         syncLooiModelsRegistry(this.modelsRegistry, nextEnvelope);
-        this.executor = this.createExecutorForSelection(nextEnvelope.active!);
+        this.setExecutorFromSelection(nextEnvelope.active!);
         return this.llmSnapshot();
       } finally {
         this.busy = false;
@@ -1988,6 +2251,484 @@ export class MobileRuntime {
       const abort = this.llmOAuthAbort;
       this.llmOAuthAbort = undefined;
       abort.abort();
+    }
+  }
+
+  async attachNativeSchedule(
+    hostOrPort: NativeScheduleHost | NativeSchedulePort | null,
+    options?: { foregroundActive?: boolean },
+  ): Promise<void> {
+    if (this.closed) return;
+    if (hostOrPort === null) {
+      this.attachedScheduleHost = undefined;
+      this.attachedSchedulePort = null;
+    } else if (isNativeScheduleHost(hostOrPort)) {
+      this.attachedScheduleHost = hostOrPort;
+      this.attachedSchedulePort = createScheduleNativePort(hostOrPort);
+    } else {
+      this.attachedScheduleHost = undefined;
+      this.attachedSchedulePort = hostOrPort;
+    }
+    await this.scheduleEngine.attachNativePort(this.attachedSchedulePort);
+    if (typeof options?.foregroundActive === "boolean") {
+      this.scheduleForegroundActive = options.foregroundActive;
+      this.attachedScheduleHost?.setForeground(options.foregroundActive);
+      await this.scheduleEngine.setForegroundActive(options.foregroundActive);
+    }
+  }
+
+  async setScheduleForegroundActive(active: boolean): Promise<void> {
+    if (this.closed) return;
+    this.scheduleForegroundActive = active;
+    this.attachedScheduleHost?.setForeground(active);
+    await this.scheduleEngine.setForegroundActive(active);
+  }
+
+  async handleNativeScheduleEvents(
+    events?: readonly NativeScheduleEvent[],
+  ): Promise<{ tappedRule?: ScheduleRule; tappedRun?: ScheduleRunRecord }> {
+    if (this.closed) return {};
+    return this.scheduleEngine.handleNativeEvents(events);
+  }
+
+  async reconcileScheduleDueRules(): Promise<ScheduleRunRecord[]> {
+    if (this.closed) return [];
+    return this.scheduleEngine.reconcileDueRules();
+  }
+
+  scheduleExactAlarmStatus(): NativeScheduleExactAlarmStatus | null {
+    return this.attachedScheduleHost?.exactAlarmStatus() ?? null;
+  }
+
+  async openScheduleExactAlarmSettings(): Promise<boolean> {
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    if (this.attachedScheduleHost) {
+      return this.attachedScheduleHost.openExactAlarmSettings();
+    }
+    if (this.attachedSchedulePort?.openExactAlarmSettings) {
+      await this.attachedSchedulePort.openExactAlarmSettings();
+      return true;
+    }
+    return false;
+  }
+
+  async requestSchedulePermission(
+    action?: UserActionRef,
+  ): Promise<NativePermissionStatusResult> {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    if (!this.attachedSchedulePort) {
+      return { notification: "unavailable" };
+    }
+    const status = await this.attachedSchedulePort.requestPermission();
+    this.emitScheduleActivity({ kind: "settings_updated" });
+    return status;
+  }
+
+  scheduleSnapshot(): Promise<ScheduleSnapshot> {
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.snapshot();
+  }
+
+  scheduleSnapshotSync(): Omit<ScheduleSnapshot, "permissionStatus"> {
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.snapshotSync();
+  }
+
+  subscribeScheduleActivity(
+    listener: (event: ScheduleActivityNotification) => void,
+  ): () => void {
+    this.scheduleActivityListeners.add(listener);
+    return () => this.scheduleActivityListeners.delete(listener);
+  }
+
+  subscribeScheduleInteractions(
+    listener: (event: ScheduleInteractionEvent) => void,
+  ): () => void {
+    this.scheduleInteractionListeners.add(listener);
+    return () => this.scheduleInteractionListeners.delete(listener);
+  }
+
+  pendingScheduleInteractions(): Array<
+    ScheduleInteractionEvent & { type: "requested" }
+  > {
+    return Array.from(this.activeScheduleInteractions.values());
+  }
+
+  listScheduleRules(filter?: {
+    state?: ScheduleRuleState;
+    origin?: ScheduleOrigin;
+  }): ScheduleRule[] {
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.listRules(filter);
+  }
+
+  listScheduleRuns(ruleId?: string, limit?: number): ScheduleRunRecord[] {
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.listRuns(ruleId, limit);
+  }
+
+  createScheduleRule(
+    input: CreateScheduleRuleInput,
+    action?: UserActionRef,
+  ): { rule: ScheduleRule; merged: boolean } {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.createRule(input);
+  }
+
+  updateScheduleRule(
+    id: string,
+    patch: UpdateScheduleRuleInput,
+    action?: UserActionRef,
+  ): ScheduleRule {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.updateRule(id, patch);
+  }
+
+  setScheduleRuleEnabled(
+    id: string,
+    enabled: boolean,
+    action?: UserActionRef,
+  ): ScheduleRule {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.setRuleEnabled(id, enabled);
+  }
+
+  cancelScheduleRule(id: string, action?: UserActionRef): Promise<ScheduleRule> {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.cancelRule(id);
+  }
+
+  deleteScheduleRule(id: string, action?: UserActionRef): Promise<boolean> {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.deleteRule(id);
+  }
+
+  runScheduleRuleNow(
+    id: string,
+    action?: UserActionRef,
+  ): Promise<ScheduleRunRecord> {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.runNow(id);
+  }
+
+  updateScheduleSettings(
+    patch: Partial<ScheduleSettings>,
+    action?: UserActionRef,
+  ): ScheduleSettings {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.updateSettings(patch);
+  }
+
+  addQuietHoursWindow(
+    input: Omit<QuietHoursWindow, "id"> & { id?: string },
+    action?: UserActionRef,
+  ): ScheduleSettings {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.addQuietHoursWindow(input);
+  }
+
+  updateQuietHoursWindow(
+    id: string,
+    patch: Partial<Omit<QuietHoursWindow, "id">>,
+    action?: UserActionRef,
+  ): ScheduleSettings {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.updateQuietHoursWindow(id, patch);
+  }
+
+  removeQuietHoursWindow(
+    id: string,
+    action?: UserActionRef,
+  ): ScheduleSettings {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.removeQuietHoursWindow(id);
+  }
+
+  setQuietHoursEnabled(
+    enabled: boolean,
+    action?: UserActionRef,
+  ): ScheduleSettings {
+    if (action) this.assertUiAction(action);
+    else if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return this.scheduleEngine.setQuietHoursEnabled(enabled);
+  }
+
+  isQuietHoursNow(): boolean {
+    if (this.closed) return false;
+    return this.scheduleEngine.isQuietHoursNow();
+  }
+
+  githubCredentialStatus(): GitHubCredentialStatus {
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    return githubCredentialStatus(this.vault);
+  }
+
+  saveGitHubToken(
+    token: string,
+    action: UserActionRef,
+  ): GitHubCredentialStatus {
+    this.assertUiAction(action);
+    const status = saveGitHubToken(this.vault, token);
+    this.registerGitHubSecret();
+    return status;
+  }
+
+  async verifyGitHubToken(
+    action: UserActionRef,
+  ): Promise<GitHubTokenVerificationResult> {
+    this.assertUiAction(action);
+    return verifyGitHubToken(this.vault);
+  }
+
+  clearGitHubToken(action: UserActionRef): GitHubCredentialStatus {
+    this.assertUiAction(action);
+    return clearGitHubToken(this.vault);
+  }
+
+  private assertUiAction(action: UserActionRef): void {
+    if (this.closed) throw new Error("@looi:runtimeRuntimeClosed");
+    assertFreshUiAction(action);
+    if (action.ui_session_id !== this.uiSessionId) {
+      throw new Error("@looi:runtimeThisPageExpiredOpenItAgain");
+    }
+  }
+
+  private registerGitHubSecret(): void {
+    const token = readGitHubToken(this.vault);
+    if (token && token.length >= 4) {
+      this.tracer.registerSecret(token);
+    }
+  }
+
+  private resolveCurrentModelStreamConfig() {
+    const envelope = this.credentialStore.readEnvelope();
+    const active = envelope.active;
+    if (!active) return undefined;
+    const cred = envelope.credentials[active.providerId];
+    if (!cred) return undefined;
+    if (
+      active.providerId === "custom" &&
+      !this.isValidCustomEndpoint(envelope.custom)
+    ) {
+      return undefined;
+    }
+    let apiKey: string | undefined;
+    if (cred.type === "api_key" && cred.key) {
+      apiKey = cred.key;
+    } else if (cred.type === "oauth") {
+      const oauth = cred as unknown as { access?: string };
+      if (oauth.access) apiKey = oauth.access;
+    }
+    const baseUrl =
+      active.providerId === "custom"
+        ? envelope.custom?.baseUrl
+        : resolveProviderBaseUrl(active.providerId);
+    return {
+      modelsRegistry: this.modelsRegistry,
+      providerId: active.providerId,
+      model: active.modelId,
+      ...(apiKey ? { apiKey } : {}),
+      ...(baseUrl ? { baseUrl } : {}),
+    };
+  }
+
+  private async closeExecutorForRebuild(): Promise<void> {
+    await this.scheduleEngine.cancelActiveRun().catch(() => {});
+    for (const bgTaskId of this.activePluginTaskIds) {
+      await this.executor?.cancel(bgTaskId).catch(() => {});
+    }
+    await this.executor?.close();
+    this.executor = undefined;
+  }
+
+  private setExecutorFromSelection(selection: ActiveLlmSelection): void {
+    this.executor = this.createExecutorForSelection(selection);
+    if (!this.closed) {
+      void this.scheduleEngine.reconcileDueRules().catch(() => {});
+    }
+  }
+
+  private handlePersistedTaskUpdate(task: AgentTask): void {
+    if (task.lane !== "schedule") return;
+    const prev = this.activeScheduleInteractions.get(task.id);
+    if (task.interaction) {
+      if (!prev || prev.interaction.id !== task.interaction.id) {
+        const runs = this.scheduleEngine.listRuns(undefined, 20);
+        const matchedRun =
+          runs.find((run) => run.taskId === task.id) ??
+          runs.find((run) => run.sessionId === task.sessionId);
+        const matchedRule = matchedRun
+          ? this.scheduleEngine.getRule(matchedRun.ruleId)
+          : undefined;
+        const event: ScheduleInteractionEvent & { type: "requested" } = {
+          type: "requested",
+          taskId: task.id,
+          ...(matchedRun
+            ? {
+                ruleId: matchedRun.ruleId,
+                ruleTitle: matchedRule?.title ?? matchedRun.ruleTitle,
+                runId: matchedRun.id,
+              }
+            : {}),
+          interaction: task.interaction,
+        };
+        this.activeScheduleInteractions.set(task.id, event);
+        for (const listener of this.scheduleInteractionListeners) {
+          listener(event);
+        }
+      }
+      return;
+    }
+    if (prev) {
+      this.activeScheduleInteractions.delete(task.id);
+      const cleared: ScheduleInteractionEvent = {
+        type: "cleared",
+        taskId: task.id,
+        interactionId: prev.interaction.id,
+        taskState: task.state,
+      };
+      for (const listener of this.scheduleInteractionListeners) {
+        listener(cleared);
+      }
+    }
+  }
+
+  private emitScheduleActivity(event: ScheduleActivityEvent): void {
+    if (event.kind === "run_settled" && event.runId) {
+      if (this.handledSettledRuns.has(event.runId)) {
+        this.handledSettledRuns.delete(event.runId);
+        return;
+      }
+      const existingRun = this.scheduleEngine.getRun(event.runId);
+      if (
+        existingRun &&
+        existingRun.status !== "missed" &&
+        existingRun.status !== "skipped"
+      ) {
+        return;
+      }
+    }
+    const rule = event.ruleId
+      ? this.scheduleEngine.getRule(event.ruleId)
+      : undefined;
+    const run = event.runId
+      ? this.scheduleEngine.getRun(event.runId)
+      : undefined;
+    const merged =
+      event.kind === "rule_created" && event.ruleId
+        ? this.pendingMergedRules.delete(event.ruleId)
+        : undefined;
+    const notification: ScheduleActivityNotification = {
+      ...event,
+      ...(rule ? { rule } : {}),
+      ...(run ? { run } : {}),
+      ...(merged !== undefined ? { merged } : {}),
+      isQuietHours: this.scheduleEngine.isQuietHoursNow(),
+      foregroundActive: this.scheduleForegroundActive,
+      ...(event.kind === "run_settled" ? { notificationPosted: false } : {}),
+    };
+    for (const listener of this.scheduleActivityListeners) {
+      listener(notification);
+    }
+  }
+
+  private extractScheduleFailure(stage: string, error: unknown): ScheduleFailure {
+    const info =
+      error && typeof error === "object"
+        ? (error as {
+            stage?: unknown;
+            code?: unknown;
+            errno?: unknown;
+            status?: unknown;
+            statusCode?: unknown;
+            reason?: unknown;
+            message?: unknown;
+          })
+        : undefined;
+    const rawStage = typeof info?.stage === "string" && info.stage ? info.stage : stage;
+    const rawCode =
+      typeof info?.code === "string" || typeof info?.code === "number"
+        ? info.code
+        : typeof info?.errno === "string" || typeof info?.errno === "number"
+          ? info.errno
+          : typeof info?.status === "number"
+            ? info.status
+            : typeof info?.statusCode === "number"
+              ? info.statusCode
+              : undefined;
+    const rawReason =
+      typeof info?.reason === "string" && info.reason
+        ? info.reason
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    return {
+      stage: rawStage,
+      ...(rawCode !== undefined ? { code: rawCode } : {}),
+      reason: this.redactSecrets(rawReason),
+    };
+  }
+
+  private async handleScheduleRunSettled(
+    context: ScheduleDeliveryContext,
+  ): Promise<void> {
+    if (this.handledSettledRuns.size > 100) {
+      this.handledSettledRuns.clear();
+    }
+    this.handledSettledRuns.add(context.run.id);
+    let notificationPosted = false;
+    let notificationError: ScheduleFailure | undefined;
+    try {
+      if (
+        !context.foregroundActive &&
+        context.run.importance === "notify" &&
+        this.attachedSchedulePort
+      ) {
+        try {
+          await this.attachedSchedulePort.postNotification({
+            id: context.run.id,
+            ruleId: context.rule.id,
+            runId: context.run.id,
+            sessionId: context.run.sessionId ?? context.rule.sourceSessionId,
+            title: context.rule.title,
+            body: context.run.summary?.trim() || context.rule.title,
+            silent: context.isQuietHours,
+          });
+          notificationPosted = true;
+        } catch (error) {
+          notificationPosted = false;
+          notificationError = this.extractScheduleFailure(
+            "schedule.notification",
+            error,
+          );
+        }
+      }
+    } finally {
+      const notification: ScheduleActivityNotification = {
+        kind: "run_settled",
+        ruleId: context.rule.id,
+        runId: context.run.id,
+        rule: context.rule,
+        run: context.run,
+        isQuietHours: context.isQuietHours,
+        foregroundActive: context.foregroundActive,
+        notificationPosted,
+        ...(notificationError ? { notificationError } : {}),
+      };
+      for (const listener of this.scheduleActivityListeners) {
+        listener(notification);
+      }
     }
   }
 }

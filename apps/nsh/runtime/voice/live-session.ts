@@ -80,6 +80,8 @@ export interface LiveVoiceSessionOptions {
   ) => Promise<string>;
   taskBridge?: VoiceTaskBridge;
   home?: VoiceToolHost["home"];
+  schedule?: VoiceToolHost["schedule"];
+  isQuietHoursNow?: () => boolean;
   onConversationActivity?: () => void;
   controlBody?: (
     action: string,
@@ -152,6 +154,8 @@ export class LiveVoiceSession {
   private evaluatedUtteranceSeq = -1;
   private lastEvaluatedItemId = "";
   private pendingAutoResponseCancel = false;
+  private pendingInstructionSync = false;
+  private pendingInstructionSyncStage = "context.update";
 
   private get socket(): VoiceSocket | undefined {
     return this.transport.socket;
@@ -264,6 +268,7 @@ export class LiveVoiceSession {
         requestTask: this.options.requestTask,
         taskBridge: this.options.taskBridge,
         home: this.options.home,
+        schedule: this.options.schedule,
         controlBody: this.options.controlBody,
         pluginTools,
         evaluateToolCall: this.options.evaluateVoiceToolCall,
@@ -300,6 +305,20 @@ export class LiveVoiceSession {
       this.resolveSpokenNotice(notice, {
         completed: false,
         interruptedReason: "duplicate_notice_id",
+      });
+      return;
+    }
+    if (notice.respectQuietHours && this.options.isQuietHoursNow?.()) {
+      if (notice.contextNote) {
+        this.updateContextNote(notice.contextNote, true);
+      }
+      if (this.phase !== "speaking" && !this.responseInProgress) {
+        this.audioPipeline.clearOutput(this.options.audio);
+        this.options.onAudioLevel?.(0);
+      }
+      this.resolveSpokenNotice(notice, {
+        completed: false,
+        interruptedReason: "quiet_hours_suppressed",
       });
       return;
     }
@@ -369,15 +388,26 @@ export class LiveVoiceSession {
     return this.noticeQueue.splice(0);
   }
 
+  private requestInstructionSync(stage: string): void {
+    this.agent.instructions = this.renderInstructions();
+    if (this.socket && this.phase !== "connecting") {
+      this.pendingInstructionSync = false;
+      void this.syncInstructions().catch((error) => {
+        this.failWithCause(stage, error);
+      });
+    } else {
+      this.pendingInstructionSync = true;
+      this.pendingInstructionSyncStage = stage;
+    }
+  }
+
   updateContextNote(note: string, syncImmediately = false): void {
     if (this.disposed) return;
     const next = note.trim();
     if (next === this.contextNote) return;
     this.contextNote = next;
-    if (syncImmediately && this.socket && this.phase !== "connecting") {
-      void this.syncInstructions().catch((error) => {
-        this.failWithCause("context.update", error);
-      });
+    if (syncImmediately) {
+      this.requestInstructionSync("context.update");
     }
   }
 
@@ -386,20 +416,16 @@ export class LiveVoiceSession {
     const next = note.trim();
     if (next === this.pluginContextNote) return;
     this.pluginContextNote = next;
-    if (syncImmediately && this.socket && this.phase !== "connecting") {
-      void this.syncInstructions().catch((error) => {
-        this.failWithCause("context.update", error);
-      });
+    if (syncImmediately) {
+      this.requestInstructionSync("context.update");
     }
   }
 
   updatePluginVoiceTools(pluginTools: readonly PluginVoiceTool[], syncImmediately = true): void {
     if (this.disposed || this.purpose === "preview") return;
     this.agent.tools = this.buildSessionTools(pluginTools);
-    if (syncImmediately && this.socket && this.phase !== "connecting") {
-      void this.syncInstructions().catch((error) => {
-        this.failWithCause("tools.update", error);
-      });
+    if (syncImmediately) {
+      this.requestInstructionSync("tools.update");
     }
   }
 
@@ -436,6 +462,8 @@ export class LiveVoiceSession {
         if (!this.previewPcm?.length)
           throw new Error("MOSS preview requires its prerecorded 16 kHz input");
       }
+      this.pendingInstructionSync = false;
+      this.agent.instructions = this.renderInstructions();
       await this.session.connect({ apiKey: this.options.apiKey });
     } catch (error) {
       this.failWithCause(this.connectionStage, error);
@@ -718,134 +746,154 @@ ${JSON.stringify(this.previewSample())}`;
   }
 
   private flushNoticeIfIdle(): boolean {
-    if (!this.canDispatchNotice() || this.noticeQueue.length === 0) {
-      return false;
-    }
-    const notice = this.noticeQueue.shift()!;
-    if (notice.contextNote) {
-      this.contextNote = notice.contextNote.trim();
-      this.agent.instructions = this.renderInstructions();
-    }
-    const frames = this.options.protocol.encodeProactiveSpeech({
-      spokenText: notice.spokenText,
-      instructions: notice.contextNote ? this.renderInstructions() : undefined,
-      verbatim: notice.verbatim,
-    });
-    if (frames.length === 0) return false;
+    while (this.canDispatchNotice() && this.noticeQueue.length > 0) {
+      const notice = this.noticeQueue.shift()!;
+      if (notice.contextNote) {
+        this.contextNote = notice.contextNote.trim();
+        this.agent.instructions = this.renderInstructions();
+      }
+      if (notice.respectQuietHours && this.options.isQuietHoursNow?.()) {
+        if (notice.contextNote && this.socket && this.phase !== "connecting") {
+          void this.syncInstructions().catch((error) => {
+            this.failWithCause("context.update", error);
+          });
+        }
+        this.audioPipeline.clearOutput(this.options.audio);
+        this.options.onAudioLevel?.(0);
+        this.resolveSpokenNotice(notice, {
+          completed: false,
+          interruptedReason: "quiet_hours_suppressed",
+        });
+        continue;
+      }
+      const frames = this.options.protocol.encodeProactiveSpeech({
+        spokenText: notice.spokenText,
+        instructions: notice.contextNote ? this.renderInstructions() : undefined,
+        verbatim: notice.verbatim,
+      });
+      if (frames.length === 0) {
+        this.resolveSpokenNotice(notice, {
+          completed: false,
+          interruptedReason: "empty_speech",
+        });
+        continue;
+      }
 
-    this.activeSpokenNotice = notice;
-    this.noticeResponseRequested = false;
-    this.serverResponseDone = false;
-    this.responseId = "";
-    this.turnId = "";
-    this.dispatchingNotice = true;
-    this.pendingAutoResponseCancel = false;
-    this.pauseTurnTimers();
-    this.turnActivity = "awaiting_reply";
-    this.silenceSince = Date.now();
-    this.startAwaitingTimer();
+      this.activeSpokenNotice = notice;
+      this.noticeResponseRequested = false;
+      this.serverResponseDone = false;
+      this.responseId = "";
+      this.turnId = "";
+      this.dispatchingNotice = true;
+      this.pendingAutoResponseCancel = false;
+      this.pauseTurnTimers();
+      this.turnActivity = "awaiting_reply";
+      this.silenceSince = Date.now();
+      this.startAwaitingTimer();
 
-    let speechTriggered = false;
-    const delivery = notice.traceContext
-      ? this.options.tracer?.start(
-          "voice.delivery",
-          "span",
-          notice.traceContext,
-          {
-            "langfuse.observation.input": {
-              noticeId: notice.id,
-              spokenText: notice.spokenText,
-              contextNote: notice.contextNote,
-              frames,
+      let speechTriggered = false;
+      const delivery = notice.traceContext
+        ? this.options.tracer?.start(
+            "voice.delivery",
+            "span",
+            notice.traceContext,
+            {
+              "langfuse.observation.input": {
+                noticeId: notice.id,
+                spokenText: notice.spokenText,
+                contextNote: notice.contextNote,
+                frames,
+              },
             },
+          )
+        : undefined;
+      if (delivery) this.socket?.setResponseTraceContext?.(delivery.context);
+      void (async () => {
+        for (const frame of frames) {
+          if (
+            this.disposed ||
+            this.turnActivity !== "awaiting_reply" ||
+            this.discardOutput ||
+            this.resolvedNoticeCallbacks.has(notice)
+          ) {
+            if (this.activeSpokenNotice === notice) {
+              this.activeSpokenNotice = undefined;
+            }
+            if (
+              !this.disposed &&
+              !speechTriggered &&
+              !notice.onResult &&
+              !this.resolvedNoticeCallbacks.has(notice)
+            ) {
+              this.noticeQueue.unshift(notice);
+            } else {
+              this.resolveSpokenNotice(notice, {
+                completed: false,
+                interruptedReason: this.disposed
+                  ? "session_disposed"
+                  : "interrupted_during_send",
+              });
+            }
+            delivery?.end({
+              "langfuse.observation.output": {
+                status: "interrupted",
+                speechTriggered,
+              },
+            });
+            if (delivery) this.socket?.setResponseTraceContext?.();
+            return;
+          }
+          const frameType = (frame as { type?: unknown }).type;
+          const frameAction = (frame as { action?: unknown }).action;
+          if (
+            frameType === "speech_text_buffer.commit" ||
+            frameType === "conversation.item.create" ||
+            frameAction === "session.commentary.append"
+          ) {
+            speechTriggered = true;
+            if (this.options.protocol.providerId === "doubao") {
+              this.transcript = notice.spokenText.slice(-4096);
+              this.transcriptTurnOpen = false;
+              this.transcriptResponseId = "";
+              this.publish({ transcript: this.transcript });
+            }
+          }
+          if (frame === frames.at(-1)) this.noticeResponseRequested = true;
+          await this.send(frame);
+        }
+        delivery?.end({
+          "langfuse.observation.output": {
+            status: "sent",
+            providerId: this.options.protocol.providerId,
           },
-        )
-      : undefined;
-    if (delivery) this.socket?.setResponseTraceContext?.(delivery.context);
-    void (async () => {
-      for (const frame of frames) {
-        if (
-          this.disposed ||
-          this.turnActivity !== "awaiting_reply" ||
-          this.discardOutput ||
-          this.resolvedNoticeCallbacks.has(notice)
-        ) {
+        });
+      })()
+        .catch((error) => {
           if (this.activeSpokenNotice === notice) {
             this.activeSpokenNotice = undefined;
           }
-          if (
-            !this.disposed &&
-            !speechTriggered &&
-            !notice.onResult &&
-            !this.resolvedNoticeCallbacks.has(notice)
-          ) {
-            this.noticeQueue.unshift(notice);
-          } else {
-            this.resolveSpokenNotice(notice, {
-              completed: false,
-              interruptedReason: this.disposed
-                ? "session_disposed"
-                : "interrupted_during_send",
-            });
-          }
-          delivery?.end({
-            "langfuse.observation.output": {
-              status: "interrupted",
-              speechTriggered,
-            },
+          this.resolveSpokenNotice(notice, {
+            completed: false,
+            interruptedReason: "send_failed",
           });
           if (delivery) this.socket?.setResponseTraceContext?.();
-          return;
-        }
-        const frameType = (frame as { type?: unknown }).type;
-        const frameAction = (frame as { action?: unknown }).action;
-        if (
-          frameType === "speech_text_buffer.commit" ||
-          frameType === "conversation.item.create" ||
-          frameAction === "session.commentary.append"
-        ) {
-          speechTriggered = true;
-          if (this.options.protocol.providerId === "doubao") {
-            this.transcript = notice.spokenText.slice(-4096);
-            this.transcriptTurnOpen = false;
-            this.transcriptResponseId = "";
-            this.publish({ transcript: this.transcript });
+          delivery?.end({
+            "langfuse.observation.level": "ERROR",
+            "langfuse.observation.status_message": String(error),
+          });
+          this.failWithCause("notice.send", error);
+        })
+        .finally(() => {
+          if (!this.disposed) {
+            this.dispatchingNotice = false;
+            if (this.turnActivity === "waiting_user") {
+              this.flushNoticeIfIdle();
+            }
           }
-        }
-        if (frame === frames.at(-1)) this.noticeResponseRequested = true;
-        await this.send(frame);
-      }
-      delivery?.end({
-        "langfuse.observation.output": {
-          status: "sent",
-          providerId: this.options.protocol.providerId,
-        },
-      });
-    })()
-      .catch((error) => {
-        if (this.activeSpokenNotice === notice) {
-          this.activeSpokenNotice = undefined;
-        }
-        this.resolveSpokenNotice(notice, {
-          completed: false,
-          interruptedReason: "send_failed",
         });
-        if (delivery) this.socket?.setResponseTraceContext?.();
-        delivery?.end({
-          "langfuse.observation.level": "ERROR",
-          "langfuse.observation.status_message": String(error),
-        });
-        this.failWithCause("notice.send", error);
-      })
-      .finally(() => {
-        if (!this.disposed) {
-          this.dispatchingNotice = false;
-          if (this.turnActivity === "waiting_user") {
-            this.flushNoticeIfIdle();
-          }
-        }
-      });
-    return true;
+      return true;
+    }
+    return false;
   }
 
   private flushStoppedPlayback(
@@ -1147,6 +1195,17 @@ ${JSON.stringify(this.previewSample())}`;
         purpose: "conversation",
         activeVoiceId: this.options.voiceId,
       });
+      if (this.pendingInstructionSync) {
+        const syncStage = this.pendingInstructionSyncStage;
+        this.pendingInstructionSync = false;
+        try {
+          await this.syncInstructions();
+        } catch (error) {
+          this.failWithCause(syncStage, error);
+          return true;
+        }
+        if (this.disposed) return true;
+      }
       if (!this.flushNoticeIfIdle()) {
         this.startIdleTimer();
       }

@@ -72,6 +72,7 @@ interface RegisteredToolGuard {
     toolName: string;
     approvalMode: string;
     arguments: Record<string, unknown>;
+    scheduleExecutionPolicy?: "check_only" | "authorized_action";
   }) => Promise<ToolCallBailResult> | ToolCallBailResult;
 }
 
@@ -223,6 +224,7 @@ export class DualLoopAiBus {
     toolName: string;
     approvalMode: string;
     arguments: Record<string, unknown>;
+    scheduleExecutionPolicy?: "check_only" | "authorized_action";
   }): Promise<(Exclude<ToolCallBailResult, undefined> & { readonly pluginId: string }) | undefined> {
     let pendingAsk: (Extract<ToolCallBailResult, { decision: "ask" }> & { readonly pluginId: string }) | undefined;
     let pendingAllow: (Extract<ToolCallBailResult, { decision: "allow" }> & { readonly pluginId: string }) | undefined;

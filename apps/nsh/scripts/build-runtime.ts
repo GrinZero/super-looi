@@ -25,6 +25,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     export {resolveApplianceCardView, packBentoTiles} from "@super-looi/home-devices";
     export {RobotFaceController, FACE_EXPRESSION_IDS, FACE_PRIORITY, isFaceExpression, getFaceExpressionBehavior} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
     export {verifyEd25519Signature, verifyNshPackage} from "./runtime/plugins/package-loader.ts";
+    export {parseCron, previewCronOccurrences, isWithinQuietHours} from "../../packages/looi-runtime/src/schedule.ts";
     export async function openRuntime(host,vault) {
       const release=installNshNativeCompat(host);
       try {const {MobileRuntime}=await import("./runtime/application.ts");return new MobileRuntime(vault,release);}
@@ -94,7 +95,7 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
     resolve(root, "generated/looi-runtime.d.ts"),
     `
 export interface VoiceState {phase:"idle"|"standby"|"permission"|"connecting"|"listening"|"speaking"|"error";muted:boolean;wakeEnabled:boolean;wakeNeedsConfiguration?:boolean;transcript:string;userTranscript?:string;purpose?:"conversation"|"preview";activeVoiceId?:string;error:string}
-export interface VoiceProactiveNotice {id:string;taskId?:string;traceContext?:TraceContext;spokenText:string;contextNote?:string;delivery?:"when_idle"|"interrupt";verbatim?:boolean;onResult?:(result:{readonly completed:boolean;readonly interruptedReason?:string})=>void}
+export interface VoiceProactiveNotice {id:string;taskId?:string;traceContext?:TraceContext;spokenText:string;contextNote?:string;delivery?:"when_idle"|"interrupt";verbatim?:boolean;respectQuietHours?:boolean;onResult?:(result:{readonly completed:boolean;readonly interruptedReason?:string})=>void}
 export type VoiceTaskSubmissionResult = {status:"completed";taskId:string;answer:string}|{status:"running_in_background";taskId:string;latestSummary:string}|{status:"waiting_user_confirmation";taskId:string;interactionKind:"approval"|"question";latestSummary:string}|{status:"busy";taskId:string;latestSummary:string}|{status:"failed";taskId?:string;error:string};
 export interface VoiceTaskStatusSnapshot {taskId:string;prompt:string;state:"running"|"waiting_user"|"completed"|"failed"|"cancelled";latestSummary:string;answer?:string;error?:string}
 export interface VoiceTaskBridge {submit(prompt:string,traceContext?:TraceContext):Promise<VoiceTaskSubmissionResult>;inspect(taskId?:string):VoiceTaskStatusSnapshot|null;cancel(taskId?:string):Promise<{cancelled:boolean;taskId?:string}>;sendMessage?(message:string,behavior:"steer"|"followUp",taskId?:string):Promise<{status:"queued"|"handled";taskId:string}>}
@@ -112,16 +113,29 @@ interface VoiceHome {
  control(command:import("@super-looi/contracts").HomeControlCommand,action:{connectionId:string;requestId:string}):Promise<unknown>;
  controlByName(target:{name:string;room?:string},operation:Pick<import("@super-looi/contracts").HomeControlCommand,"service"|"service_data">,requestId:string):Promise<unknown>;
 }
+export interface VoiceSchedule {
+ createRule(input:CreateScheduleRuleInput):{rule:ScheduleRule;merged:boolean};
+ listRules(filter?:{state?:ScheduleRuleState;origin?:ScheduleOrigin}):ScheduleRule[];
+ updateRule(id:string,patch:UpdateScheduleRuleInput):ScheduleRule;
+ cancelRule(id:string):Promise<ScheduleRule>;
+ runNow(id:string):Promise<ScheduleRunRecord>;
+ getSettings():ScheduleSettings;
+ addQuietHoursWindow(input:Omit<QuietHoursWindow,"id">&{id?:string}):ScheduleSettings;
+ updateQuietHoursWindow(id:string,patch:Partial<Omit<QuietHoursWindow,"id">>):ScheduleSettings;
+ removeQuietHoursWindow(id:string):ScheduleSettings;
+ setQuietHoursEnabled(enabled:boolean):ScheduleSettings;
+ isQuietHoursNow():boolean;
+}
 export class VoiceRuntime {
- constructor(options:{home?:()=>VoiceHome|undefined;previewInput?:()=>Promise<Uint8Array>;canAutoStandby?:()=>boolean;conversationId?:()=>string;defaultLanguage?:()=>"zh-CN"|"en-US";vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;beginWake():number;startWake(ticket:number,resumeFocus?:boolean):Promise<boolean>;stop():void;setCaptureMode(mode:string):void;playReadyCue():void;playDockCue?(docked:boolean):void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number;captureMode:string;wakeWord:string;kwsReady:boolean}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string|Uint8Array):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;onAudioLevel?:(level:number)=>void;onConversationActivity?:()=>void;requestTask?:(prompt:string,traceContext?:TraceContext)=>Promise<string>;taskBridge?:VoiceTaskBridge;controlBody?:(action:string,durationMs?:number,options?:{headDegrees?:number;brightness?:number;speed?:number;turn?:number})=>Promise<unknown>;stopVoiceMotion?:()=>Promise<unknown>;redactSecrets?:(text:string)=>string;onSessionEnd?:()=>void;cancelTask?:()=>void;tracer?:unknown;initialPluginContext?:()=>string;pluginVoiceTools?:()=>readonly PluginVoiceTool[];evaluateVoiceToolCall?:(call:{toolName:string;arguments:Record<string,unknown>})=>Promise<(Exclude<ToolCallBailResult,undefined>&{readonly pluginId?:string})|undefined>;evaluateVoiceUserTurn?:(text:string)=>Promise<(Exclude<UserTurnBailResult,undefined>&{readonly pluginId?:string})|undefined>;assembleVoiceTurn?:(text:string)=>Promise<AiTurnDraft>});
- configuration():{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};selectProvider(providerId:string):{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};refreshCredentials(autoStandby?:boolean,modelProviderId?:string):{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};configure(value:string):void;configureVoiceId(value:string):void;clearCredentials():void;preview(options?:{voiceId?:string;sampleText?:string}):Promise<void>;restartSession():Promise<void>;setWakeEnabled(enabled:boolean,options?:{autoStandby?:boolean}):void;snapshot():VoiceState;enqueueNotice(notice:VoiceProactiveNotice):void;setContextNote(note:string,syncActiveSession?:boolean):void;setPluginContext(note:string,syncActiveSession?:boolean):void;refreshPluginVoiceTools():void;listenUntil(deadlineMs:number,signal:AbortSignal):Promise<void>;speak(options:{spokenText:string;contextNote?:string;delivery?:"when_idle"|"interrupt";capturePolicy?:"inherit"|"duplex"|"muted_broadcast";verbatim?:boolean;holdAliveMs?:number;closeToStandbyOnComplete?:boolean;signal?:AbortSignal}):Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;enterStandby():Promise<void>;start(options?:{fromWakeWord?:boolean}):Promise<void>;endSession():void;mute(value:boolean):void;interrupt():void;playDockCue(docked:boolean):void;stopIdleCue():void;stopStandby():void;stop():void;close():void;
+ constructor(options:{home?:()=>VoiceHome|undefined;schedule?:()=>VoiceSchedule|undefined;isQuietHoursNow?:()=>boolean;previewInput?:()=>Promise<Uint8Array>;canAutoStandby?:()=>boolean;conversationId?:()=>string;defaultLanguage?:()=>"zh-CN"|"en-US";vault:{get(key:string):string;set(key:string,value:string):void;remove(key:string):void};audio:{requestPermission():string;start(capture:boolean):void;beginWake():number;startWake(ticket:number,resumeFocus?:boolean):Promise<boolean>;stop():void;setCaptureMode(mode:string):void;playReadyCue():void;playDockCue?(docked:boolean):void;enqueue(pcm:Uint8Array,rate:number):void;clearPlayback():void;setMuted(muted:boolean):void;drainCapture():Array<{pcm:Uint8Array;timestampMs:number;sampleRate:number}>;status():{state:string;permission:string;error:string;queuedPlaybackMs:number;captureMode:string;wakeWord:string;kwsReady:boolean}};connect:(url:string,options:{headers:Record<string,string>})=>Promise<{read():Promise<string|Uint8Array|null>;write(value:string|Uint8Array):Promise<void>;close():Promise<void>}>;onState:(state:VoiceState)=>void;onAudioLevel?:(level:number)=>void;onConversationActivity?:()=>void;requestTask?:(prompt:string,traceContext?:TraceContext)=>Promise<string>;taskBridge?:VoiceTaskBridge;controlBody?:(action:string,durationMs?:number,options?:{headDegrees?:number;brightness?:number;speed?:number;turn?:number})=>Promise<unknown>;stopVoiceMotion?:()=>Promise<unknown>;redactSecrets?:(text:string)=>string;onSessionEnd?:()=>void;cancelTask?:()=>void;tracer?:unknown;initialPluginContext?:()=>string;pluginVoiceTools?:()=>readonly PluginVoiceTool[];evaluateVoiceToolCall?:(call:{toolName:string;arguments:Record<string,unknown>})=>Promise<(Exclude<ToolCallBailResult,undefined>&{readonly pluginId?:string})|undefined>;evaluateVoiceUserTurn?:(text:string)=>Promise<(Exclude<UserTurnBailResult,undefined>&{readonly pluginId?:string})|undefined>;assembleVoiceTurn?:(text:string)=>Promise<AiTurnDraft>});
+ configuration():{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};selectProvider(providerId:string):{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};refreshCredentials(autoStandby?:boolean,modelProviderId?:string):{hasKey:boolean;keyHint?:string;providerId:string;providerLabel:string;voiceId:string;configuredProviders:Record<string,boolean>};configure(value:string):void;configureVoiceId(value:string):void;clearCredentials():void;preview(options?:{voiceId?:string;sampleText?:string}):Promise<void>;restartSession():Promise<void>;setWakeEnabled(enabled:boolean,options?:{autoStandby?:boolean}):void;snapshot():VoiceState;enqueueNotice(notice:VoiceProactiveNotice):void;setContextNote(note:string,syncActiveSession?:boolean):void;setPluginContext(note:string,syncActiveSession?:boolean):void;refreshPluginVoiceTools():void;listenUntil(deadlineMs:number,signal:AbortSignal):Promise<void>;speak(options:{spokenText:string;contextNote?:string;delivery?:"when_idle"|"interrupt";capturePolicy?:"inherit"|"duplex"|"muted_broadcast";verbatim?:boolean;respectQuietHours?:boolean;holdAliveMs?:number;closeToStandbyOnComplete?:boolean;signal?:AbortSignal}):Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;enterStandby():Promise<void>;start(options?:{fromWakeWord?:boolean}):Promise<void>;endSession():void;mute(value:boolean):void;interrupt():void;playDockCue(docked:boolean):void;stopIdleCue():void;stopStandby():void;stop():void;close():void;
 }
 export type TraceContext = {traceId:string;parentSpanId?:string;traceName:string;sessionId?:string};
 export interface UiAction {event_id:string;ui_session_id:string;kind:"tap"|"gesture"|"voice_command";captured_at:string;expires_at:string}
 export function utf8Tail(text:string,limit:number):string;
 export interface NativeShellOutput {taskId:string;callId:string;command:string;stream:"stdout"|"stderr"|"status";chunk:string}
 export interface NativeStep {step:number;phase:string;summary:string;taskId?:string;interaction?:{id:string;kind:"approval"|"question";details:Record<string,unknown>;expiresAt:string}}
-export interface NativeTaskSummary {id:string;prompt:string;state:string;updatedAt:string;voiceToolName?:string}
+export interface NativeTaskSummary {id:string;prompt:string;state:string;updatedAt:string;lane?:"foreground"|"plugin"|"schedule";voiceToolName?:string}
 export interface NativeObservation {traceId:string;spanId:string;parentSpanId?:string;name:string;type:"span"|"agent"|"generation"|"tool";startedAt:number;endedAt?:number;attributes:Record<string,unknown>}
 export interface NativeTask extends NativeTaskSummary {trace?:{traceId:string;spanId:string};observations?:NativeObservation[];voiceToolCall?:{input:unknown;output:unknown};homeActions:Array<{requestId:string;connectionId:string;command:Record<string,unknown>;simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;bodyActions?:Array<{requestId:string;command:{action:string;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number};simulation:boolean;recordedAt:string;status:string;receipt:unknown}>;sessionId:string;createdAt:string;error?:string;runtimeExited?:boolean;steps:NativeStep[];result?:{answer:string;executions?:Array<{callId:string;stdout?:string;stderr?:string;command:string;exitCode:number|null;signal:string|null;timedOut:boolean;aborted:boolean}>;artifacts?:Array<{path:string;sha256:string;size:number}>}}
 export interface NativeTaskPage {total:number;offset:number;items:NativeTaskSummary[]}
@@ -187,6 +201,48 @@ export type LlmOAuthUiEvent =
  | {kind:"auth_url";url:string;instructions?:string}
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
+export interface ScheduleFailure {stage:string;code?:string|number;reason:string}
+export interface ScheduleToolFailure {callId:string;toolName:string;stage:string;code?:string|number;reason:string}
+export type ScheduleTrigger = {kind:"once";runAt:string}|{kind:"interval";everySeconds:number}|{kind:"cron";expr:string};
+export type ScheduleOrigin = "user"|"agent_inferred";
+export type ScheduleExecutionPolicy = "check_only"|"authorized_action";
+export type ScheduleRuleState = "active"|"running"|"paused"|"completed"|"expired"|"cancelled"|"unconfirmed";
+export type ScheduleRunTriggerReason = "scheduled"|"misfire_catchup"|"manual_now";
+export type ScheduleRunStatus = "running"|"succeeded"|"failed"|"awaiting_user"|"result_unconfirmed"|"missed"|"skipped";
+export type ScheduleReportSource = "schedule_report"|"fallback_answer";
+export type ScheduleImportance = "silent"|"notify";
+export interface ScheduleChain {rootRuleId:string;followUpCount:number;maxFollowUps:number}
+export interface ScheduleRule {id:string;title:string;prompt:string;origin:ScheduleOrigin;dedupeKey?:string;trigger:ScheduleTrigger;executionPolicy:ScheduleExecutionPolicy;enabled:boolean;state:ScheduleRuleState;activeRunId?:string;nextRunAt:string|null;lastRunAt?:string;lastRunId?:string;sourceSessionId?:string;sourceTaskId?:string;chain:ScheduleChain;misfireGraceSeconds:number;expiresAt?:string;createdAt:string;updatedAt:string}
+export interface ScheduleRunRecord {id:string;ruleId:string;ruleTitle:string;taskId?:string;sessionId?:string;triggerReason:ScheduleRunTriggerReason;scheduledFor:string;startedAt:string;finishedAt?:string;status:ScheduleRunStatus;sideEffectDispatched:boolean;reportSource?:ScheduleReportSource;importance?:ScheduleImportance;summary?:string;error?:ScheduleFailure;toolFailures?:ScheduleToolFailure[];followUpRuleId?:string}
+export interface QuietHoursWindow {id:string;label?:string;startMinute:number;endMinute:number;daysOfWeek?:number[];enabled:boolean}
+export interface ScheduleSettings {autoFollowUpEnabled:boolean;maxActiveInferredRules:number;quietHoursEnabled:boolean;quietHours:QuietHoursWindow[]}
+export interface CreateScheduleRuleInput {title:string;prompt:string;origin?:ScheduleOrigin;dedupeKey?:string;trigger:ScheduleTrigger;executionPolicy?:ScheduleExecutionPolicy;enabled?:boolean;sourceSessionId?:string;sourceTaskId?:string;misfireGraceSeconds?:number;maxFollowUps?:number;followUpCount?:number;rootRuleId?:string;expiresAt?:string}
+export interface UpdateScheduleRuleInput {title?:string;prompt?:string;trigger?:ScheduleTrigger;executionPolicy?:ScheduleExecutionPolicy;enabled?:boolean;dedupeKey?:string|null;misfireGraceSeconds?:number;maxFollowUps?:number;expiresAt?:string|null}
+export type NativeNotificationPermissionStatus = "granted"|"denied"|"undetermined"|"unavailable";
+export interface NativePermissionStatusResult {notification:NativeNotificationPermissionStatus;exactAlarmAllowed?:boolean;exactAlarmDegraded?:boolean}
+export interface NativeUpcomingAlarm {ruleId:string;title:string;body:string;triggerAtMs:number;silent:boolean}
+export interface NativeQuietHoursWindowSnapshot {id:string;startMinute:number;endMinute:number;daysOfWeek?:number[];enabled:boolean}
+export interface NativeQuietHoursSnapshot {quietHoursEnabled:boolean;windows:NativeQuietHoursWindowSnapshot[]}
+export interface NativeScheduleNotification {id:string;ruleId:string;runId?:string;sessionId?:string;title:string;body:string;silent:boolean}
+export type NativeScheduleEvent = {kind:"notification_tapped";ruleId:string;runId?:string;sessionId?:string;timestampMs?:number}|{kind:"alarm_fired";ruleId:string;timestampMs?:number}|{kind:"ios_grace_expiring";handle?:string;timestampMs?:number}|{kind:"keepalive_timeout";timestampMs?:number}|{kind:"permission_changed";status?:NativePermissionStatusResult;timestampMs?:number};
+export interface NativeSchedulePort {permissionStatus():Promise<NativePermissionStatusResult>|NativePermissionStatusResult;requestPermission():Promise<NativePermissionStatusResult>|NativePermissionStatusResult;syncUpcomingAlarms(alarms:readonly NativeUpcomingAlarm[]):Promise<void>|void;cancelAlarm(ruleId:string):Promise<void>|void;syncQuietHours(snapshot:NativeQuietHoursSnapshot):Promise<void>|void;postNotification(notification:NativeScheduleNotification):Promise<void>|void;setAndroidKeepAlive(input:{active:boolean;hasRunningCheck:boolean;nextTriggerAtMs:number|null}):Promise<void>|void;beginIosBackgroundGrace(label:string):Promise<string|null>|string|null;endIosBackgroundGrace(handle:string):Promise<void>|void;drainEvents():Promise<NativeScheduleEvent[]>|NativeScheduleEvent[];openExactAlarmSettings?():Promise<void>|void}
+export interface NativeScheduleExactAlarmStatus {mode:string;degraded:boolean;canOpenSettings:boolean;reason:string}
+export interface NativeScheduleAlarmSyncResult {syncedCount:number;cancelledCount:number;exactAlarmDegraded:boolean;exactAlarmMode:string}
+export interface NativeScheduleKeepAliveState {active:boolean;hasRunningCheck:boolean;quotaExhausted:boolean;dailyUsedMs:number;dailyCapMs:number;sessionUsedMs:number;sessionCapMs:number;reason:string}
+export interface RawScheduleNativeEvent {kind:string;ruleId:string;notificationId:string;handle:string;payloadJson:string;occurredAtMs:number}
+export interface NativeScheduleHost {permissionStatus():string;requestPermission():Promise<string>;exactAlarmStatus():NativeScheduleExactAlarmStatus;openExactAlarmSettings():boolean;syncUpcomingAlarms(alarmsJson:string):NativeScheduleAlarmSyncResult;cancelAlarm(ruleId:string):boolean;syncQuietHours(quietSnapshotJson:string):void;postNotification(payloadJson:string):string;setAndroidKeepAlive(active:boolean,hasRunningCheck:boolean,nextTriggerAtMs?:number|null):NativeScheduleKeepAliveState;beginIosBackgroundGrace(label:string):string;endIosBackgroundGrace(handle:string):void;drainEvents():RawScheduleNativeEvent[];setForeground(active:boolean):void;dispose?():void}
+export interface ScheduleSnapshot {rules:ScheduleRule[];recentRuns:ScheduleRunRecord[];settings:ScheduleSettings;isQuietNow:boolean;permissionStatus?:NativePermissionStatusResult}
+export interface ScheduleActivityEvent {kind:"rule_created"|"rule_updated"|"rule_deleted"|"run_started"|"run_settled"|"settings_updated";ruleId?:string;runId?:string}
+export type ScheduleActivityNotification = ScheduleActivityEvent & {rule?:ScheduleRule;run?:ScheduleRunRecord;merged?:boolean;isQuietHours?:boolean;foregroundActive?:boolean;notificationPosted?:boolean;notificationError?:ScheduleFailure};
+export type ScheduleInteractionEvent = {type:"requested";taskId:string;ruleId?:string;ruleTitle?:string;runId?:string;interaction:{id:string;kind:"approval"|"question";details:Record<string,unknown>;expiresAt:string}}|{type:"cleared";taskId:string;interactionId:string;taskState:string};
+export interface GitHubFailure {stage:string;code?:string|number;reason:string}
+export interface GitHubCredentialStatus {configured:boolean;tokenHint?:string}
+export interface GitHubTokenVerificationResult {valid:boolean;configured:boolean;tokenHint?:string;rateLimit?:{limit:number;remaining:number;resetAt:string};failure?:GitHubFailure}
+export interface ParsedCronField {readonly values:readonly number[];readonly set:ReadonlySet<number>;readonly restricted:boolean}
+export interface ParsedCron {readonly expr:string;readonly minute:ParsedCronField;readonly hour:ParsedCronField;readonly dom:ParsedCronField;readonly month:ParsedCronField;readonly dow:ParsedCronField}
+export function parseCron(expr:string):ParsedCron;
+export function previewCronOccurrences(expr:string,count?:number,after?:Date,options?:{maxYears?:number}):Date[];
+export function isWithinQuietHours(now:Date,settings:Pick<ScheduleSettings,"quietHoursEnabled"|"quietHours">):boolean;
 import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,ResumableStageView,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraFrame,NativeDeviceCameraFacesFrame,NativeCroppedPortrait,NativeDeviceCameraPort,VisionBrokerAttachOptions,NativeDeviceMotionSample,NativeDeviceMotionPort,MotionBrokerAttachOptions,BodyCliffState,BodySensorPacket,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
 export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,ResumableStageView,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraFrame,NativeDeviceCameraFacesFrame,NativeCroppedPortrait,NativeDeviceCameraPort,VisionBrokerAttachOptions,NativeDeviceMotionSample,NativeDeviceMotionPort,MotionBrokerAttachOptions,BodyCliffState,BodySensorPacket,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
 export interface NativeRuntime {
@@ -224,6 +280,7 @@ export interface NativeRuntime {
  subscribeTaskActivity(listener:(historyChanged:boolean)=>void):()=>void;
  homeConfiguration():HomeConfiguration;
  voiceHome():VoiceHome|undefined;
+ voiceSchedule():VoiceSchedule;
  homeConnection():HomeConnection;
  configureHome(input:{mode:HomeConfiguration["mode"];haUrl?:string;haToken?:string;region?:HomeConfiguration["region"];enabledSources?:Partial<Record<HomeSourceId,boolean>>},action:UiAction):Promise<HomeConfiguration>;
  connectHome():Promise<HomeConnection>;
@@ -264,12 +321,16 @@ export interface NativeRuntime {
  taskPage(offset?:number):NativeTaskPage;
  taskDetails(id:string):NativeTask;
  newConversation(action:UiAction):void;
+ activeConversationId():string;
+ adoptConversationSession(sessionId:string,action:UiAction):{conversationId:string};
  configure(value:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
  voiceConversationId():string;
  touchVoiceConversation():void;
  run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{onShellOutput?:(event:NativeShellOutput)=>void;agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
  sendTaskMessage(taskId:string,message:string,behavior:"steer"|"followUp",action:UiAction):Promise<"queued"|"handled">;
  respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
+ respondTask(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
+ cancelTask(taskId:string):Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  close():Promise<void>;
  llmSnapshot():LlmCatalogSnapshot;
@@ -280,6 +341,36 @@ export interface NativeRuntime {
  startProviderOAuth(providerId:string,action:UiAction,onEvent:(event:LlmOAuthUiEvent)=>void):Promise<LlmCatalogSnapshot>;
  submitProviderOAuthCallback(callbackUrl:string):void;
  cancelProviderOAuth():void;
+ attachNativeSchedule(hostOrPort:NativeScheduleHost|NativeSchedulePort|null,options?:{foregroundActive?:boolean}):Promise<void>;
+ setScheduleForegroundActive(active:boolean):Promise<void>;
+ handleNativeScheduleEvents(events?:readonly NativeScheduleEvent[]):Promise<{tappedRule?:ScheduleRule;tappedRun?:ScheduleRunRecord}>;
+ reconcileScheduleDueRules():Promise<ScheduleRunRecord[]>;
+ scheduleExactAlarmStatus():NativeScheduleExactAlarmStatus|null;
+ openScheduleExactAlarmSettings():Promise<boolean>;
+ requestSchedulePermission(action?:UiAction):Promise<NativePermissionStatusResult>;
+ scheduleSnapshot():Promise<ScheduleSnapshot>;
+ scheduleSnapshotSync():Omit<ScheduleSnapshot,"permissionStatus">;
+ subscribeScheduleActivity(listener:(event:ScheduleActivityNotification)=>void):()=>void;
+ subscribeScheduleInteractions(listener:(event:ScheduleInteractionEvent)=>void):()=>void;
+ pendingScheduleInteractions():Array<ScheduleInteractionEvent&{type:"requested"}>;
+ listScheduleRules(filter?:{state?:ScheduleRuleState;origin?:ScheduleOrigin}):ScheduleRule[];
+ listScheduleRuns(ruleId?:string,limit?:number):ScheduleRunRecord[];
+ createScheduleRule(input:CreateScheduleRuleInput,action?:UiAction):{rule:ScheduleRule;merged:boolean};
+ updateScheduleRule(id:string,patch:UpdateScheduleRuleInput,action?:UiAction):ScheduleRule;
+ setScheduleRuleEnabled(id:string,enabled:boolean,action?:UiAction):ScheduleRule;
+ cancelScheduleRule(id:string,action?:UiAction):Promise<ScheduleRule>;
+ deleteScheduleRule(id:string,action?:UiAction):Promise<boolean>;
+ runScheduleRuleNow(id:string,action?:UiAction):Promise<ScheduleRunRecord>;
+ updateScheduleSettings(patch:Partial<ScheduleSettings>,action?:UiAction):ScheduleSettings;
+ addQuietHoursWindow(input:Omit<QuietHoursWindow,"id">&{id?:string},action?:UiAction):ScheduleSettings;
+ updateQuietHoursWindow(id:string,patch:Partial<Omit<QuietHoursWindow,"id">>,action?:UiAction):ScheduleSettings;
+ removeQuietHoursWindow(id:string,action?:UiAction):ScheduleSettings;
+ setQuietHoursEnabled(enabled:boolean,action?:UiAction):ScheduleSettings;
+ isQuietHoursNow():boolean;
+ githubCredentialStatus():GitHubCredentialStatus;
+ saveGitHubToken(token:string,action:UiAction):GitHubCredentialStatus;
+ verifyGitHubToken(action:UiAction):Promise<GitHubTokenVerificationResult>;
+ clearGitHubToken(action:UiAction):GitHubCredentialStatus;
 }
 export const FACE_EXPRESSION_IDS: readonly ["neutral","listening","thinking","speaking","curious","sleeping","alarmed","wake_spark","aha_eureka","confused","interrupted","wave_bye","happy_squint","laughing","wink","love_eyes","shy_blush","starry_eyed","smug_proud","kitty_playful","touched_warm","kissy","excited_bounce","zen_content","pouty","sad_droop","teary_cry","grumpy_puff","angry_glare","speechless","side_eye","shocked","dizzy_spiral","nervous_sweat","mischievous","relieved_sigh","sleepy_drowsy","yawning","deep_snore","coffee_sip","munching","sipping_straw","music_vibe","focus_glasses","reading_scan","pomodoro_timer","celebrate_party","bored_sigh","coding_terminal","searching_radar","approval_ask","task_verified","task_warning","memory_recall","memory_saved","sync_pulse","privacy_shield","rate_limited","offline_lost","night_watch","dock_snap","undock_float","drive_forward","turn_peek","head_up_sky","head_down_floor","charging_pulse","low_battery","fill_light_glow","home_command","weather_sunny","weather_rain_chill"];
 export type CanonicalFaceExpression = (typeof FACE_EXPRESSION_IDS)[number];

@@ -22,11 +22,13 @@ import type { LangfuseTracer, TraceContext } from "../../../../../packages/looi-
 
 const SKILL = `---
 name: codex
-description: Delegate natural-language tasks to the App’s Codex agent or start Codex Cloud tasks directly.
+description: Delegate natural-language tasks to the App’s Codex agent, start Codex Cloud tasks, or inspect Cloud task status.
 ---
 Use codex_exec for natural-language work: investigate, create or configure a cloud environment, plan steps, or continue a Codex session. Include the returned sessionId to continue; Cloud task IDs are different from session IDs.
-Use codex_cloud when the goal is directly starting a remote coding task in an existing environment. It returns an accepted task ID and URL, not the completed coding result. Use codex_exec with that task ID to inspect progress or results later. Do not submit the same goal again if Codex has already submitted it.
-Both tools use the App's own Linux CLI and Codex login. Account setup is on the Plugins page. Respect actual execution failures and include their stage and provider reason. Full CLI output is available at the receipt's outputFiles paths.
+Use codex_cloud when the goal is directly starting a remote coding task in an existing environment. It returns an accepted task ID and URL, not the completed coding result.
+Use codex_cloud_status with that Cloud task ID to inspect remote progress or results read-only without launching a local write agent. Do not submit the same goal again if Codex has already submitted it.
+After submitting a codex_cloud task or creating/updating a GitHub PR via codex_exec, quietly call manage_schedule (origin="agent_inferred", executionPolicy="check_only", unique dedupeKey) with a self-contained prompt carrying exact owner/repo/pullNumber or taskId; subsequent automated checks will use only github_pr_status or codex_cloud_status.
+All tools use the App's own Linux CLI and Codex login. Account setup is on the Plugins page. Respect actual execution failures and include their stage and provider reason. Full CLI output is available at the receipt's outputFiles paths.
 `;
 
 const execParams = obj({
@@ -41,6 +43,12 @@ const cloudParams = obj({
   branch: opt(str({ description: "Git branch; defaults to plugin setting" })),
   attempts: opt(int({ description: "Number of Cloud attempts, 1–4", minimum: 1, maximum: 4 })),
 });
+
+const cloudStatusParams = obj({
+  taskId: str({ description: "Codex Cloud task ID (4-128 characters matching ^[a-zA-Z0-9_-]{4,128}$)" }),
+});
+
+const CLOUD_TASK_ID_RE = /^[a-zA-Z0-9_-]{4,128}$/;
 
 const result = (value: unknown, isError = false) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
@@ -140,12 +148,25 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
       skillPaths: this.skillPaths,
     });
 
-    this.ctx.ai?.interceptToolCall(({ toolName, approvalMode, arguments: input }) => {
-      if ((toolName === "codex_exec" || toolName === "codex_cloud") && approvalMode === "ask") {
-        return {
-          decision: "ask",
-          promptPayload: { operation: toolName, ...input },
-        };
+    this.ctx.ai?.interceptToolCall(({ toolName, approvalMode, arguments: input, scheduleExecutionPolicy }) => {
+      if (toolName === "codex_cloud_status") {
+        return { decision: "allow" };
+      }
+      if (toolName === "codex_exec" || toolName === "codex_cloud") {
+        if (scheduleExecutionPolicy === "check_only") {
+          return {
+            decision: "deny",
+            stage: "codex.policy",
+            code: "ERR_CODEX_CHECK_ONLY_DENIED",
+            reason: `${toolName} is denied under check_only schedule policy; use codex_cloud_status instead`,
+          };
+        }
+        if (approvalMode === "ask") {
+          return {
+            decision: "ask",
+            promptPayload: { operation: toolName, ...input },
+          };
+        }
       }
       return undefined;
     });
@@ -521,6 +542,86 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
   tools(context: PluginTaskContext): AgentTool<any>[] {
     const state = this.ctx.getState();
     const defaults = `Default Cloud environment: ${state.environment || "unset"}; branch: ${state.branch || "CLI default"}.`;
+
+    const cloudStatusTool: AgentTool<typeof cloudStatusParams> = {
+      name: "codex_cloud_status",
+      label: "Codex Cloud Status",
+      description:
+        "Read-only status lookup for an existing Codex Cloud task ID via the App's Codex CLI (`codex cloud status`). Does not modify files or start a local agent.",
+      parameters: cloudStatusParams,
+      executionMode: "sequential",
+      execute: async (_id, params, signal) => {
+        const taskId = typeof params.taskId === "string" ? params.taskId.trim() : "";
+        if (!CLOUD_TASK_ID_RE.test(taskId)) {
+          return result(
+            {
+              taskId: params.taskId,
+              outcome: "failed",
+              failure: {
+                stage: "codex.cloud_status.validate",
+                code: "ERR_INVALID_ARGUMENT",
+                reason: "taskId must match ^[a-zA-Z0-9_-]{4,128}$",
+              },
+            },
+            true,
+          );
+        }
+        const receipt = await this.invoke(
+          context,
+          "cloud.status",
+          ["cloud", "status", "--", taskId],
+          signal,
+        );
+        if (succeeded(receipt)) {
+          return result(
+            {
+              taskId,
+              outcome: "ok",
+              statusText: plain(receipt.stdout).trim(),
+              execution: receipt,
+            },
+            false,
+          );
+        }
+        const combinedOutput = receipt.stderr + receipt.stdout;
+        const httpMatch = combinedOutput.match(
+          /HTTP status (?:client|server) error \((4\d\d|5\d\d)\b|(?:HTTP(?:\/\S+)?|status(?: code)?)[:=\s]+(4\d\d|5\d\d)\b/i,
+        );
+        const httpCode = httpMatch ? Number(httpMatch.slice(1).find(Boolean)) : NaN;
+        const baseFailure: PluginFailure = receipt.failure
+          ? { ...receipt.failure }
+          : {
+              stage: receipt.stage || "cloud.status",
+              code: receipt.exitCode ?? "ERR_CODEX_CLOUD_STATUS",
+              reason:
+                plain(receipt.stderr || receipt.stdout).trim() ||
+                `Codex cloud status exited (${receipt.state})`,
+            };
+        if (Number.isFinite(httpCode) && httpCode >= 400) {
+          baseFailure.code = httpCode;
+        }
+        const outcome =
+          receipt.state === "cancelled" ||
+          receipt.state === "timed_out" ||
+          receipt.state === "stop_unconfirmed"
+            ? receipt.state
+            : "failed";
+        return result(
+          {
+            taskId,
+            outcome,
+            execution: receipt,
+            failure: baseFailure,
+          },
+          true,
+        );
+      },
+    };
+
+    if (context.scheduleExecutionPolicy === "check_only") {
+      return [cloudStatusTool];
+    }
+
     return [
       {
         name: "codex_exec",
@@ -600,7 +701,7 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
       {
         name: "codex_cloud",
         label: "Codex Cloud",
-        description: `Start a coding task directly in Codex Cloud. Returns accepted task ID and URL; remote execution continues after return. Use codex_exec to inspect that task later. ${defaults}`,
+        description: `Start a coding task directly in Codex Cloud. Returns accepted task ID and URL; remote execution continues after return. Use codex_cloud_status to inspect that task later. ${defaults}`,
         parameters: cloudParams,
         executionMode: "sequential",
         execute: async (_id, params, signal) => {
@@ -661,6 +762,7 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
           return result({ outcome, ...(id ? { task: { id, url } } : {}), execution: receipt, failure: receipt.failure }, outcome !== "accepted");
         },
       },
+      cloudStatusTool,
     ];
   }
 }

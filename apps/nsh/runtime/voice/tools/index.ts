@@ -3,6 +3,7 @@ import { createControlLooiBody } from "./control-looi-body.js";
 import { createVoiceHomeTools } from "./home.js";
 import { createManageAgentTask } from "./manage-agent-task.js";
 import { createRunAgentTask } from "./run-agent-task.js";
+import { createVoiceScheduleTools } from "./schedule.js";
 import type { VoiceToolHost, VoiceToolSchema } from "./types.js";
 
 export function createVoiceTools(host: VoiceToolHost, apiKey: string) {
@@ -37,6 +38,7 @@ export function createVoiceTools(host: VoiceToolHost, apiKey: string) {
     ...(host.taskBridge ? [createManageAgentTask(host)] : []),
     ...(host.controlBody ? [createControlLooiBody(host)] : []),
     ...(host.home ? createVoiceHomeTools(host.home.runtime, host.sessionId ?? "", host.home.references) : []),
+    ...(host.schedule ? createVoiceScheduleTools(host.schedule, host.sessionId ?? "") : []),
   ];
 
   const builtinTools = definitions.map(({ schema, execute }) =>

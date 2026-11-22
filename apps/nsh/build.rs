@@ -25,6 +25,7 @@ fn main() {
         println!("cargo:rerun-if-changed=native/ios/CameraMedia.m");
         println!("cargo:rerun-if-changed=native/ios/DeviceCamera.m");
         println!("cargo:rerun-if-changed=native/ios/DeviceMotion.m");
+        println!("cargo:rerun-if-changed=native/ios/ScheduleNative.m");
         cc::Build::new()
             .file("native/ios/CameraMedia.m")
             .file("native/ios/DeviceCamera.m")
@@ -32,6 +33,11 @@ fn main() {
             .flag("-fobjc-arc")
             .flag("-fblocks")
             .compile("looi_camera_media");
+        cc::Build::new()
+            .file("native/ios/ScheduleNative.m")
+            .flag("-fobjc-arc")
+            .flag("-fblocks")
+            .compile("looi_schedule_native");
         for framework in [
             "UIKit",
             "AVFoundation",
@@ -42,6 +48,7 @@ fn main() {
             "CoreMotion",
             "QuartzCore",
             "ImageIO",
+            "UserNotifications",
         ] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }

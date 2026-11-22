@@ -13,11 +13,13 @@ mod application_lifecycle;
 #[cfg(all(any(target_os = "android", target_os = "ios"), target_arch = "aarch64"))]
 mod linux_shell;
 mod login_browser;
+mod schedule_native;
 use audio::VoiceAudio;
 use ble::LooiBle;
 use compat::NodeCompat;
 use credentials::CredentialVault;
 use login_browser::MiotLoginBrowser;
+use schedule_native::ScheduleHost;
 
 /// Returns a monotonic clock timestamp in milliseconds shared across camera and IMU pipelines.
 pub(crate) fn host_monotonic_ms() -> f64 {
@@ -52,7 +54,8 @@ fn native(registry: &mut Registry) {
         .class::<camera::XiaomiCameraHost>()
         .class::<device_camera::DeviceCameraHost>()
         .class::<device_motion::DeviceMotionHost>()
-        .class::<lan_room::LanRoomHost>();
+        .class::<lan_room::LanRoomHost>()
+        .class::<ScheduleHost>();
 }
 
 #[cfg(target_os = "ios")]
@@ -61,6 +64,7 @@ fn components(components: &nsh_platform_ios::Components) {
     application_lifecycle::install(
         objc2::MainThreadMarker::new().expect("iOS components register on the main thread"),
     );
+    schedule_native::ios::install();
     components.register("looi.CameraVideo", camera::view_ios::factory());
     components.register("looi.DeviceCameraPreview", device_camera::view_ios::factory());
 }

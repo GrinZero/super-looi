@@ -107,7 +107,9 @@ export const runtimeZh = {
   "runtimeXiaomiCallbackExpiredTryAgain": "米家授权回调已失效，请重试",
   "runtimeXiaomiSigninEndedCheckTheConnectionStatus": "米家登录已结束，请重新查看连接状态",
   "runtimeXiaomiSigninIncompleteTryAgain": "米家登录未完成，请重试",
-  "runtimeUnsupportedModelListFormat": "模型列表格式不受支持"
+  "runtimeUnsupportedModelListFormat": "模型列表格式不受支持",
+  "runtimeEnterAValidGithubToken": "请填写有效的 GitHub 只读访问令牌",
+  "runtimeInvalidScheduleSession": "无效的会话 ID"
 } as const;
 export const runtimeEn: Record<keyof typeof runtimeZh, string> = {
   "runtimeOfficialApiChatgptSubscription": "Official API / ChatGPT subscription",
@@ -218,5 +220,7 @@ export const runtimeEn: Record<keyof typeof runtimeZh, string> = {
   "runtimeXiaomiCallbackExpiredTryAgain": "Xiaomi callback expired. Try again.",
   "runtimeXiaomiSigninEndedCheckTheConnectionStatus": "Xiaomi sign-in ended. Check the connection status.",
   "runtimeXiaomiSigninIncompleteTryAgain": "Xiaomi sign-in incomplete. Try again.",
-  "runtimeUnsupportedModelListFormat": "Unsupported model list format"
+  "runtimeUnsupportedModelListFormat": "Unsupported model list format",
+  "runtimeEnterAValidGithubToken": "Enter a valid GitHub read-only token",
+  "runtimeInvalidScheduleSession": "Invalid conversation session ID"
 };

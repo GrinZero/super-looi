@@ -121,6 +121,7 @@ export interface PluginTaskContext {
   workspaceRoot: string;
   approvalMode: "ask" | "local_auto" | "yolo";
   commandTimeoutMs: number;
+  scheduleExecutionPolicy?: "check_only" | "authorized_action";
 }
 
 export interface ResumableStageSessionInput {
@@ -311,6 +312,7 @@ export interface PluginAiCapability {
       toolName: string;
       approvalMode: string;
       arguments: Record<string, unknown>;
+      scheduleExecutionPolicy?: "check_only" | "authorized_action";
     }) => Promise<ToolCallBailResult> | ToolCallBailResult,
     scope?: EffectScope,
   ): Dispose;

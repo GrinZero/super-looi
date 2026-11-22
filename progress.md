@@ -4,6 +4,7 @@
 - [x] Step 2 — 在开发构建超过单帧上限时移除映射内嵌的源码文本，保留文件名和行列映射。
 - [x] Step 3 — 在 iPhone 16e 重新编译并安装开发宿主，确认进入横屏首页、WebSocket 保持连接。实测修复后的映射帧为 8,549,013 字节，含 67 个源码路径。
   - [x] 独立复审确认保留栈回溯映射，并补齐构建失败后的文件监听恢复。
+- [x] Step 4 — 将启动时的观测记录中断标记移到 SQLite 内执行。12 项追踪与调度测试通过；iPhone 16e 横屏首页恢复原有对局，SQLite 报错消失。
 
 ## iOS 开发宿主重连上限（2026-11-23）
 
@@ -3160,11 +3161,11 @@
   - [x] 实现 `apps/nsh/src/schedule_native/{mod.rs,ios.rs,android.rs}`（统一端口契约与无头测试内存实现）。
   - [x] 实现 iOS `apps/nsh/native/ios/ScheduleNative.m` 并接入 `apps/nsh/build.rs`（`looi.sched.<ruleId>` 前缀通知、静音/声音标记、`beginBackgroundTask`）。
   - [x] 实现 Android `ScheduleBridge.java`、`ScheduleKeepAliveService.java`（`dataSync` 与 `onTimeout` 立即停服）、`ScheduleAlarmReceiver.java`（离线勿扰重判），并接入 `SuperLooiApplication.java`、`plugins.json`、`patch_manifest.py`、`native-plugins.mjs` 与 `test_plugin.py`。
-- [ ] Step 3 — 第二层：运行时整合、只读查询工具与语音链路（`apps/nsh/runtime` & `plugins/codex`）
-  - [ ] 新增 `github_pr_status` 只读工具与 App 内 GitHub 只读凭据管理及密钥脱敏。
-  - [ ] 扩展插件总线契约与 Codex 插件新增只读 `codex_cloud_status`、`check_only` 工具裁剪与 `SKILL` 指引。
-  - [ ] 新增 Pi 工具 `manage_schedule` / `manage_quiet_hours` 与实时语音工具 `voice/tools/schedule.ts` 及三点临界出声前勿扰重判。
-  - [ ] 接入 `MobileRuntime`（`application.ts`）与 `build-runtime.ts` 类型声明生成，补全并运行 `schedule-runtime.node.ts`、`schedule-voice-tools.node.ts` 等测试。
+- [x] Step 3 — 第二层：运行时整合、只读查询工具与语音链路（`apps/nsh/runtime` & `plugins/codex`）
+  - [x] 新增 `github_pr_status` 只读工具与 App 内 GitHub 只读凭据管理及密钥脱敏。
+  - [x] 扩展插件总线契约与 Codex 插件新增只读 `codex_cloud_status`、`check_only` 工具裁剪与 `SKILL` 指引。
+  - [x] 新增 Pi 工具 `manage_schedule` / `manage_quiet_hours` 与实时语音工具 `voice/tools/schedule.ts` 及三点临界出声前勿扰重判。
+  - [x] 接入 `MobileRuntime`（`application.ts`）与 `build-runtime.ts` 类型声明生成，补全并运行 `schedule-runtime.node.ts`、`schedule-voice-tools.node.ts` 等测试。
 - [ ] Step 4 — 第四层：状态编排、并发审批队列与「定时（Schedules）」UI（`apps/nsh`）
   - [ ] 更新 `store.ts` 与 `App.tsx`（`"schedules"` 空间、退后台不误杀调度、多任务 `pendingInteractions` 队列、三通道交付路由、`continueScheduledSession`）。
   - [ ] 更新 `ManagementShell.tsx` 并实现 `SchedulesSpaceView.tsx`（第 8 导航入口、`48pt` 上下文胶囊栏、规则主从双栏、未确认状态处置、多时段勿扰、GitHub PAT 配置、新建/编辑 `Dialog` 与闰日 Cron 实时预览）及中英双语词条。

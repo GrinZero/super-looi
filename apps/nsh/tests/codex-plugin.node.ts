@@ -282,7 +282,7 @@ test("plugin settings persist in v2 KV storage and disable unwinds tools, skill 
   const database = new DatabaseSync(":memory:");
   const host = new PluginHost(database, [codexDefinition({ directory: f.directory, runner: f.runner })]);
   try {
-    assert.equal(host.contribution(context).tools.length, 2);
+    assert.equal(host.contribution(context).tools.length, 3);
     assert.equal(host.contribution(context).skillPaths.length, 1);
     await host.configure("codex", false, { environment: "new-environment", branch: "dev" });
     assert.deepEqual(host.contribution(context), { tools: [], skillPaths: [] });
@@ -300,7 +300,7 @@ test("plugin settings persist in v2 KV storage and disable unwinds tools, skill 
       .get("codex", "environment") as { value: string };
     assert.equal(JSON.parse(kvRow.value), "new-environment");
     await host.setEnabled("codex", true);
-    assert.equal(host.contribution(context).tools.length, 2);
+    assert.equal(host.contribution(context).tools.length, 3);
     assert.equal(host.snapshots()[0].configuration.branch, "dev");
   } finally {
     await host.close();

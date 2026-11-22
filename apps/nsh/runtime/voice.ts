@@ -1,5 +1,6 @@
 export { VoiceRuntime } from "./voice/runtime.js";
 export { VoiceTaskCoordinator, toSpokenPlainText } from "./voice/task-coordinator.js";
+export type { VoiceSchedule } from "./voice/tools/schedule.js";
 export type {
   VoiceAudioPort,
   VoiceProactiveNotice,
