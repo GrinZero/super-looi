@@ -203,13 +203,13 @@ export class SqliteRuntimeStore {
         updated_at TEXT NOT NULL
       );`);
     // Open observations belong to the previous runtime, which is no longer running.
-    for (const row of db.prepare("SELECT snapshot FROM runtime_observations").all()) {
-      const node = JSON.parse(String(row.snapshot)) as TraceObservation;
-      if (node.endedAt === undefined && node.attributes["langfuse.observation.metadata.interrupted"] !== true) {
-        node.attributes["langfuse.observation.metadata.interrupted"] = true;
-        this.saveObservation(node);
-      }
-    }
+    const interrupted = '$.attributes."langfuse.observation.metadata.interrupted"';
+    db.prepare(`
+      UPDATE runtime_observations
+      SET snapshot = json_set(snapshot, ?, json('true'))
+      WHERE json_type(snapshot, '$.endedAt') IS NULL
+        AND json_type(snapshot, ?) IS NOT 'true'
+    `).run(interrupted, interrupted);
     this.recoverInterruptedSchedules();
     this.tasks = {
       load: () => {
