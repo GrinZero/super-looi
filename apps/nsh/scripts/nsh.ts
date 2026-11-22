@@ -73,6 +73,9 @@ const iosSimulator = isIosSimulatorBuild(command, target, option("--device"));
 if ((command === "dev" || command === "run") && !args.includes("--release")) {
   args.push("--release");
 }
+if (command === "dev" && target === "ios") {
+  process.env.LOOI_SIMULATOR_PROXY = "";
+}
 const androidDevice = target === "android" ? option("--device") : undefined;
 if (command === "run" && androidDevice) {
   const values = { ...config, ...process.env };

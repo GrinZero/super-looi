@@ -6,7 +6,9 @@
 
 ## 模拟器开发
 
-模拟器开发使用 `pnpm --filter @super-looi/nsh exec node --import tsx scripts/nsh.ts dev --target ios --release`。启动脚本为固定 NSH CLI 应用依赖监听补丁，首次编译后缓存；只有入口、已导入文件、主题和应用配置变化触发重建。业务源码由 esbuild 增量编译为独立的 `generated/looi-runtime.dev.js`；测试探针和普通 build/check/test 的生成物不会覆盖该文件。相同内容不会重复写入，压缩开发模式在业务产物变化后整页重载。
+在仓库根目录运行 `pnpm dev:ios` 启动 iOS 模拟器开发版。默认使用已启动的模拟器，也可用 `pnpm dev:ios --device "iPhone 16e"` 指定设备。仓库的 NSH 启动脚本为 `dev --target ios` 默认启用 `--release` 压缩，避免开发包超过宿主的 WebSocket 单帧上限。保存源码后自动整页重载。
+
+启动脚本为固定 NSH CLI 应用依赖监听补丁，首次编译后缓存。入口、已导入文件、主题和应用配置变化触发重建。业务源码由 esbuild 增量编译为独立的 `generated/looi-runtime.dev.js`，与测试探针及普通 build/check/test 的产物分开。相同内容不会重复写入。
 
 ## 真机运行与打包
 

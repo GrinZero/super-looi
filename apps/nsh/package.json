@@ -22,6 +22,7 @@
     "test:voice-runtime": "node --import tsx --test tests/voice-failure.node.ts tests/voice-sdk.node.ts && node --import tsx -e 'Promise.all([import(\"./tests/voice-runtime-cases.ts\"), import(\"./tests/voice-wake-cases.ts\"), import(\"./tests/voice-openai-cases.ts\"), import(\"./tests/voice-async-task-cases.ts\"), import(\"./tests/body-runtime-cases.ts\")]).then(async ([voice, wake, openai, asyncTask, body]) => { await voice.verifyVoiceRuntime(); await wake.verifyWakeRuntime(); await openai.verifyOpenAiVoiceRuntime(); await openai.verifyVoiceTraceFinalization(); await asyncTask.verifyAsyncVoiceTasks(); await body.verifyBodyRuntime(); })'",
     "test:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-ios",
     "test:android": "pnpm build:probe && node --import tsx scripts/nsh.ts probe-android",
+    "dev:ios": "node --import tsx scripts/nsh.ts dev --target ios",
     "ios": "node --import tsx scripts/nsh.ts run --target ios",
     "ios:faces": "node --import tsx scripts/nsh.ts run --target ios FaceProbe.tsx",
     "test:ui:ios": "pnpm build:probe && node --import tsx scripts/nsh.ts ui-ios",
