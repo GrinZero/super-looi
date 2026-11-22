@@ -39,6 +39,51 @@ static NSArray<NSData *> *LCNals(const uint8_t *bytes, size_t length) {
     return out;
 }
 
+static void LCDisplayLatestOnMain(LCCameraMedia *self) {
+    [self->_lock lock];
+    self->_displayScheduled=NO;
+    AVSampleBufferDisplayLayer *display=self->_display;
+    CVPixelBufferRef pixel=!self->_closed && display ? self->_latest : NULL;
+    if (pixel) CVPixelBufferRetain(pixel);
+    [self->_lock unlock];
+    if (!pixel) return;
+    CMVideoFormatDescriptionRef format=NULL; CMSampleBufferRef sample=NULL;
+    if (CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault,pixel,&format)==noErr) {
+        CMSampleTimingInfo timing={kCMTimeInvalid,kCMTimeZero,kCMTimeInvalid};
+        if (CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault,pixel,format,&timing,&sample)==noErr) {
+            CFArrayRef attachments=CMSampleBufferGetSampleAttachmentsArray(sample,YES);
+            if (attachments && CFArrayGetCount(attachments)) {
+                CFMutableDictionaryRef attributes=(CFMutableDictionaryRef)CFArrayGetValueAtIndex(attachments,0);
+                CFDictionarySetValue(attributes,kCMSampleAttachmentKey_DisplayImmediately,kCFBooleanTrue);
+            }
+            if (display.status==AVQueuedSampleBufferRenderingStatusFailed) [display flush];
+            if (display.readyForMoreMediaData) [display enqueueSampleBuffer:sample];
+            if (@available(iOS 17.4,*)) {
+                [self->_lock lock]; self->_displayed=display.readyForDisplay; [self->_lock unlock];
+            }
+            CFRelease(sample);
+        }
+        CFRelease(format);
+    }
+    CVPixelBufferRelease(pixel);
+}
+
+static void LCRenderLatest(LCCameraMedia *self) {
+    if (!self) return;
+    if (NSThread.isMainThread) {
+        LCDisplayLatestOnMain(self);
+        return;
+    }
+    [self->_lock lock];
+    BOOL schedule = !self->_closed && self->_display && self->_latest && !self->_displayScheduled;
+    if (schedule) self->_displayScheduled=YES;
+    [self->_lock unlock];
+    if (!schedule) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LCDisplayLatestOnMain(self);
+    });
+}
+
 static void LCDecoded(void *context, void *source, OSStatus status, VTDecodeInfoFlags flags,
                       CVImageBufferRef image, CMTime pts, CMTime duration) {
     (void)flags; (void)duration;
@@ -54,38 +99,8 @@ static void LCDecoded(void *context, void *source, OSStatus status, VTDecodeInfo
     self->_frames++;
     self->_receivedAt=(int64_t)(uintptr_t)source;
     self->_lastPts = CMTIME_IS_NUMERIC(pts) ? (int64_t)(CMTimeGetSeconds(pts)*1000) : 0;
-    BOOL schedule = self->_display && !self->_displayScheduled;
-    if (schedule) self->_displayScheduled=YES;
     [self->_lock unlock];
-    if (!schedule) return;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self->_lock lock];
-        self->_displayScheduled=NO;
-        AVSampleBufferDisplayLayer *display=self->_display;
-        CVPixelBufferRef pixel=!self->_closed && display ? self->_latest : NULL;
-        if (pixel) CVPixelBufferRetain(pixel);
-        [self->_lock unlock];
-        if (!pixel) return;
-        CMVideoFormatDescriptionRef format=NULL; CMSampleBufferRef sample=NULL;
-        if (CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault,pixel,&format)==noErr) {
-            CMSampleTimingInfo timing={kCMTimeInvalid,kCMTimeZero,kCMTimeInvalid};
-            if (CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault,pixel,format,&timing,&sample)==noErr) {
-                CFArrayRef attachments=CMSampleBufferGetSampleAttachmentsArray(sample,YES);
-                if (attachments && CFArrayGetCount(attachments)) {
-                    CFMutableDictionaryRef attributes=(CFMutableDictionaryRef)CFArrayGetValueAtIndex(attachments,0);
-                    CFDictionarySetValue(attributes,kCMSampleAttachmentKey_DisplayImmediately,kCFBooleanTrue);
-                }
-                if (display.status==AVQueuedSampleBufferRenderingStatusFailed) [display flush];
-                if (display.readyForMoreMediaData) [display enqueueSampleBuffer:sample];
-                if (@available(iOS 17.4,*)) {
-                    [self->_lock lock]; self->_displayed=display.readyForDisplay; [self->_lock unlock];
-                }
-                CFRelease(sample);
-            }
-            CFRelease(format);
-        }
-        CVPixelBufferRelease(pixel);
-    });
+    LCRenderLatest(self);
 }
 
 @implementation LCCameraMedia
@@ -127,6 +142,7 @@ static void LCDecoded(void *context, void *source, OSStatus status, VTDecodeInfo
 - (instancetype)init {
     if ((self=[super initWithFrame:CGRectZero])) {
         self.backgroundColor=UIColor.blackColor;
+        self.userInteractionEnabled=NO;
         ((AVSampleBufferDisplayLayer *)self.layer).videoGravity=AVLayerVideoGravityResizeAspect;
     }
     return self;
@@ -136,7 +152,15 @@ static void LCDecoded(void *context, void *source, OSStatus status, VTDecodeInfo
     if (_media) { [_media->_lock lock]; if (_media->_display == self.layer) _media->_display=nil; [_media->_lock unlock]; }
     [(AVSampleBufferDisplayLayer *)self.layer flushAndRemoveImage];
     _media=media;
-    if (media) { [media->_lock lock]; media->_display=(AVSampleBufferDisplayLayer *)self.layer; media->_displayed=NO; [media->_lock unlock]; }
+    BOOL hasLatest=NO;
+    if (media) {
+        [media->_lock lock];
+        media->_display=(AVSampleBufferDisplayLayer *)self.layer;
+        media->_displayed=NO;
+        hasLatest=!media->_closed && media->_latest != NULL;
+        [media->_lock unlock];
+    }
+    if (hasLatest) LCRenderLatest(media);
 }
 - (void)dealloc {
     if (_media) { [_media->_lock lock]; if (_media->_display==self.layer) _media->_display=nil; [_media->_lock unlock]; }

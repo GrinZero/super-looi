@@ -1,4 +1,4 @@
-import { CameraVideo } from "./CameraVideo";
+import { CameraMonitor } from "./CameraMonitor";
 import { t, translateMessage } from "../i18n";
 import { effect, signal, Text, View, Scroll, windowSize } from "nsh";
 import { Button, Switch } from "nsh/base";
@@ -74,75 +74,6 @@ function formatSpanDims(cols: 1 | 2, rows: 1 | 2): TileSpan {
 function shortRoomLabel(name: string): string {
   const trimmed = name.trim();
   return /^[\x20-\x7e]+$/.test(trimmed) ? trimmed.slice(0, 3) : trimmed.slice(0, 2);
-}
-
-/** The native player has its own stable source; device refreshes update controls. */
-function CameraMonitor(props: {
-  store: ReturnType<typeof createAppStore>;
-  statusText?: string;
-  resolutionBadge?: string;
-}) {
-  const playback = () => props.store.homeCamera();
-  return (
-    <View class="rounded-2xl border border-border bg-card p-3 gap-2">
-      <View
-        class="w-full rounded-xl overflow-hidden bg-secondary items-center justify-center"
-        style={{ aspectRatio: "16 / 9", minHeight: 156, maxHeight: 196 }}
-      >
-        <Each of={playback().sessionId ? [playback().sessionId!] : []} key={(id) => id}>
-          {(id) => <CameraVideo testID="home-camera-video" sessionId={id()} class="absolute inset-0" onState={event => props.store.homeCameraState(event)} />}
-        </Each>
-        <If when={!playback().sessionId}>
-          <View class="items-center gap-3 p-4">
-            <ApplianceIcon kind="camera" active={false} size="lg" />
-            <If when={playback().phase === "loading"}>
-              <LoadingIndicator label={t("cameraConnecting")} />
-            </If>
-            <If when={Boolean(playback().error)}>
-              <Text class="text-muted-foreground text-sm">
-                {translateMessage(playback().error ?? "")}
-              </Text>
-            </If>
-            <If when={playback().phase !== "loading" && !playback().error}>
-              <Text class="text-muted-foreground text-sm">
-                {props.statusText ?? "暂未接入实时视频流"}
-              </Text>
-            </If>
-          </View>
-        </If>
-      </View>
-      <View class="flex-row items-center justify-between gap-3">
-        <View class="flex-1 gap-1">
-          <Text
-            testID="home-camera-status"
-            class="text-foreground text-sm font-semibold"
-          >
-            {playback().phase === "playing"
-              ? playback().buffering
-                ? t("cameraBuffering")
-                : t("cameraPlaying")
-              : playback().phase === "error"
-                ? translateMessage(playback().error ?? "")
-                : playback().phase === "idle"
-                  ? (props.statusText ?? t("cameraStopped"))
-                  : t("cameraWaiting")}
-          </Text>
-          <If when={Boolean(playback().width && playback().height)}>
-            <Text class="text-muted-foreground text-xs">{`${playback().width} × ${playback().height}`}</Text>
-          </If>
-          <If when={!playback().width && Boolean(props.resolutionBadge)}>
-            <Text class="text-muted-foreground text-xs">{props.resolutionBadge}</Text>
-          </If>
-        </View>
-        <ActionButton
-          testID="home-camera-retry"
-          label={t("cameraReconnect")}
-          kind="quiet"
-          onPress={() => props.store.retryHomeCamera()}
-        />
-      </View>
-    </View>
-  );
 }
 
 export function HomeSpaceView(props: {
@@ -1548,8 +1479,12 @@ export function HomeSpaceView(props: {
         >
           <CameraMonitor
             store={props.store}
+            cameraName={appliance().name}
+            deviceId={appliance().deviceId}
             statusText={vs()?.statusText}
             resolutionBadge={vs()?.resolutionBadge}
+            supportsPtz={Boolean(vs()?.supportsPtz)}
+            ptzDisabled={isPtzDisabled()}
           />
           <If when={(vs()?.ptzActions.length ?? 0) > 0}>
             <View class="flex-row flex-wrap items-center gap-2">

@@ -145,7 +145,7 @@ public final class CameraMedia {
             receivedAt = arrival;
             // SurfaceTexture coalesces obsolete outputs; old arrival records are no longer needed.
             arrivals.entrySet().removeIf(entry -> entry.getKey()<pts); frames++;
-            if(window!=null) { current(window); draw(previewWidth,previewHeight,true); displayed=EGL14.eglSwapBuffers(display,window); current(pbuffer); }
+            if(window!=null && !window.equals(EGL14.EGL_NO_SURFACE)) { current(window); draw(previewWidth,previewHeight,true); displayed=EGL14.eglSwapBuffers(display,window); current(pbuffer); }
         } catch(RuntimeException cause) {
             renderFailure = "[stage=camera.android.render code=camera_decode_failed] " + cause;
             error = -1;
@@ -197,16 +197,77 @@ public final class CameraMedia {
             } finally { GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER,0); GLES20.glDeleteFramebuffers(1,fbo,0); GLES20.glDeleteTextures(1,target,0); }
         });
     }
-    private void detachWindow() {
-        if(window!=null) { current(pbuffer); EGL14.eglDestroySurface(display,window); window=null; }
-        if(previewSurface!=null) { previewSurface.release(); previewSurface=null; }
-        previewTexture=null; displayed=false;
+    private void detachWindow(SurfaceTexture expected) {
+        if (expected != null && previewTexture != expected) return;
+        if (window != null) {
+            if (!window.equals(EGL14.EGL_NO_SURFACE)) {
+                if (display != null && pbuffer != null) current(pbuffer);
+                if (display != null) EGL14.eglDestroySurface(display, window);
+            }
+            window = null;
+        }
+        if (previewSurface != null) { previewSurface.release(); previewSurface = null; }
+        previewTexture = null; displayed = false;
     }
-    private void bindWindow(SurfaceTexture value,int w,int h) {
+    private void bindWindow(SurfaceTexture value, int w, int h) {
         handler.post(() -> {
-            if(closed) return;
-            if(value!=previewTexture) { detachWindow(); previewTexture=value; previewSurface=new Surface(value); window=EGL14.eglCreateWindowSurface(display,config,previewSurface,new int[]{EGL14.EGL_NONE},0); }
-            previewWidth=w; previewHeight=h;
+            if (closed) return;
+            if (value == null) {
+                detachWindow(null);
+                return;
+            }
+            if (value != previewTexture) {
+                detachWindow(null);
+                try {
+                    previewSurface = new Surface(value);
+                    EGLSurface created = EGL14.eglCreateWindowSurface(display, config, previewSurface, new int[]{EGL14.EGL_NONE}, 0);
+                    if (created == null || created.equals(EGL14.EGL_NO_SURFACE)) {
+                        int eglErr = EGL14.eglGetError();
+                        previewSurface.release();
+                        previewSurface = null;
+                        previewTexture = null;
+                        window = null;
+                        displayed = false;
+                        renderFailure = "[stage=camera.android.render code=camera_egl_window_surface] eglError=" + eglErr;
+                        error = -1;
+                        return;
+                    }
+                    previewTexture = value;
+                    window = created;
+                } catch (RuntimeException cause) {
+                    if (previewSurface != null) {
+                        previewSurface.release();
+                        previewSurface = null;
+                    }
+                    previewTexture = null;
+                    window = null;
+                    displayed = false;
+                    renderFailure = "[stage=camera.android.render code=camera_surface_bind] " + cause;
+                    error = -1;
+                    return;
+                }
+            }
+            previewWidth = w;
+            previewHeight = h;
+            if (frames > 0 && window != null && !window.equals(EGL14.EGL_NO_SURFACE) && previewWidth > 0 && previewHeight > 0) {
+                try {
+                    current(window);
+                    draw(previewWidth, previewHeight, true);
+                    displayed = EGL14.eglSwapBuffers(display, window);
+                } catch (RuntimeException cause) {
+                    renderFailure = "[stage=camera.android.render code=camera_decode_failed] " + cause;
+                    error = -1;
+                } finally {
+                    if (display != null && pbuffer != null) {
+                        try {
+                            current(pbuffer);
+                        } catch (RuntimeException cause) {
+                            renderFailure = "[stage=camera.android.render code=camera_egl_restore] " + cause;
+                            error = -1;
+                        }
+                    }
+                }
+            }
         });
     }
     public void close() {
@@ -214,10 +275,11 @@ public final class CameraMedia {
         handler.post(() -> {
             try {
                 if(codec!=null) { codec.stop(); codec.release(); codec=null; }
-                detachWindow(); output.release(); texture.release(); current(pbuffer);
+                detachWindow(null); output.release(); texture.release(); current(pbuffer);
                 GLES20.glDeleteTextures(1,new int[]{oes},0); GLES20.glDeleteProgram(program);
                 EGL14.eglMakeCurrent(display,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_CONTEXT);
                 EGL14.eglDestroySurface(display,pbuffer); EGL14.eglDestroyContext(display,egl); EGL14.eglReleaseThread(); EGL14.eglTerminate(display);
+                pbuffer=null; egl=null; display=null;
             } finally { thread.quitSafely(); }
         });
     }
@@ -253,10 +315,11 @@ public final class CameraMedia {
         } catch(ReflectiveOperationException failure) { throw new IllegalStateException("camera_component_register",failure); }
     }
     private static final class Preview extends TextureView implements TextureView.SurfaceTextureListener {
-        private CameraMedia media; private final Object context; private final Handler main=new Handler(android.os.Looper.getMainLooper());
+        private CameraMedia media; private CameraMedia boundMedia; private SurfaceTexture boundTexture;
+        private final Object context; private final Handler main=new Handler(android.os.Looper.getMainLooper());
         private final Runnable observer=new Runnable() { public void run() {
             if(media==null) return;
-            Map<String,Object> state=new HashMap<>(); long[] s=media.status(); state.put("sessionId",media.id);state.put("frames",s[0]);state.put("width",s[1]);state.put("height",s[2]);state.put("timestampMs",s[3]);state.put("error",s[4]);state.put("displayed",s[5]!=0);state.put("closed",media.closed);state.put("failure",media.failure!=null ? media.failure : s[5]!=0 ? media.renderFailure : null);
+            Map<String,Object> state=new HashMap<>(); long[] s=media.status(); state.put("sessionId",media.id);state.put("frames",s[0]);state.put("width",s[1]);state.put("height",s[2]);state.put("timestampMs",s[3]);state.put("error",s[4]);state.put("displayed",s[5]!=0);state.put("closed",media.closed);state.put("failure",media.failure!=null ? media.failure : (s[4]!=0 ? (media.renderFailure!=null ? media.renderFailure : "camera_decode_failed") : null));
             try { context.getClass().getMethod("emit",String.class,Object.class).invoke(context,"state",state); }
             catch(ReflectiveOperationException failure) { throw new IllegalStateException("camera_component_event",failure); }
             main.postDelayed(this,250);
@@ -264,13 +327,32 @@ public final class CameraMedia {
         Preview(Context owner,Object context) { super(owner);this.context=context;setSurfaceTextureListener(this); }
         void bind(String id) {
             destroy(); WeakReference<CameraMedia> ref=sessions.get(id); media=ref==null?null:ref.get();
-            if(media!=null) { if(isAvailable()) media.bindWindow(getSurfaceTexture(),getWidth(),getHeight());main.post(observer); }
+            if(media!=null) {
+                if(isAvailable()) {
+                    SurfaceTexture tex=getSurfaceTexture();
+                    if(tex!=null) { boundMedia=media; boundTexture=tex; media.bindWindow(tex,getWidth(),getHeight()); }
+                }
+                main.post(observer);
+            }
         }
-        void destroy() { main.removeCallbacks(observer); if(media!=null) { CameraMedia old=media;old.handler.post(old::detachWindow);media=null; } }
-        public void onSurfaceTextureAvailable(SurfaceTexture value,int w,int h) { if(media!=null) media.bindWindow(value,w,h); }
-        public void onSurfaceTextureSizeChanged(SurfaceTexture value,int w,int h) { if(media!=null) media.bindWindow(value,w,h); }
+        void destroy() {
+            main.removeCallbacks(observer);
+            if(media!=null) {
+                CameraMedia old=media; SurfaceTexture tex=boundTexture; media=null;
+                if(tex!=null) old.handler.post(() -> old.detachWindow(tex));
+            }
+        }
+        public void onSurfaceTextureAvailable(SurfaceTexture value,int w,int h) {
+            if(media!=null) { boundMedia=media; boundTexture=value; media.bindWindow(value,w,h); }
+        }
+        public void onSurfaceTextureSizeChanged(SurfaceTexture value,int w,int h) {
+            if(media!=null) { boundMedia=media; boundTexture=value; media.bindWindow(value,w,h); }
+        }
         public boolean onSurfaceTextureDestroyed(SurfaceTexture value) {
-            if(media!=null) { CameraMedia old=media;old.handler.post(() -> {old.detachWindow();value.release();});return false; } return true;
+            CameraMedia owner=media!=null ? media : (boundTexture==value ? boundMedia : null);
+            if(boundTexture==value) { boundTexture=null; boundMedia=null; }
+            if(owner!=null && owner.handler.post(() -> { owner.detachWindow(value); value.release(); })) return false;
+            return true;
         }
         public void onSurfaceTextureUpdated(SurfaceTexture value) {}
     }

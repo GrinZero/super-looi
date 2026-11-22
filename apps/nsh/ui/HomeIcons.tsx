@@ -42,7 +42,9 @@ export type ActionIconName =
   | "eye_off"
   | "cloud_off"
   | "sidebar_collapse"
-  | "sidebar_expand";
+  | "sidebar_expand"
+  | "maximize"
+  | "minimize";
 
 export type IconTone =
   | "foreground"
@@ -54,7 +56,9 @@ export type IconTone =
   | "destructive"
   | "lighting"
   | "airflow"
-  | "airQuality";
+  | "airQuality"
+  | "stageFg"
+  | "stageBg";
 
 function resolveToneColor(tone: IconTone): string {
   switch (tone) {
@@ -76,6 +80,10 @@ function resolveToneColor(tone: IconTone): string {
       return token("airflow");
     case "airQuality":
       return token("air-quality");
+    case "stageFg":
+      return token("stage-fg");
+    case "stageBg":
+      return token("stage-bg");
     case "foreground":
     default:
       return token("foreground");
@@ -582,6 +590,38 @@ export function ActionIcon(props: {
             cx.beginPath();
             cx.moveTo(4, 4);
             cx.lineTo(20, 20);
+            cx.stroke();
+            break;
+          }
+          case "maximize": {
+            // Diagonal outward corners
+            cx.beginPath();
+            cx.moveTo(14.5, 4.5);
+            cx.lineTo(19.5, 4.5);
+            cx.lineTo(19.5, 9.5);
+            cx.moveTo(13.5, 10.5);
+            cx.lineTo(19.5, 4.5);
+            cx.moveTo(9.5, 19.5);
+            cx.lineTo(4.5, 19.5);
+            cx.lineTo(4.5, 14.5);
+            cx.moveTo(10.5, 13.5);
+            cx.lineTo(4.5, 19.5);
+            cx.stroke();
+            break;
+          }
+          case "minimize": {
+            // Diagonal inward corners
+            cx.beginPath();
+            cx.moveTo(19.5, 9.5);
+            cx.lineTo(14.5, 9.5);
+            cx.lineTo(14.5, 4.5);
+            cx.moveTo(19.5, 4.5);
+            cx.lineTo(14.5, 9.5);
+            cx.moveTo(4.5, 14.5);
+            cx.lineTo(9.5, 14.5);
+            cx.lineTo(9.5, 19.5);
+            cx.moveTo(4.5, 19.5);
+            cx.lineTo(9.5, 14.5);
             cx.stroke();
             break;
           }

@@ -3090,10 +3090,14 @@
 
 - [x] Step 1：在 `apps/nsh/DESIGN.md` 写入全屏监控视图规范与动效清单（Motion Inventory）。
 - [x] Step 2：修复 iOS（`CameraMedia.m`）与 Android（`CameraMedia.java`）原生视频预览面单实例交接竞态与即时补帧。
-- [ ] Step 3：扩展 `apps/nsh/ui/HomeIcons.tsx`（`maximize` / `minimize` 图标与 `stageFg` / `stageBg` 语义色调）与 `apps/nsh/i18n/extra-catalog.ts` 双语词条。
-- [ ] Step 4：抽离独立内聚组件 `apps/nsh/ui/CameraMonitor.tsx`（全屏 `Dialog`、安全区避让、4s HUD 自动隐藏、全屏云台方向控制与断流恢复），并接入 `apps/nsh/ui/HomeSpaceView.tsx`。
-- [ ] Step 5：补全并执行自动化测试（`HomeCameraProbe.tsx`、`tests/camera_ui.rs`、`HomeCameraFullscreen.test.tsx`）。
-- [ ] Step 6：执行原生语法与插件检查、类型检查、构建与全套测试，完成独立 Subagent Review（独立子代理代码审查）及修复，更新文档并提交。
+- [x] Step 3：扩展 `apps/nsh/ui/HomeIcons.tsx`（`maximize` / `minimize` 图标与 `stageFg` / `stageBg` 语义色调）与 `apps/nsh/i18n/extra-catalog.ts` 双语词条。
+- [x] Step 4：抽离独立内聚组件 `apps/nsh/ui/CameraMonitor.tsx`（全屏 `Dialog`、安全区避让、4s HUD 自动隐藏、全屏云台方向控制与断流恢复），并接入 `apps/nsh/ui/HomeSpaceView.tsx`。
+- [x] Step 5：补全并执行自动化测试（`HomeCameraProbe.tsx`、`tests/camera_ui.rs`、`HomeCameraFullscreen.test.tsx`）。
+- [x] Step 6：执行原生语法与插件检查、类型检查、构建与全套测试，完成独立 Subagent Review（独立子代理代码审查）及修复，更新文档并完成验证。
+  - [x] iOS ObjC 语法检查（`CameraMedia.m`）、Android Java 编译检查（`CameraMedia.java`）与 `pnpm test:plugins` 通过。
+  - [x] `pnpm typecheck` 与 `pnpm build` 通过。
+  - [x] `cargo test --test camera_ui`（2 passed）与 `pnpm test`（NSH 69 passed / 0 failed / 1 skipped 既有跳过项，含 `HomeCameraFullscreen.test.tsx` 3 项全过）全部通过。
+  - [x] 独立 `research` 子代理复审通过（0 个 P0 / P1 / P2 遗留问题）。
 
 ## Codex CLI 升级与云端目录（2026-11-22）
 

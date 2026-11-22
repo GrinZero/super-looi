@@ -219,3 +219,31 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 | 切换详情标签 | NSH Tabs 原生指示线移动，RetainedPage 保留各标签的滚动位置 | 指示线和内容直接切换 |
 | 翻页或切换任务 | 新一页列表和新任务详情从顶部显示，状态和时间使用等宽数字 | 内容立即更新 |
 | 执行状态、输出或回执到达 | 在当前标签内就地更新状态、记录和数量 | 内容立即更新 |
+
+---
+
+## 8. 监控视频全屏视图与动效清单
+
+面向智能家居摄像头的实时监控查看，采用独立内聚组件 [`CameraMonitor`](ui/CameraMonitor.tsx) 统一管理内联预览与全屏观看状态：
+
+1. **单实例原生视频交接（Zero-Reconnect Surface Handoff）**：
+   - 当存在活跃 `sessionId` 时，内联视口整块作为单一语义 `<Button>` 热区（右下角叠加 `pointerEvents: "none"` 的 `bg-glass-bg` + `border-stage-pill-border` 放大角标，严禁嵌套交互控件）。
+   - 进出全屏不销毁底层会话，严格保证同一时刻全树仅挂载 1 个 `<CameraVideo>` 实例（非全屏挂载内联节点，全屏挂载 `<Dialog>` 内节点）。
+2. **全屏承载层与深色舞台 HUD**：
+   - 使用 `<Dialog presentation="fullScreen" statusBar={{ hidden: true, animated: true }} android={{ statusBarTranslucent: true }} closeOnEscape={true} closeOnSwipe={false} closeOnBackdropPress={false} />`，基底采用 `bg-stage-bg`（OLED 深炭/纯黑底），视频铺满 `absolute inset-0` 并维持原始宽高比居中渲染。
+   - 顶部左/右胶囊（状态/摄像头名称/分辨率、重连、退出全屏）与底部状态及可选云台四向控制盘（`136 × 136pt`）统一遵循模态内部 `safeAreaInsets()` 安全区避让，颜色全部取自 `theme.json` 语义令牌（`stage-bg`、`stage-panel`、`stage-tile`、`glass-bg`、`elevated-glass`、`stage-pill-border`、`stage-pill-fg`、`stage-pill-muted`、`stage-fg`、`stage-muted`、`eye-core`、`verified`、`warning`、`destructive`、`ring`）。
+   - 正在流畅播放且未操作云台时，HUD（Heads-Up Display，平视叠层控件栏）在 4 秒无交互后自动隐藏；轻触画面可即时显隐，连接中、缓冲中、断流出错或云台转动期间锁定显示。
+
+### 8.1 全屏监控动效清单（Motion Inventory）
+
+| 状态变化类别（Category & State Change） | 原生动效工具与令牌参数（Tool & Motion Tokens） | 无障碍降级（`reduceMotion()`） |
+| :--- | :--- | :--- |
+| **1. 按压与悬停（Press & Hover）**：内联全屏触发卡与放大角标、全屏 HUD 重连/退出/恢复按钮、全屏云台方向按钮 | 内联触发卡使用 `transition-opacity duration-150 active:opacity-80`；HUD、恢复与云台按钮统一使用 `transition duration-150 active:scale-[0.95]` 与悬停底色提升，禁用态保持静止 | `motion-reduce:active:scale-100`，仅保留即时明度/边框反馈 |
+| **2. 图标与标签切换（Glyph & Label Swap）**：全屏顶部状态圆点与播放/缓冲/异常文案、分辨率 `tabular-nums` 等宽数字、云台转动中提示 | 文本与状态点在固定容器高度内就地更新，数字使用 `tabular-nums` 防止横屏抖动 | 瞬时更新状态点与文案 |
+| **3. 选中态滑动（Sliding Selection）**：本视图无 | 无 | 无 |
+| **4. 内容入场与离场（Arriving & Leaving Content）**：无流占位（加载/错误）与实时画面切换 | 容器随 `sessionId` 条件就地切换，状态文案与操作按钮稳定居于视觉中心 | 瞬时切换状态内容 |
+| **5. 浮层开合（Opening & Closing Surface）**：全屏 `<Dialog>` 开合、全屏 HUD 控制栏显隐（点击画布或 4 秒无操作自动收起） | 全屏 `<Dialog animation={reduceMotion() ? "none" : "fade"} />`；HUD 容器绑定单一 `AnimatedValue` 驱动 `opacity`：`timing(1, { duration: 180, easing: "easeOut" })` 展开、`timing(0, { duration: 150, easing: "easeIn" })` 收起 | `<Dialog>` 使用 `"none"`；HUD `opacity` 直接 `.set(0 / 1)` 瞬时切换 |
+| **6. 布局变形（Layout Change）**：本视图无（通过互斥单实例交接而非宽高变形过渡） | 无 | 无 |
+| **7. 拖拽与松手释放（Drag & Release）**：本视图无（禁用模态下拉误关） | 无 | 无 |
+| **8. 加载与进度（Loading & Progress）**：连接视频中、缓冲中、云台转动提示 | 复用共享 `<LoadingIndicator stage={true} />` 旋转圆弧进度环（全屏顶部/左下角使用 `inline={true}` 紧凑样式） | `<LoadingIndicator />` 自动停转静止展示 |
+| **9. 实时连续状态（Live & Continuous）**：`CameraVideo` 原生硬解码视频帧渲染 | 原生层（iOS `AVSampleBufferDisplayLayer` / Android `TextureView` + `EGLSurface`）按视频流帧率渲染，切换画布时立即重绘最新保留帧避免黑屏 | 视频实流按原生解码帧率正常播放，HUD 与辅助提示无闪烁 |
