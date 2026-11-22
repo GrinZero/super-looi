@@ -199,6 +199,7 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 | **7. 拖拽与松手释放（Drag & Release）**：`lan_companion` 夜间闭眼态可拖动的底部 `StageDrawer` peek 提示条 | 拖拽过程 `1:1` 跟随手指，松手按 `PanEvent.velocity.y` 投射吸附至最近档位（`stiffness: 320, damping: 32`） | 松手直接瞬时吸附目标档位 |
 | **8. 加载与进度（Loading & Progress）**：终局 AI 法官复盘后台生成中、暗票收集横向进度条 | AI 复盘生成中复用共享 `<LoadingIndicator />` 旋转圆弧进度环；暗票进度条随收到票数比例平滑更新宽比 | `<LoadingIndicator />` 自动停转静止展示，进度条直接落位 |
 | **9. 实时连续状态（Live & Continuous）**：白天/警上发言 `<Canvas>` 环形倒计时弧、发牌前摄人脸对准环 | `<Canvas>` 进度弧随剩余秒数连续绘制，最后 `10s` 切换 `token("warning")` 语义色；人脸对准就绪时外环切换 `token("verified")` | 倒计时弧按整秒离散步进更新，不播放呼吸脉冲 |
+| **首夜倒计时** | 全员领牌后，等宽数字原位逐秒更新。「上一位」沿用按压反馈，入夜沿用阶段切换动效。 | 数字直接更新，阶段即时切换。 |
 
 ### 历史与逐轮复盘动效
 

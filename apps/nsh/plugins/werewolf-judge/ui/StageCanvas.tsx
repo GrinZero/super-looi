@@ -207,8 +207,8 @@ export function WerewolfStageCompanion(props: {
     const seat = st().dealingCurrentSeat;
     if (seat === null) {
       return loc() === "en-US"
-        ? "All roles dealt. Close your eyes."
-        : "全员领牌完毕，请闭眼入夜。";
+        ? "Close your eyes."
+        : "请闭眼，准备入夜。";
     }
     return loc() === "en-US"
       ? `Player #${seat}, inspect your role.`
@@ -216,11 +216,6 @@ export function WerewolfStageCompanion(props: {
   };
 
   const dealingSubText = () => {
-    if (st().dealingCurrentSeat === null) {
-      return loc() === "en-US"
-        ? "Waiting for Night 1"
-        : "等待法官开启第一夜";
-    }
     if (st().rules.surfaceMode === "lan_companion") {
       return loc() === "en-US"
         ? "Check privately on your phone"
@@ -267,12 +262,14 @@ export function WerewolfStageCompanion(props: {
         >
           {dealingMainText()}
         </Text>
-        <Text
-          class="text-stage-pill-muted text-xs text-center"
-          style={{ numberOfLines: 1 }}
-        >
-          {dealingSubText()}
-        </Text>
+        <If when={st().dealingCurrentSeat !== null}>
+          <Text
+            class="text-stage-pill-muted text-xs text-center"
+            style={{ numberOfLines: 1 }}
+          >
+            {dealingSubText()}
+          </Text>
+        </If>
       </If>
 
       <If when={isDaySpeechCompanion()}>
@@ -923,10 +920,25 @@ function DealingStageCard(props: {
 }) {
   const lanLocalDealSeat = signal<number | null>(null);
   const peekedSeat = signal<number | null>(null);
+  const firstNightSeconds = signal<number | null>(null);
 
   const st = () => readWerewolfState(props.ctx);
   const loc = () => props.ctx.locale();
   const currentSeatNum = () => st().dealingCurrentSeat;
+  const firstNightStartsAtMs = () => st().firstNightStartsAtMs;
+
+  effect(() => {
+    const startsAtMs = firstNightStartsAtMs();
+    if (startsAtMs === null) {
+      firstNightSeconds.set(null);
+      return;
+    }
+    const update = () =>
+      firstNightSeconds.set(Math.max(0, Math.ceil((startsAtMs - Date.now()) / 1000)));
+    update();
+    const timer = setInterval(update, 100);
+    cleanup(() => clearInterval(timer));
+  });
 
   effect(() => {
     const num = currentSeatNum();
@@ -1056,48 +1068,45 @@ function DealingStageCard(props: {
             testID="werewolf-dealing-complete"
             class="flex-1 items-center justify-center gap-3 px-4"
           >
-            <WerewolfStageIcon name="privacy_shield" tone="sage" size={32} />
             <Text class="text-stage-fg text-lg font-bold text-center">
               {loc() === "en-US"
                 ? `All ${totalCount()} Seats Confirmed`
                 : `全员领牌完毕（${totalCount()}/${totalCount()}）`}
             </Text>
+            <View class="items-center gap-1">
+              <Text
+                testID="werewolf-first-night-countdown"
+                class="text-face-sage-core text-4xl font-bold text-center"
+                style={{ fontVariant: ["tabular-nums"] }}
+              >
+                {firstNightSeconds() ?? "—"}
+              </Text>
+              <Text class="text-stage-pill-fg text-sm font-medium text-center">
+                {firstNightSeconds() === null
+                  ? loc() === "en-US" ? "Countdown paused" : "倒计时已暂停"
+                  : loc() === "en-US" ? "Seconds until Night 1" : "秒后进入首夜"}
+              </Text>
+            </View>
             <Text class="text-stage-pill-muted text-xs text-center">
               {loc() === "en-US"
-                ? "Everyone please close your eyes to begin Night 1."
-                : "请全场玩家闭上双眼，法官即将开启第一夜行动。"}
+                ? 'Say “Start the game” to begin now.'
+                : "说「开始游戏」可提前入夜"}
             </Text>
-            <View class="flex-row items-center justify-center gap-2.5">
-              <If when={st().canStepBackDeal}>
-                <Button
-                  testID="werewolf-step-back-deal-btn"
-                  onPress={() => {
-                    lanLocalDealSeat.set(null);
-                    void props.ctx.sendCommand({ type: "step_back_deal" });
-                  }}
-                  class="min-h-11 px-4 rounded-full border border-stage-pill-border bg-stage-tile flex-row items-center gap-1.5 active:opacity-75"
-                >
-                  <WerewolfStageIcon name="arrow_left" tone="stageFg" size={14} />
-                  <Text class="text-stage-pill-fg text-xs font-semibold">
-                    {loc() === "en-US" ? "Prev" : "上一位"}
-                  </Text>
-                </Button>
-              </If>
+            <If when={st().canStepBackDeal}>
               <Button
-                testID="werewolf-begin-night-btn"
+                testID="werewolf-step-back-deal-btn"
                 onPress={() => {
-                  void props.ctx.sendCommand({ type: "begin_first_night" });
+                  lanLocalDealSeat.set(null);
+                  void props.ctx.sendCommand({ type: "step_back_deal" });
                 }}
-                class="min-h-11 px-6 rounded-full bg-eye-core flex-row items-center gap-1.5 active:opacity-75"
+                class="min-h-11 px-4 rounded-full border border-stage-pill-border bg-stage-tile flex-row items-center gap-1.5 active:opacity-75"
               >
-                <Text class="text-stage-bg text-sm font-bold">
-                  {loc() === "en-US"
-                    ? "Close Eyes · Night 1"
-                    : "天黑请闭眼 · 进入首夜"}
+                <WerewolfStageIcon name="arrow_left" tone="stageFg" size={14} />
+                <Text class="text-stage-pill-fg text-xs font-semibold">
+                  {loc() === "en-US" ? "Previous seat" : "上一位"}
                 </Text>
-                <WerewolfStageIcon name="arrow_right" tone="stageBg" size={16} />
               </Button>
-            </View>
+            </If>
           </View>
         }
       >

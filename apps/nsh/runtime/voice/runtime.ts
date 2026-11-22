@@ -43,6 +43,7 @@ export class VoiceRuntime {
   private standbyPreparing?: number;
   private suppressAutoStandbyPrompt = false;
   private sessionOpenedForBroadcast = false;
+  private pluginListening?: { session: LiveVoiceSession; deadlineMs: number };
   private prePreviewTranscript?: string;
   private closed = false;
 
@@ -206,6 +207,44 @@ export class VoiceRuntime {
     }
   }
 
+  /** Temporarily enables capture on a session opened for plugin broadcasts. */
+  async listenUntil(deadlineMs: number, signal: AbortSignal): Promise<void> {
+    if (
+      this.closed ||
+      signal.aborted ||
+      this.options.audio.status().permission !== "granted" ||
+      !this.credentials.resolveApiKey(this.protocol.providerId) ||
+      this.session?.sessionPurpose === "preview"
+    ) {
+      return;
+    }
+
+    // Keep an existing user session and its microphone setting.
+    const current = this.session;
+    if (current && !current.isDisposed && !this.sessionOpenedForBroadcast) {
+      if (!current.isMuted) current.holdIdleFor(deadlineMs - Date.now());
+      return;
+    }
+    const opening = !current || current.isDisposed ? this.start({ initialMuted: true }) : undefined;
+    const active = this.session;
+    if (active && this.sessionOpenedForBroadcast) {
+      this.clearBroadcastHoldTimer();
+      const listening = { session: active, deadlineMs };
+      this.pluginListening = listening;
+      active.mute(false);
+      active.holdIdleFor(deadlineMs - Date.now());
+      signal.addEventListener("abort", () => {
+        if (this.pluginListening !== listening) return;
+        this.pluginListening = undefined;
+        if (this.session === active && !active.isDisposed && this.sessionOpenedForBroadcast) {
+          active.mute(true);
+          this.scheduleBroadcastStandby(active, 20_000);
+        }
+      }, { once: true });
+    }
+    await opening;
+  }
+
   /**
    * Speaks proactive plugin text with playback-completion synchronization.
    * Resolves `{ completed: true }` only when hardware audio playback drains,
@@ -267,6 +306,7 @@ export class VoiceRuntime {
     }
 
     const previousMuted = active.isMuted;
+    const listeningDuringBroadcast = this.pluginListening?.session === active;
     if (mutedBroadcast && !previousMuted) {
       active.mute(true);
     } else if (options.capturePolicy === "duplex" && previousMuted) {
@@ -283,7 +323,13 @@ export class VoiceRuntime {
         verbatim: options.verbatim,
         onResult: (result) => {
           if (mutedBroadcast) {
-            if (options.closeToStandbyOnComplete) {
+            const listening = this.pluginListening;
+            if (listeningDuringBroadcast || listening?.session === active) {
+              if (listening?.session === active && !active.isDisposed) {
+                active.mute(false);
+                active.holdIdleFor(listening.deadlineMs - Date.now());
+              }
+            } else if (options.closeToStandbyOnComplete) {
               this.scheduleBroadcastStandby(active, 600);
             } else if (this.sessionOpenedForBroadcast) {
               this.scheduleBroadcastStandby(active, Math.max(1_000, options.holdAliveMs ?? 15_000));
@@ -408,6 +454,7 @@ export class VoiceRuntime {
     const broadcastHold = options.initialMuted === true;
     if (!broadcastHold) {
       this.sessionOpenedForBroadcast = false;
+      this.pluginListening = undefined;
       if (
         this.session &&
         this.session.sessionPurpose === "conversation" &&
@@ -570,6 +617,11 @@ export class VoiceRuntime {
   }
 
   mute(value: boolean): void {
+    if (this.sessionOpenedForBroadcast) {
+      this.clearBroadcastHoldTimer();
+      this.sessionOpenedForBroadcast = false;
+      this.pluginListening = undefined;
+    }
     this.session?.mute(value);
   }
 
@@ -656,6 +708,7 @@ export class VoiceRuntime {
     this.clearCueStopTimer();
     this.clearBroadcastHoldTimer();
     this.sessionOpenedForBroadcast = false;
+    this.pluginListening = undefined;
     const active = this.session;
     const wasPreview = active?.sessionPurpose === "preview";
     const restoredTranscript =
@@ -717,6 +770,7 @@ export class VoiceRuntime {
     this.clearCueStopTimer();
     this.clearBroadcastHoldTimer();
     this.sessionOpenedForBroadcast = false;
+    this.pluginListening = undefined;
     const active = this.session;
     const restoredTranscript =
       restoredTranscriptOverride !== undefined

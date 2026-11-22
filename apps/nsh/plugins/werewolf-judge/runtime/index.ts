@@ -51,6 +51,7 @@ import { JudgeSpeechCoordinator } from "./speech-coordinator.js";
 const STORAGE_RULES_KEY = "rules_v1";
 const STORAGE_MATCH_CHECKPOINT_KEY = "match_checkpoint_v1";
 const STORAGE_MATCH_HISTORY_KEY = "match_history_v1";
+const FIRST_NIGHT_COUNTDOWN_MS = 10_000;
 
 type MatchHistoryState = Pick<WerewolfPublicState, "matchHistory" | "matchHistoryLoadError">;
 
@@ -322,6 +323,11 @@ export class WerewolfJudgePluginRuntime
   private lastLanPort: number | undefined = undefined;
 
   private speakerInterval: ReturnType<typeof setInterval> | null = null;
+  private firstNightCountdown: {
+    readonly startsAtMs: number;
+    readonly timer: ReturnType<typeof setTimeout>;
+    readonly listening: AbortController;
+  } | null = null;
   private hostPaused = false;
   private appForegroundActive = true;
   private readonly pendingMvpReviews = new Map<string, symbol>();
@@ -414,13 +420,25 @@ export class WerewolfJudgePluginRuntime
       void this.enqueueOperation(() => this.handleForegroundChanged(active));
     }, this.ctx.scope);
 
-    // 4. Register daytime-safe voice tools
+    // 4. Register daytime voice tools and consume the start phrase during the countdown.
     this.ctx.ai?.useContribution(
       {
         voiceTools: this.buildVoiceTools(),
       },
       this.ctx.scope,
     );
+    this.ctx.ai?.interceptUserTurn(async ({ channel, text }) => {
+      const countdown = this.firstNightCountdown;
+      if (
+        !countdown ||
+        channel !== "voice" ||
+        !/^(?:(?:looi|洛伊)[\s,，]+)?(?:开始游戏|start the game)[.!?。！？]*$/iu.test(text.trim())
+      ) {
+        return;
+      }
+      await this.finishFirstNightCountdown(countdown.timer);
+      return { decision: "handled" };
+    }, this.ctx.scope);
 
     // 5. Restore cold-boot match checkpoint non-intrusively into hostPaused state
     const savedCheckpoint = this.ctx.storage.get<WerewolfMatchCheckpointV1 | undefined>(
@@ -467,6 +485,7 @@ export class WerewolfJudgePluginRuntime
   }
 
   async stop(): Promise<void> {
+    this.stopFirstNightCountdown();
     this.stopSpeakerClock();
     this.speechCoordinator.bumpEpoch();
     this.persistCheckpoint();
@@ -534,6 +553,7 @@ export class WerewolfJudgePluginRuntime
     switch (command.type) {
       case "open_lobby": {
         this.clearCheckpoint();
+        this.stopFirstNightCountdown();
         this.hostPaused = false;
         this.speechCoordinator.bumpEpoch();
         this.cancelActiveNightTask();
@@ -552,6 +572,7 @@ export class WerewolfJudgePluginRuntime
 
       case "abort_match_to_lobby": {
         this.clearCheckpoint();
+        this.stopFirstNightCountdown();
         this.hostPaused = false;
         this.speechCoordinator.bumpEpoch();
         this.cancelActiveNightTask();
@@ -769,8 +790,16 @@ export class WerewolfJudgePluginRuntime
       }
 
       case "begin_first_night": {
-        await this.stopDealingCameraSubscription();
+        if (this.hostPaused || !this.appForegroundActive) {
+          throw new WerewolfRuleError(
+            "begin_first_night",
+            "ERR_WEREWOLF_HOST_PAUSED",
+            "请先回到狼人杀舞台",
+          );
+        }
         const outcome = this.engine.beginFirstNight();
+        this.stopFirstNightCountdown();
+        await this.stopDealingCameraSubscription();
         await this.applyPostTransitionEffects(outcome);
         return;
       }
@@ -1087,6 +1116,7 @@ export class WerewolfJudgePluginRuntime
       }
     }
     if (afterSettlement) await afterSettlement();
+    const startedFirstNightCountdown = this.syncFirstNightCountdown();
     if (!outcome.gameEnded) {
       this.persistCheckpoint();
     }
@@ -1097,7 +1127,7 @@ export class WerewolfJudgePluginRuntime
     this.choreographer.applyPhaseAtmosphere(this.engine.getPhase());
     this.syncSpeakerClockForCurrentPhase();
 
-    if (outcome.announcement) {
+    if (outcome.announcement && !startedFirstNightCountdown) {
       void this.speakJudgeLine(outcome.announcement);
     }
 
@@ -1226,6 +1256,7 @@ export class WerewolfJudgePluginRuntime
   }
 
   private async resumeActivePhaseSideEffects(): Promise<void> {
+    this.syncFirstNightCountdown();
     this.syncPublicState();
     this.syncLifecycleScopesForCurrentPhase();
     this.syncDealingCameraSubscription();
@@ -1263,8 +1294,10 @@ export class WerewolfJudgePluginRuntime
   private async handleForegroundChanged(active: boolean): Promise<void> {
     this.appForegroundActive = active;
     if (!active) {
+      this.stopFirstNightCountdown();
       this.stopSpeakerClock();
       this.persistCheckpoint();
+      this.syncPublicState();
       return;
     }
     if (this.hostPaused || this.engine.getPhase() === "idle") {
@@ -1274,6 +1307,7 @@ export class WerewolfJudgePluginRuntime
       await this.choreographer.ensureMatchLeases(this.matchStageScope);
       this.choreographer.applyPhaseAtmosphere(this.engine.getPhase());
     }
+    this.syncFirstNightCountdown();
     this.syncSpeakerClockForCurrentPhase();
     if (this.engine.getRules().surfaceMode === "lan_companion") {
       if (this.lanSession) {
@@ -1412,6 +1446,7 @@ export class WerewolfJudgePluginRuntime
   private syncDealingCameraSubscription(): void {
     const shouldStream =
       this.engine.getPhase() === "dealing" &&
+      this.engine.getDealingCurrentSeat() !== null &&
       !this.hostPaused &&
       this.personTracker !== null;
 
@@ -1572,6 +1607,7 @@ export class WerewolfJudgePluginRuntime
 
   private async handleHostStageExited(): Promise<void> {
     this.hostPaused = true;
+    this.stopFirstNightCountdown();
     this.speechCoordinator.bumpEpoch();
     this.cancelActiveNightTask();
     this.stopSpeakerClock();
@@ -1610,6 +1646,51 @@ export class WerewolfJudgePluginRuntime
     } else {
       this.stopSpeakerClock();
     }
+  }
+
+  private syncFirstNightCountdown(): boolean {
+    if (this.hostPaused || !this.appForegroundActive || !this.engine.canBeginFirstNight()) {
+      this.stopFirstNightCountdown();
+      return false;
+    }
+    if (this.firstNightCountdown) return false;
+
+    const startsAtMs = Date.now() + FIRST_NIGHT_COUNTDOWN_MS;
+    const timer = setTimeout(() => {
+      void this.finishFirstNightCountdown(timer).catch(() => {
+        // finishFirstNightCountdown already records the transition failure.
+      });
+    }, FIRST_NIGHT_COUNTDOWN_MS);
+    const listening = new AbortController();
+    this.firstNightCountdown = { startsAtMs, timer, listening };
+    void this.ctx.ai?.listenUntil(startsAtMs, listening.signal).catch((error) => {
+      this.ctx.setLastError(toPluginFailure(error, "first_night_listen"));
+    });
+    this.speechCoordinator.bumpEpoch();
+    void this.speakJudgeLine("全员领牌完毕，请闭眼。");
+    return true;
+  }
+
+  private finishFirstNightCountdown(timer: ReturnType<typeof setTimeout>): Promise<void> {
+    return this.enqueueOperation(async () => {
+      if (this.firstNightCountdown?.timer !== timer) return;
+      try {
+        this.ctx.setLastError(undefined);
+        await this.dispatchCommand({ type: "begin_first_night" });
+      } catch (error) {
+        const failure = toPluginFailure(error, "begin_first_night");
+        this.ctx.setLastError(failure);
+        rethrowWithStage(error, failure.stage);
+      }
+    });
+  }
+
+  private stopFirstNightCountdown(): void {
+    if (!this.firstNightCountdown) return;
+    clearTimeout(this.firstNightCountdown.timer);
+    this.firstNightCountdown.listening.abort();
+    this.firstNightCountdown = null;
+    this.speechCoordinator.bumpEpoch();
   }
 
   private startSpeakerClock(): void {
@@ -1984,6 +2065,7 @@ export class WerewolfJudgePluginRuntime
 
     const nextState = this.engine.projectPublicState({
       dealingFaceAligned: this.dealingFaceAligned,
+      firstNightStartsAtMs: this.firstNightCountdown?.startsAtMs ?? null,
       previewSessionId: this.previewSessionId,
       visionAvailable: this.personTracker !== null,
       lan: lanStatus,
@@ -2003,6 +2085,7 @@ export class WerewolfJudgePluginRuntime
   }
 
   private async teardownAllSubScopes(options?: { readonly clearLanTokens?: boolean }): Promise<void> {
+    this.stopFirstNightCountdown();
     this.cancelActiveNightTask();
     await this.stopDealingCameraSubscription();
     await this.closeLanRoom({ clearTokens: options?.clearLanTokens ?? true });

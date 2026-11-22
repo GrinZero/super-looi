@@ -368,6 +368,10 @@ export class WerewolfEngine {
     return this.dealingCurrentSeat;
   }
 
+  canBeginFirstNight(): boolean {
+    return this.phase === "dealing" && this.seats.every((seat) => seat.dealtConfirmed);
+  }
+
   getSpeakingSeat(): number | null {
     return this.speakingSeat;
   }
@@ -453,6 +457,7 @@ export class WerewolfEngine {
 
   projectPublicState(extras: {
     readonly dealingFaceAligned: boolean;
+    readonly firstNightStartsAtMs?: number | null;
     readonly previewSessionId: string | null;
     readonly visionAvailable: boolean;
     readonly lan: WerewolfLanStatus;
@@ -535,6 +540,7 @@ export class WerewolfEngine {
       dealingCurrentSeat: this.dealingCurrentSeat,
       dealingRevealingSeat: this.dealingRevealingSeat,
       dealingFaceAligned: extras.dealingFaceAligned,
+      firstNightStartsAtMs: extras.firstNightStartsAtMs ?? null,
       previewSessionId: extras.previewSessionId,
       visionAvailable: extras.visionAvailable,
       nightPrompt,
@@ -1005,6 +1011,7 @@ export class WerewolfEngine {
       );
     }
 
+    if (target.dealtConfirmed) return {};
     target.dealtConfirmed = true;
     this.dealingHistorySeats.push(seat);
     if (this.dealingRevealingSeat === seat) {
@@ -1016,7 +1023,7 @@ export class WerewolfEngine {
     this.bumpRevision();
 
     if (!nextUnconfirmed) {
-      const announcement = "全员领牌完毕，准备进入第一夜。";
+      const announcement = "全员领牌完毕，请闭眼。";
       this.lastJudgeSpeech = announcement;
       return { announcement };
     }
@@ -1059,8 +1066,12 @@ export class WerewolfEngine {
         "仅发牌阶段完成后可进入首夜",
       );
     }
-    for (const s of this.seats) {
-      s.dealtConfirmed = true;
+    if (!this.canBeginFirstNight()) {
+      throw new WerewolfRuleError(
+        "begin_first_night",
+        "ERR_WEREWOLF_DEALING_INCOMPLETE",
+        "请等待全员确认领牌",
+      );
     }
     this.dealingCurrentSeat = null;
     this.dealingRevealingSeat = null;

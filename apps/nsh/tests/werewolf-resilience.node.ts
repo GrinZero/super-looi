@@ -1051,6 +1051,12 @@ test("Scenario 3: Voice muted_broadcast + verbatim prompt + recovery after conne
   assert.equal(voice.snapshot().muted, true);
   assert.notEqual(voice.snapshot().phase, "standby");
 
+  const countdownCapture = new AbortController();
+  await voice.listenUntil(Date.now() + 10_000, countdownCapture.signal);
+  assert.equal(voice.snapshot().muted, false);
+  countdownCapture.abort();
+  assert.equal(voice.snapshot().muted, true);
+
   // Day speak with closeToStandbyOnComplete=true automatically returns cleanly to standby with no error
   const daySpeakPromise = voice.speak({
     spokenText: "昨晚是个平安夜",
@@ -1071,6 +1077,23 @@ test("Scenario 3: Voice muted_broadcast + verbatim prompt + recovery after conne
   }
   assert.equal(voice.snapshot().phase, "standby");
   assert.equal(voice.snapshot().error, "");
+
+  const captureFromStandby = new AbortController();
+  await voice.listenUntil(Date.now() + 10_000, captureFromStandby.signal);
+  activeSocketPush!({ type: "session.created" });
+  const listenDeadline = Date.now() + 200;
+  while (voice.snapshot().phase !== "listening" && Date.now() < listenDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(voice.snapshot().phase, "listening");
+  assert.equal(voice.snapshot().muted, false);
+  captureFromStandby.abort();
+  assert.equal(voice.snapshot().muted, true);
+  voice.mute(true);
+  const captureWithMutedMic = new AbortController();
+  await voice.listenUntil(Date.now() + 10_000, captureWithMutedMic.signal);
+  assert.equal(voice.snapshot().muted, true);
+  captureWithMutedMic.abort();
   await voice.stop();
 
   // 3C: LiveVoiceSession extends idle hold beyond 12s IDLE_SLEEP_MS and excludes [Verbatim Announcement] history
@@ -1277,6 +1300,75 @@ test("Scenario 6: step_back_deal rewinds during dealing and after final seat bef
   } finally {
     await h.dispose();
   }
+});
+
+test("First night waits for every seat, cancels on rewind, and starts automatically", { timeout: 20_000 }, async (t) => {
+  const h = await createHarness();
+  t.after(async () => { await h.dispose(); h.db.close(); });
+  await h.host.startAll();
+  await h.send({ type: "open_lobby", presetId: "6p_joy" });
+  await h.send({ type: "start_dealing" });
+  await assert.rejects(h.send({ type: "begin_first_night" }), {
+    stage: "begin_first_night",
+    code: "ERR_WEREWOLF_DEALING_INCOMPLETE",
+  });
+  assert.equal(h.readState().firstNightStartsAtMs, null);
+
+  for (let seat = 1; seat <= 6; seat++) {
+    await h.send({ type: "confirm_seat_dealt", seat });
+  }
+  assert.ok(h.readState().firstNightStartsAtMs);
+  assert.equal(h.readState().phase, "dealing");
+  await h.send({ type: "step_back_deal" });
+  assert.equal(h.readState().firstNightStartsAtMs, null);
+  assert.equal(h.readState().dealingCurrentSeat, 6);
+
+  await h.send({ type: "confirm_seat_dealt", seat: 6 });
+  const deadline = h.readState().firstNightStartsAtMs;
+  assert.ok(deadline);
+  await new Promise((resolve) => setTimeout(resolve, deadline - Date.now()));
+  while (h.readState().phase !== "night_wolf" && Date.now() < deadline + 1_000) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(h.readState().phase, "night_wolf");
+  assert.equal(h.readState().firstNightStartsAtMs, null);
+});
+
+test("Final phone confirmation opens the countdown and the spoken start phrase advances it", async (t) => {
+  const h = await createHarness();
+  t.after(async () => { await h.dispose(); h.db.close(); });
+  await h.host.startAll();
+  let listeningSignal: AbortSignal | undefined;
+  h.host.ai.setBridge({
+    listenUntil: async (_deadlineMs, signal) => { listeningSignal = signal; },
+  });
+  await h.send({ type: "open_lobby", presetId: "6p_joy" });
+  await h.send({ type: "update_rules", patch: { surfaceMode: "lan_companion" } });
+  await h.send({ type: "set_judge_voice_muted", muted: true });
+  await h.send({ type: "start_dealing" });
+  const evaluateVoice = (text: string) => h.host.ai.evaluateUserTurn({ channel: "voice", text });
+  assert.equal(await evaluateVoice("开始游戏"), undefined);
+
+  const roomId = [...h.nativeLan.rooms.keys()][0]!;
+  for (const seat of [6, 2, 1, 4, 3, 5]) {
+    const claim = await h.nativeLan.simulateHttp(roomId, {
+      method: "POST", path: "/api/claim", body: { seat },
+    });
+    assert.equal(claim.status, 200);
+    const result = await h.nativeLan.simulateHttp(roomId, {
+      method: "POST", path: "/api/action",
+      body: { seat, token: claim.json.seatToken, action: "confirm_deal" },
+    });
+    assert.equal(result.status, 200);
+  }
+  assert.ok(h.readState().firstNightStartsAtMs);
+  assert.equal(listeningSignal?.aborted, false);
+  assert.equal(await evaluateVoice("怎么开始游戏？"), undefined);
+  assert.equal((await evaluateVoice("开始游戏。"))?.decision, "handled");
+  assert.equal(h.readState().firstNightStartsAtMs, null);
+  assert.equal(listeningSignal?.aborted, true);
+  assert.match(h.readState().phase, /^night_/);
+  assert.equal((await evaluateVoice("开始游戏"))?.decision, "block");
 });
 
 test("Scenario 7: LanRoomBroker rebinds preferredPort and restores revision on foreground; mobile companion only clears localStorage on 401", async () => {

@@ -87,6 +87,12 @@ const DEFAULT_PUBLIC_EXTRAS: {
   hostPaused: false,
 };
 
+function confirmAllRoles(engine: WerewolfEngine): void {
+  for (let seat = 1; seat <= engine.getPlayerCount(); seat++) {
+    engine.confirmSeatDealt(seat);
+  }
+}
+
 function assertNoSecretLeakBeforeGameOver(engine: WerewolfEngine): void {
   const pub = engine.projectPublicState(DEFAULT_PUBLIC_EXTRAS);
   assert.notEqual(pub.phase, "game_over");
@@ -677,6 +683,7 @@ test("9P Standard slaughter_side + Hunter shoot when bitten/exiled vs blocked wh
     const engine = new WerewolfEngine({ initialRules: buildPresetRules("9p_standard") });
     engine.openLobby("9p_standard");
     engine.startDealing({ fixedRolesBySeat: fixedRoles });
+    confirmAllRoles(engine);
     engine.beginFirstNight();
     engine.advanceFromNightIntro();
     engine.submitWolfAction(6); // Wolves bite Hunter (6)
@@ -698,6 +705,7 @@ test("9P Standard slaughter_side + Hunter shoot when bitten/exiled vs blocked wh
     const engine = new WerewolfEngine({ initialRules: buildPresetRules("9p_standard") });
     engine.openLobby("9p_standard");
     engine.startDealing({ fixedRolesBySeat: fixedRoles });
+    confirmAllRoles(engine);
     engine.beginFirstNight();
     engine.advanceFromNightIntro();
     engine.submitWolfAction(7); // Kill villager 7
@@ -762,6 +770,7 @@ test("Guard consecutive-target ban, sameGuardSameSaveDies (奶穿), and Witch se
   });
   engine.openLobby();
   engine.startDealing({ fixedRolesBySeat: fixed12Guard });
+  confirmAllRoles(engine);
   engine.beginFirstNight();
   engine.advanceFromNightIntro();
 
@@ -800,6 +809,7 @@ test("Guard consecutive-target ban, sameGuardSameSaveDies (奶穿), and Witch se
   });
   engineNoPierce.openLobby();
   engineNoPierce.startDealing({ fixedRolesBySeat: fixed12Guard });
+  confirmAllRoles(engineNoPierce);
   engineNoPierce.beginFirstNight();
   engineNoPierce.advanceFromNightIntro();
   engineNoPierce.submitGuardAction(10, 8);
@@ -857,6 +867,7 @@ test("Day 1 Sheriff election before Night 1 death announce: PK tie, double-tie b
     const engine = new WerewolfEngine({ initialRules: buildPresetRules("12p_guard") });
     engine.openLobby("12p_guard");
     engine.startDealing({ fixedRolesBySeat: fixed12 });
+    confirmAllRoles(engine);
     engine.beginFirstNight();
     engine.advanceFromNightIntro();
     engine.submitGuardAction(null, 8);
@@ -926,6 +937,7 @@ test("Day 1 Sheriff election before Night 1 death announce: PK tie, double-tie b
     const engine = new WerewolfEngine({ initialRules: buildPresetRules("12p_guard") });
     engine.openLobby("12p_guard");
     engine.startDealing({ fixedRolesBySeat: fixed12 });
+    confirmAllRoles(engine);
     engine.beginFirstNight();
     engine.advanceFromNightIntro();
     engine.submitGuardAction(null, 8);
@@ -1002,6 +1014,7 @@ test("12P Idiot flip-card exile survival, permanent vote/sheriff loss, and Wolf 
     });
     engine.openLobby("12p_idiot");
     engine.startDealing({ fixedRolesBySeat: fixed12Idiot });
+    confirmAllRoles(engine);
     engine.beginFirstNight();
     engine.advanceFromNightIntro();
     engine.submitWolfAction(null);
@@ -1071,6 +1084,7 @@ test("12P Idiot flip-card exile survival, permanent vote/sheriff loss, and Wolf 
     });
     engine.openLobby();
     engine.startDealing({ fixedRolesBySeat: fixed12Guard });
+    confirmAllRoles(engine);
     engine.beginFirstNight();
     engine.advanceFromNightIntro();
     engine.submitGuardAction(null, 8);

@@ -27,6 +27,7 @@ export interface DualLoopAiBusBridge {
     holdAliveMs?: number;
     closeToStandbyOnComplete?: boolean;
   }) => Promise<{ readonly completed: boolean; readonly interruptedReason?: string }>;
+  listenUntil?: (deadlineMs: number, signal: AbortSignal) => Promise<void>;
   runBackgroundTask?: (options: {
     pluginId: string;
     prompt: string;
@@ -558,6 +559,13 @@ export class DualLoopAiBus {
             ? { closeToStandbyOnComplete: options.closeToStandbyOnComplete }
             : {}),
         });
+      },
+
+      listenUntil: async (deadlineMs, signal) => {
+        assertPermission(manifest, "ai.proactive", "plugin.ai.listenUntil");
+        if (defaultScope.active && !signal.aborted) {
+          await this.bridge.listenUntil?.(deadlineMs, signal);
+        }
       },
 
       runBackgroundTask: async (prompt: string) => {

@@ -248,6 +248,7 @@ export interface PluginAiCapability {
     scope?: EffectScope,
   ): Dispose;
   speak(options: PluginSpeakOptions): Promise<{ readonly completed: boolean; readonly interruptedReason?: string }>;
+  listenUntil(deadlineMs: number, signal: AbortSignal): Promise<void>;
   runBackgroundTask(prompt: string): Promise<{ readonly taskId: string; readonly answer: string }>;
 }
 

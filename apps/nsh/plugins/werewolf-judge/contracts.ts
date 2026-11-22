@@ -280,6 +280,7 @@ export interface WerewolfPublicState {
   readonly dealingCurrentSeat: number | null;
   readonly dealingRevealingSeat: number | null;
   readonly dealingFaceAligned: boolean;
+  readonly firstNightStartsAtMs: number | null;
   readonly previewSessionId: string | null;
   readonly visionAvailable: boolean;
   readonly nightPrompt: WerewolfNightPromptPublic | null;

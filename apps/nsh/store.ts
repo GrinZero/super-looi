@@ -1235,6 +1235,9 @@ export function createAppStore() {
                 closeToStandbyOnComplete,
               })
             : Promise.resolve({ completed: false, interruptedReason: "voice_unavailable" }),
+        listenUntil: async (deadlineMs, signal) => {
+          if (alive) await voice?.listenUntil(deadlineMs, signal);
+        },
         onVoiceContextUpdated: (summaryPrompt) => {
           if (alive) voice?.setPluginContext(summaryPrompt, true);
         },

@@ -415,5 +415,17 @@ fn werewolf_stage_resilience_reentry_and_controls_work_in_landscape() -> Result<
     app.wait_for("再点确认结束对局")?;
     app.press("werewolf-exit-idle-btn")?;
     app.wait_for("登上首屏开局")?;
+
+    app.press("werewolf-launch-stage-btn")?;
+    app.wait_for("werewolf-start-dealing-btn")?;
+    app.press("werewolf-start-dealing-btn")?;
+    for seat in 1..=9 {
+        app.wait_for(&format!("{seat}号玩家"))?;
+        app.press("werewolf-deal-confirm-btn")?;
+    }
+    app.wait_for("werewolf-first-night-countdown")?;
+    app.wait_for("秒后进入首夜")?;
+    app.wait_for("说「开始游戏」可提前入夜")?;
+    assert!(!app.shows("天黑请闭眼 · 进入首夜"));
     Ok(())
 }

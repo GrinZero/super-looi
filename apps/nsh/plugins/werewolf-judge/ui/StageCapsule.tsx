@@ -58,6 +58,7 @@ const EMPTY_PUBLIC_STATE: WerewolfPublicState = {
   dealingCurrentSeat: null,
   dealingRevealingSeat: null,
   dealingFaceAligned: false,
+  firstNightStartsAtMs: null,
   previewSessionId: null,
   visionAvailable: false,
   nightPrompt: null,
