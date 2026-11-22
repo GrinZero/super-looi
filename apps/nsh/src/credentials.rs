@@ -24,7 +24,7 @@ pub struct CredentialVault {
 fn validate_key(key: &str) -> Result<(), String> {
     if matches!(
         key,
-        "model" | "voice" | "home" | "body" | "camera" | "probe"
+        "model" | "voice" | "home" | "body" | "camera" | "probe" | "github"
     ) {
         Ok(())
     } else {
@@ -231,6 +231,26 @@ mod tests {
             reopened.remove("model".into())?;
             reopened.remove("model".into())?;
             assert_eq!(vault.get("model".into())?, "");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn github_slot_is_supported_and_unknown_slots_are_rejected() -> Result<(), String> {
+        let data = tempfile::tempdir().map_err(|error| error.to_string())?;
+        for os in [nsh_core::platform::Os::Ios, nsh_core::platform::Os::Android] {
+            let sys = system(data.path(), os);
+            let vault = CredentialVault::new(sys.clone())?;
+            assert_eq!(vault.get("github".into())?, "");
+            vault.set("github".into(), "github_pat_test_readonly".into())?;
+            let reopened = CredentialVault::new(sys)?;
+            assert_eq!(reopened.get("github".into())?, "github_pat_test_readonly");
+            reopened.remove("github".into())?;
+            assert_eq!(vault.get("github".into())?, "");
+            assert_eq!(
+                vault.get("unsupported_slot".into()).unwrap_err(),
+                "Unsupported credential slot"
+            );
         }
         Ok(())
     }

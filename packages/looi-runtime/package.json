@@ -12,6 +12,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./schedule": {
+      "types": "./dist/schedule.d.ts",
+      "import": "./dist/schedule.js",
+      "default": "./dist/schedule.js"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",

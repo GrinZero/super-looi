@@ -82,6 +82,7 @@ export function nativePluginEnvironment(buildVariables = {}, targets = {}) {
     "scripts/native-plugins.mjs", "native/android/merge_apk.py", "native/android/patch_manifest.py",
     "native/android/com/superlooi/nsh/SuperLooiApplication.java",
     "native/android/com/superlooi/nsh/MiotLoginDialog.java", "native/android/com/superlooi/nsh/LooiBleBridge.java", "native/android/com/superlooi/nsh/CameraMedia.java", "native/android/com/superlooi/nsh/DeviceCameraBridge.java",
+    "native/android/com/superlooi/nsh/ScheduleBridge.java", "native/android/com/superlooi/nsh/ScheduleKeepAliveService.java", "native/android/com/superlooi/nsh/ScheduleAlarmReceiver.java",
     "native/linux/sources.lock.json",
     ...readdirSync(join(app,"native/linux/licenses")).map(name=>`native/linux/licenses/${name}`),
   ]) pluginHash.update(readFileSync(join(app,source)));
@@ -248,6 +249,9 @@ function applyAndroidPlugin(apk, sdk, tools) {
       join(app, "native/android/com/superlooi/nsh/LooiBleBridge.java"),
       join(app, "native/android/com/superlooi/nsh/CameraMedia.java"),
       join(app, "native/android/com/superlooi/nsh/DeviceCameraBridge.java"),
+      join(app, "native/android/com/superlooi/nsh/ScheduleBridge.java"),
+      join(app, "native/android/com/superlooi/nsh/ScheduleKeepAliveService.java"),
+      join(app, "native/android/com/superlooi/nsh/ScheduleAlarmReceiver.java"),
     ]);
     run(join(tools, "d8"), [
       "--lib",

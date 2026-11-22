@@ -3128,3 +3128,51 @@
 - [x] Step 4 — 更新完整横屏对局测试，覆盖自动进入首夜。
   - [x] 本机局和局域网副屏用例等待倒计时和首夜界面。
   - [x] 狼人杀横屏测试 4 项通过。
+
+
+## 轻量化 Schedule（定时调度）与勿扰模式落地（2026-11-22）
+
+- [x] Step 1 — 第一层：核心调度引擎、持久化与执行隔离（`packages/looi-runtime`）
+  - [x] 实现 `schedule/types.ts`、`schedule/cron.ts`（零依赖 5 段 Cron、POSIX OR、8 年跨闰年跳转、跨午夜多时段勿扰计算）与 `schedule.ts` 导出入口。
+  - [x] 扩展 `storage/sqlite.ts`（`schedule_rules` / `schedule_runs` / `schedule_settings` 与冷启动 `result_unconfirmed` / `unconfirmed` 恢复事务）。
+  - [x] 实现 `schedule/check-policy.ts`（`check_only` 双层能力裁剪与钩子守卫）与 `executor.ts` / `pi-executor.ts` / `pi-session.ts` / `pi-task-runner.ts`（三通道并发隔离与全链路透传 `{ stage, code, reason }` 及 `toolFailures`）。
+  - [x] 实现 `schedule/engine.ts`（来源与权限隔离去重、两阶段原子事务、四级确定性结算、单定时器循环与补跑）及 `schedule/post-turn-observer.ts`（四重门控轻量复盘兜底）。
+  - [x] 补全并运行 `packages/looi-runtime` 单元测试（`cron`、`schedule-engine`、`check-policy`、`executor-lanes`、`post-turn-observer`）。
+- [x] Step 2 — 第三层：双端原生桥接与插件打包配置（`apps/nsh/src/`、`native/`、`scripts/`）
+  - [x] 扩展 `apps/nsh/src/credentials.rs` 新增 `"github"` 加密槽位及测试；注册 `ScheduleHost` 到 `apps/nsh/src/lib.rs`。
+  - [x] 实现 `apps/nsh/src/schedule_native/{mod.rs,ios.rs,android.rs}`（统一端口契约与无头测试内存实现）。
+  - [x] 实现 iOS `apps/nsh/native/ios/ScheduleNative.m` 并接入 `apps/nsh/build.rs`（`looi.sched.<ruleId>` 前缀通知、静音/声音标记、`beginBackgroundTask`）。
+  - [x] 实现 Android `ScheduleBridge.java`、`ScheduleKeepAliveService.java`（`dataSync` 与 `onTimeout` 立即停服）、`ScheduleAlarmReceiver.java`（离线勿扰重判），并接入 `SuperLooiApplication.java`、`plugins.json`、`patch_manifest.py`、`native-plugins.mjs` 与 `test_plugin.py`。
+- [ ] Step 3 — 第二层：运行时整合、只读查询工具与语音链路（`apps/nsh/runtime` & `plugins/codex`）
+  - [ ] 新增 `github_pr_status` 只读工具与 App 内 GitHub 只读凭据管理及密钥脱敏。
+  - [ ] 扩展插件总线契约与 Codex 插件新增只读 `codex_cloud_status`、`check_only` 工具裁剪与 `SKILL` 指引。
+  - [ ] 新增 Pi 工具 `manage_schedule` / `manage_quiet_hours` 与实时语音工具 `voice/tools/schedule.ts` 及三点临界出声前勿扰重判。
+  - [ ] 接入 `MobileRuntime`（`application.ts`）与 `build-runtime.ts` 类型声明生成，补全并运行 `schedule-runtime.node.ts`、`schedule-voice-tools.node.ts` 等测试。
+- [ ] Step 4 — 第四层：状态编排、并发审批队列与「定时（Schedules）」UI（`apps/nsh`）
+  - [ ] 更新 `store.ts` 与 `App.tsx`（`"schedules"` 空间、退后台不误杀调度、多任务 `pendingInteractions` 队列、三通道交付路由、`continueScheduledSession`）。
+  - [ ] 更新 `ManagementShell.tsx` 并实现 `SchedulesSpaceView.tsx`（第 8 导航入口、`48pt` 上下文胶囊栏、规则主从双栏、未确认状态处置、多时段勿扰、GitHub PAT 配置、新建/编辑 `Dialog` 与闰日 Cron 实时预览）及中英双语词条。
+  - [ ] 同步 `DESIGN.md`（动效清单与定时空间规范）及 `docs/arch/index.html`（架构图更新）。
+  - [ ] 补全并运行 `SchedulesSpace.test.tsx` 横屏浅色/深色/减动效 UI 交互测试与全仓 `cargo check` / `pnpm typecheck` / `pnpm test` / `pnpm build`。
+- [ ] Step 5 — 第五层：Android 真机横屏实测验收与独立代码/设计审查
+  - [ ] 独立 Subagent 完整审查架构边界、只读隔离、事务原子性、错误透明链与 NSH 设计规范。
+  - [ ] Android 真机（`391QYGCN224FE` 横屏）打包安装、APK manifest 校验、浅/深色 UI 巡检与交互截图、规则与勿扰实测及后台/闹钟生命周期 logcat 检查。
+- [ ] Step 6 — 阶段收口：记录真机硬件平台差异遗留项（iOS 真机 / Android 15 `onTimeout` 实机），清理临时状态并完成最终提交。
+
+## 狼人杀环视认座、内置具身视觉插件与底座发牌（2026-11-22）
+
+- [ ] Milestone 0A — 插件边界重划分 + IMU 纯 Rust 主机 + 相机/头像缓存/底座原语基座
+  - [ ] Step 1：编写技术方案 `docs/plans/werewolf-embodied-vision-and-base-plan.md` 与 `progress.md` 步骤清单。
+  - [ ] Step 2：扩展 `PluginManifest.builtinCore`、`"sensor.motion"`、`PluginHost` 核心强制启用语义、`PluginsSpaceView` 只读核心徽标及 `vision-person-tracker`（`1.1.0`, `builtinCore: true`）。
+  - [ ] Step 3：实现纯 Rust Android NDK (`libandroid.so`) + iOS `DeviceMotion.m` 六轴重力轴航向主机、`DeviceMotionHost`、`MotionBroker` 与 `PluginContext.motion`。
+  - [ ] Step 4：扩展 `DeviceCameraHost`（Rust / iOS / Android）与 `VisionBroker`：`hfovDeg`、`capturedMonotonicMs` / `facesMonotonicMs`、无 JPEG `capture_faces`、单人头像 `<sys.data_dir>/portraits/*.jpg` 裁剪落盘与 `delete_portrait`。
+  - [ ] Step 5：扩展 `BodySupervisor.onRawNotification` 与 `BodyRuntime`（`FED9 01` 四路悬崖传感器解析、`acquireServo().setDriveVector` Latest-Wins 合并）。
+  - [ ] Step 6：补全并运行 Rust `cargo test --lib`、iOS ObjC 语法检查、`looi-driver` 构建与单测、`nsh` 类型检查与插件/具身/狼人杀单测并提交代码。
+- [ ] Milestone 0B — 真机实验性旋转标定（Experimental Calibration）与无磁闭环扫视原语
+  - [ ] Step 1：在 `vision-person-tracker` 实现微步试转标定（视觉-IMU 比例增益 $k$、开环角速度曲线、死区补偿）与持久化。
+  - [ ] Step 2：实现 IMU + 视觉偏移闭环角位移控制与悬崖安全中断原语并在真实 LOOI 底座实测收敛度。
+- [ ] Milestone 1 — 360° 环视认座、重开局 `"对齐 1 号"` 与底座发牌（`on_device` 单机版）
+  - [ ] Step 1：360° 扫视提取桌面玩家方位表，单人面孔触发磁盘头像裁剪缓存与确认界面联动。
+  - [ ] Step 2：重开新局支持 `"对齐 1 号"` 零点重校准；接入 `setDealingTarget` 仅转向发牌与夜间纯听写禁令、语音/长按冻结电机。
+- [ ] Milestone 2 — 双机协同分层、白天可选眼神复用与 Stage 2 轮差/防跌落回归
+  - [ ] Step 1：`lan_companion` 与 `on_device` 能力分层、白天自由发言复用座位角度表与夜间严格封禁验证。
+  - [ ] Step 2：左右轮差标定、`FED9` 实时悬崖急停回归与 `docs/arch/index.html` 架构图同步。

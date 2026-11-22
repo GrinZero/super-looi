@@ -3,6 +3,7 @@ import type {
   AgentCommandEvidence,
   AgentInteractionAnswer,
   AgentRunOptions,
+  AgentScheduleExecutionPolicy,
 } from "../executor.js";
 import type { WorkspaceArtifactTracker } from "./artifact-tracker.js";
 
@@ -34,4 +35,5 @@ export interface WorkspaceToolsHost {
     signal?: AbortSignal,
   ) => Promise<AgentInteractionAnswer>;
   additionalTools?: AgentTool<any>[];
+  scheduleExecutionPolicy?: AgentScheduleExecutionPolicy;
 }

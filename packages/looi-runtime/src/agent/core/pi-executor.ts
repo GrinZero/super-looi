@@ -4,6 +4,7 @@ import type { AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import {
   AgentExecutionError,
+  type AgentExecutionLane,
   type AgentExecutor,
   type AgentInteractionAnswer,
   type AgentRunOptions,
@@ -39,6 +40,7 @@ export interface PiExecutorConfig extends ToolApprovalConfig, PiSessionConfig {
   maxSteps?: number;
   maxToolCalls?: number;
   maxConcurrentTasks?: number;
+  laneLimits?: Partial<Record<AgentExecutionLane, number>>;
   interactionTimeoutMs?: number;
   stopGraceMs?: number;
   commandTimeoutMs?: number;
@@ -54,9 +56,12 @@ export interface PiExecutorConfig extends ToolApprovalConfig, PiSessionConfig {
 
 export type PiAgentExecutorConfig = PiExecutorConfig;
 
+const DEFAULT_MAX_CONCURRENT_TASKS = 3;
+const DEFAULT_LANE_LIMIT = 1;
+
 /**
  * In-process Agent Executor powered by `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`.
- * Coordinates task admission, session-level concurrency guards, and disposable `PiTaskRunner` instances.
+ * Coordinates task admission, lane-isolated concurrency guards, and disposable `PiTaskRunner` instances.
  */
 export class PiAgentExecutor implements AgentExecutor {
   private readonly approvalPolicy: ToolApprovalRule;
@@ -64,6 +69,7 @@ export class PiAgentExecutor implements AgentExecutor {
   private readonly store: AgentTaskStore;
   private readonly sessionsDirectory: string;
   private readonly runners = new Map<string, PiTaskRunner>();
+  private readonly runnerLanes = new Map<string, AgentExecutionLane>();
   private readonly root: string;
   private closed = false;
   private closing?: Promise<void>;
@@ -96,22 +102,48 @@ export class PiAgentExecutor implements AgentExecutor {
 
   sendMessage(taskId: string, message: string, behavior: "steer" | "followUp" = "followUp"): Promise<"queued" | "handled"> {
     const runner = this.runners.get(taskId);
-    if (!runner) return Promise.reject(new AgentExecutionError("Task has no active Pi run", taskId));
-    if (!message.trim()) return Promise.reject(new AgentExecutionError("message is required", taskId));
+    if (!runner) {
+      return Promise.reject(
+        new AgentExecutionError("Task has no active Pi run", taskId, {
+          stage: "agent.message",
+          code: "ERR_AGENT_TASK_NOT_ACTIVE",
+        }),
+      );
+    }
+    if (!message.trim()) {
+      return Promise.reject(
+        new AgentExecutionError("message is required", taskId, {
+          stage: "agent.message",
+          code: "ERR_AGENT_INVALID_MESSAGE",
+        }),
+      );
+    }
     return runner.sendMessage(message, behavior);
   }
 
+  private rejectAdmission(
+    message: string,
+    code: string,
+    taskId?: string,
+  ): Promise<never> {
+    return Promise.reject(
+      new AgentExecutionError(message, taskId, {
+        stage: "agent.admission",
+        code,
+      }),
+    );
+  }
+
   run(prompt: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
-    if (this.closed)
-      return Promise.reject(
-        new AgentExecutionError("Agent executor is closed"),
-      );
-    if (!prompt.trim())
-      return Promise.reject(new AgentExecutionError("prompt is required"));
-    if (options.signal?.aborted)
-      return Promise.reject(
-        new AgentExecutionError("Task aborted before admission"),
-      );
+    if (this.closed) {
+      return this.rejectAdmission("Agent executor is closed", "ERR_AGENT_EXECUTOR_CLOSED");
+    }
+    if (!prompt.trim()) {
+      return this.rejectAdmission("prompt is required", "ERR_AGENT_INVALID_PROMPT");
+    }
+    if (options.signal?.aborted) {
+      return this.rejectAdmission("Task aborted before admission", "ERR_AGENT_CANCELLED");
+    }
 
     const id = options.taskId ?? `task_${randomUUID()}`;
     this.store.assertId(id);
@@ -119,55 +151,61 @@ export class PiAgentExecutor implements AgentExecutor {
     const sessionId = options.sessionId ?? previous?.sessionId;
     if (sessionId) {
       this.store.assertId(sessionId);
-      if (previous && previous.sessionId !== sessionId)
-        return Promise.reject(
-          new AgentExecutionError("Cannot change a persisted task session", id),
+      if (previous && previous.sessionId !== sessionId) {
+        return this.rejectAdmission(
+          "Cannot change a persisted task session",
+          "ERR_AGENT_SESSION_CONFLICT",
+          id,
         );
+      }
     }
 
     const active = this.runners.get(id);
     if (active) {
-      if (previous?.prompt !== prompt)
-        return Promise.reject(
-          new AgentExecutionError(
-            "Task id already belongs to another prompt",
-            id,
-          ),
+      if (previous?.prompt !== prompt) {
+        return this.rejectAdmission(
+          "Task id already belongs to another prompt",
+          "ERR_AGENT_TASK_CONFLICT",
+          id,
         );
+      }
       return active.promise;
     }
     if (previous && !options.resume) {
-      if (previous.prompt !== prompt)
-        return Promise.reject(
-          new AgentExecutionError(
-            "Task id already belongs to another prompt",
-            id,
-          ),
-        );
-      if (previous.result && previous.state === "succeeded")
-        return Promise.resolve(structuredClone(previous.result));
-      return Promise.reject(
-        new AgentExecutionError(
-          "Task already exists; inspect its outcome or explicitly resume",
+      if (previous.prompt !== prompt) {
+        return this.rejectAdmission(
+          "Task id already belongs to another prompt",
+          "ERR_AGENT_TASK_CONFLICT",
           id,
-        ),
+        );
+      }
+      if (previous.result && previous.state === "succeeded") {
+        return Promise.resolve(structuredClone(previous.result));
+      }
+      return this.rejectAdmission(
+        "Task already exists; inspect its outcome or explicitly resume",
+        "ERR_AGENT_TASK_CONFLICT",
+        id,
       );
     }
-    if (options.resume && !previous)
-      return Promise.reject(
-        new AgentExecutionError("Task to resume was not found", id),
+    if (options.resume && !previous) {
+      return this.rejectAdmission(
+        "Task to resume was not found",
+        "ERR_AGENT_TASK_NOT_FOUND",
+        id,
       );
+    }
     if (sessionId) {
       const siblings = this.store
         .list()
         .filter((task) => task.sessionId === sessionId && task.id !== id);
-      if (siblings.some((task) => this.runners.has(task.id)))
-        return Promise.reject(
-          new AgentExecutionError(
-            "Conversation already has an active task",
-            id,
-          ),
+      if (siblings.some((task) => this.runners.has(task.id))) {
+        return this.rejectAdmission(
+          "Conversation already has an active task",
+          "ERR_AGENT_SESSION_BUSY",
+          id,
         );
+      }
       const requestedWorkspace = path.resolve(
         options.workspaceRoot ??
           previous?.workspaceRoot ??
@@ -175,14 +213,34 @@ export class PiAgentExecutor implements AgentExecutor {
           process.env.DSH_WORKSPACE_ROOT ??
           "data/agent-workspace",
       );
-      if (siblings.some((task) => task.workspaceRoot !== requestedWorkspace))
-        return Promise.reject(
-          new AgentExecutionError("Cannot change a conversation workspace", id),
+      if (siblings.some((task) => task.workspaceRoot !== requestedWorkspace)) {
+        return this.rejectAdmission(
+          "Cannot change a conversation workspace",
+          "ERR_AGENT_WORKSPACE_CONFLICT",
+          id,
         );
+      }
     }
-    if (this.runners.size >= (this.config.maxConcurrentTasks ?? 2)) {
-      return Promise.reject(
-        new AgentExecutionError("Agent worker capacity reached"),
+
+    const lane: AgentExecutionLane = options.lane ?? "foreground";
+    const laneLimit = this.config.laneLimits?.[lane] ?? DEFAULT_LANE_LIMIT;
+    let activeInLane = 0;
+    for (const activeLane of this.runnerLanes.values()) {
+      if (activeLane === lane) activeInLane++;
+    }
+    if (activeInLane >= laneLimit) {
+      return this.rejectAdmission(
+        `Agent lane "${lane}" is busy`,
+        "ERR_AGENT_LANE_BUSY",
+        id,
+      );
+    }
+
+    if (this.runners.size >= (this.config.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS)) {
+      return this.rejectAdmission(
+        "Agent worker capacity reached",
+        "ERR_AGENT_CAPACITY_REACHED",
+        id,
       );
     }
 
@@ -198,8 +256,10 @@ export class PiAgentExecutor implements AgentExecutor {
       previous &&
       path.resolve(options.workspaceRoot) !== workspaceRoot
     ) {
-      return Promise.reject(
-        new AgentExecutionError("Cannot change a persisted task workspace", id),
+      return this.rejectAdmission(
+        "Cannot change a persisted task workspace",
+        "ERR_AGENT_WORKSPACE_CONFLICT",
+        id,
       );
     }
 
@@ -208,17 +268,21 @@ export class PiAgentExecutor implements AgentExecutor {
       sessionId: options.sessionId ?? `session_${randomUUID()}`,
       workspaceRoot: path.resolve(options.workspaceRoot ?? workspaceRoot),
       prompt,
+      lane,
       state: "queued",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       steps: [],
     };
     this.store.assertId(task.sessionId);
+    task.lane = lane;
     task.state = "queued";
     task.runtimeExited = false;
     if (options.resume) task.prompt = prompt;
     delete task.result;
     delete task.error;
+    delete task.failure;
+    delete task.toolFailures;
     delete task.interaction;
     this.store.save(task);
 
@@ -234,9 +298,11 @@ export class PiAgentExecutor implements AgentExecutor {
       },
       onFinished: (taskId) => {
         this.runners.delete(taskId);
+        this.runnerLanes.delete(taskId);
       },
     });
     this.runners.set(id, runner);
+    this.runnerLanes.set(id, lane);
     return runner.promise;
   }
 
@@ -293,6 +359,11 @@ export class PiAgentExecutor implements AgentExecutor {
     if (!settled) {
       throw new AgentExecutionError(
         "Local execution exit is unconfirmed; task remains unknown",
+        undefined,
+        {
+          stage: "agent.shutdown",
+          code: "ERR_AGENT_STOP_UNCONFIRMED",
+        },
       );
     }
   }

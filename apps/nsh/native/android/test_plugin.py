@@ -68,17 +68,46 @@ class AndroidPluginTest(unittest.TestCase):
                     os.environ["LOOI_LINUX_CACHE_DIR"] = previous_linux
             def tree(path):
                 return subprocess.check_output([str(tools / "aapt2"), "dump", "xmltree", "--file", "AndroidManifest.xml", str(path)], text=True)
+            def strip_injected_components(text):
+                lines = text.splitlines()
+                kept = []
+                i = 0
+                while i < len(lines):
+                    line = lines[i]
+                    if line.lstrip().startswith(("E: service ", "E: receiver ")) and i + 1 < len(lines) and (
+                        "com.superlooi.nsh.ScheduleKeepAliveService" in lines[i + 1]
+                        or "com.superlooi.nsh.ScheduleAlarmReceiver" in lines[i + 1]
+                    ):
+                        indent = len(line) - len(line.lstrip())
+                        i += 1
+                        while i < len(lines) and (len(lines[i]) - len(lines[i].lstrip())) > indent:
+                            i += 1
+                        continue
+                    kept.append(line)
+                    i += 1
+                return "\n".join(kept)
             def unchanged(text):
-                return "\n".join(line for line in text.splitlines() if "allowBackup" not in line and "usesCleartextTraffic" not in line and "extractNativeLibs" not in line and "screenOrientation" not in line and application not in line)
-            self.assertEqual(unchanged(tree(original)), unchanged(tree(second)))
-            self.assertIn(application, tree(second))
-            self.assertIn("allowBackup", tree(second))
-            self.assertIn("screenOrientation(0x0101001e)=0", tree(second))
-            extracted = next(line for line in tree(second).splitlines() if "extractNativeLibs" in line)
+                return "\n".join(line for line in strip_injected_components(text).splitlines() if "allowBackup" not in line and "usesCleartextTraffic" not in line and "extractNativeLibs" not in line and "screenOrientation" not in line and application not in line)
+            second_tree = tree(second)
+            self.assertEqual(unchanged(tree(original)), unchanged(second_tree))
+            self.assertIn(application, second_tree)
+            self.assertIn("allowBackup", second_tree)
+            self.assertIn("screenOrientation(0x0101001e)=0", second_tree)
+            extracted = next(line for line in second_tree.splitlines() if "extractNativeLibs" in line)
             self.assertRegex(extracted, r"(?:true|0xffffffff)(?:\s|$)")
-            cleartext = next(line for line in tree(second).splitlines() if "usesCleartextTraffic" in line)
+            cleartext = next(line for line in second_tree.splitlines() if "usesCleartextTraffic" in line)
             self.assertRegex(cleartext, r"(?:false|0x0)(?:\s|$)")
-            self.assertEqual(tree(first), tree(second))
+            self.assertEqual(len([line for line in second_tree.splitlines() if '"demo.Service"' in line]), 1)
+            self.assertEqual(len([line for line in second_tree.splitlines() if '"com.superlooi.nsh.ScheduleKeepAliveService"' in line]), 1)
+            self.assertEqual(len([line for line in second_tree.splitlines() if '"com.superlooi.nsh.ScheduleAlarmReceiver"' in line]), 1)
+            svc_idx = next(i for i, line in enumerate(second_tree.splitlines()) if '"com.superlooi.nsh.ScheduleKeepAliveService"' in line)
+            svc_block = "\n".join(second_tree.splitlines()[svc_idx:svc_idx + 3])
+            self.assertRegex(svc_block, r"exported\(0x01010010\)=(?:false|0x0)")
+            self.assertRegex(svc_block, r"foregroundServiceType\(0x01010599\)=0x0*1(?:\s|$)")
+            rcv_idx = next(i for i, line in enumerate(second_tree.splitlines()) if '"com.superlooi.nsh.ScheduleAlarmReceiver"' in line)
+            rcv_block = "\n".join(second_tree.splitlines()[rcv_idx:rcv_idx + 2])
+            self.assertRegex(rcv_block, r"exported\(0x01010010\)=(?:false|0x0)")
+            self.assertEqual(tree(first), second_tree)
             with zipfile.ZipFile(original) as src, zipfile.ZipFile(second) as result:
                 self.assertEqual(len(result.namelist()), len(set(result.namelist())))
                 for name in src.namelist():
@@ -107,9 +136,53 @@ class AndroidPluginTest(unittest.TestCase):
             merge(added, dex, repeated, application, False, "landscape", permissions)
             permission_tree = tree(repeated)
             self.assertIn("android.permission.INTERNET", permission_tree)
+            for required in (
+                "android.permission.POST_NOTIFICATIONS",
+                "android.permission.FOREGROUND_SERVICE",
+                "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+                "android.permission.WAKE_LOCK",
+                "android.permission.SCHEDULE_EXACT_ALARM",
+            ):
+                self.assertIn(required, permissions)
             for permission in permissions:
                 self.assertEqual(len([line for line in permission_tree.splitlines() if f'"{permission}"' in line]), 1, permission)
+            self.assertEqual(len([line for line in permission_tree.splitlines() if '"com.superlooi.nsh.ScheduleKeepAliveService"' in line]), 1)
+            self.assertEqual(len([line for line in permission_tree.splitlines() if '"com.superlooi.nsh.ScheduleAlarmReceiver"' in line]), 1)
             self.assertEqual(tree(added), permission_tree)
+
+    def test_patches_manifest_without_prior_exported_and_updates_stale_service(self):
+        sdk = Path(os.environ.get("NSH_REAL_ANDROID_SDK", Path.home() / "Library/Android/sdk"))
+        tools = sdk / "build-tools/36.0.0"
+        jar = sdk / "platforms/android-35/android.jar"
+        with tempfile.TemporaryDirectory(prefix="looi-plugin-edge-") as directory:
+            root = Path(directory)
+            (root / "res/values").mkdir(parents=True)
+            (root / "res/values/strings.xml").write_text('<resources><string name="label">Edge</string></resources>')
+            manifest = root / "AndroidManifest.xml"
+            manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.superlooi.app">
+              <application android:label="@string/label">
+                <activity android:name="demo.Main"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+                <service android:name="com.superlooi.nsh.ScheduleKeepAliveService" android:exported="true"/>
+              </application></manifest>''')
+            compiled = root / "resources.zip"
+            subprocess.run([str(tools / "aapt2"), "compile", "--dir", str(root / "res"), "-o", str(compiled)], check=True, capture_output=True)
+            original = root / "original.apk"
+            subprocess.run([str(tools / "aapt2"), "link", "-o", str(original), "-I", str(jar), "--manifest", str(manifest), str(compiled)], check=True, capture_output=True)
+            dex = root / "plugin.dex"
+            dex.write_bytes(b"owned plugin edge dex")
+            first, second = root / "first.apk", root / "second.apk"
+            application = "com.superlooi.nsh.SuperLooiApplication"
+            permissions = json.loads((Path(__file__).parents[1] / "plugins.json").read_text())["android"]["permissions"]
+            merge(original, dex, first, application, False, "landscape", permissions)
+            merge(first, dex, second, application, False, "landscape", permissions)
+            out_tree = subprocess.check_output([str(tools / "aapt2"), "dump", "xmltree", "--file", "AndroidManifest.xml", str(second)], text=True)
+            first_tree = subprocess.check_output([str(tools / "aapt2"), "dump", "xmltree", "--file", "AndroidManifest.xml", str(first)], text=True)
+            self.assertEqual(first_tree, out_tree)
+            svc_idx = next(i for i, line in enumerate(out_tree.splitlines()) if '"com.superlooi.nsh.ScheduleKeepAliveService"' in line)
+            svc_block = "\n".join(out_tree.splitlines()[svc_idx:svc_idx + 3])
+            self.assertRegex(svc_block, r"exported\(0x01010010\)=(?:false|0x0)")
+            self.assertRegex(svc_block, r"foregroundServiceType\(0x01010599\)=0x0*1(?:\s|$)")
+            self.assertEqual(len([line for line in out_tree.splitlines() if '"com.superlooi.nsh.ScheduleAlarmReceiver"' in line]), 1)
 
 
 

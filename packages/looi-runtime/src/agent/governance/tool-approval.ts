@@ -1,5 +1,8 @@
 import fs from "node:fs";
-import type { AgentRunOptions } from "../executor.js";
+import type {
+  AgentRunOptions,
+  AgentScheduleExecutionPolicy,
+} from "../executor.js";
 import { resolveWorkspacePath } from "./workspace-path.js";
 
 export interface ToolApprovalContext {
@@ -9,6 +12,7 @@ export interface ToolApprovalContext {
   sessionId: string;
   workspaceRoot: string;
   approvalMode: NonNullable<AgentRunOptions["approvalMode"]>;
+  scheduleExecutionPolicy?: AgentScheduleExecutionPolicy;
 }
 
 /** Return approval details, or undefined to leave only approvalRequiredTools in effect. */
@@ -134,6 +138,7 @@ export function createToolApprovalPolicy(
   const requiredTools = new Set(config.approvalRequiredTools);
 
   return (context) => {
+    if (context.scheduleExecutionPolicy === "check_only") return undefined;
     if (context.approvalMode === "yolo") return undefined;
     const required = requiredTools.has(context.toolName);
     const details = rules.get(context.toolName)?.(context);

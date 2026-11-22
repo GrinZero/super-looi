@@ -56,10 +56,13 @@ public final class SuperLooiApplication extends Application {
         LooiBleBridge.registerVm();
         CameraMedia.registerVm();
         DeviceCameraBridge.registerVm();
+        ScheduleBridge.registerVm();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             public void onActivityResumed(Activity value) {
                 CameraMedia.foreground(true);
                 DeviceCameraBridge.foreground(true);
+                ScheduleBridge.foreground(true);
+                ScheduleBridge.captureIntent(value.getIntent());
                 value.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 activity = new WeakReference<>(value);
                 observeDisplayCutout(value);
@@ -67,6 +70,7 @@ public final class SuperLooiApplication extends Application {
             public void onActivityPaused(Activity value) {
                 CameraMedia.foreground(false);
                 DeviceCameraBridge.foreground(false);
+                ScheduleBridge.foreground(false);
                 value.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 stopObservingDisplayCutout();
                 MiotLoginDialog.background(value);
@@ -81,7 +85,10 @@ public final class SuperLooiApplication extends Application {
                 }
             }
             public void onActivityDestroyed(Activity value) { stopObservingDisplayCutout(); MiotLoginDialog.background(value); LooiBleBridge.background(); if (activity.get() == value) activity.clear(); }
-            public void onActivityCreated(Activity value, Bundle state) { new Handler(Looper.getMainLooper()).post(() -> { CameraMedia.registerComponents(value); DeviceCameraBridge.registerComponents(value); }); }
+            public void onActivityCreated(Activity value, Bundle state) {
+                ScheduleBridge.captureIntent(value.getIntent());
+                new Handler(Looper.getMainLooper()).post(() -> { CameraMedia.registerComponents(value); DeviceCameraBridge.registerComponents(value); });
+            }
             public void onActivityStarted(Activity value) {}
             public void onActivityStopped(Activity value) {}
             public void onActivitySaveInstanceState(Activity value, Bundle state) {}

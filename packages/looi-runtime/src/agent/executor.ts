@@ -1,3 +1,24 @@
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { UserActionRef } from "@super-looi/contracts";
+
+export type AgentExecutionLane = "foreground" | "plugin" | "schedule";
+export type AgentScheduleExecutionPolicy = "check_only" | "authorized_action";
+
+export interface AgentFailureInfo {
+  stage: string;
+  code?: string | number;
+  reason: string;
+}
+
+export interface AgentToolFailureEvidence {
+  callId: string;
+  toolName: string;
+  stage: string;
+  code?: string | number;
+  reason: string;
+  recovered?: boolean;
+}
+
 export type AgentTaskState =
   | "queued"
   | "running"
@@ -37,6 +58,8 @@ export interface AgentRunResult {
   runtimeExited: boolean;
   executions?: AgentCommandEvidence[];
   artifacts?: Array<{ path: string; sha256: string; size: number }>;
+  failure?: AgentFailureInfo;
+  toolFailures?: AgentToolFailureEvidence[];
 }
 
 export interface AgentCommandEvidence {
@@ -62,6 +85,7 @@ export interface AgentTask {
   sessionId: string;
   workspaceRoot: string;
   prompt: string;
+  lane?: AgentExecutionLane;
   state: AgentTaskState;
   createdAt: string;
   updatedAt: string;
@@ -70,6 +94,8 @@ export interface AgentTask {
   interaction?: AgentInteraction;
   result?: AgentRunResult;
   error?: string;
+  failure?: AgentFailureInfo;
+  toolFailures?: AgentToolFailureEvidence[];
   runtimeExited?: boolean;
 }
 
@@ -91,6 +117,11 @@ export interface AgentRunOptions {
   /** Approval choice is fixed when this task starts. */
   approvalMode?: "ask" | "local_auto" | "yolo";
   defaultLanguage?: "zh-CN" | "en-US";
+  lane?: AgentExecutionLane;
+  extraTools?: AgentTool<any>[];
+  systemPromptOverrideSuffix?: string;
+  scheduleExecutionPolicy?: AgentScheduleExecutionPolicy;
+  onSideEffectBeforeExecute?: () => void;
   onStep?: (event: AgentStepEvent) => void;
   onShellOutput?: (event: AgentShellOutput) => void;
   signal?: AbortSignal;
@@ -126,12 +157,39 @@ export interface AgentExecutor {
 }
 
 export class AgentExecutionError extends Error {
+  readonly stage?: string;
+  readonly code?: string | number;
+  override readonly cause?: unknown;
+  readonly failure?: AgentFailureInfo;
+  readonly toolFailures?: AgentToolFailureEvidence[];
+
   constructor(
     message: string,
     public readonly taskId?: string,
+    details?: {
+      stage?: string;
+      code?: string | number;
+      cause?: unknown;
+      failure?: AgentFailureInfo;
+      toolFailures?: AgentToolFailureEvidence[];
+    },
   ) {
     super(message);
     this.name = "AgentExecutionError";
+    this.stage = details?.stage ?? details?.failure?.stage;
+    this.code = details?.code ?? details?.failure?.code;
+    if (details?.cause !== undefined) {
+      this.cause = details.cause;
+    }
+    this.failure =
+      details?.failure ??
+      (this.stage !== undefined
+        ? {
+            stage: this.stage,
+            ...(this.code !== undefined ? { code: this.code } : {}),
+            reason: message,
+          }
+        : undefined);
+    this.toolFailures = details?.toolFailures;
   }
 }
-import type { UserActionRef } from "@super-looi/contracts";
