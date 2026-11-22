@@ -1,5 +1,9 @@
 # 当前待办
 
+## iOS 开发包启动数据
+
+- [ ] iPhone 16e 模拟器开发包启动后首页显示 `ENOBUFS: SQLite result limit`。定位触发 SQLite 原生桥接结果上限的查询，核对该查询的返回范围。
+
 ## 大厅米家监控直播
 
 - [ ] 在 iOS／Android 真机上验证大厅 `039a01` 通过蜂窝网络的自动起播、重连和 UDP 控制命令回执。见[公网直播方案](docs/plans/xiaomi-camera-remote-streaming-plan.md)。

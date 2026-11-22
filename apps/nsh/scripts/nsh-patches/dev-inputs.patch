@@ -38,10 +38,37 @@ index 77070e5..c4acdf7 100644
      }
 
 diff --git a/crates/nsh-cli/src/dev.rs b/crates/nsh-cli/src/dev.rs
-index 92e7397..d4dd1ad 100644
+index 92e7397..0d3f57b 100644
 --- a/crates/nsh-cli/src/dev.rs
 +++ b/crates/nsh-cli/src/dev.rs
-@@ -43,6 +43,7 @@ pub(crate) struct DevSession {
+@@ -24,6 +24,26 @@ use crate::{build, logger, ui};
+ /// or into a restart when one of them changes the app's Rust code.
+ const DEBOUNCE: Duration = Duration::from_millis(30);
+
++// The native dev client uses tungstenite's 16 MiB incoming frame limit.
++fn compact_dev_source_map(map: Option<String>) -> anyhow::Result<Option<String>> {
++    const MAX_FRAME_BYTES: usize = 16 << 20;
++
++    let Some(map) = map else { return Ok(None) };
++    if map.len() <= MAX_FRAME_BYTES {
++        return Ok(Some(map));
++    }
++    let mut map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&map)?;
++    // Stack symbolication uses positions and source names, without embedded source text.
++    map.remove("sourcesContent");
++    let map = serde_json::to_string(&map)?;
++    anyhow::ensure!(
++        map.len() <= MAX_FRAME_BYTES,
++        "source map frame is {} bytes after removing embedded source text (limit: {MAX_FRAME_BYTES})",
++        map.len(),
++    );
++    Ok(Some(map))
++}
++
+ /// A running dev server plus the source watcher feeding it.
+ pub(crate) struct DevSession {
+     entry: PathBuf,
+@@ -43,6 +63,7 @@ pub(crate) struct DevSession {
      /// A Rust app (`nsh.json` `"root"`): nothing to bundle, the hosts run
      /// its root; the session serves its assets, its web page and its logs.
      rust_root: bool,
@@ -49,7 +76,7 @@ index 92e7397..d4dd1ad 100644
  }
 
  /// Where a dev server listens.
-@@ -94,6 +95,7 @@ impl DevSession {
+@@ -94,6 +115,7 @@ impl DevSession {
              watch_files: Default::default(),
              builds: Cell::new(0),
              rust_root,
@@ -57,7 +84,7 @@ index 92e7397..d4dd1ad 100644
          };
          session.rebuild();
          // A Rust app's hosts that connect (the terminal's) run the root
-@@ -200,7 +202,12 @@ impl DevSession {
+@@ -200,7 +222,12 @@ impl DevSession {
              {
                  return Err(crate::rust_app::Restart.into());
              }
@@ -71,7 +98,29 @@ index 92e7397..d4dd1ad 100644
                  continue;
              }
              // A Rust change saved with this one (a checkout, a formatter)
-@@ -336,6 +343,7 @@ impl DevSession {
+@@ -267,10 +294,20 @@ impl DevSession {
+                     self.serve_assets(&built);
+                     let capabilities = built.capabilities_json();
+                     let summary = self.summary(&built);
++                    let source_map = match compact_dev_source_map(built.source_map) {
++                        Ok(map) => map,
++                        Err(err) => {
++                            self.build_failed.set(true);
++                            let message = format!("Preparing development source map: {err:#}");
++                            ui::report(&anyhow::anyhow!("{message}"));
++                            self.server.publish_error(message);
++                            return;
++                        }
++                    };
+                     self.server.publish(
+                         built.bytecode,
+                         built.code,
+-                        built.source_map,
++                        source_map,
+                         nsh_dev::AppInfo {
+                             capabilities,
+                             id: crate::package::app_id(&self.entry).ok(),
+@@ -336,6 +373,7 @@ impl DevSession {
 
      /// `✓ built App.tsx (...)`, then `✓ rebuilt App.tsx (18ms), 2 devices`.
      fn published(&self, summary: String) {
@@ -79,7 +128,7 @@ index 92e7397..d4dd1ad 100644
          let entry = ui::path(&self.entry);
          let builds = self.builds.get();
          self.builds.set(builds + 1);
-@@ -351,6 +359,7 @@ impl DevSession {
+@@ -351,6 +389,7 @@ impl DevSession {
      }
 
      fn failed(&self, err: build::BuildError) {
@@ -87,7 +136,7 @@ index 92e7397..d4dd1ad 100644
          let plain = err.plain.clone();
          ui::report(&err.into_error(&self.entry));
          self.server.publish_error(plain);
-@@ -522,12 +531,21 @@ fn rust_changed_until(
+@@ -522,12 +561,21 @@ fn rust_changed_until(
      false
  }
 
@@ -113,7 +162,7 @@ index 92e7397..d4dd1ad 100644
                  Some("ts" | "tsx" | "js" | "jsx" | "json")
              )
      })
-@@ -744,4 +762,40 @@ mod tests {
+@@ -744,4 +792,40 @@ mod tests {
          let deadline = Instant::now() + super::DEBOUNCE;
          assert!(!super::rust_changed_until(&rx, deadline, is_rust));
      }
