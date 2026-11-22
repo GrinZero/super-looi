@@ -69,6 +69,10 @@ const option = (name: string) => {
 };
 const target = option("--target");
 const iosSimulator = isIosSimulatorBuild(command, target, option("--device"));
+// Keep development bundles below the host's WebSocket frame limit.
+if ((command === "dev" || command === "run") && !args.includes("--release")) {
+  args.push("--release");
+}
 const androidDevice = target === "android" ? option("--device") : undefined;
 if (command === "run" && androidDevice) {
   const values = { ...config, ...process.env };
