@@ -833,7 +833,7 @@ export function createAppStore() {
       voice?.playDockCue(false);
     }
   };
-  const stopBodyNow = async () => {
+  const stopBodyNow = async (stopPitch = false) => {
     ++bodyDriveOperation;
     bodyActiveCommand.set(null);
     if (!runtime) {
@@ -841,7 +841,8 @@ export function createAppStore() {
       return;
     }
     try {
-      const snap = await runtime.stopBody();
+      if (stopPitch) await runtime.controlBody({ action: "stop" });
+      const snap = stopPitch ? runtime.bodyStatus() : await runtime.stopBody();
       if (alive) syncBodyStatus(snap);
     } catch {}
   };

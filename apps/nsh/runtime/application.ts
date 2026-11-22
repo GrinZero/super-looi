@@ -1268,7 +1268,7 @@ export class MobileRuntime {
     this.cancelMiotLogin();
     this.cancelProviderOAuth();
     this.home.suspend();
-    void this.body.stop("user_stop");
+    void this.body.control({ action: "stop" });
     const taskId = this.taskId;
     const result =
       taskId && this.executor

@@ -557,7 +557,7 @@ export function BodySpaceView(props: {
             onPress={() => {
               wheelResetToken.update((n) => n + 1);
               wheelDraft.set(null);
-              void props.store.stopBody();
+              void props.store.stopBody(true);
             }}
             class="min-w-11 min-h-11 px-2.5 rounded-full border border-border bg-card flex-row items-center justify-center gap-1.5 active:opacity-75 disabled:opacity-40"
           >

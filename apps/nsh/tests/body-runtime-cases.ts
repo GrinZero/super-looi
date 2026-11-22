@@ -808,6 +808,46 @@ export async function verifyBodyRuntime() {
     `manual head_down was overwritten by delayed dock greeting settle (${watchRuntime.status().headDegrees})`,
   );
 
+  const firstToolFrame = headPayloads.length;
+  const toolUp = await watchRuntime.control({ action: "head_up" }, "voice_realtime");
+  const upwardFrames = headPayloads.slice(firstToolFrame).map((hex) => Number.parseInt(hex, 16));
+  check(
+    upwardFrames.length > 1 && upwardFrames.at(-1) === 0 &&
+      upwardFrames.every((byte, i) => byte < (upwardFrames[i - 1] ?? 255)),
+    `voice head_up did not send intermediate pitch values: ${upwardFrames.join(",")}`,
+  );
+  check(toolUp.status === "sent" && toolUp.headDegrees === 85, "voice head_up must report the dispatched target");
+
+  const taskFrame = headPayloads.length;
+  const toolSet = await watchRuntime.control({ action: "head_set", headDegrees: 40 }, "pi_agent");
+  const downwardFrames = headPayloads.slice(taskFrame).map((hex) => Number.parseInt(hex, 16));
+  check(
+    downwardFrames.length > 1 && downwardFrames.at(-1) === 0xc3 &&
+      downwardFrames.every((byte, i) => byte > (downwardFrames[i - 1] ?? 0)),
+    `task head_set did not send intermediate pitch values: ${downwardFrames.join(",")}`,
+  );
+  check(toolSet.status === "sent" && toolSet.headDegrees === 40, "task head_set must report the dispatched target");
+
+  const interruptedVoice = watchRuntime.control({ action: "head_up" }, "voice_realtime");
+  await settle(75);
+  await watchRuntime.stopNonPluginMotion();
+  check((await interruptedVoice).status === "rejected" && headPayloads.at(-1) !== "00", "voice interruption must stop the pitch sequence");
+
+  const interruptedTask = watchRuntime.control({ action: "head_up" }, "pi_agent");
+  await settle(75);
+  await watchRuntime.control({ action: "stop" });
+  check((await interruptedTask).status === "rejected" && headPayloads.at(-1) !== "00", "explicit stop must stop the pitch sequence");
+
+  const servo = await watchRuntime.acquireServo({ pluginId: "pitch-test", priority: "foreground_stage" });
+  await servo.setDriveVector(12, 0);
+  const beforePreemption = headPayloads.length;
+  const pendingHead = watchRuntime.control({ action: "head_up" }, "voice_realtime");
+  await watchRuntime.control({ action: "stop" });
+  check(
+    (await pendingHead).status === "rejected" && headPayloads.length === beforePreemption,
+    "a pitch command waiting for the plugin lease must not write after an explicit stop",
+  );
+
   // Unexpected BLE link drop should auto-reconnect silently
   watchConnectedId = "";
   watchEvents.push({ kind: "disconnected", characteristic: "", payload: "" });

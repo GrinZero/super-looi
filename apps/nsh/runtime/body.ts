@@ -2,6 +2,10 @@ import type { BodyActionLease, BodyPrimitive, BodyStopRequest, BodySupervisorSta
 import {
   BodySupervisor,
   CrossPlatformBleTransport,
+  HEAD_MAX_DEGREES,
+  HEAD_MIN_DEGREES,
+  HEAD_POSE_DEGREES,
+  MOVE_HEARTBEAT_MS,
   SimulatedBleTransport,
   type CharacteristicKey,
   type HeadPayloadKey,
@@ -100,7 +104,7 @@ export interface BodyControlInput {
 
 export interface BodyActionReceipt {
   action: BodyControlAction;
-  status: "verified" | "rejected" | "failed";
+  status: "verified" | "sent" | "rejected" | "failed";
   simulation: boolean;
   isDocked: boolean;
   headDegrees: number;
@@ -579,6 +583,7 @@ export interface BodyRuntimeOptions {
 const DEFAULT_RECONNECT_BACKOFF_MS: readonly number[] = [1200, 2500, 4500];
 const DOCK_GREETING_PERK_DEGREES = 67;
 const DOCK_GREETING_REST_DEGREES = 55;
+const TOOL_HEAD_STEP_DEGREES = 5;
 
 export class BodyRuntime {
   private config: BodyConfiguration = {
@@ -605,6 +610,7 @@ export class BodyRuntime {
   private activeSilentConnect: Promise<void> | null = null;
   private greetedInCurrentDockSession = false;
   private headCommandEpoch = 0;
+  private voiceHeadCommandEpoch?: number;
   private dockGreetingTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly reconnectBackoffMs: readonly number[];
   private readonly silentConnectTimeoutMs: number;
@@ -737,12 +743,13 @@ export class BodyRuntime {
     }
   }
 
-  private cancelDockGreeting(): void {
+  private cancelDockGreeting(): number {
     ++this.headCommandEpoch;
     if (this.dockGreetingTimer !== null) {
       clearTimeout(this.dockGreetingTimer);
       this.dockGreetingTimer = null;
     }
+    return this.headCommandEpoch;
   }
 
   private maybeTriggerDockGreeting(): void {
@@ -1516,6 +1523,9 @@ export class BodyRuntime {
    * without preempting an unrelated active plugin `BodyServoLease`.
    */
   public async stopNonPluginMotion(): Promise<BodyStatusSnapshot> {
+    if (this.voiceHeadCommandEpoch === this.headCommandEpoch) {
+      this.cancelDockGreeting();
+    }
     if (this.activePluginServo !== null || this.heldDrive !== null) {
       return this.status();
     }
@@ -1695,6 +1705,21 @@ export class BodyRuntime {
     };
   }
 
+  private async moveHeadFromTool(degrees: number, commandEpoch: number): Promise<boolean> {
+    const start = this.supervisor.getHeadDegrees();
+    const target = Math.max(HEAD_MIN_DEGREES, Math.min(HEAD_MAX_DEGREES, degrees));
+    const steps = Math.max(1, Math.ceil(Math.abs(target - start) / TOOL_HEAD_STEP_DEGREES));
+    for (let step = 1; step <= steps; step++) {
+      if (step > 1) {
+        // Give the drive heartbeat a write slot between pitch commands.
+        await new Promise<void>((resolve) => setTimeout(resolve, MOVE_HEARTBEAT_MS * 2));
+      }
+      if (commandEpoch !== this.headCommandEpoch) return false;
+      await this.supervisor.setHeadDegrees(start + ((target - start) * step) / steps);
+    }
+    return commandEpoch === this.headCommandEpoch;
+  }
+
   public async control(
     input: BodyControlInput,
     holder = "user_panel",
@@ -1702,6 +1727,8 @@ export class BodyRuntime {
     this.nativeAdapter?.pumpEvents();
     const recordedAt = new Date().toISOString();
     const action = input.action;
+    const fromVoice = holder === "voice_realtime" || holder === "voice_tool";
+    const fromTool = fromVoice || holder === "pi_agent";
 
     if (this.config.mode === "disabled") {
       return this.buildReceipt(action, "rejected", recordedAt, {
@@ -1712,12 +1739,9 @@ export class BodyRuntime {
     }
 
     if (action === "stop") {
+      if (fromTool || holder === "user_panel") this.cancelDockGreeting();
       if (this.activePluginServo !== null) {
-        if (
-          holder === "voice_realtime" ||
-          holder === "voice_tool" ||
-          holder === "pi_agent"
-        ) {
+        if (fromTool) {
           await this.preemptActiveServo("voice_command", false);
         } else if (holder === "user_panel") {
           await this.preemptActiveServo("user_panel", false);
@@ -1750,61 +1774,69 @@ export class BodyRuntime {
       });
     }
 
-    if (this.activeStop) {
-      await this.activeStop;
-    }
-
-    const snap = this.supervisor.getSnapshot();
-    if (snap.state === "disconnected" || snap.state === "fault") {
-      return this.buildReceipt(action, "rejected", recordedAt, {
-        isDocked: false,
-        reason: "@looi:body_not_connected",
-      });
-    }
-
-    if (action !== "read_power" && this.activePluginServo !== null) {
-      if (holder === "user_panel") {
-        await this.preemptActiveServo("user_panel", true);
-      } else if (
-        holder === "voice_realtime" ||
-        holder === "voice_tool" ||
-        holder === "pi_agent"
-      ) {
-        await this.preemptActiveServo("voice_command", true);
-      } else if (holder.startsWith("plugin:")) {
-        const callerPluginId = holder.slice("plugin:".length);
-        if (callerPluginId === this.activePluginServo.pluginId) {
-          if (
-            this.activePluginServo.motorLease &&
-            (action === "forward" ||
-              action === "backward" ||
-              action === "turn_left" ||
-              action === "turn_right" ||
-              action === "move")
-          ) {
-            if (this.activePluginServo.renewTimer !== null) {
-              clearInterval(this.activePluginServo.renewTimer);
-              this.activePluginServo.renewTimer = null;
-            }
-            const held = this.activePluginServo.motorLease;
-            this.activePluginServo.motorLease = null;
-            this.activePluginServo.motion = { speed: 0, turn: 0 };
-            if (this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
-              await this.supervisor.stop("lease_expired").catch(() => {});
-            }
-          }
-        } else {
-          return this.buildReceipt(action, "rejected", recordedAt, {
-            reason:
-              this.activePluginServo.priority === "foreground_stage"
-                ? "ERR_BODY_SERVO_BUSY_FOREGROUND"
-                : "ERR_BODY_SERVO_BUSY_COMPANION",
-          });
-        }
-      }
-    }
+    const isHeadAction = action === "head_set" || action === "head_up" || action === "head_center" || action === "head_down";
+    const degrees = isHeadAction
+      ? action === "head_set" ? input.headDegrees
+        : action === "head_up" ? HEAD_POSE_DEGREES.up
+        : action === "head_down" ? HEAD_POSE_DEGREES.down
+        : HEAD_POSE_DEGREES.center
+      : undefined;
+    const toolHeadEpoch = fromTool && this.config.mode === "real_ble" && Number.isFinite(degrees)
+      ? this.cancelDockGreeting()
+      : undefined;
+    if (fromVoice && toolHeadEpoch !== undefined) this.voiceHeadCommandEpoch = toolHeadEpoch;
 
     try {
+      if (this.activeStop) {
+        await this.activeStop;
+      }
+
+      const snap = this.supervisor.getSnapshot();
+      if (snap.state === "disconnected" || snap.state === "fault") {
+        return this.buildReceipt(action, "rejected", recordedAt, {
+          isDocked: false,
+          reason: "@looi:body_not_connected",
+        });
+      }
+
+      if (action !== "read_power" && this.activePluginServo !== null) {
+        if (holder === "user_panel") {
+          await this.preemptActiveServo("user_panel", true);
+        } else if (fromTool) {
+          await this.preemptActiveServo("voice_command", true);
+        } else if (holder.startsWith("plugin:")) {
+          const callerPluginId = holder.slice("plugin:".length);
+          if (callerPluginId === this.activePluginServo.pluginId) {
+            if (
+              this.activePluginServo.motorLease &&
+              (action === "forward" ||
+                action === "backward" ||
+                action === "turn_left" ||
+                action === "turn_right" ||
+                action === "move")
+            ) {
+              if (this.activePluginServo.renewTimer !== null) {
+                clearInterval(this.activePluginServo.renewTimer);
+                this.activePluginServo.renewTimer = null;
+              }
+              const held = this.activePluginServo.motorLease;
+              this.activePluginServo.motorLease = null;
+              this.activePluginServo.motion = { speed: 0, turn: 0 };
+              if (this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
+                await this.supervisor.stop("lease_expired").catch(() => {});
+              }
+            }
+          } else {
+            return this.buildReceipt(action, "rejected", recordedAt, {
+              reason:
+                this.activePluginServo.priority === "foreground_stage"
+                  ? "ERR_BODY_SERVO_BUSY_FOREGROUND"
+                  : "ERR_BODY_SERVO_BUSY_COMPANION",
+            });
+          }
+        }
+      }
+
       if (action === "read_power") {
         await this.performPowerRead();
         return this.buildReceipt(action, "verified", recordedAt);
@@ -1832,20 +1864,20 @@ export class BodyRuntime {
         return this.buildReceipt(action, "verified", recordedAt);
       }
 
-      if (action === "head_up" || action === "head_center" || action === "head_down") {
-        this.cancelDockGreeting();
-        const pose: HeadPayloadKey =
-          action === "head_up" ? "up" : action === "head_down" ? "down" : "center";
-        await this.supervisor.setHead(pose);
-        return this.buildReceipt(action, "verified", recordedAt);
-      }
-
-      if (action === "head_set") {
-        if (typeof input.headDegrees !== "number" || !Number.isFinite(input.headDegrees)) {
+      if (isHeadAction) {
+        if (typeof degrees !== "number" || !Number.isFinite(degrees)) {
           throw new Error("@looi:body_head_invalid");
         }
+        if (toolHeadEpoch !== undefined) {
+          if (await this.moveHeadFromTool(degrees, toolHeadEpoch)) {
+            return this.buildReceipt(action, "sent", recordedAt);
+          }
+          return this.buildReceipt(action, "rejected", recordedAt, {
+            reason: "Head pitch command was interrupted before completion",
+          });
+        }
         this.cancelDockGreeting();
-        await this.supervisor.setHeadDegrees(input.headDegrees);
+        await this.supervisor.setHeadDegrees(degrees);
         return this.buildReceipt(action, "verified", recordedAt);
       }
 
@@ -1901,6 +1933,9 @@ export class BodyRuntime {
       if (rawMessage !== "Pulse preempted by stop: user_stop") this.lastError = message;
       return this.buildReceipt(action, "failed", recordedAt, { reason: message });
     } finally {
+      if (toolHeadEpoch !== undefined && this.voiceHeadCommandEpoch === toolHeadEpoch) {
+        this.voiceHeadCommandEpoch = undefined;
+      }
       this.notifyStatusListeners();
     }
   }
