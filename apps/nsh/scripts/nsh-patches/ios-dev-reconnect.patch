@@ -1,0 +1,575 @@
+diff --git a/crates/gpui/nsh-platform-gpui/src/dev.rs b/crates/gpui/nsh-platform-gpui/src/dev.rs
+index ab4c403..a5caa24 100644
+--- a/crates/gpui/nsh-platform-gpui/src/dev.rs
++++ b/crates/gpui/nsh-platform-gpui/src/dev.rs
+@@ -296,7 +296,7 @@ pub(crate) fn start(this: &AppView, url: String, held: bool, cx: &mut Context<Ap
+         };
+         match event {
+             DevEvent::Connected => CONNECTED.store(true, Ordering::Relaxed),
+-            DevEvent::Disconnected => CONNECTED.store(false, Ordering::Relaxed),
++            DevEvent::Disconnected { .. } => CONNECTED.store(false, Ordering::Relaxed),
+             _ => {}
+         }
+         let _ = events.unbounded_send(Msg::Event(Box::new(event)));
+@@ -464,7 +464,7 @@ fn error_title(error: &AppError) -> &'static str {
+ fn on_event(view: &AppView, dev: &mut DevSession, event: DevEvent) -> Option<App> {
+     match event {
+         DevEvent::Connected => dev.hide_status(),
+-        DevEvent::Disconnected => dev.show_status(Status::Reconnecting),
++        DevEvent::Disconnected { .. } => dev.show_status(Status::Reconnecting),
+         // The client's thread hands them to the test agent.
+         DevEvent::Testing
+         | DevEvent::Step { .. }
+diff --git a/crates/nsh-cli/src/run.rs b/crates/nsh-cli/src/run.rs
+index 8fae60f..372dcc3 100644
+--- a/crates/nsh-cli/src/run.rs
++++ b/crates/nsh-cli/src/run.rs
+@@ -324,19 +324,68 @@ pub(crate) fn run(
+             let step = ui::Step::start("installing the development host in the simulator");
+             simctl(&["install", &udid, &app.to_string_lossy()])?;
+             step.finish();
+-            let mut launch = vec!["launch", "--terminate-running-process", &udid, BUNDLE_ID];
+-            launch.extend(args.iter().map(String::as_str));
+             let env = simctl_app_env(&crate::package::read_config(entry)?);
+-            let step = ui::Step::start("launching the development host");
+-            simctl_with_env(&launch, &env)?;
+-            step.finish();
+-            // The simulator shares the Mac's network: 127.0.0.1 is the dev
+-            // server, so a host left running would join the next session
+-            // of any app: Ctrl-C stops it too.
++            use std::io::{BufRead, BufReader};
++            let (reader, writer) =
++                std::io::pipe().context("open iOS development host console pipe")?;
++            let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
++            let mut failure = None;
++            let mut console = Command::new("xcrun")
++                .args([
++                    "simctl",
++                    "launch",
++                    "--console",
++                    "--terminate-running-process",
++                    &udid,
++                    BUNDLE_ID,
++                ])
++                .args(&args)
++                .envs(env)
++                .stdin(Stdio::null())
++                .stdout(writer.try_clone()?)
++                .stderr(writer)
++                .spawn()
++                .context("launch iOS development host with console attached")?;
++            std::thread::spawn(move || {
++                for line in BufReader::new(reader).lines() {
++                    match line {
++                        Ok(line) => {
++                            if let Some(reason) = line.strip_prefix("NSH_DEV_CONNECTION_STOPPED ") {
++                                let _ = stopped_tx.send(reason.to_owned());
++                            } else {
++                                eprintln!("{line}");
++                            }
++                        }
++                        Err(error) => {
++                            let _ = stopped_tx
++                                .send(format!("read iOS development host console: {error}"));
++                            break;
++                        }
++                    }
++                }
++            });
+             let stoppable = ui::Stoppable::new();
+-            let result = session.watch(|| Ok(false));
+-            let _ = simctl(&["terminate", &udid, BUNDLE_ID]);
++            let result = session.watch(|| {
++                if let Ok(reason) = stopped_rx.try_recv() {
++                    failure = Some(reason);
++                    return Ok(true);
++                }
++                match console.try_wait()? {
++                    Some(status) if status.success() => Ok(true),
++                    Some(status) => bail!("iOS development host console exited with {status}"),
++                    None => Ok(false),
++                }
++            });
++            // Keep the host's error view visible on a transport failure.
++            if failure.is_none() {
++                let _ = simctl(&["terminate", &udid, BUNDLE_ID]);
++            }
++            let _ = console.kill();
++            let _ = console.wait();
+             drop(stoppable);
++            if let Some(reason) = failure {
++                bail!("iOS development host connection stopped: {reason}");
++            }
+             result
+         }
+         Target::Android | Target::Web | Target::Tui => unreachable!("handled above"),
+diff --git a/crates/nsh-cli/src/rust_app.rs b/crates/nsh-cli/src/rust_app.rs
+index ea31243..2d474bb 100644
+--- a/crates/nsh-cli/src/rust_app.rs
++++ b/crates/nsh-cli/src/rust_app.rs
+@@ -259,6 +259,14 @@ impl Nsh {
+         {
+             return Ok(Nsh::Registry);
+         }
++        if let Nsh::Git { url, .. } = &nsh
++            && let Some(checkout) = std::env::var_os("NSH_DEV_HOST_SOURCE")
++        {
++            return Ok(Nsh::Git {
++                checkout: checkout.into(),
++                url: url.clone(),
++            });
++        }
+         Ok(nsh)
+     }
+ 
+diff --git a/crates/nsh-dev/src/client.rs b/crates/nsh-dev/src/client.rs
+index 49d30d9..7f88240 100644
+--- a/crates/nsh-dev/src/client.rs
++++ b/crates/nsh-dev/src/client.rs
+@@ -1,6 +1,6 @@
+ use std::{
+     io::ErrorKind,
+-    net::TcpStream,
++    net::{Ipv4Addr, TcpStream},
+     sync::mpsc::{self, Receiver, SyncSender, TryRecvError},
+     thread,
+     time::Duration,
+@@ -18,8 +18,13 @@ use crate::protocol::{
+ pub enum DevEvent {
+     /// Connected (or reconnected) to the server.
+     Connected,
+-    /// Lost the connection; the client keeps retrying.
+-    Disconnected,
++    /// A connection attempt or active session failed.
++    Disconnected {
++        /// The transport operation and its underlying error or close frame.
++        reason: String,
++        /// Whether the client will attempt another connection.
++        retrying: bool,
++    },
+     /// The server runs a test session: keep the model of the app test
+     /// steps need, from the first bundle on. Comes before the bundle.
+     Testing,
+@@ -123,7 +128,7 @@ pub struct HostInfo {
+     pub tests: bool,
+ }
+ 
+-/// Connects a dev host to a dev server, reconnecting until dropped, and
++/// Connects a dev host to a dev server, with a bounded retry budget on iOS, and
+ /// forwards log lines to it.
+ pub struct DevClient {
+     logs: SyncSender<ClientMessage>,
+@@ -135,6 +140,8 @@ pub struct DevClient {
+ const POLL: Duration = Duration::from_millis(15);
+ /// Log lines queued while the socket is busy or down; older ones are dropped.
+ const LOG_QUEUE: usize = 1024;
++/// Initial dial plus two reconnects per iOS development session.
++const IOS_MAX_ATTEMPTS: usize = 3;
+ 
+ impl DevClient {
+     /// Starts the client thread. `on_event` runs on that thread.
+@@ -145,6 +152,10 @@ impl DevClient {
+     ) -> std::io::Result<DevClient> {
+         let (logs, log_rx) = mpsc::sync_channel(LOG_QUEUE);
+         let (replies, reply_rx) = mpsc::channel();
++        let bounded = matches!(
++            host.platform,
++            HostPlatform::Ios | HostPlatform::IosSimulator
++        );
+         let hello = ClientMessage::Hello {
+             protocol: PROTOCOL_VERSION,
+             bytecode_version: host.bytecode_version,
+@@ -157,23 +168,47 @@ impl DevClient {
+             .name("nsh-dev-client".into())
+             .spawn(move || {
+                 let mut backoff = Duration::from_millis(100);
++                let mut remaining = IOS_MAX_ATTEMPTS;
+                 loop {
+                     // Dropped while disconnected: stop retrying.
+                     if let Err(TryRecvError::Disconnected) = log_rx.try_recv() {
+                         return;
+                     }
+-                    match tungstenite::connect(url.as_str()) {
+-                        Ok((socket, _)) => {
++                    let (reason, permanent, was_connected) = match connect(&url, bounded) {
++                        Ok(socket) => {
+                             backoff = Duration::from_millis(100);
+                             on_event(DevEvent::Connected);
+-                            if let Err(SessionEnd::Shutdown) =
+-                                session(socket, &hello, &log_rx, &reply_rx, &mut on_event)
+-                            {
+-                                return;
++                            match session(socket, &hello, &log_rx, &reply_rx, &mut on_event) {
++                                Err(SessionEnd::Failed { stage, error }) => {
++                                    let permanent =
++                                        matches!(error, tungstenite::Error::Capacity(_));
++                                    (format!("{stage}: {error}"), permanent, true)
++                                }
++                                Err(SessionEnd::Closed(frame)) => {
++                                    (format!("receive WebSocket close: {frame:?}"), false, true)
++                                }
++                                Ok(()) | Err(SessionEnd::Shutdown) => return,
+                             }
+-                            on_event(DevEvent::Disconnected);
+                         }
+-                        Err(_) => backoff = (backoff * 2).min(Duration::from_secs(2)),
++                        Err(error) => {
++                            backoff = (backoff * 2).min(Duration::from_secs(2));
++                            let permanent = matches!(error, tungstenite::Error::Capacity(_));
++                            (format!("connect WebSocket: {error}"), permanent, false)
++                        }
++                    };
++                    // A successful handshake spends an attempt too. In particular, a
++                    // server can accept every handshake and fail every bundle transfer.
++                    let retrying = if bounded {
++                        remaining -= 1;
++                        remaining > 0 && !permanent
++                    } else {
++                        true
++                    };
++                    if was_connected || !retrying {
++                        on_event(DevEvent::Disconnected { reason, retrying });
++                    }
++                    if !retrying {
++                        return;
+                     }
+                     thread::sleep(backoff);
+                 }
+@@ -213,8 +248,34 @@ impl DevClient {
+     }
+ }
+ 
++// The CLI uses a loopback WebSocket URL. Open its TCP stream explicitly
++// so a refused connection keeps its OS error code.
++fn connect(url: &str, bounded: bool) -> tungstenite::Result<WebSocket<MaybeTlsStream<TcpStream>>> {
++    use tungstenite::{HandshakeError, client::IntoClientRequest};
++
++    if !bounded {
++        return tungstenite::connect(url).map(|(socket, _)| socket);
++    }
++    let request = url.into_client_request()?;
++    let uri = request.uri();
++    if uri.scheme_str() != Some("ws") || uri.host() != Some("127.0.0.1") {
++        return tungstenite::connect(request).map(|(socket, _)| socket);
++    }
++    let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, uri.port_u16().unwrap_or(80)))?;
++    tungstenite::client(request, MaybeTlsStream::Plain(stream))
++        .map(|(socket, _)| socket)
++        .map_err(|error| match error {
++            HandshakeError::Failure(error) => error,
++            HandshakeError::Interrupted(_) => unreachable!("blocking development WebSocket"),
++        })
++}
++
+ enum SessionEnd {
+-    Disconnected,
++    Failed {
++        stage: &'static str,
++        error: tungstenite::Error,
++    },
++    Closed(Option<tungstenite::protocol::CloseFrame>),
+     /// The `DevClient` was dropped.
+     Shutdown,
+ }
+@@ -265,7 +326,12 @@ fn session(
+             {
+                 continue;
+             }
+-            Err(_) => return Err(SessionEnd::Disconnected),
++            Err(error) => {
++                return Err(SessionEnd::Failed {
++                    stage: "read WebSocket",
++                    error,
++                });
++            }
+         };
+         match msg {
+             Message::Text(text) => match serde_json::from_str::<ServerMessage>(&text) {
+@@ -372,7 +438,7 @@ fn session(
+                     }),
+                 }
+             }
+-            Message::Close(_) => return Err(SessionEnd::Disconnected),
++            Message::Close(frame) => return Err(SessionEnd::Closed(frame)),
+             _ => {}
+         }
+     }
+@@ -385,5 +451,8 @@ fn send(
+     let text = serde_json::to_string(msg).expect("serializable");
+     socket
+         .send(Message::Text(text.into()))
+-        .map_err(|_| SessionEnd::Disconnected)
++        .map_err(|error| SessionEnd::Failed {
++            stage: "write WebSocket",
++            error,
++        })
+ }
+diff --git a/crates/nsh-dev/tests/roundtrip.rs b/crates/nsh-dev/tests/roundtrip.rs
+index 4708f81..d82eb0b 100644
+--- a/crates/nsh-dev/tests/roundtrip.rs
++++ b/crates/nsh-dev/tests/roundtrip.rs
+@@ -24,7 +24,7 @@ fn next_non_status(rx: &mpsc::Receiver<DevEvent>) -> DevEvent {
+     loop {
+         match rx.recv_timeout(TIMEOUT).expect("event") {
+             DevEvent::Connected
+-            | DevEvent::Disconnected
++            | DevEvent::Disconnected { .. }
+             | DevEvent::Building
+             | DevEvent::Testing
+             | DevEvent::Step { .. } => continue,
+@@ -670,3 +670,115 @@ fn a_site_deployed_under_a_path_is_served_there() {
+     drop(server);
+     let _ = std::fs::remove_dir_all(dir);
+ }
++
++#[test]
++fn ios_dev_client_stops_after_three_accepted_connections() {
++    use std::net::TcpListener;
++    use tungstenite::protocol::{CloseFrame, frame::coding::CloseCode};
++
++    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
++    let url = format!("ws://{}{WS_PATH}", listener.local_addr().unwrap());
++    let server = std::thread::spawn(move || {
++        for _ in 0..3 {
++            let (stream, _) = listener.accept().unwrap();
++            let mut socket = tungstenite::accept(stream).unwrap();
++            socket.read().unwrap();
++            socket
++                .close(Some(CloseFrame {
++                    code: CloseCode::Error,
++                    reason: "bundle transfer failed".into(),
++                }))
++                .unwrap();
++        }
++    });
++    let (tx, rx) = mpsc::channel();
++    let _client = DevClient::start(
++        url,
++        HostInfo {
++            platform: HostPlatform::IosSimulator,
++            ..host("test-ios", "bc-1")
++        },
++        move |event| {
++            let _ = tx.send(event);
++        },
++    )
++    .unwrap();
++    for will_retry in [true, true, false] {
++        assert!(matches!(
++            rx.recv_timeout(TIMEOUT).unwrap(),
++            DevEvent::Connected
++        ));
++        assert!(matches!(rx.recv_timeout(TIMEOUT).unwrap(),
++            DevEvent::Disconnected { reason, retrying }
++                if retrying == will_retry && reason.contains("bundle transfer failed")));
++    }
++    assert!(matches!(
++        rx.recv_timeout(TIMEOUT),
++        Err(mpsc::RecvTimeoutError::Disconnected)
++    ));
++    server.join().unwrap();
++}
++
++#[test]
++fn ios_dev_client_stops_on_oversize_frame() {
++    let server = DevServer::start("127.0.0.1:0".parse().unwrap(), "bc-1", None, |_| {}).unwrap();
++    server.publish(
++        vec![1, 2, 3],
++        "source".into(),
++        Some(" ".repeat((16 << 20) + 1)),
++        AppInfo::default(),
++        None,
++        Vec::new(),
++    );
++    let (tx, rx) = mpsc::channel();
++    let _client = DevClient::start(
++        format!("ws://{}{WS_PATH}", server.local_addr()),
++        HostInfo {
++            platform: HostPlatform::IosSimulator,
++            ..host("test-ios", "bc-1")
++        },
++        move |event| {
++            let _ = tx.send(event);
++        },
++    )
++    .unwrap();
++    assert!(matches!(
++        rx.recv_timeout(TIMEOUT).unwrap(),
++        DevEvent::Connected
++    ));
++    assert!(matches!(rx.recv_timeout(TIMEOUT).unwrap(),
++        DevEvent::Disconnected { reason, retrying: false }
++            if reason.contains("read WebSocket") && reason.contains("16777217")));
++    assert!(matches!(
++        rx.recv_timeout(TIMEOUT),
++        Err(mpsc::RecvTimeoutError::Disconnected)
++    ));
++}
++
++#[test]
++fn ios_dev_client_reports_the_loopback_connect_error() {
++    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
++    let addr = listener.local_addr().unwrap();
++    drop(listener);
++    let original = std::net::TcpStream::connect(addr).unwrap_err();
++    assert_eq!(original.kind(), std::io::ErrorKind::ConnectionRefused);
++    let (tx, rx) = mpsc::channel();
++    let _client = DevClient::start(
++        format!("ws://{addr}{WS_PATH}"),
++        HostInfo {
++            platform: HostPlatform::IosSimulator,
++            ..host("test-ios", "bc-1")
++        },
++        move |event| {
++            let _ = tx.send(event);
++        },
++    )
++    .unwrap();
++    assert!(matches!(rx.recv_timeout(TIMEOUT).unwrap(),
++        DevEvent::Disconnected { reason, retrying: false }
++            if reason.contains("connect WebSocket") && reason.contains(&original.to_string())));
++    assert!(matches!(
++        rx.recv_timeout(TIMEOUT),
++        Err(mpsc::RecvTimeoutError::Disconnected)
++    ));
++}
+diff --git a/crates/nsh-platform-android/src/dev.rs b/crates/nsh-platform-android/src/dev.rs
+index 65ca7d4..a108da3 100644
+--- a/crates/nsh-platform-android/src/dev.rs
++++ b/crates/nsh-platform-android/src/dev.rs
+@@ -83,7 +83,7 @@ impl DevSession {
+             };
+             match event {
+                 DevEvent::Connected => CONNECTED.store(true, Ordering::Relaxed),
+-                DevEvent::Disconnected => CONNECTED.store(false, Ordering::Relaxed),
++                DevEvent::Disconnected { .. } => CONNECTED.store(false, Ordering::Relaxed),
+                 _ => {}
+             }
+             if let Some(host) = weak.upgrade() {
+@@ -131,7 +131,9 @@ impl DevSession {
+ fn handle(host: &Arc<Host>, state: &Mutex<DevState>, event: DevEvent) {
+     match event {
+         DevEvent::Connected => host.dev_status(None),
+-        DevEvent::Disconnected => host.dev_status(Some("Dev server disconnected — reconnecting…")),
++        DevEvent::Disconnected { .. } => {
++            host.dev_status(Some("Dev server disconnected — reconnecting…"))
++        }
+         // The client's thread hands them to the test agent.
+         DevEvent::Testing
+         | DevEvent::Step { .. }
+diff --git a/crates/nsh-platform-ios/src/dev.rs b/crates/nsh-platform-ios/src/dev.rs
+index 25a6bb7..bdd29aa 100644
+--- a/crates/nsh-platform-ios/src/dev.rs
++++ b/crates/nsh-platform-ios/src/dev.rs
+@@ -139,7 +139,7 @@ impl DevSession {
+             };
+             match event {
+                 DevEvent::Connected => CONNECTED.store(true, Ordering::Relaxed),
+-                DevEvent::Disconnected => CONNECTED.store(false, Ordering::Relaxed),
++                DevEvent::Disconnected { .. } => CONNECTED.store(false, Ordering::Relaxed),
+                 _ => {}
+             }
+             let target = target.clone();
+@@ -248,8 +248,21 @@ fn handle(view: &Rc<Inner>, ui: &Rc<RefCell<DevUi>>, event: DevEvent) {
+     let container = &view.container;
+     match event {
+         DevEvent::Connected => hide_status(ui),
+-        DevEvent::Disconnected => {
+-            show_status(ui, container, "Dev server disconnected — reconnecting…")
++        DevEvent::Disconnected { reason, retrying } => {
++            if retrying {
++                log::warn!("{reason}");
++                show_status(ui, container, "Dev server disconnected — reconnecting…");
++            } else {
++                eprintln!("NSH_DEV_CONNECTION_STOPPED {reason}");
++                hide_status(ui);
++                show_error(
++                    ui,
++                    container,
++                    "Dev server connection stopped",
++                    &format!("{reason}\nRestart the development host to reconnect."),
++                    true,
++                );
++            }
+         }
+         // The client's thread hands them to the test agent.
+         DevEvent::Testing
+diff --git a/crates/nsh-platform-linux/src/dev.rs b/crates/nsh-platform-linux/src/dev.rs
+index 9d5f6f8..abfb988 100644
+--- a/crates/nsh-platform-linux/src/dev.rs
++++ b/crates/nsh-platform-linux/src/dev.rs
+@@ -180,7 +180,7 @@ pub(crate) fn start(view: &Rc<AppView>, url: String) {
+         };
+         match event {
+             DevEvent::Connected => CONNECTED.store(true, Ordering::Relaxed),
+-            DevEvent::Disconnected => CONNECTED.store(false, Ordering::Relaxed),
++            DevEvent::Disconnected { .. } => CONNECTED.store(false, Ordering::Relaxed),
+             _ => {}
+         }
+         // Idle sources of one priority run in the order they were added,
+@@ -237,7 +237,7 @@ fn device_name() -> String {
+ fn handle(ui: &Rc<RefCell<DevUi>>, event: DevEvent) {
+     match event {
+         DevEvent::Connected => hide_status(ui),
+-        DevEvent::Disconnected => show_status(ui, "Dev server disconnected — reconnecting…"),
++        DevEvent::Disconnected { .. } => show_status(ui, "Dev server disconnected — reconnecting…"),
+         // The client's thread hands them to the test agent.
+         DevEvent::Testing
+         | DevEvent::Step { .. }
+diff --git a/crates/nsh-platform-macos/src/dev.rs b/crates/nsh-platform-macos/src/dev.rs
+index 27e666a..1f91f61 100644
+--- a/crates/nsh-platform-macos/src/dev.rs
++++ b/crates/nsh-platform-macos/src/dev.rs
+@@ -206,7 +206,7 @@ pub(crate) fn start(view: &Rc<AppView>, url: String) {
+         };
+         match event {
+             DevEvent::Connected => CONNECTED.store(true, Ordering::Relaxed),
+-            DevEvent::Disconnected => CONNECTED.store(false, Ordering::Relaxed),
++            DevEvent::Disconnected { .. } => CONNECTED.store(false, Ordering::Relaxed),
+             _ => {}
+         }
+         // The main queue is serial: events keep their order.
+@@ -310,7 +310,7 @@ fn in_window(ui: &RefCell<DevUi>, event: &NSEvent) -> bool {
+ fn handle(ui: &Rc<RefCell<DevUi>>, event: DevEvent) {
+     match event {
+         DevEvent::Connected => hide_status(ui),
+-        DevEvent::Disconnected => show_status(ui, "Dev server disconnected — reconnecting…"),
++        DevEvent::Disconnected { .. } => show_status(ui, "Dev server disconnected — reconnecting…"),
+         // The client's thread hands them to the test agent.
+         DevEvent::Testing
+         | DevEvent::Step { .. }
+diff --git a/crates/nsh-platform-tui/src/dev.rs b/crates/nsh-platform-tui/src/dev.rs
+index 75965c1..e6f47e8 100644
+--- a/crates/nsh-platform-tui/src/dev.rs
++++ b/crates/nsh-platform-tui/src/dev.rs
+@@ -203,7 +203,7 @@ impl DevSession {
+                 }
+             }
+             DevEvent::Connected => log::info!("Dev server connected"),
+-            DevEvent::Disconnected => log::warn!("Dev server disconnected; reconnecting"),
++            DevEvent::Disconnected { .. } => log::warn!("Dev server disconnected; reconnecting"),
+             DevEvent::Building => log::info!("Building"),
+             DevEvent::BuildFailed(message) | DevEvent::CannotRun { message, .. } => {
+                 if let Some(test) = &view.test {
+diff --git a/crates/nsh-platform-windows/src/dev.rs b/crates/nsh-platform-windows/src/dev.rs
+index 6dac30e..c0db396 100644
+--- a/crates/nsh-platform-windows/src/dev.rs
++++ b/crates/nsh-platform-windows/src/dev.rs
+@@ -245,7 +245,7 @@ pub(crate) fn start(view: &Rc<AppView>, url: String) {
+         };
+         match event {
+             DevEvent::Connected => CONNECTED.store(true, Ordering::Relaxed),
+-            DevEvent::Disconnected => CONNECTED.store(false, Ordering::Relaxed),
++            DevEvent::Disconnected { .. } => CONNECTED.store(false, Ordering::Relaxed),
+             _ => {}
+         }
+         // Posted messages arrive in the order they were posted, so events
+@@ -340,7 +340,7 @@ fn device_name(computer: Option<&str>) -> String {
+ fn handle(ui: &Rc<RefCell<DevUi>>, event: DevEvent) {
+     match event {
+         DevEvent::Connected => hide_status(ui),
+-        DevEvent::Disconnected => show_status(ui, Status::Reconnecting),
++        DevEvent::Disconnected { .. } => show_status(ui, Status::Reconnecting),
+         // The client's thread hands them to the test agent.
+         DevEvent::Testing
+         | DevEvent::Step { .. }

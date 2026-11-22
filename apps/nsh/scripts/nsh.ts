@@ -60,7 +60,10 @@ if (!binary) {
   if (!valid(binary)) throw new Error("NSH CLI version verification failed");
 }
 const [command = "check", ...args] = process.argv.slice(2);
-if ((command === "dev" || command === "run") && !args.includes("--help")) binary = prepareDevCli(binary, revision);
+const devToolchain = (command === "dev" || command === "run") && !args.includes("--help")
+  ? prepareDevCli(binary, revision)
+  : undefined;
+if (devToolchain) binary = devToolchain.binary;
 const option = (name: string) => {
   const index = args.indexOf(name);
   return index < 0
@@ -111,6 +114,9 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
     command !== "package" &&
     (command.endsWith("-ios") || target === "ios" || target === "ios-simulator"),
 });
+if (command === "dev" && target === "ios" && devToolchain) {
+  nativeEnvironment.NSH_DEV_HOST_SOURCE = devToolchain.source;
+}
 if (command === "dev") {
   const runtime = resolve(app, "generated/looi-runtime.dev.js");
   nativeEnvironment.NSH_DEV_RESOLVE_ALIAS = JSON.stringify({
