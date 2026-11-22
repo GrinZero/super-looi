@@ -3043,5 +3043,5 @@
 - [x] Step 1：核对官方 Linux ARM64 发行包、稳定版 Cloud 命令与新版环境目录。
 - [x] Step 2：接入官方稳定版查询、App HTTPS 流式下载、Linux 内试运行和版本切换。
 - [x] Step 3：接入个人／工作区环境目录和横屏设置页，保留旧版环境入口和分支覆盖。
-- [x] Step 4：14 项 Codex 定向测试、类型检查、构建和独立 review。
+- [x] Step 4：14 项 Codex 定向测试、设置页未登录态无界面回归、类型检查、构建和独立 review。
 - [ ] Step 5：在连接的 iOS／Android 真机上验收横屏设置、真实登录和安装后的 CLI。

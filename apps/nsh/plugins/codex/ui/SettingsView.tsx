@@ -401,7 +401,7 @@ export function CodexSettingsView(props: {
               <If when={Boolean(selectedEnvironment() && selectedEnvironment()?.scope !== "legacy")}>
                 <Text class="text-muted-foreground text-xs">{t("pluginCloudSavedBranch")}</Text>
                 <If when={Boolean(state()?.currentCloudSubmitUnsupported)}>
-                  <Text testID="plugin-cloud-compatibility" class="text-warning text-xs">{t("pluginCloudCurrentUnavailable")}</Text>
+                  <Text testID="plugin-cloud-compatibility" class="text-foreground text-xs font-medium">{t("pluginCloudCurrentUnavailable")}</Text>
                 </If>
               </If>
 

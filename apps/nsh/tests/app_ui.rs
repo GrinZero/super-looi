@@ -211,12 +211,13 @@ fn face_and_management_spaces_work_with_private_app_storage() -> Result<(), Stri
         "任务委派",
         "云端任务",
         "云端默认设置",
-        "环境名称或 ID",
-        "分支",
+        "登录 ChatGPT 后可读取云端环境。",
         "执行详情",
     ] {
         app.wait_for(label)?;
     }
+    assert!(!app.shows("id:plugin-environment"));
+    assert!(!app.shows("id:plugin-branch"));
     assert!(!app.shows("back-btn"));
     app.press("plugin-back-to-list")?;
     app.wait_for("让 LOOI 连接更多能力")?;
