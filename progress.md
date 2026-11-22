@@ -3166,11 +3166,11 @@
   - [x] 扩展插件总线契约与 Codex 插件新增只读 `codex_cloud_status`、`check_only` 工具裁剪与 `SKILL` 指引。
   - [x] 新增 Pi 工具 `manage_schedule` / `manage_quiet_hours` 与实时语音工具 `voice/tools/schedule.ts` 及三点临界出声前勿扰重判。
   - [x] 接入 `MobileRuntime`（`application.ts`）与 `build-runtime.ts` 类型声明生成，补全并运行 `schedule-runtime.node.ts`、`schedule-voice-tools.node.ts` 等测试。
-- [ ] Step 4 — 第四层：状态编排、并发审批队列与「定时（Schedules）」UI（`apps/nsh`）
-  - [ ] 更新 `store.ts` 与 `App.tsx`（`"schedules"` 空间、退后台不误杀调度、多任务 `pendingInteractions` 队列、三通道交付路由、`continueScheduledSession`）。
-  - [ ] 更新 `ManagementShell.tsx` 并实现 `SchedulesSpaceView.tsx`（第 8 导航入口、`48pt` 上下文胶囊栏、规则主从双栏、未确认状态处置、多时段勿扰、GitHub PAT 配置、新建/编辑 `Dialog` 与闰日 Cron 实时预览）及中英双语词条。
-  - [ ] 同步 `DESIGN.md`（动效清单与定时空间规范）及 `docs/arch/index.html`（架构图更新）。
-  - [ ] 补全并运行 `SchedulesSpace.test.tsx` 横屏浅色/深色/减动效 UI 交互测试与全仓 `cargo check` / `pnpm typecheck` / `pnpm test` / `pnpm build`。
+- [x] Step 4 — 第四层：状态编排、并发审批队列与「定时（Schedules）」UI（`apps/nsh`）
+  - [x] 更新 `store.ts` 与 `App.tsx`（`"schedules"` 空间、退后台不误杀调度、多任务 `pendingInteractions` 队列、三通道交付路由、`continueScheduledSession`）。
+  - [x] 更新 `ManagementShell.tsx` 并实现 `SchedulesSpaceView.tsx`（第 8 导航入口、`48pt` 上下文胶囊栏、规则主从双栏、未确认状态处置、多时段勿扰、GitHub PAT 配置、新建/编辑 `Dialog` 与闰日 Cron 实时预览）及中英双语词条。
+  - [x] 同步 `DESIGN.md`（动效清单与定时空间规范）及 `docs/arch/index.html`（架构图更新）。
+  - [x] 补全并运行 `SchedulesSpace.test.tsx` 横屏浅色/深色/减动效 UI 交互测试与全仓 `cargo check` / `pnpm typecheck` / `pnpm test` / `pnpm build`。
 - [ ] Step 5 — 第五层：Android 真机横屏实测验收与独立代码/设计审查
   - [ ] 独立 Subagent 完整审查架构边界、只读隔离、事务原子性、错误透明链与 NSH 设计规范。
   - [ ] Android 真机（`391QYGCN224FE` 横屏）打包安装、APK manifest 校验、浅/深色 UI 巡检与交互截图、规则与勿扰实测及后台/闹钟生命周期 logcat 检查。

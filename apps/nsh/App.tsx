@@ -65,8 +65,18 @@ function App() {
   };
 
   effect(() => {
+    store.interaction()?.taskId;
     store.interaction()?.id;
     questionAnswers.set({});
+  });
+
+  let lastComposeNonce = 0;
+  effect(() => {
+    const nonce = store.composeRequestNonce();
+    if (nonce > lastComposeNonce) {
+      lastComposeNonce = nonce;
+      compose.set(true);
+    }
   });
 
   const toggleLiveVoice = () => {
@@ -174,9 +184,53 @@ function App() {
         }
         dismissible={false}
         onClose={() => {
-          void store.stop();
+          void store.cancelInteractionTask(store.interaction());
         }}
       >
+        <If
+          when={
+            store.interaction()?.source === "schedule" ||
+            store.interactionQueueCount() > 1
+          }
+        >
+          <View class="flex-row items-center justify-between gap-2 pb-1">
+            <View
+              testID="interaction-attribution"
+              class={`rounded-full px-2.5 py-1 ${
+                store.interaction()?.source === "schedule"
+                  ? "bg-warning/15"
+                  : "bg-secondary"
+              }`}
+            >
+              <Text
+                class={`text-xs font-medium ${
+                  store.interaction()?.source === "schedule"
+                    ? "text-warning"
+                    : "text-secondary-foreground"
+                }`}
+              >
+                {store.interaction()?.source === "schedule"
+                  ? t("scheduleInteractionAttribution", {
+                      title: store.interaction()?.ruleTitle ?? t("scheduleUntitledRule"),
+                    })
+                  : t("foregroundTaskLabel")}
+              </Text>
+            </View>
+            <If when={store.interactionQueueCount() > 1}>
+              <View
+                testID="interaction-queue-badge"
+                class="rounded-full bg-muted px-2.5 py-1"
+              >
+                <Text
+                  class="text-xs font-medium text-muted-foreground"
+                  style={{ fontVariant: ["tabular-nums"] }}
+                >
+                  {`1 / ${store.interactionQueueCount()}`}
+                </Text>
+              </View>
+            </If>
+          </View>
+        </If>
         <If
           when={store.interaction()?.kind === "approval"}
           else={
@@ -238,9 +292,10 @@ function App() {
               store.interaction()?.kind === "approval" ? t("decline") : t("stopTask")
             }
             onPress={() => {
-              if (store.interaction()?.kind === "approval")
-                store.approve(false);
-              else void store.stop();
+              const current = store.interaction();
+              if (!current) return;
+              if (current.kind === "approval") store.approve(false, current);
+              else void store.cancelInteractionTask(current);
             }}
           />
           <ActionButton
@@ -256,7 +311,9 @@ function App() {
                 ))
             }
             onPress={() => {
-              if (store.interaction()?.kind === "approval") store.approve(true);
+              const current = store.interaction();
+              if (!current) return;
+              if (current.kind === "approval") store.approve(true, current);
               else
                 store.answer(
                   questions().map((question) => ({
@@ -264,6 +321,7 @@ function App() {
                     selected: [],
                     custom: questionAnswers()[question.id],
                   })),
+                  current,
                 );
             }}
           />

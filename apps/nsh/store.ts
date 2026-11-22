@@ -28,6 +28,7 @@ import {
   DeviceMotionHost,
   LanRoomHost,
   NodeCompat,
+  ScheduleHost,
   VoiceAudio,
   MiotLoginBrowser,
   XiaomiCameraHost,
@@ -43,6 +44,7 @@ import {
   type VoiceState,
   openRuntime,
   RobotFaceController,
+  isWithinQuietHours,
   type BodyConfiguration,
   type BodyControlAction,
   type BodyStatusSnapshot,
@@ -63,6 +65,18 @@ import {
   type UiAction,
   type LlmCatalogSnapshot,
   type LlmOAuthUiEvent,
+  type ScheduleRule,
+  type ScheduleRunRecord,
+  type ScheduleSettings,
+  type ScheduleSnapshot,
+  type QuietHoursWindow,
+  type CreateScheduleRuleInput,
+  type UpdateScheduleRuleInput,
+  type NativePermissionStatusResult,
+  type NativeScheduleExactAlarmStatus,
+  type NativeScheduleHost,
+  type GitHubCredentialStatus,
+  type GitHubTokenVerificationResult,
 } from "./generated/looi-runtime.js";
 type TraceContext = { traceId: string; parentSpanId?: string; traceName: string; sessionId?: string };
 
@@ -73,8 +87,26 @@ export type AppSpace =
   | "home"
   | "body"
   | "tasks"
+  | "schedules"
   | "settings"
   | "plugins";
+
+export type ScheduleSubView = "rules" | "quiet";
+export type ScheduleRuleFilter = "all" | "user" | "agent_inferred";
+export type PendingInteractionSource = "foreground" | "schedule";
+
+export interface PendingInteractionItem {
+  id: string;
+  taskId: string;
+  kind: "approval" | "question";
+  details: Record<string, unknown>;
+  expiresAt: string;
+  source: PendingInteractionSource;
+  ruleId?: string;
+  ruleTitle?: string;
+  runId?: string;
+  arrivedAt: number;
+}
 
 export type HomeSubView = "devices" | "services" | "video_login";
 
@@ -320,6 +352,66 @@ export const INITIAL_LLM_SNAPSHOT: LlmCatalogSnapshot = {
   active: null,
   custom: { api: "openai-completions", baseUrl: "", modelId: "" },
 };
+
+/** Orders pending interactions with foreground prompts ahead of scheduled tasks (FIFO within a source). */
+export function orderPendingInteractions(
+  items: readonly PendingInteractionItem[],
+): PendingInteractionItem[] {
+  return [...items].sort((a, b) => {
+    const sourceRankA = a.source === "foreground" ? 0 : 1;
+    const sourceRankB = b.source === "foreground" ? 0 : 1;
+    if (sourceRankA !== sourceRankB) return sourceRankA - sourceRankB;
+    if (a.arrivedAt !== b.arrivedAt) return a.arrivedAt - b.arrivedAt;
+    if (a.taskId !== b.taskId) return a.taskId.localeCompare(b.taskId);
+    return a.id.localeCompare(b.id);
+  });
+}
+
+/** Inserts or updates a pending interaction keyed by (taskId, id) without overwriting other tasks. */
+export function enqueuePendingInteraction(
+  items: readonly PendingInteractionItem[],
+  incoming: Omit<PendingInteractionItem, "arrivedAt"> & { arrivedAt?: number },
+): PendingInteractionItem[] {
+  const existing = items.find(
+    (item) => item.taskId === incoming.taskId && item.id === incoming.id,
+  );
+  const arrivedAt = existing?.arrivedAt ?? incoming.arrivedAt ?? Date.now();
+  const next = items.filter(
+    (item) => !(item.taskId === incoming.taskId && item.id === incoming.id),
+  );
+  next.push({ ...incoming, arrivedAt });
+  return orderPendingInteractions(next);
+}
+
+/** Removes only the matching (taskId, interactionId) entry from the pending queue. */
+export function clearInteractionByKeyInQueue(
+  items: readonly PendingInteractionItem[],
+  taskId: string,
+  interactionId: string,
+): PendingInteractionItem[] {
+  const next = items.filter(
+    (item) => !(item.taskId === taskId && item.id === interactionId),
+  );
+  return next.length === items.length ? [...items] : next;
+}
+
+/** Removes only entries belonging to the finished or cancelled taskId. */
+export function clearInteractionsForTaskInQueue(
+  items: readonly PendingInteractionItem[],
+  taskId: string,
+): PendingInteractionItem[] {
+  const next = items.filter((item) => item.taskId !== taskId);
+  return next.length === items.length ? [...items] : next;
+}
+
+/** Removes only entries matching a given source lane ("foreground" or "schedule"). */
+export function clearInteractionsBySourceInQueue(
+  items: readonly PendingInteractionItem[],
+  source: PendingInteractionSource,
+): PendingInteractionItem[] {
+  const next = items.filter((item) => item.source !== source);
+  return next.length === items.length ? [...items] : next;
+}
 
 /** One owner for the surface. Credentials stay in the native vault/runtime. */
 export function createAppStore() {
@@ -750,9 +842,52 @@ export function createAppStore() {
       ...(event.stream === "status" ? {status:event.chunk} : {text:utf8Tail(current.text + event.chunk, 16 * 1024),status:""}),
     });
   };
-  const interaction = signal<
-    (NonNullable<NativeStep["interaction"]> & { taskId: string }) | undefined
-  >(undefined);
+  const pendingInteractions = signal<PendingInteractionItem[]>([]);
+  const interaction = computed(() => pendingInteractions()[0]);
+  const enqueueInteraction = (
+    incoming: Omit<PendingInteractionItem, "arrivedAt"> & { arrivedAt?: number },
+  ) => {
+    pendingInteractions.update((items) => enqueuePendingInteraction(items, incoming));
+  };
+  const clearInteractionByKey = (taskId: string, interactionId: string) => {
+    pendingInteractions.update((items) =>
+      clearInteractionByKeyInQueue(items, taskId, interactionId),
+    );
+  };
+  const clearInteractionsForTask = (taskId: string | undefined) => {
+    if (!taskId) return;
+    pendingInteractions.update((items) =>
+      clearInteractionsForTaskInQueue(items, taskId),
+    );
+  };
+  const clearInteractionsBySource = (source: PendingInteractionSource) => {
+    pendingInteractions.update((items) =>
+      clearInteractionsBySourceInQueue(items, source),
+    );
+  };
+  const DEFAULT_SCHEDULE_SETTINGS: ScheduleSettings = {
+    autoFollowUpEnabled: true,
+    maxActiveInferredRules: 5,
+    quietHoursEnabled: false,
+    quietHours: [],
+  };
+  const scheduleRules = signal<ScheduleRule[]>([]);
+  const scheduleRuns = signal<ScheduleRunRecord[]>([]);
+  const scheduleSettings = signal<ScheduleSettings>(DEFAULT_SCHEDULE_SETTINGS);
+  const scheduleQuietNow = signal(false);
+  const schedulePermission = signal<NativePermissionStatusResult>({
+    notification: "undetermined",
+  });
+  const scheduleExactAlarm = signal<NativeScheduleExactAlarmStatus | null>(null);
+  const scheduleSubView = signal<ScheduleSubView>("rules");
+  const scheduleRuleFilter = signal<ScheduleRuleFilter>("all");
+  const selectedScheduleRuleId = signal<string | null>(null);
+  const scheduleRunningRuleId = signal<string | null>(null);
+  const scheduleClockTick = signal(Date.now());
+  const composeRequestNonce = signal(0);
+  const githubCredential = signal<GitHubCredentialStatus>({ configured: false });
+  const githubVerifyResult = signal<GitHubTokenVerificationResult | null>(null);
+  const githubBusy = signal(false);
   const driver = new RobotFaceController({
     onStateChange: () => face.set(driver.getState()),
   });
@@ -765,6 +900,9 @@ export function createAppStore() {
   });
   const face = signal(driver.getState());
   let unsubscribeTaskActivity: (() => void) | undefined;
+  let unsubscribeScheduleActivity: (() => void) | undefined;
+  let unsubscribeScheduleInteractions: (() => void) | undefined;
+  let scheduleMinuteTimer: ReturnType<typeof setTimeout> | undefined;
   let runtime: NativeRuntime | undefined,
     alive = true,
     sequence = 0;
@@ -792,7 +930,9 @@ export function createAppStore() {
     }
   };
   const transientDockExpression = signal<"dock_snap" | "undock_float" | null>(null);
+  const transientScheduleExpression = signal<"task_verified" | "task_warning" | null>(null);
   let dockExpressionTimer: ReturnType<typeof setTimeout> | undefined;
+  let scheduleExpressionTimer: ReturnType<typeof setTimeout> | undefined;
   const clearDockExpression = () => {
     if (dockExpressionTimer) {
       clearTimeout(dockExpressionTimer);
@@ -800,6 +940,15 @@ export function createAppStore() {
     }
     if (transientDockExpression() !== null) {
       transientDockExpression.set(null);
+    }
+  };
+  const clearScheduleExpression = () => {
+    if (scheduleExpressionTimer) {
+      clearTimeout(scheduleExpressionTimer);
+      scheduleExpressionTimer = undefined;
+    }
+    if (transientScheduleExpression() !== null) {
+      transientScheduleExpression.set(null);
     }
   };
   const flashDockExpression = (
@@ -813,6 +962,96 @@ export function createAppStore() {
       dockExpressionTimer = undefined;
       if (alive) transientDockExpression.set(null);
     }, durationMs);
+  };
+  const flashScheduleExpression = (
+    expression: "task_verified" | "task_warning",
+    durationMs: number,
+  ) => {
+    if (!alive || lifecycle() !== "active") return;
+    if (scheduleExpressionTimer) clearTimeout(scheduleExpressionTimer);
+    transientScheduleExpression.set(expression);
+    scheduleExpressionTimer = setTimeout(() => {
+      scheduleExpressionTimer = undefined;
+      if (alive) transientScheduleExpression.set(null);
+    }, durationMs);
+  };
+  const applyScheduleData = (
+    snap: Omit<ScheduleSnapshot, "permissionStatus">,
+    permission?: NativePermissionStatusResult,
+  ) => {
+    if (!alive) return;
+    scheduleRules.set(snap.rules);
+    const currentSelected = selectedScheduleRuleId();
+    const hasSelected =
+      currentSelected !== null && snap.rules.some((item) => item.id === currentSelected);
+    const effectiveSelectedId = hasSelected
+      ? currentSelected
+      : windowSize().width >= 600
+        ? (snap.rules[0]?.id ?? null)
+        : null;
+    if (effectiveSelectedId !== currentSelected) {
+      selectedScheduleRuleId.set(effectiveSelectedId);
+    }
+    if (runtime && effectiveSelectedId) {
+      const ruleRuns = runtime.listScheduleRuns(effectiveSelectedId, 30);
+      const merged = [...ruleRuns];
+      for (const recent of snap.recentRuns) {
+        if (!merged.some((item) => item.id === recent.id)) merged.push(recent);
+      }
+      scheduleRuns.set(merged);
+    } else {
+      scheduleRuns.set(snap.recentRuns);
+    }
+    scheduleSettings.set(snap.settings);
+    scheduleQuietNow.set(snap.isQuietNow);
+    if (permission) schedulePermission.set(permission);
+    if (runtime) {
+      scheduleExactAlarm.set(runtime.scheduleExactAlarmStatus());
+      githubCredential.set(runtime.githubCredentialStatus());
+    }
+  };
+  const syncScheduleSync = () => {
+    if (!alive || !runtime) return;
+    try {
+      applyScheduleData(runtime.scheduleSnapshotSync());
+    } catch (error) {
+      if (alive) fail(error);
+    }
+  };
+  const syncNativeScheduleOnForeground = async (hostRuntime: NativeRuntime) => {
+    try {
+      const handled = await hostRuntime.handleNativeScheduleEvents();
+      if (!alive) return;
+      syncScheduleSync();
+      if (handled.tappedRule) {
+        scheduleSubView.set("rules");
+        scheduleRuleFilter.set("all");
+        selectedScheduleRuleId.set(handled.tappedRule.id);
+        api.openSpace("schedules");
+      }
+    } catch (error) {
+      if (alive) fail(error);
+    }
+  };
+  const armScheduleMinuteRefresh = () => {
+    if (scheduleMinuteTimer) {
+      clearTimeout(scheduleMinuteTimer);
+      scheduleMinuteTimer = undefined;
+    }
+    if (!alive || lifecycle() !== "active" || activeSpace() !== "schedules") return;
+    const now = Date.now();
+    const delayMs = Math.max(250, 60_000 - (now % 60_000) + 50);
+    scheduleMinuteTimer = setTimeout(() => {
+      scheduleMinuteTimer = undefined;
+      if (!alive) return;
+      scheduleClockTick.set(Date.now());
+      scheduleQuietNow.set(
+        runtime
+          ? runtime.isQuietHoursNow()
+          : isWithinQuietHours(new Date(), scheduleSettings()),
+      );
+      armScheduleMinuteRefresh();
+    }, delayMs);
   };
   const syncBodyStatus = (
     next: BodyStatusSnapshot,
@@ -848,7 +1087,7 @@ export function createAppStore() {
     } catch {}
   };
   const stop = async () => {
-    interaction.set(undefined);
+    clearInteractionsBySource("foreground");
     void stopBodyNow();
     try {
       if (voiceTaskCoordinator?.hasActiveTask) {
@@ -862,13 +1101,17 @@ export function createAppStore() {
       if (alive) fail(error);
     }
   };
+  let previousLifecycleActive = lifecycle() === "active";
   effect(() => {
     const active = lifecycle() === "active";
+    const enteredForeground = active && !previousLifecycleActive;
+    previousLifecycleActive = active;
     runtime?.setBodyForegroundActive(active);
     runtime?.setDeviceCameraForegroundActive(active);
     runtime?.setDeviceMotionForegroundActive(active);
     runtime?.setLanRoomForegroundActive(active);
     runtime?.setPluginsForegroundActive(active);
+    void runtime?.setScheduleForegroundActive(active);
     const conversational = !active
       ? null
       : voiceState().phase === "speaking"
@@ -880,9 +1123,12 @@ export function createAppStore() {
             : foregroundBusy()
               ? "thinking"
               : null;
-    const dockTransient = active ? transientDockExpression() : null;
+    const dockTransient = active
+      ? (transientDockExpression() ?? transientScheduleExpression())
+      : null;
     if (!active) {
       clearDockExpression();
+      clearScheduleExpression();
       homeLogin?.cancel();
       void stopBodyNow();
       if (voiceState().phase !== "idle") voice?.stop();
@@ -901,6 +1147,26 @@ export function createAppStore() {
         conversational,
         idle: "neutral",
       });
+      if (enteredForeground && ready() && runtime) {
+        void syncNativeScheduleOnForeground(runtime);
+      }
+    }
+  });
+  effect(() => {
+    const active = lifecycle() === "active";
+    const inSchedules = activeSpace() === "schedules";
+    scheduleSettings();
+    if (active && inSchedules) {
+      scheduleClockTick.set(Date.now());
+      scheduleQuietNow.set(
+        runtime
+          ? runtime.isQuietHoursNow()
+          : isWithinQuietHours(new Date(), scheduleSettings()),
+      );
+      armScheduleMinuteRefresh();
+    } else if (scheduleMinuteTimer) {
+      clearTimeout(scheduleMinuteTimer);
+      scheduleMinuteTimer = undefined;
     }
   });
   effect(() => {
@@ -1063,6 +1329,141 @@ export function createAppStore() {
         }
       });
       unsubscribeTaskActivity = opened.subscribeTaskActivity(refreshTaskActivity);
+      for (const pending of opened.pendingScheduleInteractions()) {
+        enqueueInteraction({
+          ...pending.interaction,
+          taskId: pending.taskId,
+          source: "schedule",
+          ruleId: pending.ruleId,
+          ruleTitle: pending.ruleTitle,
+          runId: pending.runId,
+        });
+      }
+      unsubscribeScheduleInteractions = opened.subscribeScheduleInteractions((event) => {
+        if (!alive) return;
+        if (event.type === "requested") {
+          enqueueInteraction({
+            ...event.interaction,
+            taskId: event.taskId,
+            source: "schedule",
+            ruleId: event.ruleId,
+            ruleTitle: event.ruleTitle,
+            runId: event.runId,
+          });
+        } else {
+          clearInteractionByKey(event.taskId, event.interactionId);
+        }
+      });
+      unsubscribeScheduleActivity = opened.subscribeScheduleActivity((event) => {
+        if (!alive) return;
+        syncScheduleSync();
+        if (event.kind === "rule_created" && event.rule?.origin === "agent_inferred") {
+          notify(
+            t("scheduleAutoFollowUpToast", {
+              title: event.rule.title || t("scheduleUntitledRule"),
+            }),
+          );
+          return;
+        }
+        if (event.kind !== "run_settled" || !event.run) return;
+        const run = event.run;
+        const ruleTitle = event.rule?.title || run.ruleTitle || t("scheduleUntitledRule");
+        const errorText = run.error
+          ? `[stage=${run.error.stage}${run.error.code !== undefined ? ` code=${run.error.code}` : ""}] ${run.error.reason}`
+          : "";
+        const rawSummary = run.summary?.trim() || errorText || ruleTitle;
+        const redactedSummary = opened.redactSecrets(rawSummary);
+        const clippedSummary =
+          redactedSummary.length > 220
+            ? `${redactedSummary.slice(0, 217)}...`
+            : redactedSummary;
+        const contextNote = `[Scheduled Task: ${ruleTitle}] ${clippedSummary}`;
+        const importance = run.importance ?? "silent";
+        if (importance === "silent") {
+          voice?.setContextNote(contextNote, false);
+          return;
+        }
+        const quietNow = Boolean(event.isQuietHours || opened.isQuietHoursNow());
+        const toastText = t("scheduleRunNotifyToast", {
+          title: ruleTitle,
+          summary: clippedSummary,
+        });
+        if (quietNow) {
+          voice?.setContextNote(contextNote, false);
+          if (lifecycle() === "active") {
+            notify(toastText);
+          }
+          return;
+        }
+        if (lifecycle() === "active") {
+          flashScheduleExpression(
+            run.status === "failed" || run.status === "result_unconfirmed"
+              ? "task_warning"
+              : "task_verified",
+            2200,
+          );
+          notify(toastText);
+          voice?.enqueueNotice({
+            id: `schedule_${run.id}`,
+            taskId: run.taskId,
+            spokenText: toastText,
+            contextNote,
+            delivery: "when_idle",
+            respectQuietHours: true,
+            onResult: (result) => {
+              if (
+                !result.completed &&
+                result.interruptedReason === "quiet_hours_suppressed" &&
+                alive &&
+                lifecycle() === "active"
+              ) {
+                notify(toastText);
+              }
+            },
+          });
+        } else {
+          voice?.setContextNote(contextNote, false);
+        }
+      });
+      let deferInitialScheduleDrain = true;
+      const scheduleHost = new ScheduleHost();
+      const deferredScheduleHost: NativeScheduleHost = {
+        permissionStatus: () => scheduleHost.permissionStatus(),
+        requestPermission: () => scheduleHost.requestPermission(),
+        exactAlarmStatus: () => scheduleHost.exactAlarmStatus(),
+        openExactAlarmSettings: () => scheduleHost.openExactAlarmSettings(),
+        syncUpcomingAlarms: (alarmsJson) => scheduleHost.syncUpcomingAlarms(alarmsJson),
+        cancelAlarm: (ruleId) => scheduleHost.cancelAlarm(ruleId),
+        syncQuietHours: (quietSnapshotJson) => scheduleHost.syncQuietHours(quietSnapshotJson),
+        postNotification: (payloadJson) => scheduleHost.postNotification(payloadJson),
+        setAndroidKeepAlive: (active, hasRunningCheck, nextTriggerAtMs) =>
+          scheduleHost.setAndroidKeepAlive(active, hasRunningCheck, nextTriggerAtMs),
+        beginIosBackgroundGrace: (label) => scheduleHost.beginIosBackgroundGrace(label),
+        endIosBackgroundGrace: (handle) => scheduleHost.endIosBackgroundGrace(handle),
+        drainEvents: () => (deferInitialScheduleDrain ? [] : scheduleHost.drainEvents()),
+        setForeground: (active) => scheduleHost.setForeground(active),
+        dispose: () => scheduleHost.dispose?.(),
+      };
+      try {
+        await opened.attachNativeSchedule(deferredScheduleHost, {
+          foregroundActive: lifecycle() === "active",
+        });
+      } catch (error) {
+        if (alive) fail(error);
+      } finally {
+        deferInitialScheduleDrain = false;
+      }
+      try {
+        const initialSnap = await opened.scheduleSnapshot();
+        if (alive) {
+          applyScheduleData(initialSnap, initialSnap.permissionStatus);
+        }
+      } catch (error) {
+        if (alive) fail(error);
+      }
+      if (alive) {
+        void syncNativeScheduleOnForeground(opened);
+      }
       if (cameraHost) opened.attachNativeCamera(cameraHost);
       opened.setBodyForegroundActive(lifecycle() === "active");
       try {
@@ -1085,14 +1486,20 @@ export function createAppStore() {
           voiceTaskRunning.set(true);
           busy.set(true);
           shellOutput.set(undefined);
+          let activeVoiceTaskId: string | undefined;
           try {
             const result = await runtime.run(
               prompt,
               action(),
               (event) => {
                 if (!alive) return;
+                if (event.taskId) activeVoiceTaskId = event.taskId;
                 if (event.interaction && event.taskId) {
-                  interaction.set({ ...event.interaction, taskId: event.taskId });
+                  enqueueInteraction({
+                    ...event.interaction,
+                    taskId: event.taskId,
+                    source: "foreground",
+                  });
                 }
                 hooks.onStep(event);
               },
@@ -1110,13 +1517,14 @@ export function createAppStore() {
             if (alive) {
               busy.set(false);
               voiceTaskRunning.set(false);
-              interaction.set(undefined);
+              if (activeVoiceTaskId) clearInteractionsForTask(activeVoiceTaskId);
+              else clearInteractionsBySource("foreground");
               syncBodyStatus(runtime.bodyStatus());
             }
           }
         },
         cancelRunningTask: async () => {
-          interaction.set(undefined);
+          clearInteractionsBySource("foreground");
           void stopBodyNow();
           try {
             const stopped = await runtime?.cancel();
@@ -1189,6 +1597,8 @@ export function createAppStore() {
         },
         taskBridge: voiceTaskCoordinator,
         home: () => opened.voiceHome(),
+        schedule: () => runtime?.voiceSchedule(),
+        isQuietHoursNow: () => Boolean(runtime?.isQuietHoursNow()),
         onConversationActivity: () => opened.touchVoiceConversation(),
         onSessionEnd: stopVoiceSessionMotion,
         initialPluginContext: () => opened.pluginAmbientVoiceContext(),
@@ -1317,9 +1727,13 @@ export function createAppStore() {
   cleanup(() => {
     alive = false;
     unsubscribeTaskActivity?.();
+    unsubscribeScheduleActivity?.();
+    unsubscribeScheduleInteractions?.();
     unsubscribePlugins?.();
     if (toastTimer) clearTimeout(toastTimer);
     if (dockExpressionTimer) clearTimeout(dockExpressionTimer);
+    if (scheduleExpressionTimer) clearTimeout(scheduleExpressionTimer);
+    if (scheduleMinuteTimer) clearTimeout(scheduleMinuteTimer);
     voiceTaskCoordinator?.markExternallyCancelled();
     homeLogin?.cancel();
     runtime?.cancelProviderOAuth();
@@ -1510,6 +1924,9 @@ export function createAppStore() {
       activeSpace.set(space);
       if (space === "tasks" && ready()) {
         api.refreshTasks(tasks().offset);
+      }
+      if (space === "schedules" && ready()) {
+        void api.refreshSchedules();
       }
     },
     backToFace() {
@@ -2651,7 +3068,237 @@ export function createAppStore() {
         return false;
       }
     },
+    pendingInteractions: () => pendingInteractions(),
     interaction: () => interaction(),
+    interactionQueueCount: () => pendingInteractions().length,
+    pendingScheduleInteractionCount: () =>
+      pendingInteractions().filter((item) => item.source === "schedule").length,
+    scheduleRules: () => scheduleRules(),
+    scheduleRuns: () => scheduleRuns(),
+    scheduleSettings: () => scheduleSettings(),
+    scheduleQuietNow: () => scheduleQuietNow(),
+    schedulePermission: () => schedulePermission(),
+    scheduleExactAlarm: () => scheduleExactAlarm(),
+    scheduleSubView: () => scheduleSubView(),
+    scheduleRuleFilter: () => scheduleRuleFilter(),
+    selectedScheduleRuleId: () => selectedScheduleRuleId(),
+    scheduleRunningRuleId: () => scheduleRunningRuleId(),
+    scheduleClockTick: () => scheduleClockTick(),
+    composeRequestNonce: () => composeRequestNonce(),
+    githubCredential: () => githubCredential(),
+    githubVerifyResult: () => githubVerifyResult(),
+    githubBusy: () => githubBusy(),
+    setScheduleSubView(view: ScheduleSubView) {
+      scheduleSubView.set(view);
+      if (view === "quiet" && ready()) {
+        void api.refreshSchedules();
+      }
+    },
+    setScheduleRuleFilter(filter: ScheduleRuleFilter) {
+      scheduleRuleFilter.set(filter);
+    },
+    selectScheduleRule(id: string | null) {
+      selectedScheduleRuleId.set(id);
+      if (!runtime || !id) return;
+      try {
+        const ruleRuns = runtime.listScheduleRuns(id, 30);
+        scheduleRuns.update((prev) => {
+          const merged = [...ruleRuns];
+          for (const existing of prev) {
+            if (!merged.some((item) => item.id === existing.id)) {
+              merged.push(existing);
+            }
+          }
+          return merged;
+        });
+      } catch (error) {
+        fail(error);
+      }
+    },
+    async refreshSchedules() {
+      if (!runtime) return;
+      try {
+        const snap = await runtime.scheduleSnapshot();
+        applyScheduleData(snap, snap.permissionStatus);
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    createScheduleRule(input: CreateScheduleRuleInput) {
+      if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
+      const created = runtime.createScheduleRule(input, action());
+      selectedScheduleRuleId.set(created.rule.id);
+      syncScheduleSync();
+      return created;
+    },
+    updateScheduleRule(id: string, patch: UpdateScheduleRuleInput) {
+      if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
+      const updated = runtime.updateScheduleRule(id, patch, action());
+      selectedScheduleRuleId.set(updated.id);
+      syncScheduleSync();
+      return updated;
+    },
+    setScheduleRuleEnabled(id: string, enabled: boolean) {
+      if (!runtime) return;
+      try {
+        runtime.setScheduleRuleEnabled(id, enabled, action());
+        syncScheduleSync();
+      } catch (error) {
+        fail(error);
+      }
+    },
+    async cancelScheduleRule(id: string) {
+      if (!runtime) return;
+      try {
+        await runtime.cancelScheduleRule(id, action());
+        syncScheduleSync();
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    async deleteScheduleRule(id: string) {
+      if (!runtime) return;
+      try {
+        await runtime.deleteScheduleRule(id, action());
+        if (selectedScheduleRuleId() === id) selectedScheduleRuleId.set(null);
+        syncScheduleSync();
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    async runScheduleRuleNow(id: string) {
+      if (!runtime || scheduleRunningRuleId() === id) return;
+      scheduleRunningRuleId.set(id);
+      try {
+        await runtime.runScheduleRuleNow(id, action());
+        syncScheduleSync();
+      } catch (error) {
+        if (alive) fail(error);
+      } finally {
+        if (alive && scheduleRunningRuleId() === id) {
+          scheduleRunningRuleId.set(null);
+        }
+      }
+    },
+    async requestSchedulePermission() {
+      if (!runtime) return;
+      try {
+        const perm = await runtime.requestSchedulePermission(action());
+        if (!alive) return;
+        schedulePermission.set(perm);
+        scheduleExactAlarm.set(runtime.scheduleExactAlarmStatus());
+      } catch (error) {
+        if (alive) fail(error);
+      }
+    },
+    async openScheduleExactAlarmSettings() {
+      if (!runtime) return false;
+      try {
+        const opened = await runtime.openScheduleExactAlarmSettings();
+        if (!alive) return opened;
+        scheduleExactAlarm.set(runtime.scheduleExactAlarmStatus());
+        return opened;
+      } catch (error) {
+        if (alive) fail(error);
+        return false;
+      }
+    },
+    setAutoFollowUpEnabled(enabled: boolean) {
+      if (!runtime) return;
+      try {
+        runtime.updateScheduleSettings({ autoFollowUpEnabled: enabled }, action());
+        syncScheduleSync();
+      } catch (error) {
+        fail(error);
+      }
+    },
+    setQuietHoursEnabled(enabled: boolean) {
+      if (!runtime) return;
+      try {
+        runtime.setQuietHoursEnabled(enabled, action());
+        syncScheduleSync();
+      } catch (error) {
+        fail(error);
+      }
+    },
+    addQuietHoursWindow(input: Omit<QuietHoursWindow, "id"> & { id?: string }) {
+      if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
+      const next = runtime.addQuietHoursWindow(input, action());
+      syncScheduleSync();
+      return next;
+    },
+    updateQuietHoursWindow(id: string, patch: Partial<Omit<QuietHoursWindow, "id">>) {
+      if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
+      const next = runtime.updateQuietHoursWindow(id, patch, action());
+      syncScheduleSync();
+      return next;
+    },
+    removeQuietHoursWindow(id: string) {
+      if (!runtime) return;
+      try {
+        runtime.removeQuietHoursWindow(id, action());
+        syncScheduleSync();
+      } catch (error) {
+        fail(error);
+      }
+    },
+    saveGitHubToken(token: string) {
+      if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
+      const next = runtime.saveGitHubToken(token, action());
+      githubCredential.set(next);
+      githubVerifyResult.set(null);
+      notify(t("githubPatSavedToast"));
+      return next;
+    },
+    async verifyGitHubToken() {
+      if (!runtime || githubBusy()) return null;
+      githubBusy.set(true);
+      try {
+        const result = await runtime.verifyGitHubToken(action());
+        if (!alive) return result;
+        githubVerifyResult.set(result);
+        githubCredential.set({
+          configured: result.configured,
+          ...(result.tokenHint ? { tokenHint: result.tokenHint } : {}),
+        });
+        return result;
+      } catch (error) {
+        if (alive) fail(error);
+        return null;
+      } finally {
+        if (alive) githubBusy.set(false);
+      }
+    },
+    clearGitHubToken() {
+      if (!runtime) return;
+      try {
+        const next = runtime.clearGitHubToken(action());
+        githubCredential.set(next);
+        githubVerifyResult.set(null);
+        notify(t("githubPatClearedToast"));
+      } catch (error) {
+        fail(error);
+      }
+    },
+    inspectScheduleTask(taskId: string) {
+      if (!runtime || !taskId) return;
+      api.openSpace("tasks");
+      api.inspectTask(taskId);
+    },
+    continueScheduledSession(sessionId: string) {
+      if (!runtime) return false;
+      try {
+        runtime.adoptConversationSession(sessionId, action());
+        voice?.setContextNote("", true);
+        message.set("");
+        api.backToFace();
+        composeRequestNonce.update((n) => n + 1);
+        return true;
+      } catch (error) {
+        fail(error);
+        return false;
+      }
+    },
     async configure(value: { baseUrl: string; model: string; apiKey: string }) {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
       await runtime.configure(value);
@@ -2667,6 +3314,7 @@ export function createAppStore() {
       shellOutput.set(undefined);
       message.set("");
       status.set("@looi:runtimeAgentIsThinking");
+      let activeSendTaskId: string | undefined;
       try {
         const result = await runtime.run(
           prompt,
@@ -2674,8 +3322,14 @@ export function createAppStore() {
           (event) => {
             if (!alive) return;
             status.set(event.summary);
-            if (event.interaction && event.taskId)
-              interaction.set({ ...event.interaction, taskId: event.taskId });
+            if (event.taskId) activeSendTaskId = event.taskId;
+            if (event.interaction && event.taskId) {
+              enqueueInteraction({
+                ...event.interaction,
+                taskId: event.taskId,
+                source: "foreground",
+              });
+            }
           },
           { onShellOutput: receiveShellOutput, agentOnly, mode: agentOnly ? "voice" : "text", approvalMode: taskApprovalMode(), traceContext, defaultLanguage: effectiveLocale() },
         );
@@ -2690,34 +3344,49 @@ export function createAppStore() {
       } finally {
         if (alive) {
           busy.set(false);
-          interaction.set(undefined);
+          if (activeSendTaskId) clearInteractionsForTask(activeSendTaskId);
+          else clearInteractionsBySource("foreground");
           syncBodyStatus(runtime.bodyStatus());
         }
       }
     },
-    approve(allowed: boolean) {
-      const current = interaction();
-      if (!current || !runtime) return;
+    approve(allowed: boolean, target = interaction()) {
+      if (!target || !runtime) return;
       try {
-        runtime.respond(current.taskId, current.id, {
+        runtime.respondTask(target.taskId, target.id, {
           outcome: allowed ? "allowed-once" : "rejected",
           userAction: allowed ? action() : undefined,
         });
-        interaction.set(undefined);
+        clearInteractionByKey(target.taskId, target.id);
       } catch (error) {
         fail(error);
       }
     },
     answer(
       answers: Array<{ id: string; selected: string[]; custom?: string }>,
+      target = interaction(),
     ) {
-      const current = interaction();
-      if (!current || !runtime) return;
+      if (!target || !runtime) return;
       try {
-        runtime.respond(current.taskId, current.id, { answers });
-        interaction.set(undefined);
+        runtime.respondTask(target.taskId, target.id, { answers });
+        clearInteractionByKey(target.taskId, target.id);
       } catch (error) {
         fail(error);
+      }
+    },
+    async cancelInteractionTask(target = interaction()) {
+      if (!target) return;
+      if (target.source === "foreground") {
+        await stop();
+        return;
+      }
+      clearInteractionsForTask(target.taskId);
+      if (!runtime) return;
+      try {
+        await runtime.cancelTask(target.taskId);
+        if (alive) syncScheduleSync();
+      } catch (error) {
+        if (alive) fail(error);
       }
     },
     stop,

@@ -9,6 +9,7 @@ import { VoiceServiceBar, VoiceSpaceView } from "./VoiceSpaceView";
 import { HomeSpaceView } from "./HomeSpaceView";
 import { BodySpaceView } from "./BodySpaceView";
 import { TasksSpaceView } from "./TasksSpaceView";
+import { SchedulesContextBar, SchedulesSpaceView } from "./SchedulesSpaceView";
 import { PluginsContextBar, PluginsSpaceView } from "./PluginsSpaceView";
 import { SettingsSpaceView } from "./SettingsSpaceView";
 import { RetainedPage } from "./RetainedPage";
@@ -25,6 +26,8 @@ export function ManagementShell(props: {
   const homeModeTab = signal<"direct_miot" | "external_ha" | "simulation">(
     "direct_miot",
   );
+  const scheduleCreateRuleNonce = signal(0);
+  const scheduleAddQuietNonce = signal(0);
 
   // Sync selectedBrandId only when active brand transitions
   let lastSyncedActiveBrand: LlmBrandId | null = null;
@@ -60,10 +63,20 @@ export function ManagementShell(props: {
     rail = false,
   ) => {
     const isSelected = () => props.store.activeSpace() === space;
-    const widthClass = rail ? "w-full min-h-11 px-1" : "min-h-11 min-w-11 px-2.5";
+    const widthClass = rail ? "w-full min-h-11 px-1" : "min-h-11 min-w-11 px-1.5";
     const focusRingClass = rail
       ? "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
       : "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
+    const scheduleHasWarning = () =>
+      space === "schedules" &&
+      (props.store.pendingScheduleInteractionCount() > 0 ||
+        props.store.scheduleRules().some((item) => item.state === "unconfirmed"));
+    const scheduleIsActive = () =>
+      space === "schedules" &&
+      !scheduleHasWarning() &&
+      props.store
+        .scheduleRules()
+        .some((item) => item.state === "running" || (item.state === "active" && item.enabled));
     return (
       <Button
         testID={testId}
@@ -102,6 +115,12 @@ export function ManagementShell(props: {
             }
           >
             <View class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-verified" />
+          </If>
+          <If when={scheduleHasWarning()}>
+            <View testID="nav-schedules-warning-dot" class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-warning" />
+          </If>
+          <If when={scheduleIsActive()}>
+            <View testID="nav-schedules-active-dot" class="absolute -top-1 right-0.5 w-2 h-2 rounded-full bg-verified" />
           </If>
         </View>
       </Button>
@@ -352,6 +371,14 @@ export function ManagementShell(props: {
         </View>
       </If>
 
+      <If when={props.store.activeSpace() === "schedules"}>
+        <SchedulesContextBar
+          store={props.store}
+          onNewRule={() => scheduleCreateRuleNonce.update((n) => n + 1)}
+          onAddQuietWindow={() => scheduleAddQuietNonce.update((n) => n + 1)}
+        />
+      </If>
+
       <If when={props.store.activeSpace() === "settings"}>
         <View class="flex-row items-center gap-2 flex-1 min-w-0 h-11">
           <Text class="text-foreground text-xs font-semibold">
@@ -384,6 +411,13 @@ export function ManagementShell(props: {
       </RetainedPage>
       <RetainedPage active={props.store.activeSpace() === "tasks"}>
         <TasksSpaceView store={props.store} />
+      </RetainedPage>
+      <RetainedPage active={props.store.activeSpace() === "schedules"}>
+        <SchedulesSpaceView
+          store={props.store}
+          createRuleNonce={() => scheduleCreateRuleNonce()}
+          addQuietNonce={() => scheduleAddQuietNonce()}
+        />
       </RetainedPage>
       <RetainedPage active={props.store.activeSpace() === "plugins"}>
         <PluginsSpaceView store={props.store} />
@@ -466,6 +500,7 @@ export function ManagementShell(props: {
             {renderNavButton("home", () => t("home"), "nav-home")}
             {renderNavButton("body", () => t("body"), "nav-body")}
             {renderNavButton("tasks", () => t("tasks"), "nav-tasks")}
+            {renderNavButton("schedules", () => t("schedules"), "nav-schedules")}
             {renderNavButton("plugins", () => t("plugins"), "nav-plugins")}
             {renderNavButton("settings", () => t("settings"), "nav-settings")}
           </View>
@@ -506,6 +541,7 @@ export function ManagementShell(props: {
             {renderNavButton("home", () => t("home"), "nav-home", true)}
             {renderNavButton("body", () => t("body"), "nav-body", true)}
             {renderNavButton("tasks", () => t("tasks"), "nav-tasks", true)}
+            {renderNavButton("schedules", () => t("schedules"), "nav-schedules", true)}
             {renderNavButton("plugins", () => t("plugins"), "nav-plugins", true)}
             {renderNavButton("settings", () => t("settings"), "nav-settings", true)}
           </Scroll>
