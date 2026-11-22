@@ -1,4 +1,4 @@
-import type { LocalizedText } from "../../runtime/plugins/shared-types.js";
+import type { LocalizedText, PluginFailure } from "../../runtime/plugins/shared-types.js";
 
 export const WEREWOLF_PLUGIN_ID = "werewolf-judge" as const;
 
@@ -153,6 +153,21 @@ export interface WerewolfPublicEvent {
   readonly timestampMs: number;
 }
 
+export interface WerewolfMatchHighlight {
+  readonly kind: "peaceful_night" | "day_tie" | "sheriff_tie" | "badge_transfer";
+  readonly day: number;
+}
+
+export interface WerewolfMatchSummary {
+  readonly id: string;
+  readonly endedAtMs: number;
+  readonly presetId: WerewolfPresetId;
+  readonly playerCount: number;
+  readonly winner: "good" | "werewolf";
+  readonly day: number;
+  readonly highlight: WerewolfMatchHighlight | null;
+}
+
 export interface WerewolfTimelineRevealEntry {
   readonly day: number;
   readonly summary: string;
@@ -225,6 +240,8 @@ export interface WerewolfPublicState {
   readonly winReason: string | null;
   /** Strictly empty `[]` until `phase === "game_over"`. */
   readonly fullTimelineReveal: readonly WerewolfTimelineRevealEntry[];
+  readonly matchHistory: readonly WerewolfMatchSummary[];
+  readonly matchHistoryLoadError: PluginFailure | null;
   readonly aiMvpReview: WerewolfAiMvpReview;
   readonly hostPaused: boolean;
   readonly lastJudgeSpeech: string;

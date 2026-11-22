@@ -140,6 +140,22 @@ async function runFullLandscapeMatch(variant: {
     await app.waitFor("id:werewolf-settings-view");
     expect(app.shows("id:werewolf-settings-faction-summary")).toBe(true);
 
+    await app.press("id:werewolf-open-history");
+    await app.waitFor("id:werewolf-history-page");
+    await app.waitFor("text:还没有对局记录");
+    expect(app.shows("text:完成一局后，就能回来复盘")).toBe(true);
+    await app.press("id:werewolf-history-back");
+    await app.waitUntil(() => !app.shows("id:werewolf-history-page"));
+    await app.press("id:werewolf-open-history");
+    await app.waitFor("id:werewolf-history-header-back");
+    await app.press("id:werewolf-history-header-back");
+    await app.waitUntil(() => !app.shows("id:werewolf-history-page"));
+    await app.press("id:werewolf-open-history");
+    await app.waitFor("id:werewolf-history-page");
+    await app.back();
+    await app.waitUntil(() => !app.shows("id:werewolf-history-page"));
+    await app.waitFor("id:werewolf-launch-stage-btn");
+
     await app.press("id:werewolf-settings-toggle-lan");
     await app.waitFor("id:werewolf-settings-qr");
     await app.waitUntil(
@@ -355,6 +371,21 @@ async function runFullLandscapeMatch(variant: {
     await app.press("id:exit-plugin-stage");
     await app.waitUntil(() => !app.shows("id:exit-plugin-stage"), { timeout: 3000 });
     expect(app.count("id:looi-face")).toBe(1);
+
+    await app.press("id:connection-settings");
+    await app.waitFor("id:nav-plugins");
+    await app.press("id:nav-plugins");
+    if (!app.shows("id:werewolf-open-history")) {
+      await app.press("id:plugin-werewolf-judge");
+    }
+    await app.press("id:werewolf-open-history");
+    await app.waitFor("id:werewolf-history-list");
+    await app.waitFor("text:好人获胜");
+    expect(app.shows("text:6人欢乐屠城")).toBe(true);
+    expect(app.shows("text:第 1 天")).toBe(true);
+    expect(app.shows("text:还没有对局记录")).toBe(false);
+    await app.press("id:werewolf-history-header-back");
+    await app.waitFor("id:werewolf-settings-view");
   } finally {
     app.dispose();
   }

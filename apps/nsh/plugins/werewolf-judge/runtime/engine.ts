@@ -9,6 +9,8 @@ import {
   type WerewolfJudgeVoiceStatus,
   type WerewolfLanStatus,
   type WerewolfLeaveReason,
+  type WerewolfMatchHighlight,
+  type WerewolfMatchSummary,
   type WerewolfNightPromptPublic,
   type WerewolfPhase,
   type WerewolfPresetId,
@@ -27,6 +29,7 @@ import {
   buildPresetRules,
   defaultCsprngInt,
   expandDeckFromRoleCounts,
+  randomTokenHex,
   shuffleRolesCsprng,
   validateRulesConfig,
   type RandomIntFn,
@@ -210,6 +213,8 @@ export interface WerewolfMatchCheckpointV1 {
   readonly truthTimeline: ReadonlyArray<WerewolfTimelineRevealEntry>;
   readonly winner: "good" | "werewolf" | null;
   readonly winReason: string | null;
+  readonly latestMatchHighlight?: WerewolfMatchHighlight | null;
+  readonly completedMatch?: WerewolfMatchSummary | null;
   readonly aiMvpReview: WerewolfAiMvpReview;
   readonly lastJudgeSpeech: string;
   readonly lanSeatTokens: ReadonlyArray<readonly [number, string]>;
@@ -300,6 +305,8 @@ export class WerewolfEngine {
   private truthTimeline: WerewolfTimelineRevealEntry[] = [];
   private winner: "good" | "werewolf" | null = null;
   private winReason: string | null = null;
+  private latestMatchHighlight: WerewolfMatchHighlight | null = null;
+  private completedMatch: WerewolfMatchSummary | null = null;
   private aiMvpReview: WerewolfAiMvpReview = {
     status: "idle",
     text: null,
@@ -360,6 +367,10 @@ export class WerewolfEngine {
     return this.rules.playerCount;
   }
 
+  getCompletedMatch(): WerewolfMatchSummary | null {
+    return this.completedMatch;
+  }
+
   /**
    * Internal choreography lookup ONLY for active living night role seat(s) when needed
    * inside anti-cheat movement planner; never exposed to public state.
@@ -415,7 +426,7 @@ export class WerewolfEngine {
     readonly hostPaused: boolean;
     readonly voiceStatus?: WerewolfJudgeVoiceStatus;
     readonly hasResumableMatch?: boolean;
-  }): WerewolfPublicState {
+  }): Omit<WerewolfPublicState, "matchHistory" | "matchHistoryLoadError"> {
     const claimedSet = new Set(extras.lan.claimedSeats);
     const isGameOver = this.phase === "game_over";
 
@@ -526,7 +537,7 @@ export class WerewolfEngine {
     readonly lanSeatTokens: ReadonlyArray<readonly [number, string]>;
     readonly mutedByHost: boolean;
   }): WerewolfMatchCheckpointV1 | null {
-    if (!ACTIVE_CHECKPOINT_PHASES.has(this.phase)) {
+    if (!ACTIVE_CHECKPOINT_PHASES.has(this.phase) && !this.completedMatch) {
       return null;
     }
     return structuredClone({
@@ -575,6 +586,8 @@ export class WerewolfEngine {
       truthTimeline: this.truthTimeline,
       winner: this.winner,
       winReason: this.winReason,
+      latestMatchHighlight: this.latestMatchHighlight,
+      completedMatch: this.completedMatch,
       aiMvpReview: this.aiMvpReview,
       lastJudgeSpeech: this.lastJudgeSpeech,
       lanSeatTokens: runtimeExtras.lanSeatTokens,
@@ -596,7 +609,7 @@ export class WerewolfEngine {
     if (ck.version !== 1) {
       return { restored: false, reason: `unsupported_checkpoint_version:${String(ck.version)}` };
     }
-    if (!ck.phase || !ACTIVE_CHECKPOINT_PHASES.has(ck.phase)) {
+    if (!ck.phase || !(ACTIVE_CHECKPOINT_PHASES.has(ck.phase) || (ck.phase === "game_over" && ck.completedMatch))) {
       return { restored: false, reason: `non_active_checkpoint_phase:${String(ck.phase)}` };
     }
     if (!ck.rules || !Array.isArray(ck.seats) || ck.seats.length !== ck.rules.playerCount) {
@@ -648,6 +661,8 @@ export class WerewolfEngine {
     this.truthTimeline = [...(cloned.truthTimeline ?? [])];
     this.winner = cloned.winner ?? null;
     this.winReason = cloned.winReason ?? null;
+    this.latestMatchHighlight = cloned.latestMatchHighlight ?? null;
+    this.completedMatch = cloned.completedMatch ?? null;
     this.aiMvpReview = cloned.aiMvpReview ?? { status: "idle", text: null, error: null };
     this.lastJudgeSpeech = cloned.lastJudgeSpeech ?? "";
     return {
@@ -1645,7 +1660,7 @@ export class WerewolfEngine {
     if (heir !== null) {
       this.assignSheriff(heir.seat);
       const msg = `${task.seat} 号将警徽移交给 ${heir.seat} 号。`;
-      this.addPublicEvent(msg);
+      this.addPublicEvent(msg, "badge_transfer");
       this.recordTruth(this.day, msg, [task.seat, heir.seat]);
     } else {
       this.clearSheriff();
@@ -2041,7 +2056,7 @@ export class WerewolfEngine {
         : `第 ${this.day} 天天亮了，昨晚倒牌的玩家是 ${deaths
             .map((d) => `${d.seat}号`)
             .join("、")}（排名不分先后）。`;
-    this.addPublicEvent(deathText);
+    this.addPublicEvent(deathText, deaths.length === 0 ? "peaceful_night" : undefined);
     this.recordTruth(
       this.day,
       deaths.length === 0
@@ -2210,7 +2225,7 @@ export class WerewolfEngine {
       const ordered = this.buildRandomOrderedSeats(tiedCandidates);
       this.startSpeechQueue(ordered);
       const announcement = `警长投票出现平票（${tiedCandidates.join("、")}号），进入 PK 发言，由 ${ordered[0]} 号开始。`;
-      this.addPublicEvent(announcement);
+      this.addPublicEvent(announcement, "sheriff_tie");
       this.lastJudgeSpeech = announcement;
       this.bumpRevision();
       return { announcement };
@@ -2318,7 +2333,7 @@ export class WerewolfEngine {
       const ordered = this.buildRandomOrderedSeats(topTargets);
       this.startSpeechQueue(ordered);
       const announcement = `${topTargets.join("、")} 号同得最高票（${topScore}票），进入平票 PK 发言，请 ${ordered[0]} 号开始。`;
-      this.addPublicEvent(announcement);
+      this.addPublicEvent(announcement, "day_tie");
       this.recordTruth(this.day, announcement, topTargets);
       this.bumpRevision();
       return { announcement };
@@ -2368,6 +2383,15 @@ export class WerewolfEngine {
       return false;
     }
 
+    this.completedMatch = {
+      id: randomTokenHex(),
+      endedAtMs: this.now(),
+      presetId: this.rules.presetId,
+      playerCount: this.rules.playerCount,
+      winner,
+      day: this.day,
+      highlight: this.latestMatchHighlight,
+    };
     this.phase = "game_over";
     this.sheriffSubphase = null;
     this.winner = winner;
@@ -2856,10 +2880,15 @@ export class WerewolfEngine {
     this.truthTimeline = [];
     this.winner = null;
     this.winReason = null;
+    this.latestMatchHighlight = null;
+    this.completedMatch = null;
     this.aiMvpReview = { status: "idle", text: null, error: null };
   }
 
-  private addPublicEvent(text: string): void {
+  private addPublicEvent(text: string, highlight?: WerewolfMatchHighlight["kind"]): void {
+    if (highlight) {
+      this.latestMatchHighlight = { kind: highlight, day: this.day };
+    }
     this.eventCounter += 1;
     this.publicEvents.push({
       id: `ev-${this.eventCounter}`,

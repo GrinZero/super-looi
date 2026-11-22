@@ -1,5 +1,5 @@
-import { Clipboard, effect, Scroll, signal, Text, View, windowSize } from "nsh";
-import { Button } from "nsh/base";
+import { Clipboard, effect, reduceMotion, Scroll, signal, Text, View, windowSize } from "nsh";
+import { Button, Dialog } from "nsh/base";
 import {
   ActionButton,
   SelectField,
@@ -23,6 +23,7 @@ import {
   type WerewolfWinMode,
   type WerewolfWitchSelfSaveMode,
 } from "../contracts";
+import { WEREWOLF_HISTORY_TITLE, WerewolfHistoryView } from "./HistoryView";
 import { QrCodeCanvas } from "./QrCodeCanvas";
 import { readWerewolfState } from "./StageCapsule";
 import { WerewolfRoleIcon } from "./WerewolfIcons";
@@ -45,6 +46,8 @@ export function WerewolfSettingsView(props: {
   const enabled = () => props.ctx.enabled();
   const busy = () => props.ctx.busy();
   const confirmReset = signal(false);
+  const historyOpen = signal(false);
+  const closeHistory = () => historyOpen.set(false);
 
   effect(() => {
     if (st().phase === "idle") {
@@ -129,7 +132,7 @@ export function WerewolfSettingsView(props: {
             </If>
 
             <View class="flex-row items-center justify-between gap-2.5 flex-wrap">
-              <View class="flex-row items-center gap-2 min-w-0 flex-1">
+              <View class="flex-row items-center gap-2 min-w-16 flex-1">
                 <View class={statusDotClass()} />
                 <Text
                   testID="werewolf-settings-phase"
@@ -150,7 +153,15 @@ export function WerewolfSettingsView(props: {
                 </Text>
               </View>
 
-              <View class="flex-row items-center gap-2 shrink-0">
+              <ActionButton
+                testID="werewolf-open-history"
+                compact
+                kind="quiet"
+                label={WEREWOLF_HISTORY_TITLE[loc()]}
+                onPress={() => historyOpen.set(true)}
+              />
+
+              <View class="flex-row items-center gap-2 shrink-0 ml-auto">
                 <If when={st().phase !== "idle"}>
                   <ActionButton
                     testID="werewolf-exit-idle-btn"
@@ -737,6 +748,27 @@ export function WerewolfSettingsView(props: {
           </View>
         </Scroll>
       </View>
+      <Dialog
+        testID="werewolf-history-page"
+        open={historyOpen()}
+        presentation="fullScreen"
+        animation={reduceMotion() ? "none" : "fade"}
+        accessibilityLabel={WEREWOLF_HISTORY_TITLE[loc()]}
+        closeOnEscape
+        closeOnSwipe={false}
+        closeOnBackdropPress={false}
+        onOpenChange={(event) => {
+          if (!event.open) closeHistory();
+        }}
+        class="flex-1 w-full h-full bg-stage-bg"
+      >
+        <WerewolfHistoryView
+          locale={loc()}
+          records={st().matchHistory}
+          loadError={st().matchHistoryLoadError}
+          onBack={closeHistory}
+        />
+      </Dialog>
     </View>
   );
 }

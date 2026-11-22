@@ -184,6 +184,10 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 
 ### 6.3 狼人杀舞台完整动效清单（Motion Inventory）
 
+设置页的「历史对局」沿用 `ActionButton` 的按压与焦点反馈。历史页使用全屏 `Dialog` 淡入淡出，开启减少动态效果时即时切换。空态插画随页面一起出现，顶栏返回和空态主按钮使用舞台色令牌，按压反馈为不透明度变化。关闭后回到原设置页。
+
+有已结算记录时，历史页在同一深色舞台中按结束时间倒序显示列表。横屏卡片从左到右呈现日期与时间、板子与胜负、公开名场面。列表随页面进入，内容更新时就地显示。
+
 | 状态变化类别（Category & State Change） | 原生动效工具与令牌参数（Tool & Motion Tokens） | 无障碍降级（`reduceMotion()`） |
 | :--- | :--- | :--- |
 | **1. 按压与悬停（Press & Hover）**：座位砖块、操作按钮、预设胶囊、分段项与二维码触发卡 | 悬停/边框色阶过渡 `transition-colors duration-120`；按压反馈 `transition-transform duration-180 active:scale-[0.97]` + 明度加深，禁用态屏蔽按压缩放 | `motion-reduce:active:scale-100`，仅保留即时明度与边框色阶切换 |

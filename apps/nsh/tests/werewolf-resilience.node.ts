@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
@@ -308,6 +311,7 @@ const FIXED_6P_ROLES = {
 
 async function createHarness(options: {
   db?: DatabaseSync;
+  now?: () => number;
   speakerTickMs?: number;
   speakImpl?: PluginHostAiBridge["speak"];
 } = {}) {
@@ -325,6 +329,7 @@ async function createHarness(options: {
     [
       visionPersonTrackerDefinition(),
       werewolfJudgeDefinition({
+        now: options.now,
         sleep: async () => {},
         nightIntroDelayMs: 0,
         speakerTickMs: options.speakerTickMs ?? 250,
@@ -370,7 +375,11 @@ async function createHarness(options: {
   };
 }
 
-async function advance6pMatchToDay(send: (cmd: WerewolfCommand) => Promise<WerewolfPublicState>, readState: () => WerewolfPublicState) {
+async function advance6pMatchToDay(
+  send: (cmd: WerewolfCommand) => Promise<WerewolfPublicState>,
+  readState: () => WerewolfPublicState,
+  poisonTargetSeat: number | null = null,
+) {
   await send({ type: "open_lobby", presetId: "6p_joy" });
   await send({ type: "start_dealing" });
   for (let seat = 1; seat <= 6; seat += 1) {
@@ -382,10 +391,168 @@ async function advance6pMatchToDay(send: (cmd: WerewolfCommand) => Promise<Werew
     await new Promise((r) => setTimeout(r, 10));
   }
   await send({ type: "submit_wolf_action", targetSeat: null });
-  await send({ type: "submit_witch_action", save: false, poisonTargetSeat: null });
+  await send({ type: "submit_witch_action", save: false, poisonTargetSeat });
   await send({ type: "submit_seer_check", targetSeat: 1 });
   await send({ type: "finish_seer_turn" });
 }
+
+async function prepareHistoryMatch(h: Awaited<ReturnType<typeof createHarness>>) {
+  await advance6pMatchToDay(h.send, h.readState, 1);
+  if (h.readState().phase === "dawn_announce") {
+    await h.send({ type: "acknowledge_dawn" });
+  }
+  while (h.readState().phase === "leave_resolution") {
+    await h.send({ type: "finish_last_words" });
+  }
+  assert.equal(h.readState().phase, "day_discussion");
+}
+
+test("Host votes and LAN actions archive settled matches once across a database reopen", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "werewolf-match-history-"));
+  const path = join(dir, "plugin.sqlite");
+  let nowMs = Date.UTC(2026, 10, 22, 11, 5);
+  try {
+    const db = new DatabaseSync(path);
+    const h = await createHarness({ db, now: () => nowMs });
+    let history: WerewolfPublicState["matchHistory"];
+    try {
+      await h.host.startAll();
+      assert.deepEqual(h.readState().matchHistory, []);
+      await prepareHistoryMatch(h);
+      assert.deepEqual(h.readState().matchHistory, []);
+
+      await h.send({ type: "start_voting" });
+      for (const [voterSeat, targetSeat] of [[2, 3], [3, 2], [4, 2], [5, 3], [6, null]] as const) {
+        await h.send({ type: "cast_on_device_vote", voterSeat, targetSeat });
+      }
+      await h.send({ type: "finalize_votes" });
+      assert.equal(h.readState().phase, "day_pk_speech");
+      while (h.readState().phase === "day_pk_speech") {
+        await h.send({ type: "advance_speaker" });
+      }
+      await h.send({ type: "cast_on_device_vote", voterSeat: 4, targetSeat: 2 });
+      await h.send({ type: "finalize_votes" });
+      const [first] = h.readState().matchHistory;
+      assert.ok(first);
+      assert.deepEqual(first, {
+        id: first.id,
+        endedAtMs: nowMs,
+        presetId: "6p_joy",
+        playerCount: 6,
+        winner: "good",
+        day: 1,
+        highlight: { kind: "day_tie", day: 1 },
+      });
+      await h.send({ type: "play_again" });
+
+      nowMs += 60_000;
+      await h.send({ type: "update_rules", patch: { surfaceMode: "lan_companion" } });
+      await prepareHistoryMatch(h);
+      assert.deepEqual(h.readState().matchHistory, [first]);
+      const [roomId] = h.nativeLan.rooms.keys();
+      assert.ok(roomId);
+      const claim = await h.nativeLan.simulateHttp(roomId, {
+        method: "POST",
+        path: "/api/claim",
+        body: { seat: 2 },
+      });
+      assert.equal(claim.status, 200);
+      const finish = await h.nativeLan.simulateHttp(roomId, {
+        method: "POST",
+        path: "/api/action",
+        body: { action: "wolf_self_explode", seat: 2, token: claim.json.seatToken },
+      });
+      assert.equal(finish.status, 200);
+      assert.equal(finish.json.view.phase, "game_over");
+      assert.equal("matchHistory" in finish.json.view, false);
+      history = h.readState().matchHistory;
+      assert.equal(history.length, 2);
+      assert.equal(history[0]?.endedAtMs, nowMs);
+      assert.notEqual(history[0]?.id, first.id);
+      assert.deepEqual(history[1], first);
+      await h.send({ type: "play_again" });
+      await h.host.setEnabled(WEREWOLF_PLUGIN_ID, false);
+      assert.deepEqual(h.readState().matchHistory, history);
+    } finally {
+      await h.dispose();
+      db.close();
+    }
+
+    const reopened = new DatabaseSync(path);
+    const next = await createHarness({ db: reopened, now: () => nowMs });
+    try {
+      assert.equal(next.host.snapshot(WEREWOLF_PLUGIN_ID).enabled, false);
+      assert.equal(next.readState().phase, "idle");
+      assert.deepEqual(next.readState().matchHistory, history);
+      await next.host.setEnabled(WEREWOLF_PLUGIN_ID, true);
+      assert.deepEqual(next.readState().matchHistory, history);
+    } finally {
+      await next.dispose();
+      reopened.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("An archive write failure keeps the terminal checkpoint recoverable", async () => {
+  const db = new DatabaseSync(":memory:");
+  const h = await createHarness({ db });
+  const checkpointRow = () => db
+    .prepare("SELECT value FROM plugin_kv_storage WHERE plugin_id = ? AND key = ?")
+    .get(WEREWOLF_PLUGIN_ID, "match_checkpoint_v1") as { value: string } | undefined;
+  try {
+    try {
+      await h.host.startAll();
+      await prepareHistoryMatch(h);
+      await h.send({ type: "start_voting" });
+      await h.send({ type: "cast_on_device_vote", voterSeat: 4, targetSeat: 2 });
+      db.exec(`
+        CREATE TEMP TRIGGER reject_match_history BEFORE INSERT ON plugin_kv_storage
+        WHEN NEW.key = 'match_history_v1'
+        BEGIN
+          SELECT RAISE(ABORT, 'history write fixture');
+        END
+      `);
+
+      const failure = {
+        stage: "history.write",
+        code: "ERR_SQLITE_ERROR",
+        message: "history write fixture",
+      };
+      await assert.rejects(h.send({ type: "finalize_votes" }), failure);
+      assert.equal(h.readState().phase, "game_over");
+      assert.deepEqual(h.readState().matchHistory, []);
+      assert.deepEqual(h.host.snapshot(WEREWOLF_PLUGIN_ID).lastError, {
+        stage: failure.stage,
+        code: failure.code,
+        reason: failure.message,
+      });
+      await assert.rejects(h.send({ type: "play_again" }), failure);
+      assert.equal(h.readState().phase, "game_over");
+      assert.ok(checkpointRow());
+    } finally {
+      await h.dispose();
+    }
+
+    const saved = checkpointRow();
+    assert.ok(saved);
+    const completed = JSON.parse(saved.value).completedMatch;
+    assert.ok(completed.id);
+    db.exec("DROP TRIGGER reject_match_history");
+    const reopened = await createHarness({ db });
+    try {
+      await reopened.host.startAll();
+      assert.equal(reopened.readState().phase, "idle");
+      assert.deepEqual(reopened.readState().matchHistory, [completed]);
+      assert.equal(checkpointRow(), undefined);
+    } finally {
+      await reopened.dispose();
+    }
+  } finally {
+    db.close();
+  }
+});
 
 test("Scenario 1: Host exit pauses match, freezes speaker timer, populates resumable pill, and resume restores progress", async () => {
   const h = await createHarness({ speakerTickMs: 40 });
