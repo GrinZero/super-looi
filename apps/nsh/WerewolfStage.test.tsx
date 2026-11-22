@@ -274,11 +274,10 @@ async function runFullLandscapeMatch(variant: {
     expect(villagerSeats.length).toBe(2);
 
     // 5. Enter Night 1 -> Werewolf attack -> Witch poison Wolf #1 -> Seer check Wolf #2!
-    await app.waitFor("id:werewolf-begin-night-btn");
-    await app.press("id:werewolf-begin-night-btn");
+    await app.waitFor("id:werewolf-first-night-countdown");
 
-    // Wait past night_intro (~1.2s) into night_wolf privacy gate
-    await app.waitUntil(() => app.shows("id:werewolf-night-gate-btn"), { timeout: 6000 });
+    // Wait for the countdown and night intro to finish before opening the privacy gate.
+    await app.waitUntil(() => app.shows("id:werewolf-night-gate-btn"), { timeout: 15000 });
     await app.press("id:werewolf-night-gate-btn");
     await app.waitFor("id:werewolf-night-unlocked-panel");
 
@@ -487,17 +486,16 @@ test(
       await app.press("id:werewolf-start-dealing-btn");
       await app.waitFor("id:werewolf-dealing-panel");
 
-      expect(app.shows("id:werewolf-begin-night-btn")).toBe(false);
+      expect(app.shows("id:werewolf-first-night-countdown")).toBe(false);
       for (let seat = 1; seat <= 6; seat += 1) {
         await app.press("id:werewolf-deal-confirm-btn");
         await app.wait(50);
       }
 
-      await app.waitFor("id:werewolf-begin-night-btn");
-      await app.press("id:werewolf-begin-night-btn");
+      await app.waitFor("id:werewolf-first-night-countdown");
 
       // LAN Companion keeps Night phase compact in a peek drawer while StageCapsule stays in top bar
-      await app.waitUntil(() => app.shows("id:werewolf-night-lan-peek"), { timeout: 6000 });
+      await app.waitUntil(() => app.shows("id:werewolf-night-lan-peek"), { timeout: 15000 });
       expect(app.shows("id:werewolf-stage-capsule")).toBe(true);
 
       // Wolf turn via host override
