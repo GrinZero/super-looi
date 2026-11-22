@@ -13,7 +13,6 @@ import {
   View,
 } from "nsh";
 import { Button } from "nsh/base";
-import { LoadingIndicator } from "../../../ui/Controls";
 import { DeviceCameraPreview } from "../../../ui/DeviceCameraPreview";
 import type { PluginViewContext } from "../../../ui/plugins/ui-contracts";
 import {
@@ -30,6 +29,8 @@ import {
   type WerewolfRole,
   type WerewolfSeatPublicView,
 } from "../contracts";
+import { WEREWOLF_HISTORY_TITLE } from "./HistoryView";
+import { WerewolfHistoryOverlay, type WerewolfHistoryRoute } from "./HistoryOverlay";
 import { QrCodeCanvas } from "./QrCodeCanvas";
 import { readWerewolfDiagnostic, readWerewolfState } from "./StageCapsule";
 import {
@@ -354,6 +355,7 @@ const COMPACT_ROLE_LABELS: Record<
 
 function LobbyStagePanel(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
+  onOpenHistory: () => void;
 }) {
   const st = () => readWerewolfState(props.ctx);
   const loc = () => props.ctx.locale();
@@ -444,10 +446,18 @@ function LobbyStagePanel(props: {
           </View>
 
           <Button
+            testID="werewolf-lobby-open-history"
+            onPress={props.onOpenHistory}
+            class="min-h-11 px-2 rounded-full flex-row items-center gap-1 shrink-0 active:opacity-75 hover:bg-stage-pill-bg transition-colors duration-150 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-face-amber-edge"
+          >
+            <WerewolfStageIcon name="clock" tone="stageMuted" size={16} />
+            <Text class="text-stage-pill-fg text-xs font-medium">{WEREWOLF_HISTORY_TITLE[loc()]}</Text>
+          </Button>
+          <Button
             testID="werewolf-open-settings-btn"
             hitSlop={6}
             onPress={() => props.ctx.openPluginSettings()}
-            class="h-8 px-2.5 -mr-1 rounded-full flex-row items-center gap-0.5 shrink-0 active:opacity-75"
+            class="min-h-11 px-2 -mr-1 rounded-full flex-row items-center gap-0.5 shrink-0 active:opacity-75"
           >
             <Text class="text-stage-pill-fg text-xs font-medium">
               {loc() === "en-US" ? "Rules" : "调整规则"}
@@ -3516,343 +3526,139 @@ function LeaveResolutionStagePanel(props: {
 
 function GameOverStage(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
+  onOpenHistory: () => void;
+  onOpenReplay: () => void;
 }) {
-  const activeTab = signal<"roles" | "timeline">("roles");
-  const tabTrackWidth = signal(0);
-  const tabSlideTx = createAnimatedValue(0);
-  let tabInitialized = false;
-
   const st = () => readWerewolfState(props.ctx);
   const loc = () => props.ctx.locale();
-
-  effect(() => {
-    const slotW = Math.max(0, (tabTrackWidth() - 4) / 2);
-    const targetX = activeTab() === "timeline" ? slotW : 0;
-    if (!tabInitialized || reduceMotion() || slotW <= 0) {
-      tabSlideTx.set(targetX);
-      if (slotW > 0) tabInitialized = true;
-      return;
-    }
-    void tabSlideTx.timing(targetX, { duration: 240, easing: "easeInOut" });
-  });
-
-  const revealMotion = createMotion(
-    reduceMotion() ? {} : { enter: "fadeIn", duration: 220 },
-  );
-
+  const revealMotion = createMotion(reduceMotion() ? {} : { enter: "fadeIn", duration: 220 });
   const seatGridClass = () =>
     st().seats.length <= 9 ? "grid grid-cols-3 gap-1.5" : "grid grid-cols-4 gap-1";
-
-  const fallbackRecapText = () => {
-    const timeline = st().fullTimelineReveal;
-    if (timeline.length > 0) {
-      const latest = timeline[timeline.length - 1]!;
-      return latest.summary;
-    }
-    return (
-      st().winReason ||
-      (loc() === "en-US"
-        ? "Match archived. Tap Generate to summarize highlights."
-        : "对局已归档，可点击右侧生成 AI 法官高光复盘。")
-    );
-  };
 
   return (
     <View
       testID="werewolf-gameover-panel"
-      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-2 justify-between gap-1.5"
+      class="flex-1 min-h-0 rounded-3xl border border-stage-pill-border bg-stage-panel p-3 gap-2"
       style={{ pointerEvents: "auto", opacity: revealMotion.opacity }}
     >
-      {/* Top 240ms sliding tab switcher */}
-      <View
-        onLayout={(ev) => tabTrackWidth.set(ev.bounds.size.width)}
-        class="relative self-start w-60 rounded-full border border-stage-pill-border bg-stage-tile p-0.5 flex-row items-center shrink-0"
-      >
-        <If when={tabTrackWidth() > 4}>
-          <View
-            class="absolute top-0.5 bottom-0.5 left-0.5 rounded-full border border-stage-amber-border bg-stage-amber-bg"
-            style={{
-              width: Math.max(0, (tabTrackWidth() - 4) / 2),
-              pointerEvents: "none",
-              transform: [{ translateX: tabSlideTx }],
-            }}
-          />
-        </If>
-
+      <View class="flex-row items-center justify-between shrink-0">
+        <Text role="header" class="text-stage-fg font-bold text-base">
+          {loc() === "en-US" ? "Roles Revealed" : "身份揭晓"}
+        </Text>
         <Button
-          testID="werewolf-gameover-tab-roles"
-          selected={activeTab() === "roles"}
-          hitSlop={{ top: 6, bottom: 6 }}
-          onPress={() => activeTab.set("roles")}
-          class="flex-1 h-8 px-3 rounded-full items-center justify-center active:opacity-80"
+          testID="werewolf-terminal-open-history"
+          onPress={props.onOpenHistory}
+          class="min-h-11 px-3 rounded-full flex-row items-center gap-1.5 hover:bg-stage-pill-bg active:opacity-75 transition-colors duration-150 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-face-amber-edge"
         >
-          <Text
-            class={
-              activeTab() === "roles"
-                ? "text-face-amber-core text-xs font-bold"
-                : "text-stage-fg text-xs font-medium"
-            }
-          >
-            {loc() === "en-US" ? "Roles" : "身份揭晓"}
-          </Text>
-        </Button>
-
-        <Button
-          testID="werewolf-gameover-tab-timeline"
-          selected={activeTab() === "timeline"}
-          hitSlop={{ top: 6, bottom: 6 }}
-          onPress={() => activeTab.set("timeline")}
-          class="flex-1 h-8 px-3 rounded-full items-center justify-center active:opacity-80"
-        >
-          <Text
-            class={
-              activeTab() === "timeline"
-                ? "text-face-amber-core text-xs font-bold"
-                : "text-stage-fg text-xs font-medium"
-            }
-          >
-            {loc() === "en-US" ? "Timeline" : "对局时间线"}
-          </Text>
+          <WerewolfStageIcon name="clock" tone="stageMuted" size={16} />
+          <Text class="text-stage-pill-fg text-sm font-medium">{WEREWOLF_HISTORY_TITLE[loc()]}</Text>
         </Button>
       </View>
-
-      {/* Main Content (scrollable independently above fixed recap bar) */}
-      <If
-        when={activeTab() === "roles"}
-        else={
-          <Scroll
-            testID="werewolf-truth-timeline"
-            class="flex-1 min-h-0"
-            contentClass="min-h-full gap-1.5"
-          >
-            <If
-              when={st().fullTimelineReveal.length > 0}
-              else={
-                <View class="flex-1 items-center justify-center py-6">
-                  <Text class="text-stage-pill-muted text-xs">
-                    {loc() === "en-US"
-                      ? "No timeline events recorded."
-                      : "本局暂无时间线事件记录。"}
-                  </Text>
-                </View>
-              }
-            >
-              <Each
-                of={st().fullTimelineReveal}
-                key={(_, idx) => `${idx}`}
-              >
-                {(entryAcc) => {
-                  const item = () => entryAcc();
-                  return (
-                    <View class="flex-row items-start gap-2.5 rounded-2xl border border-stage-pill-border bg-stage-tile px-3 py-1.5">
+      <Scroll class="flex-1 min-h-0" contentClass="min-h-full justify-center">
+        {/* Role reveal grid */}
+        <View testID="werewolf-role-reveal-grid" class={seatGridClass()}>
+          <Each of={st().seats} key={(item) => item.seat}>
+            {(seatAcc) => {
+              const s = () => seatAcc();
+              const compact = () => st().seats.length > 9;
+              const role = () => s().revealedRole ?? "villager";
+              const roleLabel = () => {
+                const r = s().revealedRole;
+                return r ? WEREWOLF_ROLE_LABELS[r][loc()] : "?";
+              };
+              const roleTextClass = () => {
+                const r = s().revealedRole;
+                if (!r) return "text-stage-pill-muted text-xs font-semibold";
+                if (isWolfRole(r)) {
+                  return "text-face-rose-core text-xs font-bold";
+                }
+                if (isGodRole(r)) {
+                  return "text-face-amber-core text-xs font-bold";
+                }
+                return "text-face-sage-core text-xs font-semibold";
+              };
+              return (
+                <View
+                  class={
+                    compact()
+                      ? "min-w-0 h-[38px] rounded-xl border border-stage-pill-border bg-stage-tile px-1.5 py-0.5 flex-row items-center gap-1"
+                      : "min-w-0 min-h-[46px] rounded-2xl border border-stage-pill-border bg-stage-tile px-2.5 py-1.5 flex-row items-center gap-2"
+                  }
+                >
+                  <WerewolfRoleIcon
+                    role={role()}
+                    tone={s().revealedRole ? roleFactionTone(role()) : "stageMuted"}
+                    size={compact() ? 14 : 19}
+                  />
+                  <View class={compact() ? "flex-1 min-w-0" : "flex-1 min-w-0 gap-0.5"}>
+                    <View class="flex-row items-center gap-1 min-w-0">
                       <Text
-                        class="text-face-mist-core text-xs font-semibold shrink-0"
+                        class="text-stage-fg text-xs font-bold shrink-0"
                         style={{ fontVariant: ["tabular-nums"] }}
                       >
-                        {loc() === "en-US" ? `D${item().day}` : `第${item().day}天`}
+                        {compact() || loc() === "en-US"
+                          ? `#${s().seat}${s().isSheriff ? "★" : ""}`
+                          : `${s().seat}号${s().isSheriff ? "★" : ""}`}
                       </Text>
-                      <Text class="text-stage-fg text-xs flex-1">
-                        {item().summary}
-                      </Text>
-                    </View>
-                  );
-                }}
-              </Each>
-            </If>
-          </Scroll>
-        }
-      >
-        <Scroll class="flex-1 min-h-0" contentClass="min-h-full justify-center">
-          {/* Role reveal grid */}
-          <View testID="werewolf-role-reveal-grid" class={seatGridClass()}>
-            <Each of={st().seats} key={(item) => item.seat}>
-              {(seatAcc) => {
-                const s = () => seatAcc();
-                const compact = () => st().seats.length > 9;
-                const role = () => s().revealedRole ?? "villager";
-                const roleLabel = () => {
-                  const r = s().revealedRole;
-                  return r ? WEREWOLF_ROLE_LABELS[r][loc()] : "?";
-                };
-                const roleTextClass = () => {
-                  const r = s().revealedRole;
-                  if (!r) return "text-stage-pill-muted text-xs font-semibold";
-                  if (isWolfRole(r)) {
-                    return "text-face-rose-core text-xs font-bold";
-                  }
-                  if (isGodRole(r)) {
-                    return "text-face-amber-core text-xs font-bold";
-                  }
-                  return "text-face-sage-core text-xs font-semibold";
-                };
-                return (
-                  <View
-                    class={
-                      compact()
-                        ? "min-w-0 h-[38px] rounded-xl border border-stage-pill-border bg-stage-tile px-1.5 py-0.5 flex-row items-center gap-1"
-                        : "min-w-0 min-h-[46px] rounded-2xl border border-stage-pill-border bg-stage-tile px-2.5 py-1.5 flex-row items-center gap-2"
-                    }
-                  >
-                    <WerewolfRoleIcon
-                      role={role()}
-                      tone={s().revealedRole ? roleFactionTone(role()) : "stageMuted"}
-                      size={compact() ? 14 : 19}
-                    />
-                    <View class={compact() ? "flex-1 min-w-0" : "flex-1 min-w-0 gap-0.5"}>
-                      <View class="flex-row items-center gap-1 min-w-0">
-                        <Text
-                          class="text-stage-fg text-xs font-bold shrink-0"
-                          style={{ fontVariant: ["tabular-nums"] }}
-                        >
-                          {compact() || loc() === "en-US"
-                            ? `#${s().seat}${s().isSheriff ? "★" : ""}`
-                            : `${s().seat}号${s().isSheriff ? "★" : ""}`}
-                        </Text>
-                        <Text
-                          class={`${roleTextClass()} shrink min-w-0`}
-                          style={{ numberOfLines: 1 }}
-                        >
-                          {roleLabel()}
-                        </Text>
-                      </View>
                       <Text
-                        class="text-stage-pill-muted text-xs"
+                        class={`${roleTextClass()} shrink min-w-0`}
                         style={{ numberOfLines: 1 }}
                       >
-                        {s().alive
-                          ? loc() === "en-US"
-                            ? compact()
-                              ? "Alive"
-                              : "Survived"
-                            : compact()
-                              ? "存活"
-                              : "存活至终局"
-                          : loc() === "en-US"
-                            ? `D${s().deathDay ?? "?"} Out`
-                            : compact()
-                              ? `D${s().deathDay ?? "?"}出局`
-                              : `第${s().deathDay ?? "?"}天出局`}
+                        {roleLabel()}
                       </Text>
                     </View>
+                    <Text
+                      class="text-stage-pill-muted text-xs"
+                      style={{ numberOfLines: 1 }}
+                    >
+                      {s().nickname ? `${s().nickname} · ` : ""}
+                      {s().alive
+                        ? loc() === "en-US"
+                          ? compact()
+                            ? "Alive"
+                            : "Survived"
+                          : compact()
+                            ? "存活"
+                            : "存活至终局"
+                        : loc() === "en-US"
+                          ? `D${s().deathDay ?? "?"} Out`
+                          : compact()
+                            ? `D${s().deathDay ?? "?"}出局`
+                            : `第${s().deathDay ?? "?"}天出局`}
+                    </Text>
                   </View>
-                );
-              }}
-            </Each>
-          </View>
-        </Scroll>
-      </If>
-
-      {/* Fixed compact single-strip AI recap bar outside Scroll */}
-      <View
-        testID="werewolf-mvp-card"
-        class="rounded-2xl border border-stage-amber-border bg-stage-amber-bg px-2.5 py-1 flex-row items-center justify-between gap-2 shrink-0"
-      >
-        <View class="flex-row items-center gap-2 flex-1 min-w-0">
-          <Text class="text-face-amber-core text-xs font-bold shrink-0">
-            {loc() === "en-US" ? "LOOI Recap" : "LOOI 复盘"}
-          </Text>
-          <View class="w-px h-3.5 bg-stage-amber-border shrink-0" />
-
-          <If when={st().aiMvpReview.status === "generating"}>
-            <View class="flex-1 min-w-0 py-0.5">
-              <LoadingIndicator
-                testID="werewolf-mvp-loading"
-                stage={true}
-                inline={true}
-                label={
-                  loc() === "en-US"
-                    ? "Reviewing match..."
-                    : "AI 法官正在复盘…"
-                }
-              />
-            </View>
-          </If>
-
-          <If
-            when={
-              st().aiMvpReview.status === "ready" &&
-              Boolean(st().aiMvpReview.text)
-            }
-          >
-            <Text
-              testID="werewolf-mvp-text"
-              class="text-stage-fg text-xs flex-1"
-              style={{ numberOfLines: 1 }}
-            >
-              {st().aiMvpReview.text}
-            </Text>
-          </If>
-
-          <If
-            when={
-              st().aiMvpReview.status === "failed" &&
-              Boolean(st().aiMvpReview.error)
-            }
-          >
-            <Text
-              testID="werewolf-mvp-error"
-              class="text-face-rose-core text-xs flex-1"
-              style={{ numberOfLines: 1 }}
-            >
-              {st().aiMvpReview.error}
-            </Text>
-          </If>
-
-          <If when={st().aiMvpReview.status === "idle"}>
-            <Text
-              class="text-stage-fg text-xs flex-1"
-              style={{ numberOfLines: 1 }}
-            >
-              {fallbackRecapText()}
-            </Text>
-          </If>
+                </View>
+              );
+            }}
+          </Each>
         </View>
+      </Scroll>
 
-        <Button
-          testID="werewolf-regen-mvp-btn"
-          hitSlop={4}
-          disabled={st().aiMvpReview.status === "generating"}
-          onPress={() => {
-            void props.ctx.sendCommand({ type: "regenerate_mvp_review" });
-          }}
-          class="h-8 px-3 rounded-full border border-stage-amber-border bg-stage-tile items-center justify-center shrink-0 active:opacity-75 disabled:opacity-40"
-        >
-          <Text class="text-face-amber-core text-xs font-semibold">
-            {st().aiMvpReview.status === "ready"
-              ? loc() === "en-US"
-                ? "Refresh"
-                : "重新点评"
-              : loc() === "en-US"
-                ? "Generate"
-                : "生成复盘"}
-          </Text>
-        </Button>
-      </View>
-
-      {/* Bottom dual actions */}
-      <View class="flex-row items-center gap-2.5 shrink-0">
+      <View class="flex-row items-center gap-2 shrink-0">
         <Button
           testID="werewolf-back-lobby-btn"
-          onPress={() => {
-            void props.ctx.sendCommand({ type: "open_lobby" });
-          }}
-          class="flex-1 min-h-11 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100"
+          onPress={() => { void props.ctx.sendCommand({ type: "open_lobby" }); }}
+          class="flex-1 min-h-11 rounded-full border border-stage-pill-border bg-stage-tile items-center justify-center active:opacity-75 focus-visible:ring-2 focus-visible:ring-face-amber-edge"
         >
           <Text class="text-stage-pill-fg text-xs font-semibold">
             {loc() === "en-US" ? "Adjust Board" : "调整板子"}
           </Text>
         </Button>
-
+        <Button
+          testID="werewolf-start-replay"
+          onPress={props.onOpenReplay}
+          disabled={props.ctx.busy() || !st().completedMatchId}
+          class="flex-[1.2] min-h-11 rounded-full border border-stage-amber-border bg-stage-amber-bg flex-row items-center justify-center gap-1.5 active:opacity-75 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-face-amber-edge"
+        >
+          <WerewolfStageIcon name="replay" tone="amber" size={16} />
+          <Text class="text-face-amber-core text-sm font-bold">{loc() === "en-US" ? "Start Replay" : "开始复盘"}</Text>
+        </Button>
         <Button
           testID="werewolf-play-again-btn"
-          onPress={() => {
-            void props.ctx.sendCommand({ type: "play_again" });
-          }}
-          class="flex-[1.5] min-h-11 rounded-full bg-eye-core flex-row items-center justify-center gap-1.5 transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100"
+          onPress={() => { void props.ctx.sendCommand({ type: "play_again" }); }}
+          class="flex-[1.2] min-h-11 rounded-full bg-eye-core flex-row items-center justify-center gap-1.5 transition-transform duration-180 active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:ring-2 focus-visible:ring-face-amber-edge"
         >
-          <Text class="text-stage-bg text-sm font-bold">
-            {loc() === "en-US" ? "Play Again" : "再来一局"}
-          </Text>
+          <Text class="text-stage-bg text-sm font-bold">{loc() === "en-US" ? "Play Again" : "再来一局"}</Text>
           <WerewolfStageIcon name="arrow_right" tone="stageBg" size={16} />
         </Button>
       </View>
@@ -3877,6 +3683,7 @@ export function WerewolfStageCanvas(props: {
   ctx: PluginViewContext<WerewolfPublicState, WerewolfCommand>;
 }) {
   const st = () => readWerewolfState(props.ctx);
+  const historyRoute = signal<WerewolfHistoryRoute | null>(null);
 
   const isOnDeviceNightTurn = () => {
     const p = st().phase;
@@ -3934,7 +3741,7 @@ export function WerewolfStageCanvas(props: {
         </View>
       </If>
       <If when={st().phase === "lobby"}>
-        <LobbyStagePanel ctx={props.ctx} />
+        <LobbyStagePanel ctx={props.ctx} onOpenHistory={() => historyRoute.set({ view: "history", origin: "lobby" })} />
       </If>
 
       <If when={st().phase === "dealing"}>
@@ -3967,8 +3774,13 @@ export function WerewolfStageCanvas(props: {
       </If>
 
       <If when={st().phase === "game_over"}>
-        <GameOverStage ctx={props.ctx} />
+        <GameOverStage
+          ctx={props.ctx}
+          onOpenHistory={() => historyRoute.set({ view: "history", origin: "terminal" })}
+          onOpenReplay={() => historyRoute.set({ view: "current" })}
+        />
       </If>
+      <WerewolfHistoryOverlay ctx={props.ctx} route={historyRoute()} onClose={() => historyRoute.set(null)} />
     </View>
   );
 }

@@ -6,6 +6,7 @@ import { RobotFaceController } from "../../packages/looi-runtime/src/ui/robot-fa
 import type { VoiceState } from "./generated/looi-runtime.js";
 import { bindLocale, resolveLocale } from "./i18n";
 import { visionPersonTrackerDefinition } from "./plugins/vision-person-tracker/runtime/index";
+import { WEREWOLF_PLUGIN_ID, type WerewolfCommand, type WerewolfPublicState } from "./plugins/werewolf-judge/contracts";
 import { werewolfJudgeDefinition } from "./plugins/werewolf-judge/runtime/index";
 import { DualLoopAiBus } from "./runtime/plugins/ai-bus";
 import type {
@@ -369,6 +370,12 @@ function WerewolfStageProbeApp() {
 
   let stageManager!: PluginStageManager;
   const aiBus = new DualLoopAiBus(() => stageManager?.activePluginId() ?? null);
+  let finishReview: (() => void) | undefined;
+  aiBus.setBridge({
+    runBackgroundTask: () => new Promise((resolve) => {
+      finishReview = () => resolve({ taskId: "probe-review", answer: "这局点评已生成" });
+    }),
+  });
   const services = new PluginServiceBroker(
     topology,
     async () => {},
@@ -542,6 +549,16 @@ function WerewolfStageProbeApp() {
           try {
             await mountAndStartEntry(entry);
             const result = await entry.runtime?.handleCommand?.(command);
+            if (id === WEREWOLF_PLUGIN_ID) {
+              const request = command as WerewolfCommand;
+              const state = entry.state as unknown as WerewolfPublicState;
+              if (request.type === "read_match_replay" && "matchId" in request.source &&
+                  state.completedMatchId !== request.source.matchId) {
+                // Resolve after an archived replay has read its pending state.
+                finishReview?.();
+                finishReview = undefined;
+              }
+            }
             return result as TResult;
           } catch (error) {
             setUiError(id, error instanceof Error ? error.message : String(error));

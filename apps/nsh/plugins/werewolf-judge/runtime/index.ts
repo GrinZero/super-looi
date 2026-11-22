@@ -502,11 +502,11 @@ export class WerewolfJudgePluginRuntime
   handleCommand(command: WerewolfCommand): Promise<WerewolfPublicState | WerewolfMatchRecord>;
   async handleCommand(command: WerewolfCommand): Promise<WerewolfPublicState | WerewolfMatchRecord> {
     return this.enqueueOperation(async () => {
-      this.ctx.setLastError(undefined);
       try {
         if (command.type === "read_match_replay") {
           return this.readReplay(command.source);
         }
+        this.ctx.setLastError(undefined);
         await this.dispatchCommand(command);
         return this.ctx.getState();
       } catch (error) {

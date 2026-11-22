@@ -198,6 +198,10 @@ async function runFullLandscapeMatch(variant: {
     // StageCapsule sits directly inside top bar alongside RobotFace without colliding with host controls
     expect(app.shows("id:werewolf-stage-capsule")).toBe(true);
     expect(app.shows("id:werewolf-capsule-phase")).toBe(true);
+    await app.press("id:werewolf-lobby-open-history");
+    await app.waitFor("text:返回大厅");
+    await app.press("id:werewolf-history-back");
+    await app.waitUntil(() => !app.shows("id:werewolf-history-page"));
 
     // 3. Select 6p_joy, toggle LAN Companion QR on to verify native LanRoomHost + QrCodeCanvas + tap-to-enlarge modal, then switch back to on_device
     await app.press("id:werewolf-preset-6p_joy");
@@ -339,31 +343,69 @@ async function runFullLandscapeMatch(variant: {
     await app.press("id:werewolf-launch-stage-btn");
     await app.waitFor("id:werewolf-tabletop-stage");
 
-    // 7. Exile vote: remaining good players vote out remainingWolf -> Good Camp Wins!
+    // Tie the first elimination vote, then eliminate the remaining wolf in the runoff.
     await app.press("id:werewolf-start-voting-btn");
     await app.waitFor("id:werewolf-voting-panel");
-
-    const survivingGoodVoters = [witchSeat, seerSeat, villagerSeats[1]!];
-    for (const voter of survivingGoodVoters) {
+    for (const [voter, target] of [
+      [witchSeat, remainingWolf],
+      [seerSeat, remainingWolf],
+      [villagerSeats[1]!, witchSeat],
+      [remainingWolf, witchSeat],
+    ]) {
       await app.press(`id:werewolf-voter-${voter}`);
-      await app.press(`id:werewolf-vote-target-${remainingWolf}`);
-      await app.wait(50);
+      await app.press(`id:werewolf-vote-target-${target}`);
     }
-    await app.press(`id:werewolf-voter-${remainingWolf}`);
+    await app.press("id:werewolf-finalize-votes-btn");
+    await app.waitFor("id:werewolf-next-speaker-btn");
+    await app.press("id:werewolf-next-speaker-btn");
+    await app.press("id:werewolf-next-speaker-btn");
+    await app.waitFor("id:werewolf-voting-panel");
+    await app.press(`id:werewolf-voter-${seerSeat}`);
+    await app.press(`id:werewolf-vote-target-${remainingWolf}`);
+    await app.press(`id:werewolf-voter-${villagerSeats[1]}`);
     await app.press("id:werewolf-vote-abstain");
     await app.press("id:werewolf-finalize-votes-btn");
 
-    // 8. Game Over full-deck reveal + timeline tab + Play Again + Exit Stage
+    // The terminal and the archive open the same replay.
     await app.waitFor("id:werewolf-gameover-panel");
     expect(app.shows("id:werewolf-winner-banner")).toBe(true);
     expect(app.shows("id:werewolf-role-reveal-grid")).toBe(true);
-    expect(app.shows("id:werewolf-mvp-card")).toBe(true);
-    expect(app.shows("id:werewolf-truth-timeline")).toBe(false);
-    await app.press("id:werewolf-gameover-tab-timeline");
-    await app.waitFor("id:werewolf-truth-timeline");
-    await app.press("id:werewolf-gameover-tab-roles");
-    await app.waitFor("id:werewolf-role-reveal-grid");
     expect(app.texts().some((t) => t.includes("好人阵营获胜"))).toBe(true);
+    await app.press("id:werewolf-start-replay");
+    await app.waitFor("id:werewolf-replay-view");
+    expect(app.shows("id:werewolf-mvp-card")).toBe(true);
+    await app.press("text:第 1 天 · 平票进 PK");
+    await app.waitFor("text:第 1 天");
+    await app.press("id:werewolf-replay-round-deal");
+    await app.waitFor("text:本局座位与身份");
+    await app.press("id:werewolf-replay-round-night-1");
+    await app.waitFor("id:werewolf-replay-open-night-1");
+    expect(app.shows("id:werewolf-replay-actions-night-1")).toBe(false);
+    await app.press("id:werewolf-replay-open-night-1");
+    await app.waitFor("id:werewolf-replay-actions-night-1");
+    expect(app.texts().some((text) => text.includes("狼人阵营袭击了"))).toBe(true);
+    await app.press("id:werewolf-replay-round-day-1");
+    await app.waitFor("id:werewolf-replay-content");
+    await app.scroll("id:werewolf-replay-content", 210);
+    await app.press("id:werewolf-replay-ballot-exile-1");
+    await app.scroll("id:werewolf-replay-content", 170);
+    await app.waitFor("id:werewolf-replay-ballot-detail-exile-1");
+    expect(app.shows("id:werewolf-replay-ballot-detail-exile_pk-1")).toBe(false);
+    await app.scroll("id:werewolf-replay-content", 390);
+    await app.press("id:werewolf-replay-ballot-exile_pk-1");
+    await app.scroll("id:werewolf-replay-content", 190);
+    await app.waitFor("id:werewolf-replay-ballot-detail-exile_pk-1");
+    expect(app.texts().some((text) => text.includes("弃票"))).toBe(true);
+    await app.press("id:werewolf-replay-back");
+    await app.waitUntil(() => !app.shows("id:werewolf-history-page"));
+    await app.press("id:werewolf-terminal-open-history");
+    await app.waitFor("id:werewolf-history-list");
+    await app.press("id:werewolf-history-open-record");
+    await app.waitFor("id:werewolf-replay-view");
+    await app.back();
+    await app.waitFor("id:werewolf-history-list");
+    await app.back();
+    await app.waitUntil(() => !app.shows("id:werewolf-history-page"));
 
     await app.press("id:werewolf-play-again-btn");
     await app.waitFor("id:werewolf-lobby-panel");
@@ -384,6 +426,16 @@ async function runFullLandscapeMatch(variant: {
     expect(app.shows("text:6人欢乐屠城")).toBe(true);
     expect(app.shows("text:第 1 天")).toBe(true);
     expect(app.shows("text:还没有对局记录")).toBe(false);
+    await app.press("id:werewolf-history-open-record");
+    await app.waitFor("id:werewolf-replay-view");
+    await app.waitFor("text:这局点评已生成");
+    await app.press("id:werewolf-replay-back");
+    await app.waitFor("id:werewolf-history-list");
+    await app.press("id:werewolf-history-record-menu");
+    await app.press("id:werewolf-history-delete-action");
+    await app.waitFor("id:werewolf-history-confirm-delete");
+    await app.press("id:werewolf-history-confirm-delete");
+    await app.waitFor("text:还没有对局记录");
     await app.press("id:werewolf-history-header-back");
     await app.waitFor("id:werewolf-settings-view");
   } finally {

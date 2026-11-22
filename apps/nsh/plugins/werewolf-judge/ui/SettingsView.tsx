@@ -1,5 +1,5 @@
-import { Clipboard, effect, reduceMotion, Scroll, signal, Text, View, windowSize } from "nsh";
-import { Button, Dialog } from "nsh/base";
+import { Clipboard, effect, Scroll, signal, Text, View, windowSize } from "nsh";
+import { Button } from "nsh/base";
 import {
   ActionButton,
   SelectField,
@@ -23,7 +23,8 @@ import {
   type WerewolfWinMode,
   type WerewolfWitchSelfSaveMode,
 } from "../contracts";
-import { WEREWOLF_HISTORY_TITLE, WerewolfHistoryView } from "./HistoryView";
+import { WEREWOLF_HISTORY_TITLE } from "./HistoryView";
+import { WerewolfHistoryOverlay } from "./HistoryOverlay";
 import { QrCodeCanvas } from "./QrCodeCanvas";
 import { readWerewolfState } from "./StageCapsule";
 import { WerewolfRoleIcon } from "./WerewolfIcons";
@@ -748,27 +749,11 @@ export function WerewolfSettingsView(props: {
           </View>
         </Scroll>
       </View>
-      <Dialog
-        testID="werewolf-history-page"
-        open={historyOpen()}
-        presentation="fullScreen"
-        animation={reduceMotion() ? "none" : "fade"}
-        accessibilityLabel={WEREWOLF_HISTORY_TITLE[loc()]}
-        closeOnEscape
-        closeOnSwipe={false}
-        closeOnBackdropPress={false}
-        onOpenChange={(event) => {
-          if (!event.open) closeHistory();
-        }}
-        class="flex-1 w-full h-full bg-stage-bg"
-      >
-        <WerewolfHistoryView
-          locale={loc()}
-          records={st().matchHistory}
-          loadError={st().matchHistoryLoadError}
-          onBack={closeHistory}
-        />
-      </Dialog>
+      <WerewolfHistoryOverlay
+        ctx={props.ctx}
+        route={historyOpen() ? { view: "history", origin: "settings" } : null}
+        onClose={closeHistory}
+      />
     </View>
   );
 }

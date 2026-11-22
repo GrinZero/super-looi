@@ -192,13 +192,23 @@ Super-LOOI 由 **前台桌宠主页（Frontstage Companion）** 与 **后台管�
 | :--- | :--- | :--- |
 | **1. 按压与悬停（Press & Hover）**：座位砖块、操作按钮、预设胶囊、分段项与二维码触发卡 | 悬停/边框色阶过渡 `transition-colors duration-120`；按压反馈 `transition-transform duration-180 active:scale-[0.97]` + 明度加深，禁用态屏蔽按压缩放 | `motion-reduce:active:scale-100`，仅保留即时明度与边框色阶切换 |
 | **2. 图标与标签切换（Glyph & Label Swap）**：顶栏阶段状态点、播报/静音图标切换、计时器「暂停 / 继续」、`StageCompanion` 法官台词更新 | 倒计时 `01:00` 与 `X / N` 计数采用 `tabular-nums` 等宽数字防抖动；左栏 `StageCompanion` 文案及语音状态角标采用 `180ms` 淡入切换 | 瞬时更新数字与图标，无闪烁 |
-| **3. 选中态滑动（Sliding Selection）**：开局准备载体切换（`本机防窥 | 手机副屏`）、终局复盘标签切换（`身份揭晓 | 对局时间线`） | 单一选中背景滑块通过 `createAnimatedValue` `timing(targetX, { duration: 240, easing: "easeInOut" })` 在等宽槽位间平滑滑动 | 直接 `.set(targetX)` 瞬时落位 |
+| **3. 选中态滑动（Sliding Selection）**：开局准备载体切换（`本机防窥 | 手机副屏`） | 单一选中背景滑块通过 `createAnimatedValue` `timing(targetX, { duration: 240, easing: "easeInOut" })` 在等宽槽位间平滑滑动 | 直接 `.set(targetX)` 瞬时落位 |
 | **4. 内容入场与离场（Arriving & Leaving Content）**：阶段画布切换、副屏扫码座位就绪打勾、终局全员底牌揭晓 | 画布容器 `createMotion({ enter: "fadeIn", duration: 180 })`；扫码座位就绪与终局底牌网格采用 `180ms–240ms` 轻量淡入（列表/网格上限封顶） | 跳过淡入动画，阶段面板与全部座位/底牌瞬时呈现 |
 | **5. 浮层与防窥盾开合（Opening & Closing Surface）**：长按防窥盾揭开/闭合、`[⋯]` 原生 `<Menu>`、狼人自爆确认 `<Dialog>`、二维码点击放大 `<Dialog>`、原生 `AlertDialog` | 揭开防窥盾时内容层 `180ms easeOut` 呈现；**松手遮蔽时 `0ms` 瞬时闭合遮罩（安全优先）**；`<Menu>` 从顶栏按钮锚点展开/收起；`<Dialog animation={reduceMotion() ? "none" : "fade"} />` | 揭开、遮蔽、菜单与弹窗均为 `0ms` 瞬时显隐（`motion-reduce:active:scale-100`） |
 | **6. 用户触发的布局变形（Layout Change）**：阶段推进驱动 `floating_top`（顶栏微缩眼眸）↔ `split_left`（左伴随右画布）↔ `full`（副屏闭眼守夜）连续过渡 | 复用宿主 `MorphableStage` 单实例 `AnimatedValue.spring`（`stiffness: 280, damping: 30, mass: 1`） | 宿主自动 `.set(target)` 瞬时切换姿态 |
 | **7. 拖拽与松手释放（Drag & Release）**：`lan_companion` 夜间闭眼态可拖动的底部 `StageDrawer` peek 提示条 | 拖拽过程 `1:1` 跟随手指，松手按 `PanEvent.velocity.y` 投射吸附至最近档位（`stiffness: 320, damping: 32`） | 松手直接瞬时吸附目标档位 |
 | **8. 加载与进度（Loading & Progress）**：终局 AI 法官复盘后台生成中、暗票收集横向进度条 | AI 复盘生成中复用共享 `<LoadingIndicator />` 旋转圆弧进度环；暗票进度条随收到票数比例平滑更新宽比 | `<LoadingIndicator />` 自动停转静止展示，进度条直接落位 |
 | **9. 实时连续状态（Live & Continuous）**：白天/警上发言 `<Canvas>` 环形倒计时弧、发牌前摄人脸对准环 | `<Canvas>` 进度弧随剩余秒数连续绘制，最后 `10s` 切换 `token("warning")` 语义色；人脸对准就绪时外环切换 `token("verified")` | 倒计时弧按整秒离散步进更新，不播放呼吸脉冲 |
+
+### 历史与逐轮复盘动效
+
+| 触发 | 样式与反馈 | 减少动态效果 |
+| --- | --- | --- |
+| 历史卡、轮次、名场面、展开和返回按钮 | 150ms 明度、底色与选中描边过渡，焦点环即时显示 | 即时更新样式 |
+| 打开历史或终局复盘 | 复用全屏 Dialog 淡入淡出，列表与详情切换时保留列表滚动 | 即时切换 |
+| 切换轮次、翻开一夜、查看票型 | 新内容 150ms 淡入，标记对应选中轮次和展开状态 | 即时显示内容 |
+| 卡片菜单、删除确认 | 锚定菜单，复用 Dialog 淡入淡出，删除后同一列表重新布局 | 菜单及确认即时开合 |
+| 加载详情、生成点评、出现错误 | 复用 LoadingIndicator，结果及错误在同一区域更新 | 进度图标静止 |
 
 ## 7. 任务界面动效清单
 

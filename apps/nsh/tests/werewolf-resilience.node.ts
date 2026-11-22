@@ -573,6 +573,7 @@ test("Reviews settle on the original match, and deleting it also survives late r
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.deepEqual(h.host.snapshot(WEREWOLF_PLUGIN_ID).lastError, failure);
     assert.match((await h.readMatch(deleted)).replay?.review?.error ?? "", /E_REVIEW/);
+    assert.deepEqual(h.host.snapshot(WEREWOLF_PLUGIN_ID).lastError, failure);
     await h.send({ type: "regenerate_mvp_review" });
     await h.send({ type: "delete_match_record", matchId: deleted });
     requests[3]!.resolve({ taskId: "late-review", answer: "已删除的点评" });
