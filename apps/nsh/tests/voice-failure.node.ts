@@ -94,6 +94,88 @@ test("MOSS speech activity keeps playing until the explicit server interruption"
   assert.deepEqual(h.errors, []);
 });
 
+for (const provider of ["openai", "moss"] as const) {
+  test(`${provider}: cancelling one proactive request leaves the replacement and connection intact`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const writes: Record<string, unknown>[] = [];
+    let read!: (raw: string) => void;
+    const holdOpenAiWrite = Promise.withResolvers<void>();
+    let held = false;
+    const h = setup(t, async () => socket({
+      read: () => new Promise(resolve => { read = resolve; }),
+      write: async raw => {
+        if (typeof raw !== "string") return;
+        const frame = JSON.parse(raw);
+        writes.push(frame);
+        if (provider === "openai" && frame.type === "response.create" && !held) {
+          held = true;
+          await holdOpenAiWrite.promise;
+        }
+      },
+    }), false, undefined, provider === "moss" ? createMossLiveProtocol() : createOpenAiRealtimeProtocol());
+    const emit = async (event: unknown) => {
+      read(JSON.stringify(event));
+      await flush();
+    };
+    const results: Array<{ completed: boolean; interruptedReason?: string }> = [];
+    const notice = (id: string) => ({
+      id, spokenText: id,
+      onResult: (result: typeof results[number]) => { results.push(result); },
+    });
+    const stale = notice("old seat");
+    const latest = notice("current seat");
+    const skipped = notice("skipped seat");
+    await h.session.open();
+    if (provider === "moss") {
+      await emit({ action: "session_attached", data: { session_id: "conversation" } });
+      await emit({ action: "session.updated", data: { error: "" } });
+    } else {
+      await emit({ type: "session.updated", session: { id: "conversation" } });
+    }
+    h.session.enqueueNotice(stale);
+    h.session.enqueueNotice(skipped);
+    h.session.cancelNotice(skipped);
+    await flush();
+    h.session.cancelNotice(stale);
+    h.session.enqueueNotice(latest);
+
+    if (provider === "moss") {
+      await emit({ action: "response.audio.started", data: { run_id: "old", turn_id: "old-turn" } });
+      assert.ok(writes.some(frame => frame.action === "playback.stopped" && frame.run_id === "old"));
+      assert.ok(writes.some(frame => frame.action === "session.commentary.append" && frame.content === latest.spokenText));
+      await emit({ action: "response.audio.stop", data: { run_id: "old", turn_id: "old-turn" } });
+      await emit({ action: "response.interrupted", data: { run_id: "old", turn_id: "old-turn" } });
+      await emit({ action: "response.ended", data: { run_id: "old", turn_id: "old-turn", status: "aborted" } });
+    } else {
+      // The remote terminal event can arrive before the local response.create write resolves.
+      await emit({ type: "response.done", response: { id: "old", status: "completed" } });
+      holdOpenAiWrite.resolve();
+      await flush();
+      const cancel = writes.find(frame => frame.type === "response.cancel");
+      assert.ok(cancel?.event_id);
+      assert.equal(writes.filter(frame => frame.type === "response.create").length, 2);
+      await emit({ type: "error", error: { event_id: cancel.event_id, code: "response_cancel_not_active", message: "no active response" } });
+      await emit({ type: "response.done", response: { id: "old", status: "cancelled" } });
+    }
+
+    assert.deepEqual(results, [
+      { completed: false, interruptedReason: "speech_cancelled" },
+      { completed: false, interruptedReason: "speech_cancelled" },
+    ]);
+    assert.ok(writes.every(frame => !JSON.stringify(frame).includes(skipped.spokenText)));
+    t.mock.timers.tick(5_000);
+    await flush();
+    assert.equal(h.session.isDisposed, false);
+    if (provider === "moss") {
+      await emit({ action: "response.ended", data: { run_id: "new", turn_id: "current-turn", status: "completed" } });
+    } else {
+      await emit({ type: "response.done", response: { id: "new", status: "completed" } });
+    }
+    assert.deepEqual(results.at(-1), { completed: true });
+    assert.deepEqual(h.errors, []);
+  });
+}
+
 test("MOSS preview uses a real voice turn, acknowledges all PCM and waits for the provider terminal event", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const writes: Array<string | Uint8Array> = [];

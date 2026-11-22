@@ -26,6 +26,7 @@ export interface DualLoopAiBusBridge {
     verbatim?: boolean;
     holdAliveMs?: number;
     closeToStandbyOnComplete?: boolean;
+    signal?: AbortSignal;
   }) => Promise<{ readonly completed: boolean; readonly interruptedReason?: string }>;
   listenUntil?: (deadlineMs: number, signal: AbortSignal) => Promise<void>;
   runBackgroundTask?: (options: {
@@ -554,6 +555,7 @@ export class DualLoopAiBus {
           delivery: options.delivery ?? "when_idle",
           ...(options.capturePolicy !== undefined ? { capturePolicy: options.capturePolicy } : {}),
           ...(options.verbatim !== undefined ? { verbatim: options.verbatim } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
           ...(options.holdAliveMs !== undefined ? { holdAliveMs: options.holdAliveMs } : {}),
           ...(options.closeToStandbyOnComplete !== undefined
             ? { closeToStandbyOnComplete: options.closeToStandbyOnComplete }

@@ -134,6 +134,7 @@ export class LiveVoiceSession {
   private pluginContextNote: string;
   private turnWaterfallNote = "";
   private activeSpokenNotice?: VoiceProactiveNotice;
+  private noticeResponseRequested = false;
   private readonly resolvedNoticeCallbacks = new WeakSet<VoiceProactiveNotice>();
   private phase: "connecting" | "listening" | "speaking" = "connecting";
   private muted = false;
@@ -167,6 +168,7 @@ export class LiveVoiceSession {
   private dispatchingNotice = false;
 
   private discardOutput = false;
+  private lastSettledCancelEventId = "";
   private responseId = "";
   private turnId = "";
   private audioDoneTurn?: { responseId: string; turnId: string };
@@ -342,6 +344,27 @@ export class LiveVoiceSession {
     this.flushNoticeIfIdle();
   }
 
+  cancelNotice(notice: VoiceProactiveNotice): void {
+    const result = { completed: false, interruptedReason: "speech_cancelled" } as const;
+    const queuedIndex = this.noticeQueue.indexOf(notice);
+    if (queuedIndex >= 0) {
+      this.noticeQueue.splice(queuedIndex, 1);
+      this.resolveSpokenNotice(notice, result);
+      return;
+    }
+    if (this.activeSpokenNotice !== notice) return;
+
+    this.activeSpokenNotice = undefined;
+    if (this.noticeResponseRequested) {
+      const responsePending = !this.responseInProgress && !this.serverResponseDone;
+      this.applyInterrupt("manual", { cancelNotice: true, responsePending });
+    }
+    this.resolveSpokenNotice(notice, result);
+    if (!this.discardOutput && this.turnActivity !== "user_speaking" && this.toolsRunning === 0) {
+      this.resumeWaiting();
+    }
+  }
+
   takePendingNotices(): VoiceProactiveNotice[] {
     return this.noticeQueue.splice(0);
   }
@@ -458,7 +481,7 @@ export class LiveVoiceSession {
 
   private applyInterrupt(
     trigger: "manual" | "server_vad" = "manual",
-    options?: { preservePluginServo?: boolean },
+    options?: { preservePluginServo?: boolean; cancelNotice?: boolean; responsePending?: boolean },
   ): void {
     if (
       this.disposed ||
@@ -473,23 +496,22 @@ export class LiveVoiceSession {
         interruptedReason: trigger,
       });
     }
-    if (trigger === "server_vad" || options?.preservePluginServo) {
-      void (
-        this.options.stopVoiceMotion
-          ? this.options.stopVoiceMotion()
-          : (this.options.controlBody?.("stop") ?? Promise.resolve())
-      ).catch(() => {});
-    } else {
-      void this.options.controlBody?.("stop").catch(() => {});
+    if (!options?.cancelNotice) {
+      if ((trigger === "server_vad" || options?.preservePluginServo) && this.options.stopVoiceMotion) {
+        void this.options.stopVoiceMotion().catch(() => {});
+      } else {
+        void this.options.controlBody?.("stop").catch(() => {});
+      }
     }
     if (this.discardOutput) return;
 
     const queuedMs = this.options.audio.status().queuedPlaybackMs;
+    const responseInProgress = this.responseInProgress || Boolean(options?.responsePending);
     if (
       this.phase !== "speaking" &&
       queuedMs <= 0 &&
       this.audioPipeline.bufferedOutputBytes === 0 &&
-      !this.responseInProgress
+      !responseInProgress
     ) {
       this.transcript = "";
       this.transcriptTurnOpen = false;
@@ -515,8 +537,8 @@ export class LiveVoiceSession {
       this.transcriptTurnOpen = false;
       this.transcriptResponseId = "";
       this.publish({ phase: "listening", transcript: "" });
-      if (this.turnActivity !== "user_speaking") {
-        this.silenceSince = Date.now();
+      this.silenceSince = Date.now();
+      if (!options?.cancelNotice && this.turnActivity !== "user_speaking") {
         this.resumeWaiting();
       }
       return;
@@ -526,7 +548,7 @@ export class LiveVoiceSession {
     this.flushStoppedPlayback(this.responseId, this.turnId);
     const cancelEventId =
       trigger === "manual" &&
-      this.responseInProgress &&
+      responseInProgress &&
       this.options.protocol.providerId !== "doubao" &&
       this.options.protocol.providerId !== "moss"
         ? `cancel_${randomUUID()}`
@@ -534,19 +556,17 @@ export class LiveVoiceSession {
     const frames = this.options.protocol.encodeInterrupt({
       trigger,
       responseId: this.responseId,
-      responseInProgress: this.responseInProgress,
+      responseInProgress,
       cancelEventId,
       playback,
     });
 
-    this.discardOutput =
-      this.options.protocol.providerId === "doubao" || Boolean(cancelEventId);
+    const waitForMossRun = options?.cancelNotice && this.options.protocol.providerId === "moss" &&
+      !this.serverResponseDone && (!this.responseId || !this.turnId);
+    this.discardOutput = this.options.protocol.providerId === "doubao" ||
+      Boolean(cancelEventId) || Boolean(waitForMossRun);
     this.cancelEventId = cancelEventId ?? "";
-    if (this.responseId) this.cancelledResponses.add(this.responseId);
-    if (this.cancelledResponses.size > 128) {
-      this.fail("@looi:runtimeStartVoiceAgain");
-      return;
-    }
+    this.markResponseCancelled(this.responseId);
 
     this.audioPipeline.clearOutput(this.options.audio);
     this.options.onAudioLevel?.(0);
@@ -554,8 +574,10 @@ export class LiveVoiceSession {
     if (this.options.protocol.providerId === "moss") {
       this.responseInProgress = false;
       this.serverResponseDone = false;
-      this.responseId = "";
-      this.turnId = "";
+      if (!this.discardOutput) {
+        this.responseId = "";
+        this.turnId = "";
+      }
     }
     this.phase = "listening";
     this.transcript = "";
@@ -566,7 +588,12 @@ export class LiveVoiceSession {
     if (this.discardOutput) {
       if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
       this.deadlineTimer = setTimeout(() => {
-        this.fail("@looi:runtimeVoiceInterruptedStartItAgainToContinue");
+        this.failWithCause("response.interrupt", {
+          code: "ETIMEDOUT",
+          message: waitForMossRun
+            ? "No MOSS run and turn identifiers arrived before the interruption deadline"
+            : "The voice provider did not acknowledge the interruption before the deadline",
+        });
       }, CANCEL_ACK_DEADLINE_MS);
     }
 
@@ -574,6 +601,32 @@ export class LiveVoiceSession {
       void this.send(frame).catch((error) => {
         this.failWithCause("response.interrupt", error);
       });
+    }
+  }
+
+  private markResponseCancelled(responseId: string): void {
+    if (!responseId) return;
+    this.cancelledResponses.add(responseId);
+    this.toolCallResponseIds.delete(responseId);
+    const oldest = this.cancelledResponses.values().next().value;
+    if (this.cancelledResponses.size > 128 && oldest !== undefined) {
+      this.cancelledResponses.delete(oldest);
+    }
+  }
+
+  private finishResponseCancellation(responseId: string): void {
+    this.markResponseCancelled(responseId);
+    if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
+    this.deadlineTimer = undefined;
+    if (this.cancelEventId) this.lastSettledCancelEventId = this.cancelEventId;
+    this.cancelEventId = "";
+    this.discardOutput = false;
+    this.responseInProgress = false;
+    this.serverResponseDone = false;
+    this.responseId = "";
+    this.turnId = "";
+    if (this.toolsRunning === 0 && this.turnActivity !== "user_speaking") {
+      this.resumeWaiting();
     }
   }
 
@@ -681,6 +734,10 @@ ${JSON.stringify(this.previewSample())}`;
     if (frames.length === 0) return false;
 
     this.activeSpokenNotice = notice;
+    this.noticeResponseRequested = false;
+    this.serverResponseDone = false;
+    this.responseId = "";
+    this.turnId = "";
     this.dispatchingNotice = true;
     this.pendingAutoResponseCancel = false;
     this.pauseTurnTimers();
@@ -710,7 +767,8 @@ ${JSON.stringify(this.previewSample())}`;
         if (
           this.disposed ||
           this.turnActivity !== "awaiting_reply" ||
-          this.discardOutput
+          this.discardOutput ||
+          this.resolvedNoticeCallbacks.has(notice)
         ) {
           if (this.activeSpokenNotice === notice) {
             this.activeSpokenNotice = undefined;
@@ -754,6 +812,7 @@ ${JSON.stringify(this.previewSample())}`;
             this.publish({ transcript: this.transcript });
           }
         }
+        if (frame === frames.at(-1)) this.noticeResponseRequested = true;
         await this.send(frame);
       }
       delivery?.end({
@@ -915,11 +974,35 @@ ${JSON.stringify(this.previewSample())}`;
     )
       return false;
     const responseId = "responseId" in normalized ? normalized.responseId : "";
+    if (
+      responseId && this.cancelledResponses.has(responseId) &&
+      (!this.discardOutput || responseId !== this.responseId)
+    ) {
+      return false;
+    }
     if ("turnId" in normalized && normalized.turnId) {
       this.turnId = normalized.turnId;
     }
 
+    if (this.discardOutput && this.options.protocol.providerId === "moss") {
+      if (normalized.kind === "audio_stop") {
+        this.finishResponseCancellation(responseId);
+        return false;
+      }
+      if (normalized.kind === "audio_started" || normalized.kind === "audio_delta") {
+        if (responseId && this.turnId) {
+          this.flushStoppedPlayback(responseId, this.turnId);
+          this.finishResponseCancellation(responseId);
+        }
+        return false;
+      }
+    }
+
     if (normalized.kind === "response_cancelled") {
+      if (this.discardOutput) {
+        this.finishResponseCancellation(responseId);
+        return false;
+      }
       if (this.activeSpokenNotice) {
         const cancelled = this.activeSpokenNotice;
         this.activeSpokenNotice = undefined;
@@ -945,25 +1028,6 @@ ${JSON.stringify(this.previewSample())}`;
         this.transcriptTurnOpen = false;
         this.transcriptResponseId = responseId;
         this.publish({ transcript: this.transcript });
-      }
-      if (
-        this.discardOutput ||
-        (responseId && this.cancelledResponses.has(responseId))
-      ) {
-        if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
-        this.deadlineTimer = undefined;
-        this.discardOutput = false;
-        this.responseId = "";
-        this.turnId = "";
-        if (responseId) this.cancelledResponses.delete(responseId);
-        if (
-          this.toolsRunning === 0 &&
-          !this.dispatchingNotice &&
-          this.turnActivity !== "user_speaking"
-        ) {
-          this.resumeWaiting();
-        }
-        return false;
       }
       if (this.options.protocol.encodePlaybackStopped) {
         if (
@@ -996,30 +1060,21 @@ ${JSON.stringify(this.previewSample())}`;
     }
     if (normalized.kind === "response_done") {
       this.responseInProgress = false;
-    }
-    if (
-      normalized.kind === "response_done" &&
-      responseId &&
-      this.cancelledResponses.delete(responseId)
-    ) {
-      this.toolCallResponseIds.delete(responseId);
-      return false;
+      if (this.discardOutput) {
+        this.finishResponseCancellation(responseId);
+        return false;
+      }
     }
     if (
       normalized.kind === "error" &&
       normalized.clientEventId &&
-      normalized.clientEventId === this.cancelEventId
+      (normalized.code === "response_cancel_not_active" || normalized.message === "no active response")
     ) {
-      this.cancelEventId = "";
-      this.discardOutput = false;
-      if (
-        this.toolsRunning === 0 &&
-        !this.dispatchingNotice &&
-        this.turnActivity !== "user_speaking"
-      ) {
-        this.resumeWaiting();
+      if (normalized.clientEventId === this.cancelEventId) {
+        this.finishResponseCancellation(this.responseId);
+        return false;
       }
-      return false;
+      if (normalized.clientEventId === this.lastSettledCancelEventId) return false;
     }
     if (
       this.discardOutput &&
@@ -1029,9 +1084,7 @@ ${JSON.stringify(this.previewSample())}`;
       return false;
     }
     if (responseId) {
-      if (this.discardOutput || this.cancelledResponses.has(responseId)) {
-        return false;
-      }
+      if (this.discardOutput) return false;
       this.responseId = responseId;
     }
 

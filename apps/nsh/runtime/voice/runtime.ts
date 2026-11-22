@@ -258,8 +258,12 @@ export class VoiceRuntime {
     verbatim?: boolean;
     holdAliveMs?: number;
     closeToStandbyOnComplete?: boolean;
+    signal?: AbortSignal;
   }): Promise<{ readonly completed: boolean; readonly interruptedReason?: string }> {
     const text = options.spokenText.trim();
+    const signal = options.signal;
+    const cancelled = { completed: false, interruptedReason: "speech_cancelled" } as const;
+    if (signal?.aborted) return cancelled;
     if (this.closed) {
       return { completed: false, interruptedReason: "voice_closed" };
     }
@@ -296,6 +300,7 @@ export class VoiceRuntime {
     }
 
     const active = this.session;
+    if (signal?.aborted) return cancelled;
     if (!active || active.sessionPurpose !== "conversation" || active.isDisposed) {
       const reason =
         this.state.error ||
@@ -315,17 +320,19 @@ export class VoiceRuntime {
     }
 
     return new Promise((resolve) => {
-      active.enqueueNotice({
+      const cancel = () => active.cancelNotice(notice);
+      const notice: VoiceProactiveNotice = {
         id: `plugin_speak_${randomUUID()}`,
         spokenText: text,
         contextNote: options.contextNote,
         delivery: options.delivery ?? "when_idle",
         verbatim: options.verbatim,
         onResult: (result) => {
-          if (mutedBroadcast) {
+          signal?.removeEventListener("abort", cancel);
+          if (mutedBroadcast && this.session === active && !active.isDisposed) {
             const listening = this.pluginListening;
             if (listeningDuringBroadcast || listening?.session === active) {
-              if (listening?.session === active && !active.isDisposed) {
+              if (listening?.session === active) {
                 active.mute(false);
                 active.holdIdleFor(listening.deadlineMs - Date.now());
               }
@@ -333,13 +340,19 @@ export class VoiceRuntime {
               this.scheduleBroadcastStandby(active, 600);
             } else if (this.sessionOpenedForBroadcast) {
               this.scheduleBroadcastStandby(active, Math.max(1_000, options.holdAliveMs ?? 15_000));
-            } else if (!previousMuted && !active.isDisposed && this.session === active) {
+            } else if (!previousMuted) {
               active.mute(false);
             }
           }
           resolve(result);
         },
-      });
+      };
+      if (signal?.aborted) {
+        notice.onResult?.(cancelled);
+      } else {
+        signal?.addEventListener("abort", cancel, { once: true });
+        active.enqueueNotice(notice);
+      }
     });
   }
 

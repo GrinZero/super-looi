@@ -6,10 +6,12 @@ export interface JudgeSpeechCoordinatorOptions {
   readonly ai?: PluginAiCapability;
   readonly pluginId: string;
   readonly isPaused: () => boolean;
-  readonly sleep: (ms: number) => Promise<void>;
+  readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly onStatusChange: () => void;
   readonly onSpeechFailure?: (failure: PluginFailure) => void;
 }
+
+const DEALING_SEAT_SPEECH_DELAY_MS = 250;
 
 const NON_RETRYABLE_REASONS = new Set([
   "voice_closed",
@@ -44,6 +46,7 @@ function isNonRetryableReason(reason: string): boolean {
  */
 export class JudgeSpeechCoordinator {
   private epoch = 0;
+  private dealingSpeech: AbortController | null = null;
   private speakBarrier: Promise<void> = Promise.resolve();
   private speaking = false;
   private mutedByHost = false;
@@ -86,8 +89,14 @@ export class JudgeSpeechCoordinator {
     this.options.onStatusChange();
   }
 
+  cancelDealingSpeech(): void {
+    this.dealingSpeech?.abort();
+    this.dealingSpeech = null;
+  }
+
   bumpEpoch(): void {
     this.epoch += 1;
+    this.cancelDealingSpeech();
     this.speaking = false;
   }
 
@@ -112,9 +121,11 @@ export class JudgeSpeechCoordinator {
     readonly text: string;
     readonly contextNote?: string;
     readonly closeToStandbyOnComplete?: boolean;
+    readonly dealing?: "seat" | "phase";
   }): Promise<void> {
     const clean = options.text.trim();
     if (!clean) return;
+    if (options.dealing) this.cancelDealingSpeech();
 
     this.lastSpokenText = clean;
     if (options.contextNote) {
@@ -136,12 +147,20 @@ export class JudgeSpeechCoordinator {
       return;
     }
 
+    const dealingSpeech = options.dealing ? new AbortController() : null;
+    if (dealingSpeech) this.dealingSpeech = dealingSpeech;
+    const signal = dealingSpeech?.signal;
+    const ready = options.dealing === "seat"
+      ? this.options.sleep(DEALING_SEAT_SPEECH_DELAY_MS, signal)
+      : undefined;
     const myEpoch = this.epoch;
+    const stale = () => signal?.aborted || myEpoch !== this.epoch;
     const contextNote = options.contextNote ?? this.lastContextNote;
     const closeToStandbyOnComplete = Boolean(options.closeToStandbyOnComplete);
 
     const task = this.speakBarrier.then(async () => {
-      if (myEpoch !== this.epoch || this.mutedByHost || this.options.isPaused()) {
+      if (ready) await ready;
+      if (stale() || this.mutedByHost || this.options.isPaused()) {
         return;
       }
 
@@ -151,7 +170,7 @@ export class JudgeSpeechCoordinator {
 
       try {
         for (let attempt = 0; attempt < 2; attempt += 1) {
-          if (myEpoch !== this.epoch || this.mutedByHost || this.options.isPaused()) {
+          if (stale() || this.mutedByHost || this.options.isPaused()) {
             return;
           }
 
@@ -165,11 +184,13 @@ export class JudgeSpeechCoordinator {
               verbatim: true,
               holdAliveMs: 20_000,
               closeToStandbyOnComplete,
+              ...(signal ? { signal } : {}),
             });
           } catch (error) {
+            if (stale()) return;
             const reason = error instanceof Error && error.message ? error.message : String(error);
             if (attempt === 0 && !isNonRetryableReason(reason)) {
-              await this.options.sleep(350);
+              await this.options.sleep(350, signal);
               continue;
             }
             if (myEpoch === this.epoch) {
@@ -184,7 +205,7 @@ export class JudgeSpeechCoordinator {
             return;
           }
 
-          if (myEpoch !== this.epoch) {
+          if (stale()) {
             return;
           }
           if (receipt.completed) {
@@ -200,7 +221,7 @@ export class JudgeSpeechCoordinator {
             !this.mutedByHost &&
             !this.options.isPaused();
           if (canRetry) {
-            await this.options.sleep(350);
+            await this.options.sleep(350, signal);
             continue;
           }
 
@@ -221,11 +242,13 @@ export class JudgeSpeechCoordinator {
       }
     });
 
-    this.speakBarrier = task.catch(() => {});
+    this.speakBarrier = task.catch(() => {}).finally(() => {
+      if (dealingSpeech && this.dealingSpeech === dealingSpeech) this.dealingSpeech = null;
+    });
     await this.speakBarrier;
   }
 
-  async replayLast(): Promise<void> {
+  async replayLast(inDealing: boolean): Promise<void> {
     if (!this.lastSpokenText) {
       throw new WerewolfRuleError(
         "replay_last_speech",
@@ -245,6 +268,7 @@ export class JudgeSpeechCoordinator {
       text: this.lastSpokenText,
       contextNote: this.lastContextNote,
       closeToStandbyOnComplete: this.lastCloseToStandby,
+      dealing: inDealing ? "phase" : undefined,
     });
   }
 }

@@ -315,6 +315,7 @@ async function createHarness(options: {
   now?: () => number;
   speakerTickMs?: number;
   speakImpl?: PluginHostAiBridge["speak"];
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   reviewImpl?: PluginHostAiBridge["runBackgroundTask"];
 } = {}) {
   const db = options.db ?? new DatabaseSync(":memory:");
@@ -332,7 +333,7 @@ async function createHarness(options: {
       visionPersonTrackerDefinition(),
       werewolfJudgeDefinition({
         now: options.now,
-        sleep: async () => {},
+        sleep: options.sleep ?? (async () => {}),
         nightIntroDelayMs: 0,
         speakerTickMs: options.speakerTickMs ?? 250,
         fixedRolesBySeat: FIXED_6P_ROLES,
@@ -449,6 +450,116 @@ test("Dealing keeps Doubao connected during repeated card reveals on a slow sock
   await h.send({ type: "exit_to_idle" });
   await flush();
   assert.doesNotMatch(writes.findLast((frame) => frame.type === "session.update")?.session?.instructions ?? "", /狼人杀公开台面状态/);
+});
+
+test("rapid dealing changes stop old playback and announce only the current seat on the same connection", async (t) => {
+  let releaseSeatPrompt: (() => void) | undefined;
+  const h = await createHarness({
+    sleep: (ms, signal) => {
+      if (ms !== 250) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const finish = () => {
+          signal?.removeEventListener("abort", finish);
+          resolve();
+        };
+        releaseSeatPrompt = finish;
+        signal?.addEventListener("abort", finish, { once: true });
+      });
+    },
+  });
+  t.after(async () => { await h.dispose(); h.db.close(); });
+
+  let connections = 0;
+  let playbackBytes = 0;
+  const errors: string[] = [];
+  const writes: { type: string; text?: string }[] = [];
+  let receive!: (raw: string | null) => void;
+  const voice = new VoiceRuntime({
+    vault: makeMemoryVault(),
+    audio: {
+      requestPermission: () => "granted", start: () => {}, stop: () => {},
+      beginWake: () => 0, startWake: async () => true, setCaptureMode: () => {},
+      playReadyCue: () => {}, enqueue: (pcm) => { playbackBytes += pcm.length; },
+      clearPlayback: () => { playbackBytes = 0; },
+      setMuted: () => {}, drainCapture: () => [],
+      status: () => ({ state: "running", permission: "granted", error: "",
+        queuedPlaybackMs: playbackBytes ? 100 : 0, captureMode: "conversation", wakeWord: "", kwsReady: true }),
+    },
+    connect: async () => {
+      connections++;
+      return {
+        read: () => new Promise((resolve) => { receive = resolve; }),
+        write: async (raw) => { writes.push(JSON.parse(String(raw))); },
+        close: async () => { receive(null); },
+      };
+    },
+    onState: (state) => { if (state.error) errors.push(state.error); },
+    requestTask: async () => { throw new Error("unexpected voice task"); },
+    cancelTask: () => {},
+  });
+  t.after(() => voice.close());
+  voice.setWakeEnabled(false);
+  voice.configure("TEST_KEY");
+  await h.host.startAll();
+  await h.send({ type: "open_lobby", presetId: "6p_joy" });
+  h.host.ai.setBridge({
+    speak: (options) => voice.speak(options),
+    listenUntil: (deadlineMs, signal) => voice.listenUntil(deadlineMs, signal),
+  });
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const event = async (data: Record<string, unknown>) => {
+    receive(JSON.stringify(data));
+    await settle();
+  };
+  const spoken = () => writes.filter((frame) => frame.type === "speech_text_buffer.commit").map((frame) => frame.text);
+  const cancelled = () => writes.filter((frame) => frame.type === "response.cancel").length;
+
+  await h.send({ type: "start_dealing" });
+  await settle();
+  await event({ type: "session.created" });
+  assert.match(spoken().at(-1) ?? "", /1 号玩家/);
+  await event({ type: "response.output_audio.delta", response_id: "seat1", delta: Buffer.alloc(9600, 1).toString("base64") });
+  await new Promise<void>((resolve) => setTimeout(resolve, 60));
+  assert.ok(playbackBytes > 0, "opening announcement is audible");
+
+  await h.send({ type: "confirm_seat_dealt", seat: 1 });
+  assert.equal(playbackBytes, 0, "switching seats clears native playback immediately");
+  await h.send({ type: "confirm_seat_dealt", seat: 2 });
+  await h.send({ type: "step_back_deal" });
+  assert.equal(h.readState().dealingCurrentSeat, 2);
+  assert.equal(spoken().length, 1, "intermediate seat prompts do not reach the provider");
+  assert.equal(cancelled(), 1);
+  await event({ type: "response.output_audio.delta", response_id: "seat1", delta: Buffer.alloc(9600, 1).toString("base64") });
+  assert.equal(playbackBytes, 0, "late audio from the cancelled response is discarded");
+  await event({ type: "response.done", response: { id: "seat1", status: "cancelled" } });
+  releaseSeatPrompt?.();
+  await settle();
+  assert.deepEqual(spoken().slice(1), ["已退回至 2 号玩家，请重新查看并确认底牌。"]);
+
+  await event({ type: "response.canceled", response_id: "seat1" });
+  assert.equal(h.readState().voiceStatus.speaking, true, "late cancellation does not finish the new prompt");
+
+  // The latest request was sent but the provider has yet to start producing it.
+  await h.send({ type: "set_judge_voice_muted", muted: true });
+  await settle();
+  assert.equal(cancelled(), 2);
+  await event({ type: "response.done", response: { id: "seat2", status: "cancelled" } });
+  await h.send({ type: "confirm_seat_dealt", seat: 2 });
+  assert.equal(spoken().length, 2);
+
+  await h.send({ type: "set_judge_voice_muted", muted: false });
+  for (let seat = 3; seat <= 6; seat++) {
+    await h.send({ type: "confirm_seat_dealt", seat });
+  }
+  await settle();
+  assert.deepEqual(spoken().slice(2), ["全员领牌完毕，请闭眼。"]);
+  await event({ type: "response.done", response: { id: "all-dealt" } });
+  await h.send({ type: "begin_first_night" });
+  await settle();
+  assert.match(spoken().at(-1) ?? "", /天黑|第一夜/);
+  assert.equal(connections, 1);
+  assert.deepEqual(errors, []);
+  assert.equal(h.readState().voiceStatus.degradedToSubtitles, false);
 });
 
 async function advance6pMatchToDay(

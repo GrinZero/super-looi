@@ -1224,6 +1224,7 @@ export function createAppStore() {
           verbatim,
           holdAliveMs,
           closeToStandbyOnComplete,
+          signal,
         }) =>
           voice
             ? voice.speak({
@@ -1234,6 +1235,7 @@ export function createAppStore() {
                 verbatim,
                 holdAliveMs,
                 closeToStandbyOnComplete,
+                signal,
               })
             : Promise.resolve({ completed: false, interruptedReason: "voice_unavailable" }),
         listenUntil: async (deadlineMs, signal) => {

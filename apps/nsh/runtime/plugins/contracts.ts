@@ -203,6 +203,7 @@ export interface PluginSpeakOptions {
   readonly verbatim?: boolean;
   readonly holdAliveMs?: number;
   readonly closeToStandbyOnComplete?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 export type PluginContextSlice = Dispose & {

@@ -379,7 +379,7 @@ export class WerewolfJudgePluginRuntime
       ai: ctx.ai,
       pluginId: WEREWOLF_PLUGIN_ID,
       isPaused: () => this.hostPaused,
-      sleep: (ms) => this.sleep(ms),
+      sleep: (ms, signal) => this.sleep(ms, signal),
       onStatusChange: () => {
         this.syncPublicState();
       },
@@ -746,7 +746,7 @@ export class WerewolfJudgePluginRuntime
             )
             .catch(() => {});
         }
-        await this.applyPostTransitionEffects(outcome);
+        await this.applyPostTransitionEffects(outcome, { dealingSeatPrompt: true });
         return;
       }
 
@@ -754,7 +754,7 @@ export class WerewolfJudgePluginRuntime
         const outcome = this.engine.stepBackDeal();
         this.dealingFaceAligned = false;
         this.syncDealingCameraSubscription();
-        await this.applyPostTransitionEffects(outcome);
+        await this.applyPostTransitionEffects(outcome, { dealingSeatPrompt: true });
         return;
       }
 
@@ -774,7 +774,7 @@ export class WerewolfJudgePluginRuntime
             "法官语音当前处于静音状态，请先取消静音或查看屏幕字幕",
           );
         }
-        void this.speechCoordinator.replayLast().catch((err) => {
+        void this.speechCoordinator.replayLast(this.engine.getPhase() === "dealing").catch((err) => {
           this.ctx.setLastError(
             toPluginFailure(err, "replay_last_speech", "ERR_JUDGE_SPEECH_FAILED"),
           );
@@ -993,8 +993,12 @@ export class WerewolfJudgePluginRuntime
   ): Promise<void> {
     switch (payload.action) {
       case "confirm_deal": {
+        const previousSeat = this.engine.getDealingCurrentSeat();
         const outcome = this.engine.confirmSeatDealt(seat);
-        await this.applyPostTransitionEffects(outcome);
+        const seatChanged = previousSeat !== this.engine.getDealingCurrentSeat();
+        await this.applyPostTransitionEffects(seatChanged ? outcome : { ...outcome, announcement: undefined }, {
+          dealingSeatPrompt: true,
+        });
         return;
       }
       case "guard_pick": {
@@ -1092,16 +1096,18 @@ export class WerewolfJudgePluginRuntime
     closeEyesSpeech: string,
     nextOutcome: EngineTransitionOutcome,
   ): Promise<void> {
-    await this.applyPostTransitionEffects(nextOutcome, async () => {
-      this.syncPublicState();
-      void this.speakJudgeLine(closeEyesSpeech);
-      await this.choreographer.performAcousticDecoySweep(this.engine.getRules().motionMode);
+    await this.applyPostTransitionEffects(nextOutcome, {
+      afterSettlement: async () => {
+        this.syncPublicState();
+        void this.speakJudgeLine(closeEyesSpeech);
+        await this.choreographer.performAcousticDecoySweep(this.engine.getRules().motionMode);
+      },
     });
   }
 
   private async applyPostTransitionEffects(
     outcome: EngineTransitionOutcome,
-    afterSettlement?: () => Promise<void>,
+    options?: { afterSettlement?: () => Promise<void>; dealingSeatPrompt?: boolean },
   ): Promise<void> {
     let settlementFailure: PluginFailure | undefined;
     if (outcome.gameEnded) {
@@ -1115,7 +1121,8 @@ export class WerewolfJudgePluginRuntime
         this.ctx.setLastError(settlementFailure);
       }
     }
-    if (afterSettlement) await afterSettlement();
+    if (options?.afterSettlement) await options.afterSettlement();
+    if (this.engine.getPhase() !== "dealing") this.speechCoordinator.cancelDealingSpeech();
     const startedFirstNightCountdown = this.syncFirstNightCountdown();
     if (!outcome.gameEnded) {
       this.persistCheckpoint();
@@ -1128,7 +1135,7 @@ export class WerewolfJudgePluginRuntime
     this.syncSpeakerClockForCurrentPhase();
 
     if (outcome.announcement && !startedFirstNightCountdown) {
-      void this.speakJudgeLine(outcome.announcement);
+      void this.speakJudgeLine(outcome.announcement, options?.dealingSeatPrompt);
     }
 
     if (outcome.enteredNightIntro && this.options.autoAdvanceNightIntro !== false) {
@@ -1294,6 +1301,7 @@ export class WerewolfJudgePluginRuntime
   private async handleForegroundChanged(active: boolean): Promise<void> {
     this.appForegroundActive = active;
     if (!active) {
+      this.speechCoordinator.cancelDealingSpeech();
       this.stopFirstNightCountdown();
       this.stopSpeakerClock();
       this.persistCheckpoint();
@@ -1894,12 +1902,13 @@ export class WerewolfJudgePluginRuntime
     };
   }
 
-  private async speakJudgeLine(text: string): Promise<void> {
+  private async speakJudgeLine(text: string, dealingSeatPrompt = false): Promise<void> {
     if (!text.trim() || this.hostPaused) return;
     await this.speechCoordinator.speakSequential({
       text,
       contextNote: `[${WEREWOLF_PLUGIN_ID}] 法官台词播报`,
       closeToStandbyOnComplete: shouldCloseVoiceToStandby(this.engine.getPhase()),
+      dealing: this.engine.getPhase() === "dealing" ? (dealingSeatPrompt ? "seat" : "phase") : undefined,
     });
   }
 
