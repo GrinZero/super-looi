@@ -12,14 +12,17 @@ import type {
   PluginStorage,
   PluginTaskContext,
 } from "../../../runtime/plugins/contracts.js";
-import type { CodexPluginCommand, CodexPluginState } from "../contracts.js";
+import { lastLegacyCloudCliVersion, type CodexPluginCommand, type CodexPluginState } from "../contracts.js";
 import { codexManifest } from "../manifest.js";
+import { extractPluginFailure, PluginKernelError } from "../../../runtime/plugins/errors.js";
+import { cliArchive, downloadCliArchive, latestCliVersion, versionIsNewer } from "./cli-update.js";
+import { readCloudDirectory } from "./cloud-directory.js";
 import { createCodexRunner, type CliHandle, type CliRunner } from "./process.js";
 import type { LangfuseTracer, TraceContext } from "../../../../../packages/looi-runtime/src/telemetry/langfuse.js";
 
 const SKILL = `---
 name: codex
-description: Delegate natural-language tasks to the bundled Codex agent or start Codex Cloud tasks directly.
+description: Delegate natural-language tasks to the App’s Codex agent or start Codex Cloud tasks directly.
 ---
 Use codex_exec for natural-language work: investigate, create or configure a cloud environment, plan steps, or continue a Codex session. Include the returned sessionId to continue; Cloud task IDs are different from session IDs.
 Use codex_cloud when the goal is directly starting a remote coding task in an existing environment. It returns an accepted task ID and URL, not the completed coding result. Use codex_exec with that task ID to inspect progress or results later. Do not submit the same goal again if Codex has already submitted it.
@@ -52,6 +55,7 @@ export interface CodexPluginOptions {
   tracer?: LangfuseTracer;
   traceContext?: () => TraceContext | undefined;
   runner?: CliRunner;
+  archiveDirectory?: string;
 }
 
 function readInitialCodexState(storage: PluginStorage): CodexPluginState {
@@ -81,6 +85,8 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
   private login?: { id: string; handle: CliHandle; done: Promise<void>; cancelled: boolean };
   private closed = false;
   private changingAccount = false;
+  private cliUpdate?: AbortController;
+  private runningTools = 0;
   private stopFailure?: PluginFailure;
 
   readonly auth = {
@@ -185,13 +191,131 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
 
   async handleCommand(command: CodexPluginCommand): Promise<CodexPluginState> {
     if (command.type === "save_cloud_defaults") {
-      await this.configure({
-        environment: command.environment,
-        branch: command.branch,
-      });
+      await this.configure({ environment: command.environment, branch: command.branch });
       return this.ctx.getState();
     }
-    throw new Error(`Unsupported Codex command: ${String((command as { type?: unknown }).type)}`);
+
+    return this.account(async () => {
+      let stage = command.type === "load_cloud_environments" ? "cloud.directory" : "codex.update.registry";
+      let execution: CliReceipt | undefined;
+      try {
+        this.assertCleanup();
+        if (!this.ctx.enabled() || this.closed) {
+          throw new PluginKernelError({ stage, code: "ERR_PLUGIN_DISABLED", reason: "Codex plugin is disabled" });
+        }
+        if (command.type === "load_cloud_environments") {
+          if (this.ctx.getAuth()?.state !== "signed_in") {
+            throw new PluginKernelError({ stage, code: "ERR_CODEX_CHATGPT_LOGIN_REQUIRED", reason: "Sign in to Codex to read cloud environments" });
+          }
+          let credentials = "";
+          const receipt = await this.runner.run({
+            stage: "cloud.directory.auth",
+            operation: "read_credentials",
+            args: [],
+            timeoutMs: 10_000,
+            onOutput: (stream, text) => { if (stream === "stdout") credentials += text; },
+          }).promise;
+          this.checkCleanup(receipt);
+          if (!succeeded(receipt)) this.throwReceipt(receipt);
+          const { environments, failures } = await readCloudDirectory(credentials);
+          if (environments.length || !failures.length) {
+            this.ctx.setState((prev) => ({ ...prev, cloudEnvironments: environments }));
+          }
+          this.ctx.setLastError(failures.at(-1));
+          if (failures.length) {
+            for (const failure of failures) this.recordOperation(stage, failure);
+          } else {
+            this.recordOperation(stage);
+          }
+          return this.ctx.getState();
+        } else if (command.type === "check_cli_update") {
+          const version = await latestCliVersion();
+          this.ctx.setState((prev) => ({
+            ...prev,
+            latestCliVersion: version,
+            cliUpdateAvailable: versionIsNewer(version, prev.cliVersion ?? ""),
+          }));
+        } else if (command.type === "install_cli_update") {
+          const { cliVersion, latestCliVersion: version } = this.ctx.getState();
+          if (!version || !cliVersion || !versionIsNewer(version, cliVersion)) return this.ctx.getState();
+          if (this.runningTools || this.login) {
+            throw new PluginKernelError({ stage: "codex.update.prepare", code: "ERR_CODEX_BUSY", reason: "Finish the running Codex task or login before updating" });
+          }
+          const controller = new AbortController();
+          this.cliUpdate = controller;
+          const destination = path.join(this.options.archiveDirectory ?? "/workspace", `.looi-codex-${randomUUID()}.tgz`);
+          try {
+            const archive = await cliArchive(version, controller.signal);
+            if (!this.ctx.enabled() || this.closed) {
+              throw new PluginKernelError({ stage: "codex.update.prepare", code: "ERR_PLUGIN_DISABLED", reason: "Codex plugin is disabled" });
+            }
+            stage = "codex.update.download";
+            await downloadCliArchive(archive.url, destination, AbortSignal.any([
+              controller.signal, AbortSignal.timeout(10 * 60_000),
+            ]));
+            stage = "codex.update.install";
+            execution = await this.runner.run({
+              stage,
+              operation: "install_cli",
+              args: [destination, archive.sha512, version],
+              timeoutMs: 10 * 60_000,
+              signal: controller.signal,
+            }).promise;
+            this.checkCleanup(execution);
+            if (!succeeded(execution)) this.throwReceipt(execution);
+            this.setCliVersion(version);
+          } finally {
+            this.cliUpdate = undefined;
+            try {
+              fs.rmSync(destination, { force: true });
+            } catch (error) {
+              const failure = extractPluginFailure(error, "codex.update.cleanup");
+              this.recordOperation(failure.stage, failure);
+            }
+          }
+        } else {
+          throw new Error(`Unsupported Codex command: ${String((command as { type?: unknown }).type)}`);
+        }
+
+        this.ctx.setLastError(undefined);
+        if (!execution) this.recordOperation(stage);
+        return this.ctx.getState();
+      } catch (error) {
+        const failure = extractPluginFailure(error, stage);
+        this.ctx.setLastError(failure);
+        if (!execution) this.recordOperation(stage, failure);
+        throw new PluginKernelError({ ...failure, code: failure.code ?? "ERR_CODEX_SETTINGS" });
+      }
+    });
+  }
+
+  private throwReceipt(receipt: CliReceipt): never {
+    const failure = receipt.failure ?? { stage: receipt.stage, reason: receipt.stderr || receipt.stdout };
+    throw new PluginKernelError({ ...failure, code: failure.code ?? receipt.exitCode ?? "ERR_CODEX_PROCESS" });
+  }
+
+  private setCliVersion(cliVersion: string): void {
+    this.ctx.setState((prev) => ({
+      ...prev,
+      cliVersion,
+      cliUpdateAvailable: Boolean(prev.latestCliVersion && versionIsNewer(prev.latestCliVersion, cliVersion)),
+      currentCloudSubmitUnsupported: cliVersion === lastLegacyCloudCliVersion || versionIsNewer(lastLegacyCloudCliVersion, cliVersion),
+    }));
+  }
+
+  private recordOperation(stage: string, failure?: PluginFailure): void {
+    const receipt: CliReceipt = {
+      id: randomUUID(),
+      stage: failure?.stage ?? stage,
+      args: [],
+      state: failure ? "execution_failed" : "exited",
+      exitCode: null,
+      stdout: "",
+      stderr: "",
+      failure,
+    };
+    this.ctx.setLastExecution(receipt);
+    this.ctx.publish({ type: "execution_finished", pluginId: "codex", receipt });
   }
 
   async start(): Promise<void> {
@@ -209,7 +333,7 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
     }
 
     const cliVersion = plain(receipt.stdout).trim().replace(/^codex-cli\s+/, "");
-    this.ctx.setState((prev) => ({ ...prev, cliVersion }));
+    this.setCliVersion(cliVersion);
     if (this.closed || !this.ctx.enabled()) return;
     await this.readAccount();
   }
@@ -224,6 +348,7 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
       this.ctx.setLastError(undefined);
     } else if (receipt.state === "exited" && receipt.exitCode === 1 && /Not logged in/i.test(receipt.stderr + receipt.stdout)) {
       this.ctx.setAuth({ state: "signed_out" });
+      this.ctx.setState((prev) => ({ ...prev, cloudEnvironments: undefined }));
       this.ctx.setLastError(undefined);
     } else {
       this.ctx.setAuth({ state: "unavailable" });
@@ -242,6 +367,7 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
 
     const id = randomUUID();
     this.ctx.setAuth({ state: "authorizing", sessionId: id });
+    this.ctx.setState((prev) => ({ ...prev, cloudEnvironments: undefined }));
     this.ctx.setLastError(undefined);
 
     let output = "";
@@ -291,6 +417,7 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
 
   private async logout(): Promise<void> {
     this.changingAccount = true;
+    this.ctx.setState((prev) => ({ ...prev, cloudEnvironments: undefined }));
     try {
       await this.endLogin();
       await this.runner.stop();
@@ -307,6 +434,7 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
 
   async stop(reason: "disabled" | "dependency_lost" | "app_shutdown"): Promise<void> {
     if (reason === "app_shutdown") this.closed = true;
+    this.cliUpdate?.abort();
     try {
       await this.account(async () => {
         try {
@@ -377,10 +505,17 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
     if (auth?.state !== "signed_in") {
       return this.unavailable("codex.auth", "Sign in to Codex on the Plugins page", "authorization_required");
     }
-    const handle = this.runner.run({ stage, args, signal, cwd: cwd ?? context.workspaceRoot, timeoutMs: context.commandTimeoutMs, onOutput });
-    const receipt = await handle.promise;
-    this.checkCleanup(receipt);
-    return receipt;
+    if (this.cliUpdate) {
+      return this.unavailable("codex.update.install", "Codex CLI is updating", "cli_updating");
+    }
+    this.runningTools += 1;
+    try {
+      const receipt = await this.runner.run({ stage, args, signal, cwd: cwd ?? context.workspaceRoot, timeoutMs: context.commandTimeoutMs, onOutput }).promise;
+      this.checkCleanup(receipt);
+      return receipt;
+    } finally {
+      this.runningTools -= 1;
+    }
   }
 
   tools(context: PluginTaskContext): AgentTool<any>[] {
@@ -390,7 +525,7 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
       {
         name: "codex_exec",
         label: "Codex EXEC",
-        description: `Delegate a natural-language task to the App's bundled Codex agent, including environment setup, complex work and follow-up. Return answer and Codex session ID. ${defaults}`,
+        description: `Delegate a natural-language task to the App's Codex agent, including environment setup, complex work and follow-up. Return answer and Codex session ID. ${defaults}`,
         parameters: execParams,
         executionMode: "sequential",
         execute: async (_id, params, signal, onUpdate) => {
@@ -480,6 +615,21 @@ export class CodexPlugin implements PluginRuntime<CodexPluginCommand, CodexPlugi
               },
               true,
             );
+          }
+          const entries = latestState.cloudEnvironments ?? [];
+          const matching = entries.filter((entry) => entry.name === environment);
+          const selected = entries.find((entry) => entry.id === environment) ?? (matching.length === 1 ? matching[0] : undefined);
+          const currentCloud = Boolean(selected && selected.scope !== "legacy") || /(?:^|~)asenvcfg_/.test(environment);
+          if (this.ctx.getAuth()?.state === "signed_in" && latestState.currentCloudSubmitUnsupported && currentCloud) {
+            const outcome = "not_submitted";
+            const execution = this.unavailable(
+              "cloud.submit.compatibility",
+              "The installed CLI only submits to legacy environments. This environment uses the current Codex Cloud.",
+              "ERR_CODEX_CLOUD_ENVIRONMENT_UNSUPPORTED",
+            );
+            this.ctx.setLastExecution(execution);
+            this.ctx.publish({ type: "execution_finished", pluginId: "codex", receipt: execution });
+            return result({ outcome, execution, failure: execution.failure }, true);
           }
           const args = ["cloud", "exec", "--env", environment];
           if (branch) args.push("--branch", branch);

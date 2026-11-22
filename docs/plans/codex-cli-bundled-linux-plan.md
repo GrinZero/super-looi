@@ -8,6 +8,8 @@ App 内的 Codex CLI 自行完成登录和令牌刷新。Task Agent 通过 `code
 
 ## 发行包与升级
 
+内置版本提供首次启动的客户端。设置页支持单独检查和安装官方稳定版，见 [Codex CLI 升级与云端目录](codex-cli-update-and-cloud-picker.md)。
+
 固定官方 `@openai/codex@0.167.2-linux-arm64` 的 `aarch64-unknown-linux-musl` 可执行文件；来源和版本写入 `native/linux/sources.lock.json`。CLI 是静态 ELF，两个加载段均按 64 KiB 对齐，文件大小 279,318,936 字节，约 266.4 MiB。使用原始 CLI 文件，Cloud 和设备码登录不引入其语音运行库或 Code Mode 独立宿主。
 
 CLI 在 Linux 准备流程中下载并打入移动端安装包，首次使用不再下载。iOS 安装器会去掉非 Mach-O 资源的执行位，因此 App 按内置版本将 ELF 安装到自身私有 `linux-tools` 目录，赋予执行权限后挂载到 guest `/opt/looi`，通过 `/usr/local/bin/codex` 符号链接调用。版本更新原位替换工具文件。Android 将 ELF 作为原生可执行资源安装，并通过现有 PRoot 绑定到同一路径。这样已有 guest 无需重装，`apk` 软件包、工作区和 `/root/.codex` 登录态继续使用。

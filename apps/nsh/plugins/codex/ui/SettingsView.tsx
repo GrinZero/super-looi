@@ -10,7 +10,7 @@ import {
 } from "nsh";
 import { Button } from "nsh/base";
 import { t } from "../../../i18n";
-import { ActionButton, TextField } from "../../../ui/Controls";
+import { ActionButton, SelectField, TextField } from "../../../ui/Controls";
 import { PluginVectorIcon } from "../../../ui/plugins/PluginVectorIcon";
 import type { PluginViewContext } from "../../../ui/plugins/ui-contracts";
 import type { CodexPluginCommand, CodexPluginState } from "../contracts";
@@ -21,6 +21,8 @@ export function CodexSettingsView(props: {
   const environment = signal("");
   const branch = signal("");
   const details = signal(false);
+  const cloudLoading = signal(false);
+  const updateAction = signal<"check_cli_update" | "install_cli_update" | undefined>(undefined);
 
   const wide = () => windowSize().width >= 600;
   const busy = () => props.ctx.busy();
@@ -31,6 +33,39 @@ export function CodexSettingsView(props: {
 
   let syncedKey = "";
   let refreshedOnce = false;
+  let requestedCatalog = false;
+  const state = () => props.ctx.state();
+  const catalog = () => state()?.cloudEnvironments;
+  const selectedEnvironment = () => {
+    const entries = catalog() ?? [];
+    const exact = entries.find((entry) => entry.id === environment());
+    if (exact) return exact;
+    const matching = entries.filter((entry) => entry.name === environment());
+    return matching.length === 1 ? matching[0] : undefined;
+  };
+  const loadCatalog = async () => {
+    cloudLoading.set(true);
+    try {
+      await props.ctx.sendCommand({ type: "load_cloud_environments" });
+    } finally {
+      cloudLoading.set(false);
+    }
+  };
+  const updateCli = async () => {
+    const type = state()?.cliUpdateAvailable ? "install_cli_update" : "check_cli_update";
+    updateAction.set(type);
+    try {
+      await props.ctx.sendCommand({ type });
+    } finally {
+      updateAction.set(undefined);
+    }
+  };
+  const updateLabel = () => {
+    if (updateAction() === "install_cli_update") return t("pluginCliInstalling");
+    if (updateAction() === "check_cli_update") return t("pluginCliChecking");
+    if (state()?.cliUpdateAvailable) return `${t("pluginCliInstall")} ${state()?.latestCliVersion}`;
+    return t("pluginCliCheck");
+  };
 
   effect(() => {
     const st = props.ctx.state();
@@ -52,6 +87,17 @@ export function CodexSettingsView(props: {
     }
   });
 
+  effect(() => {
+    if (!enabled() || !signedIn()) {
+      requestedCatalog = false;
+      return;
+    }
+    if (!requestedCatalog && !busy()) {
+      requestedCatalog = true;
+      void loadCatalog();
+    }
+  });
+
   const statusDotClass = () => {
     if (!enabled()) return "w-2 h-2 rounded-full bg-subtle-text";
     const a = auth()?.state;
@@ -67,6 +113,15 @@ export function CodexSettingsView(props: {
     if (signedIn()) return t("pluginSignedIn");
     if (auth()?.state === "unavailable") return t("pluginAccountUnavailable");
     return t("pluginSignedOut");
+  };
+
+  const catalogFailure = () => props.ctx.lastError()?.stage.startsWith("cloud.directory") ?? false;
+  const catalogLoginExpired = () => catalogFailure() && props.ctx.lastError()?.code === 401 && !catalog()?.length;
+  const diagnosticError = () => {
+    const failure = props.ctx.lastError();
+    return failure
+      ? `[stage=${failure.stage}${failure.code === undefined ? "" : ` code=${failure.code}`}] ${failure.reason}`
+      : props.ctx.uiError();
   };
 
   const executionSummary = () => {
@@ -100,13 +155,6 @@ export function CodexSettingsView(props: {
               <Text class="text-foreground text-sm font-bold" role="header">
                 {t("pluginAccountSection")}
               </Text>
-              <If when={Boolean(props.ctx.state()?.cliVersion)}>
-                <View class="px-2 py-0.5 rounded-md bg-muted border border-border">
-                  <Text class="text-muted-foreground text-xs font-mono">
-                    Codex CLI {props.ctx.state()?.cliVersion}
-                  </Text>
-                </View>
-              </If>
             </View>
 
             <View class="flex-row items-center justify-between gap-3">
@@ -223,11 +271,30 @@ export function CodexSettingsView(props: {
               </Text>
             </If>
 
-            <If when={Boolean(props.ctx.uiError() || props.ctx.lastError())}>
+            <If when={Boolean(state()?.cliVersion)}>
+              <View class="border-t border-border pt-2.5 flex-row flex-wrap items-center justify-between gap-2">
+                <View class="gap-0.5">
+                  <Text testID="plugin-cli-version" class="text-foreground text-xs font-mono">
+                    Codex CLI {state()?.cliVersion}
+                  </Text>
+                  <If when={Boolean(state()?.latestCliVersion && !state()?.cliUpdateAvailable)}>
+                    <Text class="text-muted-foreground text-xs">{t("pluginCliUpToDate")}</Text>
+                  </If>
+                </View>
+                <ActionButton
+                  testID="plugin-cli-update"
+                  compact
+                  label={updateLabel()}
+                  disabled={busy() || authorizing() || !enabled()}
+                  onPress={() => { void updateCli(); }}
+                />
+              </View>
+            </If>
+
+            <If when={!catalogFailure() && Boolean(diagnosticError())}>
               <View class="rounded-xl bg-muted border border-destructive px-3 py-2">
                 <Text testID="plugin-error" class="text-destructive text-xs">
-                  {props.ctx.uiError() ||
-                    `${props.ctx.lastError()?.stage}: ${props.ctx.lastError()?.reason}`}
+                  {diagnosticError()}
                 </Text>
               </View>
             </If>
@@ -286,45 +353,90 @@ export function CodexSettingsView(props: {
               </Text>
             </View>
 
-            <TextField
-              testID="plugin-environment"
-              compact
-              label={t("pluginEnvironment")}
-              value={environment()}
-              onChange={environment.set}
-              placeholder="video2rig"
-            />
+            <If when={!signedIn()}>
+              <Text class="text-muted-foreground text-xs">{t("pluginCloudSignIn")}</Text>
+            </If>
+            <If when={signedIn()}>
+              <If when={cloudLoading()}>
+                <Text class="text-muted-foreground text-xs">{t("pluginCloudLoading")}</Text>
+              </If>
+              <If when={!cloudLoading() && catalogFailure()}>
+                <Text testID="plugin-cloud-error" class="text-destructive text-xs">{diagnosticError()}</Text>
+              </If>
+              <If when={!cloudLoading() && !catalogFailure() && catalog()?.length === 0}>
+                <Text class="text-muted-foreground text-xs">{t("pluginCloudEmpty")}</Text>
+              </If>
+              <If when={Boolean(catalog()?.length)}>
+                <SelectField
+                  testID="plugin-environment"
+                  compact
+                  label={t("pluginEnvironment")}
+                  items={[
+                    { value: "", title: t("pluginChooseEnvironment"), disabled: true },
+                    ...(catalog() ?? []).map((entry) => ({
+                      value: entry.id,
+                      title: entry.name,
+                      group: t(entry.scope === "legacy" ? "pluginCloudLegacy" : entry.scope === "workspace" ? "pluginCloudWorkspace" : "pluginCloudPersonal"),
+                    })),
+                  ]}
+                  value={selectedEnvironment()?.id ?? ""}
+                  disabled={busy()}
+                  onChange={(value) => {
+                    if (selectedEnvironment()?.id !== value) branch.set("");
+                    environment.set(value);
+                  }}
+                />
+              </If>
 
-            <TextField
-              testID="plugin-branch"
-              compact
-              label={t("pluginBranch")}
-              value={branch()}
-              onChange={branch.set}
-              placeholder="main"
-            />
+              <If when={selectedEnvironment()?.scope === "legacy"}>
+                <TextField
+                  testID="plugin-branch"
+                  compact
+                  label={t("pluginBranch")}
+                  value={branch()}
+                  onChange={branch.set}
+                  placeholder={t("pluginBranchCliDefault")}
+                />
+              </If>
+              <If when={Boolean(selectedEnvironment() && selectedEnvironment()?.scope !== "legacy")}>
+                <Text class="text-muted-foreground text-xs">{t("pluginCloudSavedBranch")}</Text>
+                <If when={Boolean(state()?.currentCloudSubmitUnsupported)}>
+                  <Text testID="plugin-cloud-compatibility" class="text-warning text-xs">{t("pluginCloudCurrentUnavailable")}</Text>
+                </If>
+              </If>
 
-            <View class="flex-row justify-end pt-0.5">
-              <ActionButton
-                testID="plugin-save"
-                compact
-                kind="primary"
-                label={t("pluginSave")}
-                disabled={busy()}
-                onPress={() => {
-                  void props.ctx
-                    .configure({
-                      environment: environment(),
-                      branch: branch(),
-                    })
-                    .then(() => {
-                      if (!props.ctx.uiError()) {
-                        props.ctx.notify(t("pluginSettingsSaved"));
-                      }
-                    });
-                }}
-              />
-            </View>
+              <View class="flex-row flex-wrap justify-between gap-2 pt-0.5">
+                <ActionButton
+                  testID="plugin-cloud-refresh"
+                  compact
+                  label={t(catalogLoginExpired() ? "pluginSignInAgain" : "pluginCloudRefresh")}
+                  disabled={busy()}
+                  onPress={() => {
+                    if (catalogLoginExpired()) void props.ctx.beginLogin();
+                    else void loadCatalog();
+                  }}
+                />
+                <If when={Boolean(catalog()?.length)}>
+                  <ActionButton
+                    testID="plugin-save"
+                    compact
+                    kind="primary"
+                    label={t("pluginSave")}
+                    disabled={busy() || !selectedEnvironment()}
+                    onPress={() => {
+                      const selected = selectedEnvironment();
+                      if (!selected) return;
+                      void props.ctx.configure({
+                        environment: selected.id,
+                        branch: selected.scope === "legacy" ? branch() : "",
+                      }).then(() => {
+                        if (!props.ctx.uiError()) props.ctx.notify(t("pluginSettingsSaved"));
+                      });
+                    }}
+                  />
+                </If>
+              </View>
+            </If>
           </View>
 
           <View class="h-px bg-border" />

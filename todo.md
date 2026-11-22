@@ -52,6 +52,10 @@
 
 ## Codex Cloud 插件
 
+- [ ] 在 iOS／Android 真机横屏验证从内置 CLI 升级、重启后的 CLI 版本和登录态，以及登录后加载账号环境。当前未发现已连接的真机。见 [CLI 升级与云端目录](docs/plans/codex-cli-update-and-cloud-picker.md)。
+- [ ] 确认新版环境详情的仓库和分支字段，显示实际分支。环境选择目录返回名称和配置 ID。
+- [ ] 用 Codex app-server 的 `account/read(refreshToken: true)` 处理目录的过期凭据，复用 CLI 自己的 OAuth 刷新。直接读取返回 401 时，设置页提供重新登录入口。
+
 - [ ] 在 App 内通过 `codex_exec` 委派创建／配置环境，再通过 `codex_cloud` 在该环境启动任务，核对真实受理回执；按实际执行结果处理缺少的能力或访问条件，不将单独实现环境管理 API 作为前置条件。
 - [ ] 让 Cloud 封装支持新版环境的会话创建、任务提交与结果查询。同账号的新版目录已返回 `video2rig`。上游 `0.172.0-alpha.1` 的实验性终端交互入口已接入已发布环境，`0.170.0` 和该预发布版的非交互 `cloud exec` 均仍查询旧目录。见 [Cloud 兼容性调研](docs/codex-cloud-cli-compatibility-research.md)。
 - [ ] 处理 Codex EXEC 默认 sandbox 策略：App Linux 的 PR_SET_PDEATHSIG／getppid 修复及四组回归已通过，CLI 在 App Linux 隔离边界内实际执行 pwd 成功；默认 workspace-write 依赖当前 guest 未提供的 bubblewrap。

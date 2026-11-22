@@ -3,12 +3,14 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { bundledBin, installedBin, installCliScript } from "./cli-update.js";
 import type { CliReceipt } from "../../../runtime/plugins/contracts.js";
 import type { LangfuseTracer, TraceContext } from "../../../../../packages/looi-runtime/src/telemetry/langfuse.js";
 
 export interface CliRequest {
   stage: string;
   args: string[];
+  operation?: "read_credentials" | "install_cli";
   cwd?: string;
   timeoutMs: number;
   signal?: AbortSignal;
@@ -40,8 +42,15 @@ export function createCodexRunner(options: {
       const handle: CliHandle = { id, cancel: () => cancel(), promise: undefined as unknown as Promise<CliReceipt> };
       handle.promise = new Promise((resolve) => {
         const receipt: CliReceipt = { id, stage: request.stage, args: request.args, state: "not_started", exitCode: null, stdout: "", stderr: "" };
+        const privateOutput = request.operation === "read_credentials";
+        const executable = request.operation ? "/bin/busybox" : "codex";
+        const args = request.operation === "read_credentials"
+          ? ["cat", "/root/.codex/auth.json"]
+          : request.operation === "install_cli"
+            ? ["sh", "-c", installCliScript, "install-codex", ...request.args]
+            : ["-c", 'cli_auth_credentials_store="file"', ...request.args];
         const observation = options.tracer?.start(request.stage, "tool", options.traceContext?.(), {
-          "langfuse.observation.input": { executable: "/usr/local/bin/codex", args: request.args, cwd: request.cwd },
+          "langfuse.observation.input": { executable, args: request.args, cwd: request.cwd },
         });
         const finish = () => {
           if (receipt.state !== "stop_unconfirmed") pending.delete(handle);
@@ -72,12 +81,13 @@ export function createCodexRunner(options: {
             finish();
             return;
           }
-          const child = spawn("/usr/local/bin/codex", ["-c", 'cli_auth_credentials_store="file"', ...request.args], {
+          const child = spawn(executable, args, {
             cwd: request.cwd ?? "/workspace",
             stdio: ["ignore", "pipe", "pipe"],
             timeout: request.timeoutMs,
             env: {
               HOME: "/root",
+              PATH: `${installedBin}:${bundledBin}:/usr/bin:/bin:/usr/sbin:/sbin`,
               SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt",
               ...(process.env.LOOI_CODEX_PROXY
                 ? { HTTP_PROXY: process.env.LOOI_CODEX_PROXY, HTTPS_PROXY: process.env.LOOI_CODEX_PROXY, NO_PROXY: "localhost,127.0.0.1,::1" }
@@ -92,6 +102,10 @@ export function createCodexRunner(options: {
           const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
           const append = (stream: "stdout" | "stderr", text: string) => {
             if (!text) return;
+            if (privateOutput && stream === "stdout") {
+              request.onOutput?.(stream, text);
+              return;
+            }
             receipt[stream] = (receipt[stream] + text).slice(-16_384);
             try {
               fs.appendFileSync(receipt.outputFiles![stream], text);
@@ -123,7 +137,10 @@ export function createCodexRunner(options: {
                     : "exited";
             if (receipt.state !== "exited" && !receipt.failure) receipt.failure = { stage: request.stage, reason: `Codex process ${receipt.state}` };
             if (code !== 0 && !receipt.failure && !/Not logged in/i.test(receipt.stderr)) {
-              receipt.failure = { stage: request.stage, code: code ?? undefined, reason: receipt.stderr.trim() || receipt.stdout.trim() || `Codex exited with code ${code}` };
+              const stage = request.operation === "install_cli"
+                ? receipt.stderr.match(/\[stage=(codex\.update\.\w+) code=\d+\]/)?.[1] ?? request.stage
+                : request.stage;
+              receipt.failure = { stage, code: code ?? undefined, reason: receipt.stderr.trim() || receipt.stdout.trim() || `Codex exited with code ${code}` };
             }
             finish();
           });

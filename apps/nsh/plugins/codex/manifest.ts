@@ -18,6 +18,6 @@ export const codexManifest: PluginManifest = {
     name: "Super LOOI",
     verified: true,
   },
-  permissions: ["ai.tools", "ai.intercept", "linux.exec"],
+  permissions: ["ai.tools", "ai.intercept", "linux.exec", "network.https"],
   activation: "on_demand",
 };

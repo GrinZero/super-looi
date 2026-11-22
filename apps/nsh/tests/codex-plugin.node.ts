@@ -69,6 +69,12 @@ function fixture() {
         else if (request.stage === "codex.logout") {
           signedIn = false;
           finish();
+        } else if (request.operation === "read_credentials") {
+          request.onOutput?.("stdout", JSON.stringify({ tokens: { access_token: "test-token", account_id: "test-account" } }));
+          finish();
+        } else if (request.operation === "install_cli") {
+          const content = fs.readFileSync(request.args[0]!);
+          finish({ stdout: `codex-cli ${request.args[2]}\n`, stderr: content.toString("hex") });
         } else if (request.stage === "cloud.submit") finish(cloud);
         else if (request.stage === "codex.exec") {
           const output =
@@ -95,7 +101,7 @@ function fixture() {
     },
   };
 
-  const host = new PluginHost(database, [codexDefinition({ directory, runner })]);
+  const host = new PluginHost(database, [codexDefinition({ directory, runner, archiveDirectory: directory })]);
   host.subscribe((event) => events.push(event));
   const plugin = host.get("codex") as CodexPlugin;
 
@@ -208,7 +214,7 @@ test("Codex registers its own approval guard via ctx.ai.interceptToolCall and su
       environment: "prod-env",
       branch: "release",
     });
-    assert.deepEqual(updated, { environment: "prod-env", branch: "release", cliVersion: "0.167.2" });
+    assert.equal((updated as { cliVersion?: string }).cliVersion, "0.167.2");
     assert.equal(f.snapshot().configuration.environment, "prod-env");
     assert.equal(f.snapshot().configuration.branch, "release");
   } finally {
@@ -456,6 +462,75 @@ test("a login cleanup failure ends the authorization challenge and retains its a
     assert.equal(snapshot.auth?.url, undefined);
     assert.equal(snapshot.lastError?.code, "ERR_SHELL_CLEANUP");
     assert.equal(snapshot.lastError?.stage, "codex.login");
+  } finally {
+    await f.close();
+  }
+});
+
+test("CLI settings install the checked stable Linux package and update the active version", async (t) => {
+  const version = "0.171.0";
+  const tarball = `https://registry.npmjs.org/@openai/codex/-/codex-${version}-linux-arm64.tgz`;
+  const calls = t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (url === tarball) return new Response(new Uint8Array([1, 2, 3]));
+    return Response.json(url.endsWith("/latest")
+      ? { version }
+      : { dist: { tarball, integrity: `sha512-${Buffer.alloc(64, 1).toString("base64")}` } });
+  });
+  const f = fixture();
+  try {
+    await f.host.sendCommand("codex", { type: "check_cli_update" });
+    assert.equal(f.snapshot().state.cliVersion, "0.167.2");
+    assert.equal(f.snapshot().state.latestCliVersion, version);
+    assert.equal(f.snapshot().state.cliUpdateAvailable, true);
+    await f.host.sendCommand("codex", { type: "install_cli_update" });
+    assert.deepEqual(calls.mock.calls.map((call) => call.arguments[0].split("/").at(-1)), [
+      "latest", `${version}-linux-arm64`, `codex-${version}-linux-arm64.tgz`,
+    ]);
+    const [destination, digest, installedVersion] = f.requests.at(-1)!.args;
+    assert.equal(path.dirname(destination!), f.directory);
+    assert.equal(fs.existsSync(destination!), false);
+    assert.equal(digest, "01".repeat(64));
+    assert.equal(installedVersion, version);
+    assert.equal(f.snapshot().state.cliVersion, version);
+    assert.equal(f.snapshot().state.cliUpdateAvailable, false);
+  } finally {
+    await f.close();
+  }
+});
+
+test("Current cloud environments remain selectable when the legacy directory is unavailable", async (t) => {
+  t.mock.method(globalThis, "fetch", async (input: string, init: RequestInit) => {
+    const url = new URL(input);
+    assert.equal(new Headers(init.headers).get("Authorization"), "Bearer test-token");
+    assert.equal(new Headers(init.headers).get("ChatGPT-Account-Id"), "test-account");
+    if (url.pathname === "/backend-api/wham/environments") {
+      return new Response("Legacy service unavailable", { status: 503 });
+    }
+    if (url.searchParams.get("scope") === "workspace") {
+      return Response.json({ data: [{ id: "team~asenvcfg_2", name: "Shared" }] });
+    }
+    if (!url.searchParams.has("cursor")) {
+      return Response.json({ data: [{ id: "asenvcfg_base", name: "Default" }], next_cursor: "a+b" });
+    }
+    assert.equal(url.searchParams.get("cursor"), "a+b");
+    return Response.json({ data: [{ id: "team~asenvcfg_1", name: "video2rig" }] });
+  });
+  const f = fixture();
+  try {
+    await f.host.sendCommand("codex", { type: "load_cloud_environments" });
+    assert.deepEqual(f.snapshot().state.cloudEnvironments, [
+      { id: "team~asenvcfg_1", name: "video2rig", scope: "user" },
+      { id: "team~asenvcfg_2", name: "Shared", scope: "workspace" },
+    ]);
+    assert.deepEqual(f.snapshot().lastError, {
+      stage: "cloud.directory.legacy", code: 503, reason: "Legacy service unavailable",
+    });
+    assert.ok(!JSON.stringify(f.events).includes("test-token"));
+    const tool = f.plugin.tools(context).find((candidate) => candidate.name === "codex_cloud")!;
+    const outcome = payload(await tool.execute("current-env", { prompt: "Fix imports", environment: "team~asenvcfg_1" }));
+    assert.equal(outcome.outcome, "not_submitted");
+    assert.equal(outcome.failure.code, "ERR_CODEX_CLOUD_ENVIRONMENT_UNSUPPORTED");
+    assert.ok(!f.requests.some((request) => request.stage === "cloud.submit"));
   } finally {
     await f.close();
   }

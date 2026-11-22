@@ -3037,3 +3037,11 @@
 - [ ] Step 4：抽离独立内聚组件 `apps/nsh/ui/CameraMonitor.tsx`（全屏 `Dialog`、安全区避让、4s HUD 自动隐藏、全屏云台方向控制与断流恢复），并接入 `apps/nsh/ui/HomeSpaceView.tsx`。
 - [ ] Step 5：补全并执行自动化测试（`HomeCameraProbe.tsx`、`tests/camera_ui.rs`、`HomeCameraFullscreen.test.tsx`）。
 - [ ] Step 6：执行原生语法与插件检查、类型检查、构建与全套测试，完成独立 Subagent Review（独立子代理代码审查）及修复，更新文档并提交。
+
+## Codex CLI 升级与云端目录（2026-11-22）
+
+- [x] Step 1：核对官方 Linux ARM64 发行包、稳定版 Cloud 命令与新版环境目录。
+- [x] Step 2：接入官方稳定版查询、App HTTPS 流式下载、Linux 内试运行和版本切换。
+- [x] Step 3：接入个人／工作区环境目录和横屏设置页，保留旧版环境入口和分支覆盖。
+- [x] Step 4：14 项 Codex 定向测试、类型检查、构建和独立 review。
+- [ ] Step 5：在连接的 iOS／Android 真机上验收横屏设置、真实登录和安装后的 CLI。

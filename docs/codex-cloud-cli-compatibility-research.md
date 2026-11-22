@@ -1,5 +1,9 @@
 # Codex CLI 与新版 Cloud 环境兼容性
 
+## 稳定版 0.171.0
+
+[0.171.0](https://github.com/openai/codex/releases/tag/rust-v0.171.0) 的 [`cloud exec` 环境解析](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/cloud-tasks/src/lib.rs#L244-L295)仍调用[旧版 Cloud 目录](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/cloud-tasks/src/env_detect.rs#L328-L394)。App 设置页可通过当前账号的新版目录列出已发布环境。目录与任务提交采用各自的接口，升级到此稳定版后仍需兼容新版的非交互提交协议。
+
 ## 2026-11-19 复查
 
 - 稳定版 [0.170.0](https://github.com/openai/codex/releases/tag/rust-v0.170.0) 已包含新版 Cloud 的实验性 TUI 后端。该版的 [`cloud exec` 环境解析](https://github.com/openai/codex/blob/rust-v0.170.0/codex-rs/cloud-tasks/src/lib.rs#L248-L276)仍依赖 [`wham/environments`](https://github.com/openai/codex/blob/rust-v0.170.0/codex-rs/cloud-tasks/src/env_detect.rs#L344-L387)。[同版 Linux 用户复现](https://github.com/openai/codex/issues/50182#issuecomment-7000672078)显示，网页能运行的已发布环境在 CLI 中报 `environment not found`。
