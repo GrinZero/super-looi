@@ -55,9 +55,15 @@ import type { DualLoopAiBusBridge } from "./plugins/ai-bus.js";
 import {
   FaceDriverHub,
   createBodyCapability,
+  createMotionCapability,
   createVisionCapability,
   uint8ArrayToBase64,
 } from "./plugins/embodied-drivers.js";
+import {
+  MotionBroker,
+  type MotionBrokerAttachOptions,
+  type NativeDeviceMotionPort,
+} from "./device-motion.js";
 import {
   VisionBroker,
   type NativeDeviceCameraPort,
@@ -175,6 +181,7 @@ export class MobileRuntime {
   private readonly body: BodyRuntime;
   private readonly faceHub = new FaceDriverHub();
   private readonly visionBroker = new VisionBroker();
+  private readonly motionBroker = new MotionBroker();
   private readonly lanRoomBroker = new LanRoomBroker();
   private readonly plugins: PluginHost;
   private readonly credentialStore: VaultCredentialStore;
@@ -231,6 +238,8 @@ export class MobileRuntime {
           createBodyCapability: (manifest, scope) => createBodyCapability(manifest, scope, this.body),
           createVisionCapability: (manifest, scope) =>
             createVisionCapability(manifest, scope, this.visionBroker),
+          createMotionCapability: (manifest, scope) =>
+            createMotionCapability(manifest, scope, this.motionBroker),
           createLanCapability: (manifest, scope) =>
             createLanRoomCapability(manifest, scope, this.lanRoomBroker),
           aiBridge: {
@@ -321,6 +330,17 @@ export class MobileRuntime {
   }
   setDeviceCameraForegroundActive(active: boolean) {
     this.visionBroker.setForegroundActive(active);
+  }
+  attachNativeDeviceMotion(
+    port: NativeDeviceMotionPort | null,
+    options?: MotionBrokerAttachOptions,
+  ) {
+    const effectiveOptions =
+      options ?? (process.env.LOOI_IOS_SIMULATOR === "1" ? { useSampleStream: true } : undefined);
+    this.motionBroker.attachNativePort(port, effectiveOptions);
+  }
+  setDeviceMotionForegroundActive(active: boolean) {
+    this.motionBroker.setForegroundActive(active);
   }
   attachNativeLanRoom(port: NativeLanRoomPort | null) {
     this.lanRoomBroker.attachNativePort(port);
@@ -1283,6 +1303,7 @@ export class MobileRuntime {
     this.cancelProviderOAuth();
     this.faceHub.attachController(undefined);
     this.visionBroker.setForegroundActive(false);
+    this.motionBroker.setForegroundActive(false);
     this.lanRoomBroker.setForegroundActive(false);
     this.home.close();
     this.body.close();
@@ -1297,6 +1318,7 @@ export class MobileRuntime {
         finally {
           this.lanRoomBroker.close();
           this.visionBroker.close();
+          this.motionBroker.close();
           try { await this.tracer.shutdown(); }
           finally { this.storage.close(); this.releaseHost(); }
         }

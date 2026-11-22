@@ -1,5 +1,8 @@
 //! Android Camera2 JNI bindings for `DeviceCameraHost`.
-use super::{DetectedCameraNativeFace, EncodedFrame, NativeSessionStatus, format_backend_error};
+use super::{
+    CroppedPortraitBytes, DetectedCameraNativeFace, EncodedFrame, FacesOnlyFrame,
+    NativeSessionStatus, format_backend_error,
+};
 use jni::{
     JNIEnv, JavaVM,
     objects::{GlobalRef, JByteArray, JClass, JFloatArray, JLongArray, JString, JValue},
@@ -81,6 +84,16 @@ fn is_permission_pending() -> bool {
             .z()
     })
     .unwrap_or(false)
+}
+
+pub fn query_hfov(facing: &str) -> f64 {
+    let facing_code = if facing == "back" { 1 } else { 0 };
+    java("native.android.hfov", |env, class| {
+        env.call_static_method(class, "queryHfovDeg", "(I)F", &[JValue::Int(facing_code)])?
+            .f()
+    })
+    .map(|v| if v.is_finite() && v > 0.0 { v as f64 } else { 0.0 })
+    .unwrap_or(0.0)
 }
 
 pub fn permission() -> String {
@@ -233,12 +246,110 @@ impl PlatformSession {
                 width: env.get_field(&snap, "width", "I")?.i()?.max(0) as u32,
                 height: env.get_field(&snap, "height", "I")?.i()?.max(0) as u32,
                 captured_at_ms: env.get_field(&snap, "capturedAt", "J")?.j()?,
+                captured_monotonic_ms: env.get_field(&snap, "capturedMonotonicMs", "J")?.j()?.max(0) as f64,
+                faces_monotonic_ms: env.get_field(&snap, "facesMonotonicMs", "J")?.j()?.max(0) as f64,
+                hfov_deg: {
+                    let v = env.get_field(&snap, "hfovDeg", "F")?.f()? as f64;
+                    if v.is_finite() && v > 0.0 { v } else { 0.0 }
+                },
                 seq: env.get_field(&snap, "seq", "J")?.j()?.max(0) as u64,
                 faces,
             }))
         })?
         .ok_or_else(|| {
             "[stage=native.android.jpeg code=ERR_DEVICE_CAMERA_FRAME_UNAVAILABLE] Latest camera frame is not ready".into()
+        })
+    }
+
+    pub fn faces_only(&self) -> Result<FacesOnlyFrame, String> {
+        java("native.android.faces", |env, _| {
+            let snap = env
+                .call_method(
+                    self.object.as_obj(),
+                    "facesSnapshot",
+                    "()Lcom/superlooi/nsh/DeviceCameraBridge$FacesSnapshot;",
+                    &[],
+                )?
+                .l()?;
+            if snap.is_null() {
+                return Ok(None);
+            }
+            let faces_obj = env.get_field(&snap, "faces", "[F")?.l()?;
+            let faces = if faces_obj.is_null() {
+                Vec::new()
+            } else {
+                let float_arr = JFloatArray::from(faces_obj);
+                let len = env.get_array_length(&float_arr)?.max(0) as usize;
+                let mut raw = vec![0.0f32; len.min(48)];
+                if !raw.is_empty() {
+                    env.get_float_array_region(float_arr, 0, &mut raw)?;
+                }
+                raw.chunks_exact(6)
+                    .map(|chunk| DetectedCameraNativeFace {
+                        track_id: chunk[0].max(0.0) as u32,
+                        offset_x: (chunk[1] as f64).clamp(-1.0, 1.0),
+                        offset_y: (chunk[2] as f64).clamp(-1.0, 1.0),
+                        width: (chunk[3] as f64).clamp(0.0, 1.0),
+                        height: (chunk[4] as f64).clamp(0.0, 1.0),
+                        confidence: (chunk[5] as f64).clamp(0.0, 1.0),
+                    })
+                    .collect()
+            };
+            let hfov = env.get_field(&snap, "hfovDeg", "F")?.f()? as f64;
+            Ok(Some(FacesOnlyFrame {
+                width: env.get_field(&snap, "width", "I")?.i()?.max(0) as u32,
+                height: env.get_field(&snap, "height", "I")?.i()?.max(0) as u32,
+                captured_at_ms: env.get_field(&snap, "capturedAt", "J")?.j()?,
+                captured_monotonic_ms: env.get_field(&snap, "capturedMonotonicMs", "J")?.j()?.max(0) as f64,
+                faces_monotonic_ms: env.get_field(&snap, "facesMonotonicMs", "J")?.j()?.max(0) as f64,
+                hfov_deg: if hfov.is_finite() && hfov > 0.0 { hfov } else { 0.0 },
+                seq: env.get_field(&snap, "seq", "J")?.j()?.max(0) as u64,
+                faces,
+            }))
+        })?
+        .ok_or_else(|| {
+            "[stage=native.android.faces code=ERR_DEVICE_CAMERA_FRAME_UNAVAILABLE] Latest camera faces snapshot is not ready".into()
+        })
+    }
+
+    pub fn crop_jpeg(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        max_dimension: i32,
+        jpeg_quality: i32,
+    ) -> Result<CroppedPortraitBytes, String> {
+        java("native.android.crop", |env, _| {
+            let res = env
+                .call_method(
+                    self.object.as_obj(),
+                    "cropJpeg",
+                    "(FFFFII)Lcom/superlooi/nsh/DeviceCameraBridge$CropResult;",
+                    &[
+                        JValue::Float(x as f32),
+                        JValue::Float(y as f32),
+                        JValue::Float(width as f32),
+                        JValue::Float(height as f32),
+                        JValue::Int(max_dimension),
+                        JValue::Int(jpeg_quality),
+                    ],
+                )?
+                .l()?;
+            if res.is_null() {
+                return Ok(None);
+            }
+            let bytes = env.get_field(&res, "data", "[B")?.l()?;
+            Ok(Some(CroppedPortraitBytes {
+                jpeg: env.convert_byte_array(JByteArray::from(bytes))?,
+                width: env.get_field(&res, "width", "I")?.i()?.max(0) as u32,
+                height: env.get_field(&res, "height", "I")?.i()?.max(0) as u32,
+                captured_monotonic_ms: env.get_field(&res, "capturedMonotonicMs", "J")?.j()?.max(0) as f64,
+            }))
+        })?
+        .ok_or_else(|| {
+            "[stage=native.android.crop code=ERR_DEVICE_CAMERA_CROP_FAILED] Failed to crop portrait from latest frame".into()
         })
     }
 

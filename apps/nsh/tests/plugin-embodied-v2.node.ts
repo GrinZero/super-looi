@@ -6,11 +6,20 @@ import {
   RobotFaceController,
   isFaceExpression,
 } from "../../../packages/looi-runtime/src/ui/robot-face-controller.js";
-import { BodyRuntime, type BodyServoPreemptReason } from "../runtime/body.js";
+import { BodyRuntime, parseCliffPacket, type BodyServoPreemptReason } from "../runtime/body.js";
+import { MotionBroker } from "../runtime/device-motion.js";
+import { VisionBroker } from "../runtime/device-camera.js";
+import type {
+  NativeDeviceCameraPort,
+  NativeDeviceMotionPort,
+  NativeDeviceMotionSample,
+} from "../runtime/plugins/shared-types.js";
 import type { PluginDefinition, PluginManifest } from "../runtime/plugins/contracts.js";
 import {
   FaceDriverHub,
   createBodyCapability,
+  createMotionCapability,
+  createVisionCapability,
   uint8ArrayToBase64,
 } from "../runtime/plugins/embodied-drivers.js";
 import { PluginKernelError } from "../runtime/plugins/errors.js";
@@ -860,4 +869,323 @@ test("Review regressions: recipe validation, companion servo mutex, stopNonPlugi
     () => capturedTool.execute({}, toolCtx),
     (err: unknown) => (err as { code?: string }).code === "ERR_PLUGIN_TOOL_INACTIVE",
   );
+});
+
+test("MotionBroker & createMotionCapability gate sensor.motion permission, ref-count IMU hardware, resetHeading, and suspend cleanly on background", async () => {
+  let stopCount = 0;
+  let startCount = 0;
+  let foreground = true;
+  let nextSeq = 1;
+  let anchorDeg = 0;
+  let activeSid: string | null = null;
+
+  const makeSample = (seq: number, headingDeg: number): NativeDeviceMotionSample => ({
+    seq,
+    headingDeg,
+    deltaDeg: seq === 1 ? 0 : 12.5,
+    yawDeg: headingDeg,
+    pitchDeg: 55,
+    rollDeg: 0,
+    qw: 1,
+    qx: 0,
+    qy: 0,
+    qz: 0,
+    monotonicMs: 1000 + seq * 20,
+    sensorKind: "game_rotation_vector",
+    accuracy: 3,
+  });
+
+  const port: NativeDeviceMotionPort = {
+    availability: () => "available",
+    startSession: async (_rateHz, sessionId) => {
+      startCount += 1;
+      activeSid = sessionId;
+      return sessionId;
+    },
+    status: () => (activeSid ? "streaming" : "stopped"),
+    latestSample: (sessionId) => (activeSid === sessionId ? makeSample(nextSeq, anchorDeg) : null),
+    readNextSample: async (sessionId, afterSeq) => {
+      await new Promise((r) => setTimeout(r, 10));
+      if (!foreground) {
+        throw new Error("[stage=device_motion.read code=ERR_DEVICE_MOTION_BACKGROUNDED] paused");
+      }
+      if (activeSid !== sessionId) {
+        throw new Error("[stage=device_motion.read code=ERR_DEVICE_MOTION_CLOSED] stopped");
+      }
+      nextSeq = Math.max(nextSeq + 1, afterSeq + 1);
+      anchorDeg += 12.5;
+      return makeSample(nextSeq, anchorDeg);
+    },
+    resetHeading: (_sessionId, headingDeg) => {
+      anchorDeg = headingDeg;
+      return makeSample(nextSeq, anchorDeg);
+    },
+    stopSession: (sessionId) => {
+      if (activeSid === sessionId) {
+        activeSid = null;
+        stopCount += 1;
+      }
+    },
+    setForeground: (active) => {
+      foreground = active;
+      if (!active && activeSid) {
+        activeSid = null;
+        stopCount += 1;
+      }
+    },
+    stopAll: () => {
+      if (activeSid) {
+        activeSid = null;
+        stopCount += 1;
+      }
+    },
+  };
+
+  const broker = new MotionBroker();
+  broker.attachNativePort(port);
+
+  const deniedScope = createEffectScope("plugin:no.motion");
+  assert.equal(
+    createMotionCapability(makeManifest("no.motion", { permissions: ["camera.front"] }), deniedScope, broker),
+    undefined,
+  );
+  await deniedScope.dispose();
+
+  const scope = createEffectScope("plugin:with.motion");
+  const cap = createMotionCapability(
+    makeManifest("with.motion", { permissions: ["sensor.motion"] }),
+    scope,
+    broker,
+  )!;
+  assert.equal(cap.availability(), "available");
+  assert.equal(startCount, 0);
+
+  const sub1Samples: NativeDeviceMotionSample[] = [];
+  const sub2Samples: NativeDeviceMotionSample[] = [];
+  const sub1 = await cap.subscribeHeading({ rateHz: 50 }, (s) => {
+    sub1Samples.push(s);
+  });
+  const sub2 = await cap.subscribeHeading({ rateHz: 50 }, (s) => {
+    sub2Samples.push(s);
+  });
+  assert.equal(startCount, 1);
+
+  await new Promise((r) => setTimeout(r, 45));
+  assert.ok(sub1Samples.length >= 1);
+  assert.ok(sub2Samples.length >= 1);
+  assert.ok((cap.latestSample()?.seq ?? 0) >= 1);
+
+  const resetSample = cap.resetHeading(0);
+  assert.equal(resetSample?.headingDeg, 0);
+
+  // Background tears down IMU session while keeping subscribers alive, foreground resumes it
+  broker.setForegroundActive(false);
+  assert.equal(stopCount, 1);
+  broker.setForegroundActive(true);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(startCount, 2);
+
+  // Closing last subscriber turns IMU off (0 subscribers = off)
+  sub1.close();
+  assert.equal(stopCount, 1);
+  sub2.close();
+  assert.equal(stopCount, 2);
+  assert.equal(cap.latestSample(), null);
+
+  await scope.dispose();
+  broker.close();
+});
+
+test("VisionBroker & createVisionCapability support includeJpeg=false face stream, metadata timestamps, hfovDeg, and cropped portrait disk cache", async () => {
+  let captureFrameCalls = 0;
+  let captureFacesCalls = 0;
+  const deletedTargets: string[] = [];
+
+  const port: NativeDeviceCameraPort = {
+    permission: () => "granted",
+    requestPermission: async () => "granted",
+    openSession: async (_facing, _dim, _fps, sessionId) => sessionId,
+    reconfigureSession: () => {},
+    status: () => JSON.stringify({ closed: false }),
+    captureFrame: async () => {
+      captureFrameCalls += 1;
+      return {
+        jpeg: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+        width: 640,
+        height: 360,
+        facing: "front",
+        capturedAtMs: Date.now(),
+        capturedMonotonicMs: 2001.5,
+        facesMonotonicMs: 2000.5,
+        hfovDeg: 71.2,
+        seq: 1,
+        faces: [{ trackId: 1, offsetX: 0.1, offsetY: 0, width: 0.25, height: 0.35, confidence: 0.95 }],
+      };
+    },
+    captureFaces: async (_sessionId, afterSeq) => {
+      captureFacesCalls += 1;
+      await new Promise((r) => setTimeout(r, 8));
+      return {
+        width: 640,
+        height: 360,
+        facing: "front",
+        capturedAtMs: Date.now(),
+        capturedMonotonicMs: 2500 + afterSeq * 10,
+        facesMonotonicMs: 2498 + afterSeq * 10,
+        hfovDeg: 71.2,
+        seq: afterSeq + 1,
+        faces: [{ trackId: 1, offsetX: 0.15, offsetY: -0.05, width: 0.22, height: 0.34, confidence: 0.97 }],
+      };
+    },
+    captureCroppedPortrait: async (_sessionId, _x, _y, _w, _h, portraitId) => ({
+      uri: `file:///data/portraits/${portraitId}.jpg`,
+      portraitId,
+      width: 224,
+      height: 224,
+      byteLength: 4096,
+      capturedMonotonicMs: 2600,
+    }),
+    deletePortrait: (target) => {
+      deletedTargets.push(target);
+      return true;
+    },
+    cameraHfovDeg: () => 71.2,
+    closeSession: () => {},
+    setForeground: () => {},
+    stopAll: () => {},
+  };
+
+  const broker = new VisionBroker();
+  broker.attachNativePort(port);
+  const scope = createEffectScope("plugin:vision.ext");
+  const vision = createVisionCapability(
+    makeManifest("vision.ext", { permissions: ["camera.front"] }),
+    scope,
+    broker,
+  )!;
+
+  assert.equal(vision.cameraHfovDeg?.("front"), 71.2);
+
+  const faceFrames: Array<{ hfovDeg?: number; capturedMonotonicMs?: number; facesMonotonicMs?: number }> = [];
+  const sub = await vision.subscribeFrames(
+    { facing: "front", maxDimension: 320, maxFps: 15, includeJpeg: false },
+    (frame) => {
+      assert.equal("jpeg" in frame, false);
+      faceFrames.push(frame);
+    },
+  );
+  await new Promise((r) => setTimeout(r, 35));
+  sub.close();
+
+  assert.equal(captureFrameCalls, 0, "includeJpeg:false stream must not encode JPEGs when captureFaces exists");
+  assert.ok(captureFacesCalls >= 1);
+  assert.equal(faceFrames[0]?.hfovDeg, 71.2);
+  assert.ok((faceFrames[0]?.capturedMonotonicMs ?? 0) >= 2500);
+  assert.ok((faceFrames[0]?.facesMonotonicMs ?? 0) >= 2498);
+
+  const portrait = await vision.captureCroppedPortrait!({
+    facing: "front",
+    x: 0.2,
+    y: 0.1,
+    width: 0.4,
+    height: 0.6,
+    portraitId: "player_1",
+  });
+  assert.equal(portrait.uri, "file:///data/portraits/player_1.jpg");
+  assert.equal(vision.deletePortrait?.(portrait.uri), true);
+  assert.deepEqual(deletedTargets, ["file:///data/portraits/player_1.jpg"]);
+
+  await scope.dispose();
+  broker.close();
+});
+
+test("BodyRuntime & createBodyCapability parse FED9 cliff packets and coalesce servo setDriveVector with Latest-Wins", async () => {
+  const parsed = parseCliffPacket("0101000101", 12345);
+  assert.deepEqual(parsed, {
+    flTriggered: false,
+    frTriggered: true,
+    rlTriggered: false,
+    rrTriggered: false,
+    anyTriggered: true,
+    receivedAtMs: 12345,
+    rawHex: "0101000101",
+  });
+  assert.equal(parseCliffPacket("05", 100), null);
+
+  const vaultMap = new Map<string, string>();
+  const body = new BodyRuntime({
+    vault: {
+      get: (k) => vaultMap.get(k) ?? "",
+      set: (k, v) => { vaultMap.set(k, v); },
+      remove: (k) => { vaultMap.delete(k); },
+    },
+  });
+  await body.configure({ mode: "simulation" });
+  body.setForegroundActive(true);
+  await body.connect();
+
+  const scope = createEffectScope("plugin:servo.lw");
+  try {
+    const bodyCap = createBodyCapability(
+      makeManifest("servo.lw", { permissions: ["body.motion", "stage.ui"] }),
+      scope,
+      body,
+    )!;
+
+    const packets: string[] = [];
+    const unsubPackets = bodyCap.subscribeSensorPackets!((pkt) => {
+      packets.push(`${pkt.kind}:${pkt.rawHex}`);
+    });
+    (body as any).supervisor.handleDockNotification("0101000101");
+    assert.equal(bodyCap.latestCliffState?.()?.frTriggered, true);
+    assert.equal(bodyCap.latestCliffState?.()?.anyTriggered, true);
+    assert.equal(bodyCap.recentSensorPackets?.().at(-1)?.kind, "cliff");
+    assert.equal(bodyCap.recentSensorPackets?.().filter((p) => p.kind === "cliff").length, 1);
+    assert.deepEqual(packets, ["cliff:0101000101"]);
+    unsubPackets();
+
+    // Pause first supervisor setMotion call in flight, enqueue rapid burst -> intermediate targets must be coalesced
+    const supervisor = (body as any).supervisor;
+    const origSetMotion = supervisor.setMotion.bind(supervisor);
+    const recordedMoves: Array<{ speed: number; turn: number }> = [];
+    let releaseFirstMove: (() => void) | null = null;
+    supervisor.setMotion = async (lease: unknown, speed: number, turn: number) => {
+      recordedMoves.push({ speed, turn });
+      if (recordedMoves.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstMove = resolve;
+        });
+      }
+      return origSetMotion(lease, speed, turn);
+    };
+
+    const servo = await bodyCap.acquireServo("foreground_stage");
+    const p1 = servo.setDriveVector(0, 20);
+    while (!releaseFirstMove) {
+      await new Promise((r) => setImmediate(r));
+    }
+    const p2 = servo.setDriveVector(0, 40);
+    const p3 = servo.setDriveVector(0, 60);
+    const p4 = servo.setDriveVector(0, 80);
+    const p5 = servo.setDriveVector(0, 100);
+    (releaseFirstMove as () => void)();
+    await Promise.all([p1, p2, p3, p4, p5]);
+
+    assert.deepEqual(recordedMoves, [
+      { speed: 0, turn: 20 },
+      { speed: 0, turn: 100 },
+    ]);
+    assert.deepEqual(body.status().motion, { speed: 0, turn: 100 });
+
+    await servo.release();
+
+    const nextServo = await bodyCap.acquireServo("foreground_stage");
+    await nextServo.setDriveVector(0, 0);
+    await nextServo.setDriveVector(0, 50);
+    assert.deepEqual(recordedMoves.at(-1), { speed: 0, turn: 50 });
+    await nextServo.release();
+  } finally {
+    await scope.dispose();
+    body.close();
+  }
 });

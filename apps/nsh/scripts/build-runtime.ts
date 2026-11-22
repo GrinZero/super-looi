@@ -187,8 +187,8 @@ export type LlmOAuthUiEvent =
  | {kind:"auth_url";url:string;instructions?:string}
  | {kind:"awaiting_callback";message:string;placeholder:string}
  | {kind:"progress";message:string};
-import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,ResumableStageView,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraPort,VisionBrokerAttachOptions,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
-export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,ResumableStageView,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraPort,VisionBrokerAttachOptions,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
+import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,ResumableStageView,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraFrame,NativeDeviceCameraFacesFrame,NativeCroppedPortrait,NativeDeviceCameraPort,VisionBrokerAttachOptions,NativeDeviceMotionSample,NativeDeviceMotionPort,MotionBrokerAttachOptions,BodyCliffState,BodySensorPacket,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
+export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,ResumableStageView,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraFrame,NativeDeviceCameraFacesFrame,NativeCroppedPortrait,NativeDeviceCameraPort,VisionBrokerAttachOptions,NativeDeviceMotionSample,NativeDeviceMotionPort,MotionBrokerAttachOptions,BodyCliffState,BodySensorPacket,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
 export interface NativeRuntime {
  pluginsSnapshot():PluginSnapshot[];
  startPlugins():Promise<void>;
@@ -202,6 +202,8 @@ export interface NativeRuntime {
  attachFaceController(controller:RobotFaceController|undefined):void;
  attachNativeDeviceCamera(port:NativeDeviceCameraPort|null,options?:VisionBrokerAttachOptions):void;
  setDeviceCameraForegroundActive(active:boolean):void;
+ attachNativeDeviceMotion(port:NativeDeviceMotionPort|null,options?:MotionBrokerAttachOptions):void;
+ setDeviceMotionForegroundActive(active:boolean):void;
  attachNativeLanRoom(port:NativeLanRoomPort|null):void;
  setLanRoomForegroundActive(active:boolean):void;
  setPluginAiBridge(bridge:{speak?:(options:{pluginId:string;spokenText:string;contextNote?:string;delivery:"when_idle"|"interrupt";capturePolicy?:"inherit"|"duplex"|"muted_broadcast";verbatim?:boolean;holdAliveMs?:number;closeToStandbyOnComplete?:boolean;signal?:AbortSignal})=>Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;listenUntil?:(deadlineMs:number,signal:AbortSignal)=>Promise<void>;runBackgroundTask?:(options:{pluginId:string;prompt:string})=>Promise<{readonly taskId:string;readonly answer:string}>;onVoiceContextUpdated?:(summaryPrompt:string)=>void;onVoiceToolsUpdated?:()=>void}):void;

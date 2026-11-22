@@ -1,5 +1,8 @@
 //! iOS AVCaptureSession native FFI bindings for `DeviceCameraHost`.
-use super::{DetectedCameraNativeFace, EncodedFrame, NativeSessionStatus, format_backend_error};
+use super::{
+    CroppedPortraitBytes, DetectedCameraNativeFace, EncodedFrame, FacesOnlyFrame,
+    NativeSessionStatus, format_backend_error,
+};
 use std::ffi::{CStr, c_char, c_void};
 
 #[repr(C)]
@@ -49,6 +52,38 @@ unsafe extern "C" {
         out_faces: *mut LCDetectedFace,
         max_faces: i32,
     ) -> i32;
+    fn looi_device_camera_query_hfov(facing: i32) -> f64;
+    fn looi_device_camera_frame_meta(
+        handle: *mut c_void,
+        captured_monotonic_ms: *mut f64,
+        faces_monotonic_ms: *mut f64,
+        hfov_deg: *mut f64,
+    );
+    fn looi_device_camera_faces_snapshot(
+        handle: *mut c_void,
+        out_faces: *mut LCDetectedFace,
+        max_faces: i32,
+        width: *mut i32,
+        height: *mut i32,
+        captured_at_ms: *mut i64,
+        captured_monotonic_ms: *mut f64,
+        faces_monotonic_ms: *mut f64,
+        hfov_deg: *mut f64,
+        seq: *mut u64,
+    ) -> i32;
+    fn looi_device_camera_crop_jpeg(
+        handle: *mut c_void,
+        nx: f32,
+        ny: f32,
+        nw: f32,
+        nh: f32,
+        max_dimension: i32,
+        jpeg_quality: i32,
+        length: *mut usize,
+        out_w: *mut i32,
+        out_h: *mut i32,
+        captured_monotonic_ms: *mut f64,
+    ) -> *mut u8;
     fn looi_device_camera_bytes_free(bytes: *mut c_void);
     pub fn looi_device_camera_view_create() -> *mut c_void;
     pub fn looi_device_camera_view_bind(view: *mut c_void, session: *mut c_void);
@@ -80,6 +115,12 @@ unsafe fn take_c_string(ptr: *mut c_char) -> Option<String> {
     let text = unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() };
     unsafe { looi_device_camera_bytes_free(ptr.cast()) };
     Some(text)
+}
+
+pub fn query_hfov(facing: &str) -> f64 {
+    let facing_code = if facing == "back" { 1 } else { 0 };
+    let val = unsafe { looi_device_camera_query_hfov(facing_code) };
+    if val.is_finite() && val > 0.0 { val } else { 0.0 }
 }
 
 pub fn permission() -> String {
@@ -178,6 +219,17 @@ impl PlatformSession {
         unsafe {
             looi_device_camera_bytes_free(bytes.cast());
         }
+        let mut captured_monotonic_ms = 0.0f64;
+        let mut faces_monotonic_ms = 0.0f64;
+        let mut hfov_deg = 0.0f64;
+        unsafe {
+            looi_device_camera_frame_meta(
+                self.0,
+                &mut captured_monotonic_ms,
+                &mut faces_monotonic_ms,
+                &mut hfov_deg,
+            );
+        }
         let mut raw_faces = [LCDetectedFace::default(); 8];
         let face_count = unsafe {
             looi_device_camera_faces(self.0, raw_faces.as_mut_ptr(), raw_faces.len() as i32)
@@ -199,8 +251,124 @@ impl PlatformSession {
             width: width.max(0) as u32,
             height: height.max(0) as u32,
             captured_at_ms,
+            captured_monotonic_ms: if captured_monotonic_ms.is_finite() && captured_monotonic_ms > 0.0 {
+                captured_monotonic_ms
+            } else {
+                0.0
+            },
+            faces_monotonic_ms: if faces_monotonic_ms.is_finite() && faces_monotonic_ms > 0.0 {
+                faces_monotonic_ms
+            } else {
+                0.0
+            },
+            hfov_deg: if hfov_deg.is_finite() && hfov_deg > 0.0 { hfov_deg } else { 0.0 },
             seq,
             faces,
+        })
+    }
+
+    pub fn faces_only(&self) -> Result<FacesOnlyFrame, String> {
+        let mut raw_faces = [LCDetectedFace::default(); 8];
+        let mut width = 0i32;
+        let mut height = 0i32;
+        let mut captured_at_ms = 0i64;
+        let mut captured_monotonic_ms = 0.0f64;
+        let mut faces_monotonic_ms = 0.0f64;
+        let mut hfov_deg = 0.0f64;
+        let mut seq = 0u64;
+        let count = unsafe {
+            looi_device_camera_faces_snapshot(
+                self.0,
+                raw_faces.as_mut_ptr(),
+                raw_faces.len() as i32,
+                &mut width,
+                &mut height,
+                &mut captured_at_ms,
+                &mut captured_monotonic_ms,
+                &mut faces_monotonic_ms,
+                &mut hfov_deg,
+                &mut seq,
+            )
+        };
+        if seq == 0 {
+            return Err("[stage=native.ios.faces code=ERR_DEVICE_CAMERA_FRAME_UNAVAILABLE] Latest camera faces snapshot is not ready".into());
+        }
+        let valid_count = count.clamp(0, raw_faces.len() as i32) as usize;
+        let faces = raw_faces[..valid_count]
+            .iter()
+            .map(|face| DetectedCameraNativeFace {
+                track_id: face.track_id.max(0) as u32,
+                offset_x: (face.offset_x as f64).clamp(-1.0, 1.0),
+                offset_y: (face.offset_y as f64).clamp(-1.0, 1.0),
+                width: (face.width as f64).clamp(0.0, 1.0),
+                height: (face.height as f64).clamp(0.0, 1.0),
+                confidence: (face.confidence as f64).clamp(0.0, 1.0),
+            })
+            .collect();
+        Ok(FacesOnlyFrame {
+            width: width.max(0) as u32,
+            height: height.max(0) as u32,
+            captured_at_ms,
+            captured_monotonic_ms: if captured_monotonic_ms.is_finite() && captured_monotonic_ms > 0.0 {
+                captured_monotonic_ms
+            } else {
+                0.0
+            },
+            faces_monotonic_ms: if faces_monotonic_ms.is_finite() && faces_monotonic_ms > 0.0 {
+                faces_monotonic_ms
+            } else {
+                0.0
+            },
+            hfov_deg: if hfov_deg.is_finite() && hfov_deg > 0.0 { hfov_deg } else { 0.0 },
+            seq,
+            faces,
+        })
+    }
+
+    pub fn crop_jpeg(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        max_dimension: i32,
+        jpeg_quality: i32,
+    ) -> Result<CroppedPortraitBytes, String> {
+        let mut length = 0usize;
+        let mut out_w = 0i32;
+        let mut out_h = 0i32;
+        let mut captured_monotonic_ms = 0.0f64;
+        let bytes = unsafe {
+            looi_device_camera_crop_jpeg(
+                self.0,
+                x as f32,
+                y as f32,
+                width as f32,
+                height as f32,
+                max_dimension,
+                jpeg_quality,
+                &mut length,
+                &mut out_w,
+                &mut out_h,
+                &mut captured_monotonic_ms,
+            )
+        };
+        if bytes.is_null() {
+            return Err("[stage=native.ios.crop code=ERR_DEVICE_CAMERA_CROP_FAILED] Latest pixel buffer unavailable for portrait crop".into());
+        }
+        let data = unsafe { std::slice::from_raw_parts(bytes, length).to_vec() };
+        unsafe {
+            looi_device_camera_bytes_free(bytes.cast());
+        }
+        Ok(CroppedPortraitBytes {
+            jpeg: data,
+            width: out_w.max(0) as u32,
+            height: out_h.max(0) as u32,
+            captured_monotonic_ms: if captured_monotonic_ms.is_finite() && captured_monotonic_ms > 0.0 {
+                captured_monotonic_ms
+            } else {
+                0.0
+            },
         })
     }
 

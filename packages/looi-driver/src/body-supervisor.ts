@@ -23,6 +23,7 @@ import {
   parsePowerStatus,
   type LooiPowerStatus,
   DOCK_STATUS_HEX,
+  INTERNAL_CHARACTERISTICS,
   headDegreesToPayload,
   createInitTimeHex,
   type HeadPayloadKey,
@@ -52,6 +53,7 @@ export interface BodySupervisorSnapshot {
 export interface BodySupervisorEvents {
   onStateChange?: (state: BodySupervisorState, previousState: BodySupervisorState) => void;
   onDockChange?: (docked: boolean) => void;
+  onRawNotification?: (characteristicUuid: string, hex: string, receivedAtMs: number) => void;
   onSelfEvent?: (window: SelfEventWindow) => void;
   onStop?: (request: BodyStopRequest) => void;
   onError?: (error: Error) => void;
@@ -264,6 +266,7 @@ export class BodySupervisor {
    */
   public handleDockNotification(hex: string): void {
     const cleanHex = hex.trim().toLowerCase();
+    this.events.onRawNotification?.(INTERNAL_CHARACTERISTICS.dockNotify, cleanHex, Date.now());
     if (cleanHex === DOCK_STATUS_HEX.docked) {
       this.isDocked = true;
       this.events.onDockChange?.(true);

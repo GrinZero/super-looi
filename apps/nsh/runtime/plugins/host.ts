@@ -18,6 +18,7 @@ import type {
   PluginStorage,
   PluginTaskContext,
   PluginVisionCapability,
+  PluginMotionCapability,
   ResumableStageView,
 } from "./contracts.js";
 import { createEffectScope } from "./effect-scope.js";
@@ -39,6 +40,7 @@ export interface PluginHostHardwareDrivers {
   createFaceCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginFaceCapability | undefined;
   createBodyCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginBodyCapability | undefined;
   createVisionCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginVisionCapability | undefined;
+  createMotionCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginMotionCapability | undefined;
   createLanCapability?: (manifest: PluginManifest, scope: EffectScope) => PluginLanRoomCapability | undefined;
   aiBridge?: DualLoopAiBusBridge;
 }
@@ -160,12 +162,12 @@ export class PluginHost {
         | { enabled: number; installed_version: string; source: string }
         | undefined;
 
-      const enabled = savedRow ? Boolean(savedRow.enabled) : true;
+      const enabled = manifest.builtinCore ? true : (savedRow ? Boolean(savedRow.enabled) : true);
       const installedVersion = savedRow ? savedRow.installed_version : manifest.version;
       const source: "builtin" | "marketplace" =
         savedRow?.source === "marketplace" ? "marketplace" : "builtin";
 
-      if (!savedRow) {
+      if (!savedRow || (manifest.builtinCore && !savedRow.enabled)) {
         this.saveInstallationRow(manifest.id, enabled, installedVersion, source);
       }
 
@@ -403,6 +405,7 @@ export class PluginHost {
       face: this.drivers.createFaceCapability?.(manifest, scope),
       body: this.drivers.createBodyCapability?.(manifest, scope),
       vision: this.drivers.createVisionCapability?.(manifest, scope),
+      motion: this.drivers.createMotionCapability?.(manifest, scope),
       lan: this.drivers.createLanCapability?.(manifest, scope),
       ai: this.ai.createScopedCapability(manifest, scope),
       stage: this.stage.createScopedCapability(manifest, scope),
@@ -772,6 +775,14 @@ export class PluginHost {
 
   async setEnabled(id: string, enabled: boolean): Promise<PluginSnapshot<any>> {
     const entry = this.requireEntry(id);
+    if (!enabled && entry.definition.manifest.builtinCore) {
+      throw new PluginKernelError({
+        stage: "plugin_host.set_enabled",
+        code: "ERR_PLUGIN_CORE_CANNOT_DISABLE",
+        pluginId: id,
+        reason: `Built-in core plugin "${id}" cannot be disabled`,
+      });
+    }
     await this.enqueue(entry, async () => {
       entry.enabled = enabled;
       this.saveInstallationRow(id, enabled, entry.installedVersion, entry.source);
@@ -793,6 +804,14 @@ export class PluginHost {
     values: Record<string, string>,
   ): Promise<PluginSnapshot<any>> {
     const entry = this.requireEntry(id);
+    if (!enabled && entry.definition.manifest.builtinCore) {
+      throw new PluginKernelError({
+        stage: "plugin_host.configure",
+        code: "ERR_PLUGIN_CORE_CANNOT_DISABLE",
+        pluginId: id,
+        reason: `Built-in core plugin "${id}" cannot be disabled`,
+      });
+    }
     await this.enqueue(entry, async () => {
       const wasEnabled = entry.enabled;
       entry.enabled = enabled;
@@ -995,6 +1014,14 @@ export class PluginHost {
     const nextTopology = validateAndSortPluginTopology(nextManifests);
 
     if (existingEntry) {
+      if (existingEntry.definition.manifest.builtinCore) {
+        throw new PluginKernelError({
+          stage: "plugin.install",
+          code: "ERR_PLUGIN_CORE_CANNOT_REPLACE",
+          pluginId: definition.manifest.id,
+          reason: `Built-in core plugin "${definition.manifest.id}" cannot be replaced by a marketplace package`,
+        });
+      }
       await this.enqueue(existingEntry, async () => {
         const wasEnabled = existingEntry.enabled;
         await this.deactivateInternal(existingEntry, "disabled");

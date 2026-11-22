@@ -24,9 +24,11 @@ fn main() {
     if target == "ios" {
         println!("cargo:rerun-if-changed=native/ios/CameraMedia.m");
         println!("cargo:rerun-if-changed=native/ios/DeviceCamera.m");
+        println!("cargo:rerun-if-changed=native/ios/DeviceMotion.m");
         cc::Build::new()
             .file("native/ios/CameraMedia.m")
             .file("native/ios/DeviceCamera.m")
+            .file("native/ios/DeviceMotion.m")
             .flag("-fobjc-arc")
             .flag("-fblocks")
             .compile("looi_camera_media");
@@ -37,6 +39,7 @@ fn main() {
             "CoreMedia",
             "CoreVideo",
             "CoreGraphics",
+            "CoreMotion",
             "QuartzCore",
             "ImageIO",
         ] {

@@ -1,6 +1,20 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { FaceExpression } from "../../../../packages/looi-runtime/src/ui/robot-face-controller.js";
 import type { BodyActionReceipt, BodyControlInput, BodyStatusSnapshot } from "../body.js";
+import type {
+  BodyCliffState,
+  BodySensorPacket,
+  NativeDeviceMotionSample,
+} from "./shared-types.js";
+export type {
+  BodyCliffState,
+  BodySensorPacket,
+  NativeCroppedPortrait,
+  NativeDeviceCameraFacesFrame,
+  NativeDeviceMotionPort,
+  NativeDeviceMotionSample,
+  MotionBrokerAttachOptions,
+} from "./shared-types.js";
 import {
   HOST_PLUGIN_API_VERSION,
   PLUGIN_CATEGORIES,
@@ -166,6 +180,12 @@ export interface PluginBodyCapability {
     priority: "foreground_stage" | "background_companion",
     scope?: EffectScope,
   ): Promise<BodyServoLease>;
+  latestCliffState?(): BodyCliffState | null;
+  recentSensorPackets?(): readonly BodySensorPacket[];
+  subscribeSensorPackets?(
+    listener: (packet: BodySensorPacket) => void,
+    scope?: EffectScope,
+  ): Dispose;
 }
 
 export interface DeviceCameraFrame {
@@ -174,7 +194,41 @@ export interface DeviceCameraFrame {
   readonly height: number;
   readonly facing: "front" | "back";
   readonly capturedAtMs: number;
+  readonly capturedMonotonicMs?: number;
+  readonly facesMonotonicMs?: number;
+  readonly hfovDeg?: number;
   readonly faces: readonly DetectedCameraFace[];
+}
+
+export interface DeviceCameraFacesFrame {
+  readonly width: number;
+  readonly height: number;
+  readonly facing: "front" | "back";
+  readonly capturedAtMs: number;
+  readonly capturedMonotonicMs?: number;
+  readonly facesMonotonicMs?: number;
+  readonly hfovDeg?: number;
+  readonly faces: readonly DetectedCameraFace[];
+}
+
+export interface CroppedPortraitOptions {
+  readonly facing: "front" | "back";
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly portraitId?: string;
+  readonly maxDimension?: number;
+  readonly jpegQuality?: number;
+}
+
+export interface CroppedPortraitResult {
+  readonly uri: string;
+  readonly portraitId: string;
+  readonly width: number;
+  readonly height: number;
+  readonly byteLength: number;
+  readonly capturedMonotonicMs?: number;
 }
 
 export interface PluginLanRoomCapability {
@@ -189,10 +243,30 @@ export interface PluginVisionCapability {
   permissionStatus(): "granted" | "denied" | "undetermined" | "unavailable";
   requestPermission(): Promise<"granted" | "denied" | "unavailable">;
   captureFrame(options: { facing: "front" | "back"; maxDimension?: 320 | 640 | 1280 }): Promise<DeviceCameraFrame>;
+  captureFaces?(options: { facing: "front" | "back"; maxDimension?: 320 | 640 | 1280 }): Promise<DeviceCameraFacesFrame>;
   subscribeFrames(
-    options: { facing: "front" | "back"; maxDimension?: 320 | 640 | 1280; maxFps?: number; scope?: EffectScope },
+    options: { facing: "front" | "back"; maxDimension?: 320 | 640 | 1280; maxFps?: number; includeJpeg?: true; scope?: EffectScope },
     onFrame: (frame: DeviceCameraFrame) => Promise<void> | void,
   ): Promise<{ readonly previewSessionId: string; close(): void }>;
+  subscribeFrames(
+    options: { facing: "front" | "back"; maxDimension?: 320 | 640 | 1280; maxFps?: number; includeJpeg: false; scope?: EffectScope },
+    onFrame: (frame: DeviceCameraFacesFrame) => Promise<void> | void,
+  ): Promise<{ readonly previewSessionId: string; close(): void }>;
+  captureCroppedPortrait?(options: CroppedPortraitOptions): Promise<CroppedPortraitResult>;
+  deletePortrait?(portraitIdOrUri: string): boolean;
+  cameraHfovDeg?(facing: "front" | "back"): number | null;
+}
+
+export type DeviceMotionSample = NativeDeviceMotionSample;
+
+export interface PluginMotionCapability {
+  availability(): "available" | "unavailable";
+  latestSample(): DeviceMotionSample | null;
+  resetHeading(headingDeg?: number): DeviceMotionSample | null;
+  subscribeHeading(
+    options: { rateHz?: number; scope?: EffectScope },
+    onSample: (sample: DeviceMotionSample) => Promise<void> | void,
+  ): Promise<{ readonly sessionId: string; close(): void }>;
 }
 
 export interface PluginSpeakOptions {
@@ -278,6 +352,7 @@ export interface PluginContext<TState = Record<string, unknown>> {
   readonly face?: PluginFaceCapability;
   readonly body?: PluginBodyCapability;
   readonly vision?: PluginVisionCapability;
+  readonly motion?: PluginMotionCapability;
   readonly lan?: PluginLanRoomCapability;
   readonly ai?: PluginAiCapability;
   readonly stage?: PluginStageCapability;

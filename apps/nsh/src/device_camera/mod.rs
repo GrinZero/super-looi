@@ -4,6 +4,8 @@ use nsh_core::prelude::*;
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering},
@@ -26,7 +28,7 @@ use ios as platform;
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 mod platform {
-    use super::{EncodedFrame, NativeSessionStatus};
+    use super::{CroppedPortraitBytes, EncodedFrame, FacesOnlyFrame, NativeSessionStatus};
 
     pub fn permission() -> String {
         "unavailable".into()
@@ -34,6 +36,10 @@ mod platform {
 
     pub fn request_permission_blocking() -> String {
         "unavailable".into()
+    }
+
+    pub fn query_hfov(_facing: &str) -> f64 {
+        0.0
     }
 
     pub struct PlatformSession;
@@ -60,6 +66,22 @@ mod platform {
 
         pub fn jpeg(&self, _max_dimension: i32) -> Result<EncodedFrame, String> {
             Err("[stage=native.desktop.jpeg code=ERR_DEVICE_CAMERA_UNAVAILABLE] Native phone camera requires iOS or Android".into())
+        }
+
+        pub fn faces_only(&self) -> Result<FacesOnlyFrame, String> {
+            Err("[stage=native.desktop.faces code=ERR_DEVICE_CAMERA_UNAVAILABLE] Native phone camera requires iOS or Android".into())
+        }
+
+        pub fn crop_jpeg(
+            &self,
+            _x: f64,
+            _y: f64,
+            _width: f64,
+            _height: f64,
+            _max_dimension: i32,
+            _jpeg_quality: i32,
+        ) -> Result<CroppedPortraitBytes, String> {
+            Err("[stage=native.desktop.crop code=ERR_DEVICE_CAMERA_UNAVAILABLE] Native phone camera requires iOS or Android".into())
         }
 
         pub fn close(&self) {}
@@ -147,8 +169,29 @@ pub(super) struct EncodedFrame {
     pub width: u32,
     pub height: u32,
     pub captured_at_ms: i64,
+    pub captured_monotonic_ms: f64,
+    pub faces_monotonic_ms: f64,
+    pub hfov_deg: f64,
     pub seq: u64,
     pub faces: Vec<DetectedCameraNativeFace>,
+}
+
+pub(super) struct FacesOnlyFrame {
+    pub width: u32,
+    pub height: u32,
+    pub captured_at_ms: i64,
+    pub captured_monotonic_ms: f64,
+    pub faces_monotonic_ms: f64,
+    pub hfov_deg: f64,
+    pub seq: u64,
+    pub faces: Vec<DetectedCameraNativeFace>,
+}
+
+pub(super) struct CroppedPortraitBytes {
+    pub jpeg: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub captured_monotonic_ms: f64,
 }
 
 /// Hardware ISP detected face normalized to landscape `[-1, 1]` center offsets.
@@ -181,10 +224,41 @@ pub struct DeviceCameraNativeFrame {
     pub facing: String,
     /// Capture timestamp in milliseconds since Unix epoch.
     pub captured_at_ms: f64,
+    /// Unified `CLOCK_MONOTONIC` capture timestamp in milliseconds.
+    pub captured_monotonic_ms: f64,
+    /// Unified `CLOCK_MONOTONIC` timestamp of the latest hardware face detection result (`0` when unseen).
+    pub faces_monotonic_ms: f64,
+    /// Camera landscape horizontal field of view in degrees (`0` when unknown).
+    pub hfov_deg: f64,
     /// Monotonic frame sequence number within this session.
     pub seq: f64,
     /// Hardware ISP detected faces normalized to landscape `[-1, 1]` center offsets.
     pub faces: Vec<DetectedCameraNativeFace>,
+}
+
+/// Lightweight metadata + hardware face array sampled without JPEG encoding overhead.
+#[derive(Clone, JsObject)]
+pub struct DeviceCameraNativeFacesFrame {
+    pub width: u32,
+    pub height: u32,
+    pub facing: String,
+    pub captured_at_ms: f64,
+    pub captured_monotonic_ms: f64,
+    pub faces_monotonic_ms: f64,
+    pub hfov_deg: f64,
+    pub seq: f64,
+    pub faces: Vec<DetectedCameraNativeFace>,
+}
+
+/// Native single-person cropped portrait cached on private app disk (`file://...`).
+#[derive(Clone, JsObject)]
+pub struct DeviceCameraNativePortrait {
+    pub uri: String,
+    pub portrait_id: String,
+    pub width: u32,
+    pub height: u32,
+    pub byte_length: u32,
+    pub captured_monotonic_ms: f64,
 }
 
 pub(super) fn build_sample_faces(facing: &str, seq: u64) -> Vec<DetectedCameraNativeFace> {
@@ -472,6 +546,7 @@ impl Session {
                     SessionBackend::Sample(st) => {
                         let seq = st.frames.load(Ordering::Acquire);
                         let ts = st.captured_at_ms.load(Ordering::Acquire) as i64;
+                        let mono_ms = crate::host_monotonic_ms();
                         let effective_dim = clamped_dim.min(st.max_dimension.load(Ordering::Acquire));
                         let (jpeg, width, height) =
                             sample_jpeg::encode_sample_jpeg(&s.facing, effective_dim, seq);
@@ -481,6 +556,9 @@ impl Session {
                             width,
                             height,
                             captured_at_ms: ts,
+                            captured_monotonic_ms: mono_ms,
+                            faces_monotonic_ms: if faces.is_empty() { 0.0 } else { mono_ms },
+                            hfov_deg: 68.0,
                             seq,
                             faces,
                         })
@@ -495,6 +573,9 @@ impl Session {
                     height: encoded.height,
                     facing,
                     captured_at_ms: encoded.captured_at_ms as f64,
+                    captured_monotonic_ms: encoded.captured_monotonic_ms,
+                    faces_monotonic_ms: encoded.faces_monotonic_ms,
+                    hfov_deg: encoded.hfov_deg,
                     seq: encoded.seq as f64,
                     faces: encoded.faces,
                 });
@@ -505,37 +586,285 @@ impl Session {
             tokio::time::sleep(Duration::from_millis(15)).await;
         }
     }
+
+    async fn capture_faces(
+        self: Arc<Self>,
+        after_seq: u64,
+    ) -> Result<DeviceCameraNativeFacesFrame, String> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if self.closed.load(Ordering::Acquire) {
+                return Err("[stage=device_camera.captureFaces code=ERR_DEVICE_CAMERA_CLOSED] Camera session closed".into());
+            }
+            if !APP_ACTIVE.load(Ordering::Acquire) {
+                return Err("[stage=device_camera.captureFaces code=ERR_DEVICE_CAMERA_BACKGROUNDED] Camera paused while app is in background".into());
+            }
+            let status = self.native_status();
+            if let Some(failure) = status.failure {
+                return Err(format_backend_error(
+                    "device_camera.captureFaces",
+                    "ERR_DEVICE_CAMERA_RUNTIME",
+                    &failure,
+                ));
+            }
+            if status.frames > after_seq {
+                let s = self.clone();
+                let facing = self.facing.clone();
+                let faces_frame = tokio::task::spawn_blocking(move || match &s.backend {
+                    SessionBackend::Platform(p) => p.faces_only(),
+                    SessionBackend::Sample(st) => {
+                        let seq = st.frames.load(Ordering::Acquire);
+                        let ts = st.captured_at_ms.load(Ordering::Acquire) as i64;
+                        let mono_ms = crate::host_monotonic_ms();
+                        let (w, h) = sample_jpeg::sample_dimensions(st.max_dimension.load(Ordering::Acquire));
+                        let faces = build_sample_faces(&s.facing, seq);
+                        Ok(FacesOnlyFrame {
+                            width: w,
+                            height: h,
+                            captured_at_ms: ts,
+                            captured_monotonic_ms: mono_ms,
+                            faces_monotonic_ms: if faces.is_empty() { 0.0 } else { mono_ms },
+                            hfov_deg: 68.0,
+                            seq,
+                            faces,
+                        })
+                    }
+                })
+                .await
+                .map_err(|err| format!("[stage=device_camera.captureFaces code=ERR_DEVICE_CAMERA_TASK_JOIN] {err}"))??;
+
+                return Ok(DeviceCameraNativeFacesFrame {
+                    width: faces_frame.width,
+                    height: faces_frame.height,
+                    facing,
+                    captured_at_ms: faces_frame.captured_at_ms as f64,
+                    captured_monotonic_ms: faces_frame.captured_monotonic_ms,
+                    faces_monotonic_ms: faces_frame.faces_monotonic_ms,
+                    hfov_deg: faces_frame.hfov_deg,
+                    seq: faces_frame.seq as f64,
+                    faces: faces_frame.faces,
+                });
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err("[stage=device_camera.captureFaces code=ERR_DEVICE_CAMERA_FRAME_TIMEOUT] Timed out waiting for next camera frame".into());
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+    }
+
+    async fn capture_cropped_portrait(
+        self: Arc<Self>,
+        portraits_dir: PathBuf,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        portrait_id: String,
+        max_dimension: i32,
+        jpeg_quality: i32,
+    ) -> Result<DeviceCameraNativePortrait, String> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err("[stage=device_camera.captureCroppedPortrait code=ERR_DEVICE_CAMERA_CLOSED] Camera session closed".into());
+        }
+        if !APP_ACTIVE.load(Ordering::Acquire) {
+            return Err("[stage=device_camera.captureCroppedPortrait code=ERR_DEVICE_CAMERA_BACKGROUNDED] Camera paused while app is in background".into());
+        }
+        let status = self.native_status();
+        if let Some(failure) = status.failure {
+            return Err(format_backend_error(
+                "device_camera.captureCroppedPortrait",
+                "ERR_DEVICE_CAMERA_RUNTIME",
+                &failure,
+            ));
+        }
+        let s = self.clone();
+        let clamped_dim = if max_dimension > 0 { max_dimension.clamp(64, 1024) } else { 320 };
+        let clamped_quality = if jpeg_quality > 0 { jpeg_quality.clamp(40, 95) } else { 84 };
+        let cropped = tokio::task::spawn_blocking(move || match &s.backend {
+            SessionBackend::Platform(p) => p.crop_jpeg(x, y, width, height, clamped_dim, clamped_quality),
+            SessionBackend::Sample(st) => {
+                let mut seq = st.frames.load(Ordering::Acquire);
+                if seq == 0 {
+                    seq = 1;
+                }
+                let (jpeg, w, h) = sample_jpeg::encode_sample_jpeg(&s.facing, clamped_dim, seq);
+                Ok(CroppedPortraitBytes {
+                    jpeg,
+                    width: w,
+                    height: h,
+                    captured_monotonic_ms: crate::host_monotonic_ms(),
+                })
+            }
+        })
+        .await
+        .map_err(|err| format!("[stage=device_camera.captureCroppedPortrait code=ERR_DEVICE_CAMERA_TASK_JOIN] {err}"))??;
+
+        static NEXT_PORTRAIT_TMP_SEQ: AtomicU64 = AtomicU64::new(1);
+        let tmp_seq = NEXT_PORTRAIT_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+        let final_dir = portraits_dir.clone();
+        let pid = portrait_id.clone();
+        let tmp_name = format!("{pid}.{tmp_seq}.jpg.tmp");
+        let final_name = format!("{pid}.jpg");
+        let tmp_path = final_dir.join(&tmp_name);
+        let final_path = final_dir.join(&final_name);
+        let byte_len = cropped.jpeg.len() as u32;
+        let jpeg_bytes = cropped.jpeg;
+
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            fs::create_dir_all(&final_dir).map_err(|err| {
+                format!("[stage=device_camera.captureCroppedPortrait code=ERR_PORTRAIT_IO_FAILED] Failed to create portraits dir: {err}")
+            })?;
+            fs::write(&tmp_path, &jpeg_bytes).map_err(|err| {
+                format!("[stage=device_camera.captureCroppedPortrait code=ERR_PORTRAIT_IO_FAILED] Failed to write portrait temp file: {err}")
+            })?;
+            fs::rename(&tmp_path, &final_path).map_err(|err| {
+                let _ = fs::remove_file(&tmp_path);
+                format!("[stage=device_camera.captureCroppedPortrait code=ERR_PORTRAIT_IO_FAILED] Failed to finalize portrait file: {err}")
+            })?;
+            Ok(())
+        })
+        .await
+        .map_err(|err| format!("[stage=device_camera.captureCroppedPortrait code=ERR_DEVICE_CAMERA_TASK_JOIN] {err}"))??;
+
+        let final_uri = format!("file://{}", portraits_dir.join(final_name).display());
+        Ok(DeviceCameraNativePortrait {
+            uri: final_uri,
+            portrait_id: pid,
+            width: cropped.width,
+            height: cropped.height,
+            byte_length: byte_len,
+            captured_monotonic_ms: cropped.captured_monotonic_ms,
+        })
+    }
+}
+
+fn validate_portrait_id(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        static NEXT_PORTRAIT_ID: AtomicU64 = AtomicU64::new(1);
+        let n = NEXT_PORTRAIT_ID.fetch_add(1, Ordering::Relaxed);
+        return Ok(format!("portrait-{}-{}", crate::host_monotonic_ms() as u64, n));
+    }
+    if trimmed.len() > 64
+        || !trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(format!(
+            "[stage=device_camera.portrait code=ERR_PORTRAIT_INVALID_ID] Invalid portraitId \"{trimmed}\""
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn resolve_portrait_path(portraits_dir: &Path, id_or_uri: &str) -> Result<PathBuf, String> {
+    let trimmed = id_or_uri.trim();
+    if let Some(raw_path) = trimmed.strip_prefix("file://") {
+        let candidate = Path::new(raw_path);
+        let Some(parent) = candidate.parent() else {
+            return Err(format!(
+                "[stage=device_camera.deletePortrait code=ERR_PORTRAIT_INVALID_ID] Invalid portrait URI \"{trimmed}\""
+            ));
+        };
+        if parent != portraits_dir {
+            return Err(format!(
+                "[stage=device_camera.deletePortrait code=ERR_PORTRAIT_INVALID_ID] Portrait URI outside portraits dir: \"{trimmed}\""
+            ));
+        }
+        let Some(file_name) = candidate.file_name().and_then(|n| n.to_str()) else {
+            return Err(format!(
+                "[stage=device_camera.deletePortrait code=ERR_PORTRAIT_INVALID_ID] Missing portrait filename: \"{trimmed}\""
+            ));
+        };
+        let Some(stem) = file_name.strip_suffix(".jpg") else {
+            return Err(format!(
+                "[stage=device_camera.deletePortrait code=ERR_PORTRAIT_INVALID_ID] Portrait URI must end with .jpg: \"{trimmed}\""
+            ));
+        };
+        if stem.is_empty()
+            || stem.len() > 64
+            || !stem
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return Err(format!(
+                "[stage=device_camera.deletePortrait code=ERR_PORTRAIT_INVALID_ID] Invalid portrait stem \"{stem}\""
+            ));
+        }
+        return Ok(portraits_dir.join(file_name));
+    }
+    if trimmed.is_empty()
+        || trimmed.len() > 64
+        || !trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(format!(
+            "[stage=device_camera.deletePortrait code=ERR_PORTRAIT_INVALID_ID] Invalid portraitId \"{trimmed}\""
+        ));
+    }
+    Ok(portraits_dir.join(format!("{trimmed}.jpg")))
 }
 
 struct HostInner {
     owned: Mutex<HashMap<String, Arc<Session>>>,
+    portraits_dir: Option<PathBuf>,
+    host_epoch: AtomicU64,
+    closed: AtomicBool,
 }
 
 impl HostInner {
-    fn close_all(&self) {
-        let all: Vec<_> = self.owned.lock().unwrap().drain().map(|(_, s)| s).collect();
+    fn close_all(&self, mark_closed: bool) {
+        let all: Vec<_> = {
+            let mut guard = self.owned.lock().unwrap();
+            if mark_closed {
+                self.closed.store(true, Ordering::Release);
+            }
+            self.host_epoch.fetch_add(1, Ordering::AcqRel);
+            guard.drain().map(|(_, s)| s).collect()
+        };
         for session in all {
             session.close();
         }
     }
 }
 
-/// Owns phone front/back camera sessions (`AVCaptureSession` / `Camera2`) and frame capture.
+/// Owns phone front/back camera sessions (`AVCaptureSession` / `Camera2`), portrait cache, and frame capture.
 #[class]
 pub struct DeviceCameraHost {
     inner: Arc<HostInner>,
 }
 
-#[class]
 impl DeviceCameraHost {
-    /// Construct an idle host without opening hardware or prompting for camera permission.
-    pub fn new() -> Self {
+    #[cfg(test)]
+    fn new_with_portraits_dir(portraits_dir: PathBuf) -> Self {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             remember_tokio_handle(&handle);
         }
         Self {
             inner: Arc::new(HostInner {
                 owned: Mutex::new(HashMap::new()),
+                portraits_dir: Some(portraits_dir),
+                host_epoch: AtomicU64::new(0),
+                closed: AtomicBool::new(false),
+            }),
+        }
+    }
+}
+
+#[class]
+impl DeviceCameraHost {
+    /// Construct an idle host without opening hardware or prompting for camera permission.
+    pub fn new(sys: System) -> Self {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            remember_tokio_handle(&handle);
+        }
+        Self {
+            inner: Arc::new(HostInner {
+                owned: Mutex::new(HashMap::new()),
+                portraits_dir: sys.data_dir.map(|dir| dir.join("portraits")),
+                host_epoch: AtomicU64::new(0),
+                closed: AtomicBool::new(false),
             }),
         }
     }
@@ -568,6 +897,10 @@ impl DeviceCameraHost {
     ) -> Result<String, String> {
         let inner = this.with(|s| s.inner.clone());
         let epoch_before = APP_EPOCH.load(Ordering::Acquire);
+        let host_epoch = inner.host_epoch.load(Ordering::Acquire);
+        if inner.closed.load(Ordering::Acquire) {
+            return Err("[stage=device_camera.open code=ERR_DEVICE_CAMERA_CLOSED] DeviceCameraHost is disposed".into());
+        }
         if !APP_ACTIVE.load(Ordering::Acquire) {
             return Err("[stage=device_camera.open code=ERR_DEVICE_CAMERA_BACKGROUNDED] Cannot open phone camera while app is in background".into());
         }
@@ -581,14 +914,26 @@ impl DeviceCameraHost {
             .await
             .map_err(|err| format!("[stage=device_camera.open code=ERR_DEVICE_CAMERA_OPEN_JOIN] {err}"))??;
 
-            if !APP_ACTIVE.load(Ordering::Acquire)
-                || APP_EPOCH.load(Ordering::Acquire) != epoch_before
-            {
-                session.close();
-                return Err("[stage=device_camera.open code=ERR_DEVICE_CAMERA_BACKGROUNDED] App entered background during camera open".into());
-            }
             let id = session.id.clone();
-            if let Some(prev) = inner.owned.lock().unwrap().insert(id.clone(), session) {
+            let prev_session = {
+                let mut guard = inner.owned.lock().unwrap();
+                if !APP_ACTIVE.load(Ordering::Acquire)
+                    || APP_EPOCH.load(Ordering::Acquire) != epoch_before
+                {
+                    drop(guard);
+                    session.close();
+                    return Err("[stage=device_camera.open code=ERR_DEVICE_CAMERA_BACKGROUNDED] App entered background during camera open".into());
+                }
+                if inner.closed.load(Ordering::Acquire)
+                    || inner.host_epoch.load(Ordering::Acquire) != host_epoch
+                {
+                    drop(guard);
+                    session.close();
+                    return Err("[stage=device_camera.open code=ERR_DEVICE_CAMERA_CLOSED] DeviceCameraHost stopped during camera open".into());
+                }
+                guard.insert(id.clone(), session)
+            };
+            if let Some(prev) = prev_session {
                 prev.close();
             }
             Ok(id)
@@ -677,6 +1022,102 @@ impl DeviceCameraHost {
             .map_err(|_| "[stage=device_camera.capture code=ERR_DEVICE_CAMERA_CAPTURE_CANCELLED] Frame capture cancelled".to_string())?
     }
 
+    /// Capture lightweight metadata + hardware face bounds without JPEG encoding overhead.
+    pub async fn capture_faces(
+        this: Instance<Self>,
+        session_id: String,
+        after_seq: f64,
+    ) -> Result<DeviceCameraNativeFacesFrame, String> {
+        let session = {
+            let inner = this.with(|s| s.inner.clone());
+            let guard = inner.owned.lock().unwrap();
+            guard
+                .get(&session_id)
+                .cloned()
+                .ok_or_else(|| format!("[stage=device_camera.captureFaces code=ERR_DEVICE_CAMERA_SESSION_MISSING] Unknown session \"{session_id}\""))?
+        };
+        let min_seq = if after_seq.is_finite() && after_seq > 0.0 {
+            after_seq as u64
+        } else {
+            0
+        };
+        background(async move { session.capture_faces(min_seq).await })
+            .await
+            .map_err(|_| "[stage=device_camera.captureFaces code=ERR_DEVICE_CAMERA_CAPTURE_CANCELLED] Faces capture cancelled".to_string())?
+    }
+
+    /// Crop a normalized `[0, 1]` top-left box from the active frame and persist JPEG to `<sys.data_dir>/portraits/*.jpg`.
+    pub async fn capture_cropped_portrait(
+        this: Instance<Self>,
+        session_id: String,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        portrait_id: String,
+        max_dimension: i32,
+        jpeg_quality: i32,
+    ) -> Result<DeviceCameraNativePortrait, String> {
+        if !x.is_finite()
+            || !y.is_finite()
+            || !width.is_finite()
+            || !height.is_finite()
+            || width <= 0.0
+            || height <= 0.0
+        {
+            return Err("[stage=device_camera.captureCroppedPortrait code=ERR_PORTRAIT_INVALID_RECT] Crop rect requires positive finite width and height".into());
+        }
+        let validated_id = validate_portrait_id(&portrait_id)?;
+        let (session, portraits_dir) = this.with(|s| {
+            let dir = s.inner.portraits_dir.clone().ok_or_else(|| {
+                "[stage=device_camera.captureCroppedPortrait code=ERR_PORTRAIT_STORAGE_UNAVAILABLE] Private app data directory is unavailable"
+                    .to_string()
+            })?;
+            let guard = s.inner.owned.lock().unwrap();
+            let sess = guard
+                .get(&session_id)
+                .cloned()
+                .ok_or_else(|| format!("[stage=device_camera.captureCroppedPortrait code=ERR_DEVICE_CAMERA_SESSION_MISSING] Unknown session \"{session_id}\""))?;
+            Ok::<_, String>((sess, dir))
+        })?;
+        background(async move {
+            session
+                .capture_cropped_portrait(
+                    portraits_dir,
+                    x,
+                    y,
+                    width,
+                    height,
+                    validated_id,
+                    max_dimension,
+                    jpeg_quality,
+                )
+                .await
+        })
+        .await
+        .map_err(|_| "[stage=device_camera.captureCroppedPortrait code=ERR_DEVICE_CAMERA_CAPTURE_CANCELLED] Portrait crop cancelled".to_string())?
+    }
+
+    /// Delete a cached portrait JPEG inside `<sys.data_dir>/portraits/` by `portraitId` or `file://` URI.
+    pub fn delete_portrait(&self, portrait_id_or_uri: String) -> Result<bool, String> {
+        let Some(ref dir) = self.inner.portraits_dir else {
+            return Err("[stage=device_camera.deletePortrait code=ERR_PORTRAIT_STORAGE_UNAVAILABLE] Private app data directory is unavailable".into());
+        };
+        let target = resolve_portrait_path(dir, &portrait_id_or_uri)?;
+        match fs::remove_file(&target) {
+            Ok(()) => Ok(true),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(format!(
+                "[stage=device_camera.deletePortrait code=ERR_PORTRAIT_IO_FAILED] Failed to delete portrait: {err}"
+            )),
+        }
+    }
+
+    /// Query camera landscape horizontal field-of-view in degrees (`0.0` when unavailable).
+    pub fn camera_hfov_deg(&self, facing: String) -> f64 {
+        platform::query_hfov(&facing)
+    }
+
     /// Close a specific camera session immediately.
     pub fn close_session(&self, session_id: String) {
         if let Some(session) = self.inner.owned.lock().unwrap().remove(&session_id) {
@@ -688,19 +1129,19 @@ impl DeviceCameraHost {
     pub fn set_foreground(&self, active: bool) {
         handle_platform_foreground_change(active);
         if !active {
-            self.inner.close_all();
+            self.inner.close_all(false);
         }
     }
 
     /// Force-close all owned camera sessions.
     pub fn stop_all(&self) {
-        self.inner.close_all();
+        self.inner.close_all(false);
     }
 }
 
 impl Drop for DeviceCameraHost {
     fn drop(&mut self) {
-        self.inner.close_all();
+        self.inner.close_all(true);
     }
 }
 
@@ -809,5 +1250,73 @@ mod tests {
             formatted,
             "[stage=native.ios.open code=ERR_DEVICE_CAMERA_NO_DEVICE] Camera lens (front) unavailable"
         );
+    }
+
+    #[tokio::test]
+    async fn capture_faces_portrait_disk_cache_and_delete_portrait_work() {
+        let _guard = FOREGROUND_TEST_LOCK.lock().await;
+        handle_platform_foreground_change(true);
+        let temp_root = std::env::temp_dir().join(format!(
+            "looi-portrait-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let portraits_dir = temp_root.join("portraits");
+        let host = DeviceCameraHost::new_with_portraits_dir(portraits_dir.clone());
+
+        let session_id = "cam-portrait-test-1".to_string();
+        let session = Session::open_sample(Some(&session_id), "front", 640, 25).unwrap();
+        host.inner
+            .owned
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), session.clone());
+
+        let faces_frame = session.clone().capture_faces(0).await.unwrap();
+        assert_eq!(faces_frame.facing, "front");
+        assert_eq!(faces_frame.faces.len(), 1);
+        assert!(faces_frame.hfov_deg > 0.0);
+        assert!(faces_frame.captured_monotonic_ms > 0.0);
+        assert!(faces_frame.faces_monotonic_ms > 0.0);
+
+        let portrait = session
+            .clone()
+            .capture_cropped_portrait(
+                portraits_dir.clone(),
+                0.15,
+                0.1,
+                0.7,
+                0.8,
+                "seat_1".to_string(),
+                320,
+                84,
+            )
+            .await
+            .unwrap();
+        let expected_path = portraits_dir.join("seat_1.jpg");
+        assert!(portrait.uri.starts_with("file://"));
+        assert!(portrait.uri.ends_with("seat_1.jpg"));
+        assert!(expected_path.is_file());
+        let saved_bytes = fs::read(&expected_path).unwrap();
+        assert_eq!(saved_bytes.len() as u32, portrait.byte_length);
+        assert_eq!(&saved_bytes[0..2], &[0xFF, 0xD8]);
+
+        // Path traversal must be rejected cleanly
+        let bad_id = validate_portrait_id("../escape").err().unwrap();
+        assert!(bad_id.contains("ERR_PORTRAIT_INVALID_ID"));
+        let bad_del = host
+            .delete_portrait(format!("file://{}/../escape.jpg", portraits_dir.display()))
+            .err()
+            .unwrap();
+        assert!(bad_del.contains("ERR_PORTRAIT_INVALID_ID"));
+
+        assert_eq!(host.delete_portrait(portrait.uri.clone()).unwrap(), true);
+        assert!(!expected_path.exists());
+        assert_eq!(host.delete_portrait("seat_1".to_string()).unwrap(), false);
+
+        host.stop_all();
+        let _ = fs::remove_dir_all(&temp_root);
     }
 }

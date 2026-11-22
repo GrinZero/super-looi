@@ -3,8 +3,9 @@ import { PERSON_TRACKER_SERVICE_ID } from "./contracts.js";
 
 export const visionPersonTrackerManifest: PluginManifest = {
   id: "vision-person-tracker",
-  version: "1.0.0",
+  version: "1.1.0",
   minHostApiVersion: 2,
+  builtinCore: true,
   category: "vision_motion",
   icon: "eye",
   name: {
@@ -19,7 +20,7 @@ export const visionPersonTrackerManifest: PluginManifest = {
     name: "Super LOOI",
     verified: true,
   },
-  permissions: ["camera.front", "face.control", "body.motion"],
+  permissions: ["camera.front", "sensor.motion", "face.control", "body.motion"],
   activation: "startup",
   provides: [
     {

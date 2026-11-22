@@ -25,6 +25,7 @@ import {
 import {
   CredentialVault,
   DeviceCameraHost,
+  DeviceMotionHost,
   LanRoomHost,
   NodeCompat,
   VoiceAudio,
@@ -865,6 +866,7 @@ export function createAppStore() {
     const active = lifecycle() === "active";
     runtime?.setBodyForegroundActive(active);
     runtime?.setDeviceCameraForegroundActive(active);
+    runtime?.setDeviceMotionForegroundActive(active);
     runtime?.setLanRoomForegroundActive(active);
     runtime?.setPluginsForegroundActive(active);
     const conversational = !active
@@ -1015,6 +1017,10 @@ export function createAppStore() {
       opened.setDeviceCameraForegroundActive(lifecycle() === "active");
       try {
         opened.attachNativeDeviceCamera(new DeviceCameraHost());
+      } catch {}
+      opened.setDeviceMotionForegroundActive(lifecycle() === "active");
+      try {
+        opened.attachNativeDeviceMotion(new DeviceMotionHost());
       } catch {}
       opened.setLanRoomForegroundActive(lifecycle() === "active");
       try {

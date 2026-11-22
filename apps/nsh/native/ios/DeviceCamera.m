@@ -4,13 +4,23 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ImageIO/ImageIO.h>
+#include <math.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 extern void looi_device_camera_background(void);
 extern void looi_device_camera_foreground(void);
+
+static double LCMonotonicMs(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+    }
+    return [[NSProcessInfo processInfo] systemUptime] * 1000.0;
+}
 
 typedef struct {
     int32_t track_id;
@@ -96,8 +106,11 @@ static void LCReadActiveSceneContext(CALayer * __strong *layerOut, UIInterfaceOr
     LCDetectedFace _faces[8];
     int32_t _faceCount;
     int64_t _facesUpdatedAtMs;
+    double _facesMonotonicMs;
     uint64_t _frames;
     int64_t _capturedAtMs;
+    double _capturedMonotonicMs;
+    double _hfovDeg;
     int64_t _lastAcceptedAtMs;
     int32_t _width;
     int32_t _height;
@@ -367,6 +380,8 @@ static void LCApplyLandscapeConnection(AVCaptureConnection *connection,
             self->_facing = facing;
             self->_maxDimension = MAX(160, MIN(1920, maxDimension));
             self->_maxFps = MAX(1, MIN(30, maxFps));
+            double hfov = (double)device.activeFormat.videoFieldOfView;
+            self->_hfovDeg = (isfinite(hfov) && hfov > 0.0) ? hfov : 0.0;
             [self->_lock unlock];
 
             __weak LCDeviceCameraSession *weakSelf = self;
@@ -459,6 +474,12 @@ static void LCApplyLandscapeConnection(AVCaptureConnection *connection,
                         hasAngle,
                         io);
                     [self->_session commitConfiguration];
+                    double hfov = (double)self->_device.activeFormat.videoFieldOfView;
+                    if (isfinite(hfov) && hfov > 0.0) {
+                        [self->_lock lock];
+                        self->_hfovDeg = hfov;
+                        [self->_lock unlock];
+                    }
                 }
             }
             LCApplyFrameRate(self->_device, clampedFps);
@@ -476,6 +497,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
         if (!image) return;
 
         int64_t nowMs = (int64_t)llround(NSDate.date.timeIntervalSince1970 * 1000.0);
+        double monoMs = LCMonotonicMs();
         [_lock lock];
         if (_closed) {
             [_lock unlock];
@@ -493,6 +515,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
         _width = (int32_t)CVPixelBufferGetWidth(image);
         _height = (int32_t)CVPixelBufferGetHeight(image);
         _capturedAtMs = nowMs;
+        _capturedMonotonicMs = monoMs;
         _frames += 1;
 
         BOOL schedule = (_display != nil) && !_displayScheduled;
@@ -562,6 +585,7 @@ didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)metadataObjects
         [_lock unlock];
 
         int64_t nowMs = (int64_t)llround(NSDate.date.timeIntervalSince1970 * 1000.0);
+        double monoMs = LCMonotonicMs();
         AVCaptureVideoDataOutput *videoOutput = _output;
         AVCaptureConnection *videoConn = videoOutput ? [videoOutput connectionWithMediaType:AVMediaTypeVideo] : nil;
 
@@ -632,6 +656,7 @@ didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)metadataObjects
         if (!_closed) {
             _faceCount = kept;
             _facesUpdatedAtMs = nowMs;
+            _facesMonotonicMs = monoMs;
             if (kept > 0) {
                 memcpy(_faces, candidates, (size_t)kept * sizeof(LCDetectedFace));
             }
@@ -947,6 +972,158 @@ int32_t looi_device_camera_faces(void *handle, LCDetectedFace *out_faces, int32_
         memcpy(out_faces, session->_faces, (size_t)count * sizeof(LCDetectedFace));
         [session->_lock unlock];
         return count;
+    }
+}
+
+double looi_device_camera_query_hfov(int32_t facing) {
+    @autoreleasepool {
+        AVCaptureDevicePosition pos = (facing == 1) ? AVCaptureDevicePositionBack : AVCaptureDevicePositionFront;
+        AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithDeviceType:AVCaptureDeviceTypeBuiltInWideAngleCamera
+                                                                     mediaType:AVMediaTypeVideo
+                                                                      position:pos];
+        if (!device || !device.activeFormat) return 0.0;
+        double fov = (double)device.activeFormat.videoFieldOfView;
+        return (isfinite(fov) && fov > 0.0) ? fov : 0.0;
+    }
+}
+
+void looi_device_camera_frame_meta(void *handle, double *captured_monotonic_ms, double *faces_monotonic_ms, double *hfov_deg) {
+    if (!handle) return;
+    @autoreleasepool {
+        LCDeviceCameraSession *session = (__bridge LCDeviceCameraSession *)handle;
+        [session->_lock lock];
+        if (captured_monotonic_ms) *captured_monotonic_ms = session->_capturedMonotonicMs;
+        if (faces_monotonic_ms) *faces_monotonic_ms = session->_facesMonotonicMs;
+        if (hfov_deg) *hfov_deg = session->_hfovDeg;
+        [session->_lock unlock];
+    }
+}
+
+int32_t looi_device_camera_faces_snapshot(
+    void *handle,
+    LCDetectedFace *out_faces,
+    int32_t max_faces,
+    int32_t *width,
+    int32_t *height,
+    int64_t *captured_at_ms,
+    double *captured_monotonic_ms,
+    double *faces_monotonic_ms,
+    double *hfov_deg,
+    uint64_t *seq) {
+    if (!handle) return 0;
+    @autoreleasepool {
+        int64_t nowMs = (int64_t)llround(NSDate.date.timeIntervalSince1970 * 1000.0);
+        LCDeviceCameraSession *session = (__bridge LCDeviceCameraSession *)handle;
+        [session->_lock lock];
+        if (session->_closed) {
+            [session->_lock unlock];
+            if (seq) *seq = 0;
+            return 0;
+        }
+        if (width) *width = session->_width;
+        if (height) *height = session->_height;
+        if (captured_at_ms) *captured_at_ms = session->_capturedAtMs;
+        if (captured_monotonic_ms) *captured_monotonic_ms = session->_capturedMonotonicMs;
+        if (faces_monotonic_ms) *faces_monotonic_ms = session->_facesMonotonicMs;
+        if (hfov_deg) *hfov_deg = session->_hfovDeg;
+        if (seq) *seq = session->_frames;
+
+        int32_t count = 0;
+        if (out_faces && max_faces > 0 && session->_faceCount > 0 &&
+            !(session->_facesUpdatedAtMs > 0 && (nowMs - session->_facesUpdatedAtMs) > 1500)) {
+            count = MIN(session->_faceCount, MIN(8, max_faces));
+            memcpy(out_faces, session->_faces, (size_t)count * sizeof(LCDetectedFace));
+        }
+        [session->_lock unlock];
+        return count;
+    }
+}
+
+uint8_t *looi_device_camera_crop_jpeg(
+    void *handle,
+    float nx,
+    float ny,
+    float nw,
+    float nh,
+    int32_t max_dimension,
+    int32_t jpeg_quality,
+    size_t *length,
+    int32_t *out_w,
+    int32_t *out_h,
+    double *captured_monotonic_ms) {
+    if (!handle || !length || !out_w || !out_h) return NULL;
+    @autoreleasepool {
+        LCDeviceCameraSession *session = (__bridge LCDeviceCameraSession *)handle;
+        [session->_lock lock];
+        CVPixelBufferRef pixel = session->_closed ? NULL : session->_latest;
+        if (captured_monotonic_ms) *captured_monotonic_ms = session->_capturedMonotonicMs;
+        if (pixel) CVPixelBufferRetain(pixel);
+        [session->_lock unlock];
+
+        if (!pixel) return NULL;
+        CGImageRef fullImage = NULL;
+        OSStatus status = VTCreateCGImageFromCVPixelBuffer(pixel, NULL, &fullImage);
+        CVPixelBufferRelease(pixel);
+        if (status != noErr || !fullImage) return NULL;
+
+        size_t imgW = CGImageGetWidth(fullImage);
+        size_t imgH = CGImageGetHeight(fullImage);
+        if (imgW == 0 || imgH == 0) {
+            CGImageRelease(fullImage);
+            return NULL;
+        }
+
+        float cx = fmaxf(0.0f, fminf(1.0f, nx));
+        float cy = fmaxf(0.0f, fminf(1.0f, ny));
+        float cw = fmaxf(0.01f, fminf(1.0f - cx, nw));
+        float ch = fmaxf(0.01f, fminf(1.0f - cy, nh));
+
+        size_t px = (size_t)llround((double)cx * (double)imgW);
+        size_t py = (size_t)llround((double)cy * (double)imgH);
+        if (px >= imgW) px = imgW - 1;
+        if (py >= imgH) py = imgH - 1;
+        size_t pw = (size_t)MAX(1LL, (long long)llround((double)cw * (double)imgW));
+        size_t ph = (size_t)MAX(1LL, (long long)llround((double)ch * (double)imgH));
+        if (px + pw > imgW) pw = imgW - px;
+        if (py + ph > imgH) ph = imgH - py;
+
+        CGImageRef cropped = CGImageCreateWithImageInRect(
+            fullImage,
+            CGRectMake((CGFloat)px, (CGFloat)py, (CGFloat)pw, (CGFloat)ph));
+        CGImageRelease(fullImage);
+        if (!cropped) return NULL;
+
+        size_t cropMax = MAX(pw, ph);
+        int32_t clampedDim = MAX(64, MIN(1024, max_dimension > 0 ? max_dimension : 320));
+        size_t targetMax = MIN((size_t)clampedDim, cropMax);
+        double quality = (double)MAX(40, MIN(95, jpeg_quality > 0 ? jpeg_quality : 84)) / 100.0;
+
+        NSMutableData *data = [NSMutableData data];
+        CGImageDestinationRef dest = CGImageDestinationCreateWithData(
+            (__bridge CFMutableDataRef)data, CFSTR("public.jpeg"), 1, NULL);
+        if (!dest) {
+            CGImageRelease(cropped);
+            return NULL;
+        }
+        CGImageDestinationAddImage(dest, cropped, (__bridge CFDictionaryRef)@{
+            (id)kCGImageDestinationLossyCompressionQuality : @(quality),
+            (id)kCGImageDestinationImageMaxPixelSize : @(targetMax),
+        });
+        BOOL ok = CGImageDestinationFinalize(dest);
+        CFRelease(dest);
+        CGImageRelease(cropped);
+        if (!ok || data.length == 0) return NULL;
+
+        CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+        if (!source) return NULL;
+        NSDictionary *props = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL));
+        CFRelease(source);
+        *length = data.length;
+        *out_w = [props[(id)kCGImagePropertyPixelWidth] intValue];
+        *out_h = [props[(id)kCGImagePropertyPixelHeight] intValue];
+        uint8_t *out = (uint8_t *)malloc(*length);
+        if (out) memcpy(out, data.bytes, *length);
+        return out;
     }
 }
 

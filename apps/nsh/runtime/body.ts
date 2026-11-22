@@ -17,6 +17,30 @@ import {
 import type { Vault } from "./application.js";
 import type { BodyServoLease, EffectScope } from "./plugins/contracts.js";
 import { PluginKernelError } from "./plugins/errors.js";
+import type { BodyCliffState, BodySensorPacket } from "./plugins/shared-types.js";
+
+/**
+ * Parses a raw `FED9` cliff packet (`01 FL FR RL RR`, 5 bytes, active-low `00` = cliff triggered, `01` = safe surface).
+ */
+export function parseCliffPacket(rawHex: string, receivedAtMs = Date.now()): BodyCliffState | null {
+  const cleanHex = rawHex.replace(/\s+/g, "").toLowerCase();
+  if (cleanHex.length !== 10 || !cleanHex.startsWith("01") || !/^[0-9a-f]{10}$/.test(cleanHex)) {
+    return null;
+  }
+  const fl = Number.parseInt(cleanHex.slice(2, 4), 16) === 0;
+  const fr = Number.parseInt(cleanHex.slice(4, 6), 16) === 0;
+  const rl = Number.parseInt(cleanHex.slice(6, 8), 16) === 0;
+  const rr = Number.parseInt(cleanHex.slice(8, 10), 16) === 0;
+  return {
+    flTriggered: fl,
+    frTriggered: fr,
+    rlTriggered: rl,
+    rrTriggered: rr,
+    anyTriggered: fl || fr || rl || rr,
+    receivedAtMs,
+    rawHex: cleanHex,
+  };
+}
 
 export type BodyServoPreemptReason =
   | "user_stop"
@@ -32,7 +56,9 @@ interface ActivePluginServoState {
   motorLease: BodyActionLease | null;
   renewTimer: ReturnType<typeof setInterval> | null;
   motion: BodyMotionVector;
-  driveQueue: Promise<void>;
+  pendingMotion: BodyMotionVector | null;
+  driveFlushPromise: Promise<void> | null;
+  driveGeneration: number;
   preemptedReason: BodyServoPreemptReason | null;
   released: boolean;
   readonly preemptListeners: Set<(reason: BodyServoPreemptReason) => void>;
@@ -635,6 +661,9 @@ export class BodyRuntime {
   private inFlightPowerRead: Promise<LooiPowerStatus> | null = null;
   private readonly selfEventListeners = new Set<(window: SelfEventWindow) => void>();
   private readonly statusListeners = new Set<(status: BodyStatusSnapshot) => void>();
+  private readonly sensorPacketListeners = new Set<(packet: BodySensorPacket) => void>();
+  private readonly sensorPackets: BodySensorPacket[] = [];
+  private latestCliff: BodyCliffState | null = null;
   private activePluginServo: ActivePluginServoState | null = null;
   private nextServoId = 1;
   private servoClaimEpoch = 0;
@@ -1049,6 +1078,9 @@ export class BodyRuntime {
         this.clearHeldDriveState();
         this.notifyStatusListeners();
       },
+      onRawNotification: (characteristicUuid: string, hex: string, receivedAtMs: number) => {
+        this.handleRawBleNotification(characteristicUuid, hex, receivedAtMs);
+      },
       onSelfEvent: (win: SelfEventWindow) => {
         for (const listener of this.selfEventListeners) listener(win);
       },
@@ -1093,6 +1125,67 @@ export class BodyRuntime {
     };
   }
 
+  public latestCliffState(): BodyCliffState | null {
+    return this.latestCliff ? { ...this.latestCliff } : null;
+  }
+
+  public recentSensorPackets(): readonly BodySensorPacket[] {
+    return [...this.sensorPackets];
+  }
+
+  public subscribeSensorPackets(listener: (packet: BodySensorPacket) => void): () => void {
+    this.sensorPacketListeners.add(listener);
+    return () => {
+      this.sensorPacketListeners.delete(listener);
+    };
+  }
+
+  private handleRawBleNotification(
+    characteristicUuid: string,
+    hex: string,
+    receivedAtMs: number,
+  ): void {
+    const cleanHex = hex.replace(/\s+/g, "").toLowerCase();
+    const cliff = parseCliffPacket(cleanHex, receivedAtMs);
+    let packet: BodySensorPacket;
+    if (cliff) {
+      this.latestCliff = cliff;
+      packet = {
+        kind: "cliff",
+        characteristicUuid,
+        rawHex: cleanHex,
+        receivedAtMs,
+        cliff,
+      };
+    } else if (cleanHex === "05" || cleanHex === "06") {
+      packet = {
+        kind: "dock",
+        characteristicUuid,
+        rawHex: cleanHex,
+        receivedAtMs,
+        docked: cleanHex === "05",
+      };
+    } else {
+      packet = {
+        kind: "raw",
+        characteristicUuid,
+        rawHex: cleanHex,
+        receivedAtMs,
+      };
+    }
+    this.sensorPackets.push(packet);
+    if (this.sensorPackets.length > 32) {
+      this.sensorPackets.shift();
+    }
+    for (const listener of this.sensorPacketListeners) {
+      try {
+        listener(packet);
+      } catch {
+        // Isolate subscriber exceptions from hardware notification processing.
+      }
+    }
+  }
+
   public subscribeStatus(listener: (status: BodyStatusSnapshot) => void): () => void {
     this.statusListeners.add(listener);
     return () => {
@@ -1123,6 +1216,8 @@ export class BodyRuntime {
     const current = this.activePluginServo;
     if (!current) return;
     this.activePluginServo = null;
+    current.pendingMotion = null;
+    current.driveGeneration += 1;
     if (current.renewTimer !== null) {
       clearInterval(current.renewTimer);
       current.renewTimer = null;
@@ -2062,7 +2157,9 @@ export class BodyRuntime {
       motorLease: null,
       renewTimer: null,
       motion: { speed: 0, turn: 0 },
-      driveQueue: Promise.resolve(),
+      pendingMotion: null,
+      driveFlushPromise: null,
+      driveGeneration: 0,
       preemptedReason: null,
       released: false,
       preemptListeners: new Set(),
@@ -2128,72 +2225,106 @@ export class BodyRuntime {
       servoState.renewTimer = timer;
     };
 
-    const enqueueDrive = <T>(fn: () => Promise<T>): Promise<T> => {
-      const next = servoState.driveQueue.then(fn, fn);
-      servoState.driveQueue = next.then(
-        () => undefined,
-        () => undefined,
-      );
-      return next;
-    };
-
     const lease: BodyServoLease = {
-      setDriveVector: (speed, turn) =>
-        enqueueDrive(async () => {
-          ensureActive("body.servo.setDriveVector");
-          const nextSpeed = clampSignedAxis(speed);
-          const nextTurn = clampSignedAxis(turn);
+      setDriveVector: async (speed, turn) => {
+        ensureActive("body.servo.setDriveVector");
+        servoState.pendingMotion = {
+          speed: clampSignedAxis(speed),
+          turn: clampSignedAxis(turn),
+        };
+        const generation = servoState.driveGeneration;
+        if (servoState.driveFlushPromise === null) {
+          const run: Promise<void> = Promise.resolve().then(async () => {
+            try {
+              while (servoState.pendingMotion !== null) {
+                if (
+                  servoState.driveGeneration !== generation ||
+                  servoState.released ||
+                  this.activePluginServo !== servoState
+                ) {
+                  ensureActive("body.servo.setDriveVector");
+                  break;
+                }
+                ensureActive("body.servo.setDriveVector");
+                const target = servoState.pendingMotion;
+                servoState.pendingMotion = null;
 
-          if (nextSpeed === 0 && nextTurn === 0) {
-            if (servoState.renewTimer !== null) {
-              clearInterval(servoState.renewTimer);
-              servoState.renewTimer = null;
-            }
-            const held = servoState.motorLease;
-            servoState.motorLease = null;
-            servoState.motion = { speed: 0, turn: 0 };
-            if (held && this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
-              await this.supervisor.stop("lease_expired");
-            }
-            this.notifyStatusListeners();
-            return;
-          }
+                if (target.speed === 0 && target.turn === 0) {
+                  if (servoState.renewTimer !== null) {
+                    clearInterval(servoState.renewTimer);
+                    servoState.renewTimer = null;
+                  }
+                  const held = servoState.motorLease;
+                  servoState.motorLease = null;
+                  servoState.motion = { speed: 0, turn: 0 };
+                  if (held && this.supervisor.getActiveLease()?.lease_id === held.lease_id) {
+                    await this.supervisor.stop("lease_expired");
+                  }
+                  this.notifyStatusListeners();
+                  continue;
+                }
 
-          const activeLease = this.supervisor.getActiveLease();
-          const hasValidLease =
-            servoState.motorLease !== null &&
-            activeLease !== null &&
-            activeLease.lease_id === servoState.motorLease.lease_id &&
-            activeLease.lease_epoch === servoState.motorLease.lease_epoch;
+                const activeLease = this.supervisor.getActiveLease();
+                const hasValidLease =
+                  servoState.motorLease !== null &&
+                  activeLease !== null &&
+                  activeLease.lease_id === servoState.motorLease.lease_id &&
+                  activeLease.lease_epoch === servoState.motorLease.lease_epoch;
 
-          if (!hasValidLease) {
-            if (servoState.renewTimer !== null) {
-              clearInterval(servoState.renewTimer);
-              servoState.renewTimer = null;
-            }
-            servoState.motorLease = null;
-            const acquired = await this.supervisor.acquireLease({
-              holder: `plugin:${options.pluginId}`,
-              primitive: dominantPrimitive(nextSpeed, nextTurn),
-              durationMs: 1500,
-            });
-            if (servoState.released || this.activePluginServo !== servoState) {
-              if (this.supervisor.getActiveLease()?.lease_id === acquired.lease_id) {
-                await this.supervisor.stop("lease_expired").catch(() => {});
+                if (!hasValidLease) {
+                  if (servoState.renewTimer !== null) {
+                    clearInterval(servoState.renewTimer);
+                    servoState.renewTimer = null;
+                  }
+                  servoState.motorLease = null;
+                  const acquired = await this.supervisor.acquireLease({
+                    holder: `plugin:${options.pluginId}`,
+                    primitive: dominantPrimitive(target.speed, target.turn),
+                    durationMs: 1500,
+                  });
+                  if (
+                    servoState.driveGeneration !== generation ||
+                    servoState.released ||
+                    this.activePluginServo !== servoState
+                  ) {
+                    if (this.supervisor.getActiveLease()?.lease_id === acquired.lease_id) {
+                      await this.supervisor.stop("lease_expired").catch(() => {});
+                    }
+                    ensureActive("body.servo.setDriveVector");
+                    break;
+                  }
+                  servoState.motorLease = acquired;
+                } else {
+                  this.supervisor.renewLease(servoState.motorLease!, 1500);
+                }
+
+                await this.supervisor.setMotion(servoState.motorLease!, target.speed, target.turn);
+                if (
+                  servoState.driveGeneration !== generation ||
+                  servoState.released ||
+                  this.activePluginServo !== servoState
+                ) {
+                  ensureActive("body.servo.setDriveVector");
+                  break;
+                }
+                ensureActive("body.servo.setDriveVector");
+                servoState.motion = target;
+                ensureServoRenewTimer();
+                this.notifyStatusListeners();
               }
-              ensureActive("body.servo.setDriveVector");
+            } catch (error) {
+              servoState.pendingMotion = null;
+              throw error;
+            } finally {
+              if (servoState.driveFlushPromise === run) {
+                servoState.driveFlushPromise = null;
+              }
             }
-            servoState.motorLease = acquired;
-          } else {
-            this.supervisor.renewLease(servoState.motorLease!, 1500);
-          }
-
-          await this.supervisor.setMotion(servoState.motorLease!, nextSpeed, nextTurn);
-          ensureActive("body.servo.setDriveVector");
-          servoState.motion = { speed: nextSpeed, turn: nextTurn };
-          ensureServoRenewTimer();
-          this.notifyStatusListeners();
-        }),
+          });
+          servoState.driveFlushPromise = run;
+        }
+        await servoState.driveFlushPromise;
+      },
 
       setHeadDegrees: async (degrees) => {
         ensureActive("body.servo.setHeadDegrees");
@@ -2240,6 +2371,8 @@ export class BodyRuntime {
       release: async () => {
         if (servoState.released) return;
         servoState.released = true;
+        servoState.pendingMotion = null;
+        servoState.driveGeneration += 1;
         if (this.activePluginServo === servoState) {
           this.activePluginServo = null;
         }
@@ -2248,7 +2381,7 @@ export class BodyRuntime {
           servoState.renewTimer = null;
         }
         servoState.preemptListeners.clear();
-        await servoState.driveQueue;
+        await servoState.driveFlushPromise?.catch(() => {});
         const held = servoState.motorLease;
         servoState.motorLease = null;
         servoState.motion = { speed: 0, turn: 0 };
@@ -2276,6 +2409,9 @@ export class BodyRuntime {
     void this.disconnectInternal(false);
     this.bleTransport?.dispose();
     this.nativeAdapter?.dispose();
+    this.latestCliff = null;
+    this.sensorPackets.length = 0;
+    this.sensorPacketListeners.clear();
     this.selfEventListeners.clear();
     this.statusListeners.clear();
   }

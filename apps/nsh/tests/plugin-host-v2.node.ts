@@ -527,3 +527,66 @@ test("DualLoopAiBus enforces monotonic tool guard severity and stage_persona idl
   await scope.dispose();
 });
 
+test("PluginHost enforces builtinCore always-enabled boot recovery and rejects disabling via setEnabled or configure", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plugin_installations (
+      id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL,
+      installed_version TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'builtin',
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  db.prepare(
+    `INSERT INTO plugin_installations (id, enabled, installed_version, source, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run("core-vision", 0, "1.0.0", "builtin", new Date().toISOString());
+
+  const coreDef: PluginDefinition = {
+    manifest: makeManifest("core-vision", {
+      version: "1.1.0",
+      builtinCore: true,
+      activation: "startup",
+    }),
+    initialState: () => ({ note: "" }),
+    create: (ctx) => ({
+      async start() {},
+      async configure(values) {
+        ctx.setState({ note: values.note ?? "" });
+      },
+    }),
+  };
+
+  const host = new PluginHost(db, [coreDef]);
+  try {
+    await host.startStartupPlugins();
+    const booted = host.snapshot("core-vision");
+    assert.equal(booted.enabled, true);
+    assert.equal(booted.lifecycle, "active");
+
+    await assert.rejects(
+      () => host.setEnabled("core-vision", false),
+      (err: unknown) =>
+        err instanceof PluginKernelError &&
+        err.code === "ERR_PLUGIN_CORE_CANNOT_DISABLE" &&
+        err.stage === "plugin_host.set_enabled",
+    );
+    await assert.rejects(
+      () => host.configure("core-vision", false, { note: "bad" }),
+      (err: unknown) =>
+        err instanceof PluginKernelError &&
+        err.code === "ERR_PLUGIN_CORE_CANNOT_DISABLE" &&
+        err.stage === "plugin_host.configure",
+    );
+
+    const configured = await host.configure("core-vision", true, { note: "kept-enabled" });
+    assert.equal(configured.enabled, true);
+    assert.equal(configured.lifecycle, "active");
+    assert.equal(configured.state.note, "kept-enabled");
+  } finally {
+    await host.close();
+    db.close();
+  }
+});
+

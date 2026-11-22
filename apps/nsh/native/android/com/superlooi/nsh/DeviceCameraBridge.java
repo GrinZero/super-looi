@@ -33,6 +33,7 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Range;
 import android.util.Size;
+import android.util.SizeF;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -55,16 +56,75 @@ public final class DeviceCameraBridge {
         public final int width;
         public final int height;
         public final long capturedAt;
+        public final long capturedMonotonicMs;
+        public final long facesMonotonicMs;
+        public final float hfovDeg;
         public final long seq;
         public final float[] faces;
 
-        Snapshot(byte[] data, int width, int height, long capturedAt, long seq, float[] faces) {
+        Snapshot(
+                byte[] data,
+                int width,
+                int height,
+                long capturedAt,
+                long capturedMonotonicMs,
+                long facesMonotonicMs,
+                float hfovDeg,
+                long seq,
+                float[] faces) {
             this.data = data;
             this.width = width;
             this.height = height;
             this.capturedAt = capturedAt;
+            this.capturedMonotonicMs = capturedMonotonicMs;
+            this.facesMonotonicMs = facesMonotonicMs;
+            this.hfovDeg = hfovDeg;
             this.seq = seq;
             this.faces = faces != null ? faces : new float[0];
+        }
+    }
+
+    public static final class FacesSnapshot {
+        public final int width;
+        public final int height;
+        public final long capturedAt;
+        public final long capturedMonotonicMs;
+        public final long facesMonotonicMs;
+        public final float hfovDeg;
+        public final long seq;
+        public final float[] faces;
+
+        FacesSnapshot(
+                int width,
+                int height,
+                long capturedAt,
+                long capturedMonotonicMs,
+                long facesMonotonicMs,
+                float hfovDeg,
+                long seq,
+                float[] faces) {
+            this.width = width;
+            this.height = height;
+            this.capturedAt = capturedAt;
+            this.capturedMonotonicMs = capturedMonotonicMs;
+            this.facesMonotonicMs = facesMonotonicMs;
+            this.hfovDeg = hfovDeg;
+            this.seq = seq;
+            this.faces = faces != null ? faces : new float[0];
+        }
+    }
+
+    public static final class CropResult {
+        public final byte[] data;
+        public final int width;
+        public final int height;
+        public final long capturedMonotonicMs;
+
+        CropResult(byte[] data, int width, int height, long capturedMonotonicMs) {
+            this.data = data;
+            this.width = width;
+            this.height = height;
+            this.capturedMonotonicMs = capturedMonotonicMs;
         }
     }
 
@@ -97,10 +157,13 @@ public final class DeviceCameraBridge {
     private byte[] latestNv21;
     private float[] latestFaces = new float[0];
     private long facesUpdatedAtMs;
+    private long facesMonotonicMs;
     private int rawWidth;
     private int rawHeight;
     private long frames;
     private long capturedAtMs;
+    private long capturedMonotonicMs;
+    private float hfovDeg;
     private long lastAcceptedAtMs;
     private int errorCode;
     private String failureMessage;
@@ -253,6 +316,7 @@ public final class DeviceCameraBridge {
             Integer sensor = foundChars.get(CameraCharacteristics.SENSOR_ORIENTATION);
             this.sensorOrientation = sensor != null ? sensor : 0;
             this.sensorActiveRect = foundChars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+            this.hfovDeg = computeLandscapeHfovDeg(foundChars);
             int[] faceModes = foundChars.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES);
             this.faceDetectMode = chooseFaceDetectMode(faceModes);
             StreamConfigurationMap map = foundChars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
@@ -451,11 +515,13 @@ public final class DeviceCameraBridge {
         Face[] rawFaces = result.get(CaptureResult.STATISTICS_FACES);
         Rect active = sensorActiveRect;
         long now = System.currentTimeMillis();
+        long monoMs = System.nanoTime() / 1_000_000L;
         if (rawFaces == null || rawFaces.length == 0 || active == null || active.width() <= 0 || active.height() <= 0) {
             synchronized (lock) {
                 if (!closed) {
                     latestFaces = new float[0];
                     facesUpdatedAtMs = now;
+                    facesMonotonicMs = monoMs;
                 }
             }
             return;
@@ -541,6 +607,7 @@ public final class DeviceCameraBridge {
             if (!closed) {
                 latestFaces = packed;
                 facesUpdatedAtMs = now;
+                facesMonotonicMs = monoMs;
             }
         }
     }
@@ -571,6 +638,7 @@ public final class DeviceCameraBridge {
             image = reader.acquireLatestImage();
             if (image == null || closed) return;
             long now = System.currentTimeMillis();
+            long monoMs = System.nanoTime() / 1_000_000L;
             long minIntervalMs = Math.max(1L, 1000L / Math.max(1, maxFps));
             synchronized (lock) {
                 if (lastAcceptedAtMs > 0 && (now - lastAcceptedAtMs) + 4 < minIntervalMs) {
@@ -588,6 +656,7 @@ public final class DeviceCameraBridge {
                 rawWidth = w;
                 rawHeight = h;
                 capturedAtMs = now;
+                capturedMonotonicMs = monoMs;
                 frames += 1;
                 previewTarget = boundPreview;
             }
@@ -711,11 +780,49 @@ public final class DeviceCameraBridge {
         }
     }
 
+    private static float computeLandscapeHfovDeg(CameraCharacteristics chars) {
+        if (chars == null) return 0f;
+        try {
+            float[] focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+            SizeF phys = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+            if (focalLengths == null || focalLengths.length == 0 || phys == null) return 0f;
+            float focal = focalLengths[0];
+            float sensorLongMm = Math.max(phys.getWidth(), phys.getHeight());
+            if (!(focal > 0f) || !(sensorLongMm > 0f)) return 0f;
+            return (float) Math.toDegrees(2.0 * Math.atan(sensorLongMm / (2.0 * focal)));
+        } catch (RuntimeException ignored) {
+            return 0f;
+        }
+    }
+
+    public static float queryHfovDeg(int facing) {
+        SuperLooiApplication app = SuperLooiApplication.appContext();
+        if (app == null) return 0f;
+        CameraManager mgr = (CameraManager) app.getSystemService(Context.CAMERA_SERVICE);
+        if (mgr == null) return 0f;
+        int desiredFacing = facing == 1
+                ? CameraCharacteristics.LENS_FACING_BACK
+                : CameraCharacteristics.LENS_FACING_FRONT;
+        try {
+            for (String candidate : mgr.getCameraIdList()) {
+                CameraCharacteristics chars = mgr.getCameraCharacteristics(candidate);
+                Integer lens = chars.get(CameraCharacteristics.LENS_FACING);
+                if (lens != null && lens == desiredFacing) {
+                    return computeLandscapeHfovDeg(chars);
+                }
+            }
+        } catch (CameraAccessException | RuntimeException ignored) {}
+        return 0f;
+    }
+
     public Snapshot jpeg(int reqMaxDimension) {
         byte[] nv21;
         int w;
         int h;
         long ts;
+        long monoMs;
+        long facesMonoMs;
+        float fov;
         long seq;
         int fallbackDim;
         float[] facesSnapshot;
@@ -726,6 +833,9 @@ public final class DeviceCameraBridge {
             w = rawWidth;
             h = rawHeight;
             ts = capturedAtMs;
+            monoMs = capturedMonotonicMs;
+            facesMonoMs = facesMonotonicMs;
+            fov = hfovDeg;
             seq = frames;
             fallbackDim = maxDimension;
             facesSnapshot = (facesUpdatedAtMs > 0 && (now - facesUpdatedAtMs) <= 1500 && latestFaces != null)
@@ -742,7 +852,7 @@ public final class DeviceCameraBridge {
         int rotation = computeUprightRotationDegrees();
         boolean mirrorHorizontal = (facing == 0);
         if (longest <= targetMax && rotation == 0 && !mirrorHorizontal) {
-            return new Snapshot(encoded, w, h, ts, seq, facesSnapshot);
+            return new Snapshot(encoded, w, h, ts, monoMs, facesMonoMs, fov, seq, facesSnapshot);
         }
 
         Bitmap transformed = decodeUprightBitmap(encoded, targetMax);
@@ -753,7 +863,102 @@ public final class DeviceCameraBridge {
         int finalH = transformed.getHeight();
         transformed.recycle();
         if (!ok) return null;
-        return new Snapshot(out.toByteArray(), finalW, finalH, ts, seq, facesSnapshot);
+        return new Snapshot(out.toByteArray(), finalW, finalH, ts, monoMs, facesMonoMs, fov, seq, facesSnapshot);
+    }
+
+    public FacesSnapshot facesSnapshot() {
+        int w;
+        int h;
+        long ts;
+        long monoMs;
+        long facesMonoMs;
+        float fov;
+        long seq;
+        float[] facesSnapshot;
+        long now = System.currentTimeMillis();
+        synchronized (lock) {
+            if (closed || frames == 0) return null;
+            w = rawWidth;
+            h = rawHeight;
+            ts = capturedAtMs;
+            monoMs = capturedMonotonicMs;
+            facesMonoMs = facesMonotonicMs;
+            fov = hfovDeg;
+            seq = frames;
+            facesSnapshot = (facesUpdatedAtMs > 0 && (now - facesUpdatedAtMs) <= 1500 && latestFaces != null)
+                    ? latestFaces.clone()
+                    : new float[0];
+        }
+        return new FacesSnapshot(w, h, ts, monoMs, facesMonoMs, fov, seq, facesSnapshot);
+    }
+
+    public CropResult cropJpeg(
+            float nx,
+            float ny,
+            float nw,
+            float nh,
+            int reqMaxDimension,
+            int jpegQuality) {
+        byte[] nv21;
+        int w;
+        int h;
+        long monoMs;
+        synchronized (lock) {
+            if (closed || latestNv21 == null || frames == 0) return null;
+            nv21 = latestNv21;
+            w = rawWidth;
+            h = rawHeight;
+            monoMs = capturedMonotonicMs;
+        }
+        YuvImage yuv = new YuvImage(nv21, ImageFormat.NV21, w, h, null);
+        ByteArrayOutputStream rawJpeg = new ByteArrayOutputStream();
+        if (!yuv.compressToJpeg(new Rect(0, 0, w, h), 92, rawJpeg)) return null;
+        Bitmap upright = decodeUprightBitmap(rawJpeg.toByteArray(), 1280);
+        if (upright == null) return null;
+
+        Bitmap cropped = null;
+        Bitmap scaled = null;
+        try {
+            int bw = upright.getWidth();
+            int bh = upright.getHeight();
+            if (bw <= 0 || bh <= 0) return null;
+
+            float cx = Math.max(0f, Math.min(1f, nx));
+            float cy = Math.max(0f, Math.min(1f, ny));
+            float cw = Math.max(0.01f, Math.min(1f - cx, nw));
+            float ch = Math.max(0.01f, Math.min(1f - cy, nh));
+
+            int px = Math.max(0, Math.min(bw - 1, Math.round(cx * bw)));
+            int py = Math.max(0, Math.min(bh - 1, Math.round(cy * bh)));
+            int pw = Math.max(1, Math.min(bw - px, Math.round(cw * bw)));
+            int ph = Math.max(1, Math.min(bh - py, Math.round(ch * bh)));
+
+            cropped = Bitmap.createBitmap(upright, px, py, pw, ph);
+            int targetMax = Math.max(64, Math.min(1024, reqMaxDimension > 0 ? reqMaxDimension : 320));
+            int longest = Math.max(pw, ph);
+            Bitmap outputBmp = cropped;
+            if (longest > targetMax) {
+                float scale = (float) targetMax / (float) longest;
+                int outW = Math.max(1, Math.round(pw * scale));
+                int outH = Math.max(1, Math.round(ph * scale));
+                scaled = Bitmap.createScaledBitmap(cropped, outW, outH, true);
+                outputBmp = scaled;
+            }
+            ByteArrayOutputStream jpegOut = new ByteArrayOutputStream();
+            int quality = Math.max(40, Math.min(95, jpegQuality > 0 ? jpegQuality : 84));
+            if (!outputBmp.compress(Bitmap.CompressFormat.JPEG, quality, jpegOut)) {
+                return null;
+            }
+            return new CropResult(jpegOut.toByteArray(), outputBmp.getWidth(), outputBmp.getHeight(), monoMs);
+        } finally {
+            upright.recycle();
+            if (cropped != null && cropped != upright && !cropped.isRecycled()) {
+                cropped.recycle();
+            }
+            if (scaled != null && scaled != cropped && !scaled.isRecycled()) {
+                scaled.recycle();
+            }
+        }
     }
 
     private int computeUprightRotationDegrees() {

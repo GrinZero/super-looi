@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { DetectedCameraFace, DeviceCameraFrame } from "./plugins/contracts.js";
 import type {
+  CroppedPortraitOptions,
+  CroppedPortraitResult,
+  DetectedCameraFace,
+  DeviceCameraFacesFrame,
+  DeviceCameraFrame,
+} from "./plugins/contracts.js";
+import type {
+  NativeDeviceCameraFacesFrame,
   NativeDeviceCameraFrame,
   NativeDeviceCameraPort,
   VisionBrokerAttachOptions,
@@ -8,6 +15,7 @@ import type {
 
 export type {
   DetectedCameraFace,
+  NativeDeviceCameraFacesFrame,
   NativeDeviceCameraFrame,
   NativeDeviceCameraPort,
   VisionBrokerAttachOptions,
@@ -22,7 +30,8 @@ interface SubscriberRecord {
   readonly maxDimension: DeviceCameraDimension;
   readonly maxFps: number;
   readonly minIntervalMs: number;
-  readonly onFrame: (frame: DeviceCameraFrame) => Promise<void> | void;
+  readonly includeJpeg: boolean;
+  readonly onFrame: (frame: DeviceCameraFrame | DeviceCameraFacesFrame) => Promise<void> | void;
   lastDispatchedAtMs: number;
   inFlight: boolean;
   closed: boolean;
@@ -137,13 +146,20 @@ function computeTargetDimension(slot: FacingSlot): DeviceCameraDimension {
 }
 
 function computeMaxSubscriberDimension(slot: FacingSlot): DeviceCameraDimension {
-  let maxDim: DeviceCameraDimension = 320;
+  let maxJpegDim: DeviceCameraDimension = 320;
+  let anyJpeg = false;
+  let maxAnyDim: DeviceCameraDimension = 320;
   let any = false;
   for (const sub of slot.subscribers.values()) {
     any = true;
-    if (sub.maxDimension > maxDim) maxDim = sub.maxDimension;
+    if (sub.maxDimension > maxAnyDim) maxAnyDim = sub.maxDimension;
+    if (sub.includeJpeg) {
+      anyJpeg = true;
+      if (sub.maxDimension > maxJpegDim) maxJpegDim = sub.maxDimension;
+    }
   }
-  return any ? maxDim : 640;
+  if (anyJpeg) return maxJpegDim;
+  return any ? maxAnyDim : 640;
 }
 
 function computeTargetFps(slot: FacingSlot): number {
@@ -290,6 +306,13 @@ export class VisionBroker {
         height: raw.height,
         facing: slot.facing,
         capturedAtMs: raw.capturedAtMs,
+        ...(raw.capturedMonotonicMs !== undefined && raw.capturedMonotonicMs > 0
+          ? { capturedMonotonicMs: raw.capturedMonotonicMs }
+          : {}),
+        ...(raw.facesMonotonicMs !== undefined && raw.facesMonotonicMs > 0
+          ? { facesMonotonicMs: raw.facesMonotonicMs }
+          : {}),
+        ...(raw.hfovDeg !== undefined && raw.hfovDeg > 0 ? { hfovDeg: raw.hfovDeg } : {}),
         faces: normalizeDetectedFaces(raw.faces),
       };
     } finally {
@@ -298,23 +321,157 @@ export class VisionBroker {
     }
   }
 
+  async captureFaces(options: {
+    facing: DeviceCameraFacing;
+    maxDimension?: DeviceCameraDimension;
+  }): Promise<DeviceCameraFacesFrame> {
+    const slot = this.resolveAndValidateSlot(options.facing, "vision.captureFaces");
+    const maxDimension = normalizeDimension(options.maxDimension);
+    const holderId = randomUUID();
+    slot.oneshotHolders.set(holderId, { maxDimension });
+
+    try {
+      const sessionId = await this.ensureSlotSession(slot, "vision.captureFaces");
+      const port = this.requirePort("vision.captureFaces");
+      if (port.captureFaces) {
+        const raw = await port.captureFaces(sessionId, 0);
+        return {
+          width: raw.width,
+          height: raw.height,
+          facing: slot.facing,
+          capturedAtMs: raw.capturedAtMs,
+          ...(raw.capturedMonotonicMs !== undefined && raw.capturedMonotonicMs > 0
+            ? { capturedMonotonicMs: raw.capturedMonotonicMs }
+            : {}),
+          ...(raw.facesMonotonicMs !== undefined && raw.facesMonotonicMs > 0
+            ? { facesMonotonicMs: raw.facesMonotonicMs }
+            : {}),
+          ...(raw.hfovDeg !== undefined && raw.hfovDeg > 0 ? { hfovDeg: raw.hfovDeg } : {}),
+          faces: normalizeDetectedFaces(raw.faces),
+        };
+      }
+      const raw = await port.captureFrame(sessionId, maxDimension, 0);
+      return {
+        width: raw.width,
+        height: raw.height,
+        facing: slot.facing,
+        capturedAtMs: raw.capturedAtMs,
+        ...(raw.capturedMonotonicMs !== undefined && raw.capturedMonotonicMs > 0
+          ? { capturedMonotonicMs: raw.capturedMonotonicMs }
+          : {}),
+        ...(raw.facesMonotonicMs !== undefined && raw.facesMonotonicMs > 0
+          ? { facesMonotonicMs: raw.facesMonotonicMs }
+          : {}),
+        ...(raw.hfovDeg !== undefined && raw.hfovDeg > 0 ? { hfovDeg: raw.hfovDeg } : {}),
+        faces: normalizeDetectedFaces(raw.faces),
+      };
+    } finally {
+      slot.oneshotHolders.delete(holderId);
+      this.reconcileOrCloseSlot(slot);
+    }
+  }
+
+  async captureCroppedPortrait(options: CroppedPortraitOptions): Promise<CroppedPortraitResult> {
+    const slot = this.resolveAndValidateSlot(options.facing, "vision.captureCroppedPortrait");
+    const holderId = randomUUID();
+    slot.oneshotHolders.set(holderId, { maxDimension: 640 });
+
+    try {
+      const sessionId = await this.ensureSlotSession(slot, "vision.captureCroppedPortrait");
+      const port = this.requirePort("vision.captureCroppedPortrait");
+      if (!port.captureCroppedPortrait) {
+        throw createCameraError(
+          "vision.captureCroppedPortrait",
+          "ERR_DEVICE_CAMERA_UNAVAILABLE",
+          "Attached native camera port does not implement captureCroppedPortrait",
+        );
+      }
+      const res = await port.captureCroppedPortrait(
+        sessionId,
+        options.x,
+        options.y,
+        options.width,
+        options.height,
+        options.portraitId ?? "",
+        options.maxDimension ?? 320,
+        options.jpegQuality ?? 84,
+      );
+      return {
+        uri: res.uri,
+        portraitId: res.portraitId,
+        width: res.width,
+        height: res.height,
+        byteLength: res.byteLength,
+        ...(res.capturedMonotonicMs !== undefined && res.capturedMonotonicMs > 0
+          ? { capturedMonotonicMs: res.capturedMonotonicMs }
+          : {}),
+      };
+    } finally {
+      slot.oneshotHolders.delete(holderId);
+      this.reconcileOrCloseSlot(slot);
+    }
+  }
+
+  deletePortrait(portraitIdOrUri: string): boolean {
+    if (this.closed) {
+      throw createCameraError("vision.deletePortrait", "ERR_DEVICE_CAMERA_CLOSED", "VisionBroker is closed");
+    }
+    const port = this.requirePort("vision.deletePortrait");
+    if (!port.deletePortrait) {
+      throw createCameraError(
+        "vision.deletePortrait",
+        "ERR_DEVICE_CAMERA_UNAVAILABLE",
+        "Attached native camera port does not implement deletePortrait",
+      );
+    }
+    return port.deletePortrait(portraitIdOrUri);
+  }
+
+  cameraHfovDeg(facing: DeviceCameraFacing): number | null {
+    if (this.closed || !this.port?.cameraHfovDeg) return null;
+    const deg = this.port.cameraHfovDeg(facing);
+    return typeof deg === "number" && Number.isFinite(deg) && deg > 0 ? deg : null;
+  }
+
   async subscribeFrames(
     options: {
       facing: DeviceCameraFacing;
       maxDimension?: DeviceCameraDimension;
       maxFps?: number;
+      includeJpeg?: true;
     },
     onFrame: (frame: DeviceCameraFrame) => Promise<void> | void,
+  ): Promise<{ readonly previewSessionId: string; close(): void }>;
+  async subscribeFrames(
+    options: {
+      facing: DeviceCameraFacing;
+      maxDimension?: DeviceCameraDimension;
+      maxFps?: number;
+      includeJpeg: false;
+    },
+    onFrame: (frame: DeviceCameraFacesFrame) => Promise<void> | void,
+  ): Promise<{ readonly previewSessionId: string; close(): void }>;
+  async subscribeFrames(
+    options: {
+      facing: DeviceCameraFacing;
+      maxDimension?: DeviceCameraDimension;
+      maxFps?: number;
+      includeJpeg?: boolean;
+    },
+    onFrame: ((frame: DeviceCameraFrame) => Promise<void> | void) | ((frame: DeviceCameraFacesFrame) => Promise<void> | void),
   ): Promise<{ readonly previewSessionId: string; close(): void }> {
     const slot = this.resolveAndValidateSlot(options.facing, "vision.subscribeFrames");
-    const maxDimension = normalizeDimension(options.maxDimension);
+    const maxDimension = normalizeDimension(
+      options.includeJpeg === false ? (options.maxDimension ?? 320) : options.maxDimension,
+    );
     const maxFps = clampFps(options.maxFps);
     const sub: SubscriberRecord = {
       id: randomUUID(),
       maxDimension,
       maxFps,
       minIntervalMs: 1000 / maxFps,
-      onFrame,
+      includeJpeg: options.includeJpeg !== false,
+      onFrame: onFrame as SubscriberRecord["onFrame"],
       lastDispatchedAtMs: 0,
       inFlight: false,
       closed: false,
@@ -699,6 +856,92 @@ export class VisionBroker {
       const sessionId = slot.activeSessionId;
       const port = this.port;
       const pumpDim = computeMaxSubscriberDimension(slot);
+      const needsJpeg = [...slot.subscribers.values()].some(
+        (sub) => !sub.closed && sub.includeJpeg,
+      );
+
+      if (!needsJpeg && port.captureFaces) {
+        let rawFacesFrame: NativeDeviceCameraFacesFrame;
+        try {
+          rawFacesFrame = await port.captureFaces(sessionId, lastSeq);
+        } catch (err) {
+          if (this.closed || !this.foregroundActive || slot.pumpToken !== token) {
+            break;
+          }
+          if (isTerminalPumpSessionError(err)) {
+            if (slot.activeSessionId === sessionId) {
+              slot.activeSessionId = undefined;
+              try {
+                port.closeSession(sessionId);
+              } catch {}
+            }
+            break;
+          }
+          const retryAbort = new AbortController();
+          slot.sleepAbort = retryAbort;
+          await abortableSleep(60, retryAbort.signal);
+          continue;
+        }
+
+        if (
+          this.closed ||
+          !this.foregroundActive ||
+          slot.pumpToken !== token ||
+          slot.subscribers.size === 0
+        ) {
+          break;
+        }
+
+        if (rawFacesFrame.seq > lastSeq) {
+          lastSeq = rawFacesFrame.seq;
+        }
+
+        const now = Date.now();
+        const facesPayload: DeviceCameraFacesFrame = {
+          width: rawFacesFrame.width,
+          height: rawFacesFrame.height,
+          facing: slot.facing,
+          capturedAtMs: rawFacesFrame.capturedAtMs,
+          ...(rawFacesFrame.capturedMonotonicMs !== undefined && rawFacesFrame.capturedMonotonicMs > 0
+            ? { capturedMonotonicMs: rawFacesFrame.capturedMonotonicMs }
+            : {}),
+          ...(rawFacesFrame.facesMonotonicMs !== undefined && rawFacesFrame.facesMonotonicMs > 0
+            ? { facesMonotonicMs: rawFacesFrame.facesMonotonicMs }
+            : {}),
+          ...(rawFacesFrame.hfovDeg !== undefined && rawFacesFrame.hfovDeg > 0
+            ? { hfovDeg: rawFacesFrame.hfovDeg }
+            : {}),
+          faces: normalizeDetectedFaces(rawFacesFrame.faces),
+        };
+
+        for (const sub of [...slot.subscribers.values()]) {
+          if (sub.closed || sub.inFlight) continue;
+          if (sub.lastDispatchedAtMs > 0 && now - sub.lastDispatchedAtMs + 2 < sub.minIntervalMs) {
+            continue;
+          }
+          sub.inFlight = true;
+          sub.lastDispatchedAtMs = now;
+          void (async () => {
+            try {
+              if (sub.closed || this.closed || !this.foregroundActive) return;
+              await sub.onFrame(facesPayload);
+            } catch {
+              // Isolate per-plugin frame handler exceptions from the shared pump.
+            } finally {
+              sub.inFlight = false;
+            }
+          })();
+        }
+
+        const minIntervalMs = Math.max(20, Math.floor(1000 / computeTargetFps(slot)));
+        const elapsed = Date.now() - iterStart;
+        if (elapsed < minIntervalMs && slot.pumpToken === token && slot.subscribers.size > 0) {
+          const paceAbort = new AbortController();
+          slot.sleepAbort = paceAbort;
+          await abortableSleep(minIntervalMs - elapsed, paceAbort.signal);
+        }
+        continue;
+      }
 
       let rawFrame: NativeDeviceCameraFrame;
       try {
@@ -710,6 +953,9 @@ export class VisionBroker {
         if (isTerminalPumpSessionError(err)) {
           if (slot.activeSessionId === sessionId) {
             slot.activeSessionId = undefined;
+            try {
+              port.closeSession(sessionId);
+            } catch {}
           }
           break;
         }
@@ -736,21 +982,50 @@ export class VisionBroker {
       const normalizedFaces = normalizeDetectedFaces(rawFrame.faces);
       const downscaledCache = new Map<DeviceCameraDimension, Promise<NativeDeviceCameraFrame>>();
 
-      const resolveDimensionFrame = (dim: DeviceCameraDimension): Promise<DeviceCameraFrame> => {
-        if (dim >= pumpDim) {
+      const resolveSubscriberPayload = (
+        sub: SubscriberRecord,
+      ): Promise<DeviceCameraFrame | DeviceCameraFacesFrame> => {
+        if (!sub.includeJpeg) {
+          return Promise.resolve({
+            width: rawFrame.width,
+            height: rawFrame.height,
+            facing: slot.facing,
+            capturedAtMs: rawFrame.capturedAtMs,
+            ...(rawFrame.capturedMonotonicMs !== undefined && rawFrame.capturedMonotonicMs > 0
+              ? { capturedMonotonicMs: rawFrame.capturedMonotonicMs }
+              : {}),
+            ...(rawFrame.facesMonotonicMs !== undefined && rawFrame.facesMonotonicMs > 0
+              ? { facesMonotonicMs: rawFrame.facesMonotonicMs }
+              : {}),
+            ...(rawFrame.hfovDeg !== undefined && rawFrame.hfovDeg > 0
+              ? { hfovDeg: rawFrame.hfovDeg }
+              : {}),
+            faces: normalizedFaces,
+          });
+        }
+        if (sub.maxDimension >= pumpDim) {
           return Promise.resolve({
             jpeg: new Uint8Array(rawFrame.jpeg),
             width: rawFrame.width,
             height: rawFrame.height,
             facing: slot.facing,
             capturedAtMs: rawFrame.capturedAtMs,
+            ...(rawFrame.capturedMonotonicMs !== undefined && rawFrame.capturedMonotonicMs > 0
+              ? { capturedMonotonicMs: rawFrame.capturedMonotonicMs }
+              : {}),
+            ...(rawFrame.facesMonotonicMs !== undefined && rawFrame.facesMonotonicMs > 0
+              ? { facesMonotonicMs: rawFrame.facesMonotonicMs }
+              : {}),
+            ...(rawFrame.hfovDeg !== undefined && rawFrame.hfovDeg > 0
+              ? { hfovDeg: rawFrame.hfovDeg }
+              : {}),
             faces: normalizedFaces,
           });
         }
-        let cached = downscaledCache.get(dim);
+        let cached = downscaledCache.get(sub.maxDimension);
         if (!cached) {
-          cached = port.captureFrame(sessionId, dim, 0);
-          downscaledCache.set(dim, cached);
+          cached = port.captureFrame(sessionId, sub.maxDimension, 0);
+          downscaledCache.set(sub.maxDimension, cached);
         }
         return cached.then((scaled) => ({
           jpeg: new Uint8Array(scaled.jpeg),
@@ -758,6 +1033,13 @@ export class VisionBroker {
           height: scaled.height,
           facing: slot.facing,
           capturedAtMs: scaled.capturedAtMs,
+          ...(scaled.capturedMonotonicMs !== undefined && scaled.capturedMonotonicMs > 0
+            ? { capturedMonotonicMs: scaled.capturedMonotonicMs }
+            : {}),
+          ...(scaled.facesMonotonicMs !== undefined && scaled.facesMonotonicMs > 0
+            ? { facesMonotonicMs: scaled.facesMonotonicMs }
+            : {}),
+          ...(scaled.hfovDeg !== undefined && scaled.hfovDeg > 0 ? { hfovDeg: scaled.hfovDeg } : {}),
           faces: scaled.faces !== undefined ? normalizeDetectedFaces(scaled.faces) : normalizedFaces,
         }));
       };
@@ -771,7 +1053,7 @@ export class VisionBroker {
         sub.lastDispatchedAtMs = now;
         void (async () => {
           try {
-            const frame = await resolveDimensionFrame(sub.maxDimension);
+            const frame = await resolveSubscriberPayload(sub);
             if (sub.closed || this.closed || !this.foregroundActive) return;
             await sub.onFrame(frame);
           } catch {

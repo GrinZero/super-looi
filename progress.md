@@ -3167,13 +3167,13 @@
 
 ## 狼人杀环视认座、内置具身视觉插件与底座发牌（2026-11-22）
 
-- [ ] Milestone 0A — 插件边界重划分 + IMU 纯 Rust 主机 + 相机/头像缓存/底座原语基座
-  - [ ] Step 1：编写技术方案 `docs/plans/werewolf-embodied-vision-and-base-plan.md` 与 `progress.md` 步骤清单。
-  - [ ] Step 2：扩展 `PluginManifest.builtinCore`、`"sensor.motion"`、`PluginHost` 核心强制启用语义、`PluginsSpaceView` 只读核心徽标及 `vision-person-tracker`（`1.1.0`, `builtinCore: true`）。
-  - [ ] Step 3：实现纯 Rust Android NDK (`libandroid.so`) + iOS `DeviceMotion.m` 六轴重力轴航向主机、`DeviceMotionHost`、`MotionBroker` 与 `PluginContext.motion`。
-  - [ ] Step 4：扩展 `DeviceCameraHost`（Rust / iOS / Android）与 `VisionBroker`：`hfovDeg`、`capturedMonotonicMs` / `facesMonotonicMs`、无 JPEG `capture_faces`、单人头像 `<sys.data_dir>/portraits/*.jpg` 裁剪落盘与 `delete_portrait`。
-  - [ ] Step 5：扩展 `BodySupervisor.onRawNotification` 与 `BodyRuntime`（`FED9 01` 四路悬崖传感器解析、`acquireServo().setDriveVector` Latest-Wins 合并）。
-  - [ ] Step 6：补全并运行 Rust `cargo test --lib`、iOS ObjC 语法检查、`looi-driver` 构建与单测、`nsh` 类型检查与插件/具身/狼人杀单测并提交代码。
+- [x] Milestone 0A — 插件边界重划分 + IMU 纯 Rust 主机 + 相机/头像缓存/底座原语基座
+  - [x] Step 1：编写技术方案 `docs/plans/werewolf-embodied-vision-and-base-plan.md` 与 `progress.md` 步骤清单。
+  - [x] Step 2：扩展 `PluginManifest.builtinCore`、`"sensor.motion"`、`PluginHost` 核心强制启用语义、`PluginsSpaceView` 只读核心徽标及 `vision-person-tracker`（`1.1.0`, `builtinCore: true`）。
+  - [x] Step 3：实现纯 Rust Android NDK (`libandroid.so`) + iOS `DeviceMotion.m` 六轴重力轴航向主机、`DeviceMotionHost`、`MotionBroker` 与 `PluginContext.motion`。
+  - [x] Step 4：扩展 `DeviceCameraHost`（Rust / iOS / Android）与 `VisionBroker`：`hfovDeg`、`capturedMonotonicMs` / `facesMonotonicMs`、无 JPEG `capture_faces`、单人头像 `<sys.data_dir>/portraits/*.jpg` 裁剪落盘与 `delete_portrait`。
+  - [x] Step 5：扩展 `BodySupervisor.onRawNotification` 与 `BodyRuntime`（`FED9 01` 四路悬崖传感器解析、`acquireServo().setDriveVector` Latest-Wins 合并）。
+  - [x] Step 6：补全并运行 Rust `cargo test --lib`、iOS ObjC 语法检查、`looi-driver` 构建与单测、`nsh` 类型检查与插件/具身/狼人杀单测。
 - [ ] Milestone 0B — 真机实验性旋转标定（Experimental Calibration）与无磁闭环扫视原语
   - [ ] Step 1：在 `vision-person-tracker` 实现微步试转标定（视觉-IMU 比例增益 $k$、开环角速度曲线、死区补偿）与持久化。
   - [ ] Step 2：实现 IMU + 视觉偏移闭环角位移控制与悬崖安全中断原语并在真实 LOOI 底座实测收敛度。

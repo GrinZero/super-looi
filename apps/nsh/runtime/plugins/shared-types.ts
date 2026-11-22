@@ -21,6 +21,7 @@ export const PLUGIN_PERMISSIONS = [
   "body.motion",
   "camera.front",
   "camera.back",
+  "sensor.motion",
   "ai.tools",
   "ai.context",
   "ai.intercept",
@@ -58,6 +59,7 @@ export interface PluginManifest {
   readonly id: string;
   readonly version: string;
   readonly minHostApiVersion: number;
+  readonly builtinCore?: boolean;
   readonly category: PluginCategory;
   readonly icon: string;
   readonly name: LocalizedText;
@@ -447,8 +449,32 @@ export interface NativeDeviceCameraFrame {
   readonly height: number;
   readonly facing: string;
   readonly capturedAtMs: number;
+  readonly capturedMonotonicMs?: number;
+  readonly facesMonotonicMs?: number;
+  readonly hfovDeg?: number;
   readonly seq: number;
   readonly faces?: readonly DetectedCameraFace[];
+}
+
+export interface NativeDeviceCameraFacesFrame {
+  readonly width: number;
+  readonly height: number;
+  readonly facing: string;
+  readonly capturedAtMs: number;
+  readonly capturedMonotonicMs?: number;
+  readonly facesMonotonicMs?: number;
+  readonly hfovDeg?: number;
+  readonly seq: number;
+  readonly faces: readonly DetectedCameraFace[];
+}
+
+export interface NativeCroppedPortrait {
+  readonly uri: string;
+  readonly portraitId: string;
+  readonly width: number;
+  readonly height: number;
+  readonly byteLength: number;
+  readonly capturedMonotonicMs?: number;
 }
 
 export interface NativeDeviceCameraPort {
@@ -473,10 +499,80 @@ export interface NativeDeviceCameraPort {
     maxDimension: number,
     afterSeq: number,
   ): Promise<NativeDeviceCameraFrame>;
+  captureFaces?(
+    sessionId: string,
+    afterSeq: number,
+  ): Promise<NativeDeviceCameraFacesFrame>;
+  captureCroppedPortrait?(
+    sessionId: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    portraitId: string,
+    maxDimension: number,
+    jpegQuality: number,
+  ): Promise<NativeCroppedPortrait>;
+  deletePortrait?(portraitIdOrUri: string): boolean;
+  cameraHfovDeg?(facing: string): number | null;
   closeSession(sessionId: string): void;
   setForeground(active: boolean): void;
   stopAll(): void;
   dispose?(): void;
+}
+
+export interface NativeDeviceMotionSample {
+  readonly seq: number;
+  readonly headingDeg: number;
+  readonly deltaDeg: number;
+  readonly yawDeg: number;
+  readonly pitchDeg: number;
+  readonly rollDeg: number;
+  readonly qw: number;
+  readonly qx: number;
+  readonly qy: number;
+  readonly qz: number;
+  readonly monotonicMs: number;
+  readonly sensorKind: string;
+  readonly accuracy: number;
+}
+
+export interface NativeDeviceMotionPort {
+  availability(): string;
+  startSession(rateHz: number, sessionId: string): Promise<string>;
+  startSample?(rateHz: number, sessionId: string): Promise<string>;
+  status(sessionId: string): string;
+  latestSample(sessionId: string): NativeDeviceMotionSample | null;
+  readNextSample(sessionId: string, afterSeq: number): Promise<NativeDeviceMotionSample>;
+  resetHeading(sessionId: string, headingDeg: number): NativeDeviceMotionSample | null;
+  stopSession(sessionId: string): void;
+  setForeground(active: boolean): void;
+  stopAll(): void;
+  dispose?(): void;
+}
+
+export interface MotionBrokerAttachOptions {
+  readonly rateHz?: number;
+  readonly useSampleStream?: boolean;
+}
+
+export interface BodyCliffState {
+  readonly flTriggered: boolean;
+  readonly frTriggered: boolean;
+  readonly rlTriggered: boolean;
+  readonly rrTriggered: boolean;
+  readonly anyTriggered: boolean;
+  readonly receivedAtMs: number;
+  readonly rawHex: string;
+}
+
+export interface BodySensorPacket {
+  readonly kind: "cliff" | "dock" | "raw";
+  readonly characteristicUuid: string;
+  readonly rawHex: string;
+  readonly receivedAtMs: number;
+  readonly docked?: boolean;
+  readonly cliff?: BodyCliffState;
 }
 
 export interface VisionBrokerAttachOptions {

@@ -246,24 +246,38 @@ export function PluginsContextBar(props: {
             />
           </If>
 
-          <View class="flex-row items-center gap-2 shrink-0">
-            <Text class="text-foreground text-xs font-medium">
-              {t("pluginEnabled")}
-            </Text>
-            <ToggleSwitch
-              testID="plugin-enabled"
-              accessibilityLabel={t("pluginEnabled")}
-              checked={plugin()?.enabled ?? false}
-              disabled={busy()}
-              hitSlop={10}
-              onChange={(checked) => {
-                const id = inspectedId();
-                if (id) {
-                  void props.store.setPluginEnabled(id, checked);
-                }
-              }}
-            />
-          </View>
+          <If
+            when={Boolean(plugin()?.manifest?.builtinCore)}
+            else={
+              <View class="flex-row items-center gap-2 shrink-0">
+                <Text class="text-foreground text-xs font-medium">
+                  {t("pluginEnabled")}
+                </Text>
+                <ToggleSwitch
+                  testID="plugin-enabled"
+                  accessibilityLabel={t("pluginEnabled")}
+                  checked={plugin()?.enabled ?? false}
+                  disabled={busy()}
+                  hitSlop={10}
+                  onChange={(checked) => {
+                    const id = inspectedId();
+                    if (id) {
+                      void props.store.setPluginEnabled(id, checked);
+                    }
+                  }}
+                />
+              </View>
+            }
+          >
+            <View
+              testID="plugin-builtin-core-badge"
+              class="min-h-8 px-3 rounded-full bg-secondary border border-border items-center justify-center shrink-0"
+            >
+              <Text class="text-secondary-foreground text-xs font-semibold">
+                {t("pluginBuiltinCoreBadge")}
+              </Text>
+            </View>
+          </If>
         </View>
       </View>
     </If>

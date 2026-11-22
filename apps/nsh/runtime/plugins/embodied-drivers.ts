@@ -9,6 +9,7 @@ import {
   type RobotFaceController,
 } from "../../../../packages/looi-runtime/src/ui/robot-face-controller.js";
 import type { BodyRuntime } from "../body.js";
+import type { MotionBroker } from "../device-motion.js";
 import type { VisionBroker } from "../device-camera.js";
 import type {
   BodyServoLease,
@@ -18,6 +19,7 @@ import type {
   PluginBodyCapability,
   PluginFaceCapability,
   PluginManifest,
+  PluginMotionCapability,
   PluginPermission,
   PluginVisionCapability,
   ScopedExpressionId,
@@ -281,6 +283,16 @@ export function createBodyCapability(
         dispose();
       };
     },
+    latestCliffState: () => body.latestCliffState(),
+    recentSensorPackets: () => body.recentSensorPackets(),
+    subscribeSensorPackets: (listener, scope) => {
+      const unsub = body.subscribeSensorPackets(listener);
+      const dispose = (scope ?? pluginScope).onDispose(unsub);
+      return () => {
+        unsub();
+        dispose();
+      };
+    },
     pulse: (input) => body.control(input, `plugin:${manifest.id}`),
     acquireServo: async (priority, scope) => {
       if (priority === "foreground_stage" && !manifest.permissions.includes("stage.ui")) {
@@ -377,7 +389,66 @@ export function createVisionCapability(
         rethrowAsVisionKernelError(manifest.id, "captureFrame", error);
       }
     },
-    subscribeFrames: async (options, onFrame) => {
+    captureFaces: async (options) => {
+      assertCameraFacingPermission(manifest, options.facing, "vision.captureFaces");
+      if (!pluginScope.active) {
+        throw new PluginKernelError({
+          stage: "vision.captureFaces",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Plugin "${manifest.id}" scope is already disposed`,
+        });
+      }
+      try {
+        return await vision.captureFaces(options);
+      } catch (error) {
+        rethrowAsVisionKernelError(manifest.id, "captureFaces", error);
+      }
+    },
+    captureCroppedPortrait: async (options) => {
+      assertCameraFacingPermission(manifest, options.facing, "vision.captureCroppedPortrait");
+      if (!pluginScope.active) {
+        throw new PluginKernelError({
+          stage: "vision.captureCroppedPortrait",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Plugin "${manifest.id}" scope is already disposed`,
+        });
+      }
+      try {
+        return await vision.captureCroppedPortrait(options);
+      } catch (error) {
+        rethrowAsVisionKernelError(manifest.id, "captureCroppedPortrait", error);
+      }
+    },
+    deletePortrait: (portraitIdOrUri) => {
+      if (!pluginScope.active) {
+        throw new PluginKernelError({
+          stage: "vision.deletePortrait",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Plugin "${manifest.id}" scope is already disposed`,
+        });
+      }
+      try {
+        return vision.deletePortrait(portraitIdOrUri);
+      } catch (error) {
+        rethrowAsVisionKernelError(manifest.id, "deletePortrait", error);
+      }
+    },
+    cameraHfovDeg: (facing) => {
+      assertCameraFacingPermission(manifest, facing, "vision.cameraHfovDeg");
+      if (!pluginScope.active) {
+        throw new PluginKernelError({
+          stage: "vision.cameraHfovDeg",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Plugin "${manifest.id}" scope is already disposed`,
+        });
+      }
+      return vision.cameraHfovDeg(facing);
+    },
+    subscribeFrames: (async (options: any, onFrame: any) => {
       assertCameraFacingPermission(manifest, options.facing, "vision.subscribeFrames");
       const targetScope = options.scope ?? pluginScope;
       if (!targetScope.active) {
@@ -395,6 +466,7 @@ export function createVisionCapability(
             facing: options.facing,
             maxDimension: options.maxDimension,
             maxFps: options.maxFps,
+            includeJpeg: options.includeJpeg,
           },
           onFrame,
         );
@@ -415,6 +487,81 @@ export function createVisionCapability(
       });
       return {
         previewSessionId: handle.previewSessionId,
+        close: () => {
+          handle.close();
+          unregisterDispose();
+        },
+      };
+    }) as PluginVisionCapability["subscribeFrames"],
+  };
+}
+
+function rethrowAsMotionKernelError(
+  pluginId: string,
+  method: string,
+  error: unknown,
+): never {
+  if (error instanceof PluginKernelError) throw error;
+  const fallbackStage = `plugin:${pluginId}:motion.${method}`;
+  const failure = extractPluginFailure(error, fallbackStage, "ERR_MOTION_EXECUTION_FAILED");
+  throw new PluginKernelError({
+    stage: failure.stage,
+    code: failure.code !== undefined ? String(failure.code) : "ERR_MOTION_EXECUTION_FAILED",
+    pluginId,
+    reason: failure.reason,
+    cause: error,
+  });
+}
+
+export function createMotionCapability(
+  manifest: PluginManifest,
+  pluginScope: EffectScope,
+  motion: MotionBroker,
+): PluginMotionCapability | undefined {
+  if (!manifest.permissions.includes("sensor.motion")) {
+    return undefined;
+  }
+
+  return {
+    availability: () => motion.availability(),
+    latestSample: () => motion.latestSample(),
+    resetHeading: (headingDeg) => {
+      try {
+        return motion.resetHeading(headingDeg);
+      } catch (error) {
+        rethrowAsMotionKernelError(manifest.id, "resetHeading", error);
+      }
+    },
+    subscribeHeading: async (options, onSample) => {
+      const targetScope = options.scope ?? pluginScope;
+      if (!targetScope.active) {
+        throw new PluginKernelError({
+          stage: "motion.subscribeHeading",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Target EffectScope "${targetScope.id}" is already disposed`,
+        });
+      }
+      let handle: { readonly sessionId: string; close(): void };
+      try {
+        handle = await motion.subscribeHeading({ rateHz: options.rateHz }, onSample);
+      } catch (error) {
+        rethrowAsMotionKernelError(manifest.id, "subscribeHeading", error);
+      }
+      if (!targetScope.active) {
+        handle.close();
+        throw new PluginKernelError({
+          stage: "motion.subscribeHeading",
+          code: "ERR_PLUGIN_SCOPE_DISPOSED",
+          pluginId: manifest.id,
+          reason: `Target EffectScope "${targetScope.id}" disposed while IMU session was starting`,
+        });
+      }
+      const unregisterDispose = targetScope.onDispose(() => {
+        handle.close();
+      });
+      return {
+        sessionId: handle.sessionId,
         close: () => {
           handle.close();
           unregisterDispose();
