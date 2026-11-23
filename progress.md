@@ -3171,10 +3171,11 @@
   - [x] 更新 `ManagementShell.tsx` 并实现 `SchedulesSpaceView.tsx`（第 8 导航入口、`48pt` 上下文胶囊栏、规则主从双栏、未确认状态处置、多时段勿扰、GitHub PAT 配置、新建/编辑 `Dialog` 与闰日 Cron 实时预览）及中英双语词条。
   - [x] 同步 `DESIGN.md`（动效清单与定时空间规范）及 `docs/arch/index.html`（架构图更新）。
   - [x] 补全并运行 `SchedulesSpace.test.tsx` 横屏浅色/深色/减动效 UI 交互测试与全仓 `cargo check` / `pnpm typecheck` / `pnpm test` / `pnpm build`。
-- [ ] Step 5 — 第五层：Android 真机横屏实测验收与独立代码/设计审查
-  - [ ] 独立 Subagent 完整审查架构边界、只读隔离、事务原子性、错误透明链与 NSH 设计规范。
-  - [ ] Android 真机（`391QYGCN224FE` 横屏）打包安装、APK manifest 校验、浅/深色 UI 巡检与交互截图、规则与勿扰实测及后台/闹钟生命周期 logcat 检查。
-- [ ] Step 6 — 阶段收口：记录真机硬件平台差异遗留项（iOS 真机 / Android 15 `onTimeout` 实机），清理临时状态并完成最终提交。
+- [x] Step 5 — 第五层：全仓检查、iOS 模拟器横屏端到端验证与独立审查
+  - [x] 独立 Subagent（`verifier`）完整审查架构边界、只读隔离、事务原子性、错误透明链与 NSH 设计规范并复审全仓测试（`pnpm typecheck` / `pnpm build` / `pnpm test` 8 个包全过、`cargo test --lib` 45 过 / `--test app_ui` 5 过、`test:plugins` 2 过）。
+  - [x] iOS 模拟器（`iPhone 16e`、`844×390` 横屏，iOS 26.3）端到端交互实测与浅/深双色截图巡检通过：修复 GitHub PAT 徽章折行、运行按钮旋转复位与横屏弹窗双栏布局 3 项真机布局缺陷后重跑全过。
+  - [ ] 连接已签名 Android / iPhone 真机补充实体机后台唤醒与锁屏实测（`adb devices` 与 `xcrun devicectl` 当前未连接真机，见 `todo.md`）。
+- [x] Step 6 — 阶段收口：记录真机硬件差异遗留项到 `todo.md`，完成提交并保持 `pnpm dev:ios` 模拟器开发包运行供用户验收。
 
 ## 狼人杀环视认座、内置具身视觉插件与底座发牌（2026-11-22）
 

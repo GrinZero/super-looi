@@ -46,7 +46,7 @@ index 92e7397..0d3f57b 100644
  const DEBOUNCE: Duration = Duration::from_millis(30);
 
 +// The native dev client uses tungstenite's 16 MiB incoming frame limit.
-+fn compact_dev_source_map(map: Option<String>) -> anyhow::Result<Option<String>> {
++pub(crate) fn compact_dev_source_map(map: Option<String>) -> anyhow::Result<Option<String>> {
 +    const MAX_FRAME_BYTES: usize = 16 << 20;
 +
 +    let Some(map) = map else { return Ok(None) };
@@ -227,3 +227,29 @@ index ea31243..63b17ba 100644
              ("/app/native/.nsh/rust/test/main.rs", false),
              ("/app/native/.git/hooks/build.rs", false),
              ("/app/native/README.md", false),
+diff --git a/crates/nsh-cli/src/test_host.rs b/crates/nsh-cli/src/test_host.rs
+--- a/crates/nsh-cli/src/test_host.rs
++++ b/crates/nsh-cli/src/test_host.rs
+@@ -274,6 +274,7 @@ pub(crate) fn serve(entry: &Path, options: &HostOptions) -> Result<DevServer, St
+     let built = if root {
+         None
+     } else {
+-        Some(build::compile(entry, false).map_err(|e| e.plain)?)
++        let release = std::env::var_os("NSH_TEST_RELEASE").is_some();
++        Some(build::compile(entry, release).map_err(|e| e.plain)?)
+     };
+     // The media files a literal `asset:/` URL names, from where the build
+@@ -330,10 +331,11 @@ pub(crate) fn serve(entry: &Path, options: &HostOptions) -> Result<DevServer, St
+             .map(|a| (a.path.clone(), a.source.clone())),
+     );
+     let capabilities = built.capabilities_json();
++    let source_map = crate::dev::compact_dev_source_map(built.source_map).map_err(|e| format!("{e:#}"))?;
+     server.publish(
+         built.bytecode,
+         built.code,
+-        built.source_map,
++        source_map,
+         AppInfo {
+             capabilities,
+             id: crate::package::app_id(entry).ok(),
+

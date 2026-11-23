@@ -593,6 +593,24 @@ test("github_pr_status handles public/private repos, rate-limit/auth/network err
   assert.equal(unauthVerify.valid, false);
   assert.equal(unauthVerify.failure?.code, 401);
 
+  // 8. Bare hosts without globalThis.fetch must not throw during tool creation and report structured unavailability at call time
+  const originalGlobalFetch = globalThis.fetch;
+  delete (globalThis as { fetch?: typeof fetch }).fetch;
+  try {
+    const bareTool = createGitHubPrStatusTool({ vault });
+    const bareRes = await bareTool.execute("c6", { owner: "pub", repo: "app", pullNumber: 1 }, new AbortController().signal);
+    assert.equal((bareRes as any).isError, true);
+    assert.equal((bareRes.details as any).failure.stage, "github.pr_status.fetch");
+    assert.equal((bareRes.details as any).failure.code, "ERR_GITHUB_FETCH_UNAVAILABLE");
+
+    const bareVerify = await verifyGitHubToken(vault);
+    assert.equal(bareVerify.valid, false);
+    assert.equal(bareVerify.failure?.stage, "github.token.verify");
+    assert.equal(bareVerify.failure?.code, "ERR_GITHUB_FETCH_UNAVAILABLE");
+  } finally {
+    globalThis.fetch = originalGlobalFetch;
+  }
+
   assert.equal(clearGitHubToken(vault).configured, false);
 });
 

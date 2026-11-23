@@ -1,8 +1,10 @@
 # 当前待办
 
-## iOS 开发包启动数据
+## 轻量定时调度与勿扰
 
-- [ ] iPhone 16e 模拟器开发包启动后首页显示 `ENOBUFS: SQLite result limit`。定位触发 SQLite 原生桥接结果上限的查询，核对该查询的返回范围。
+依据 [轻量定时调度方案](docs/plans/lightweight-schedule-plan.md)。
+
+- [ ] 在已签名 iOS 与 Android（含 Android 15+）实体真机横屏连接后补充实测：Android 短窗口 `dataSync` 保活服务与 `Service.onTimeout()`、长延迟 `AlarmManager` 闹钟在锁屏/进程被回收后重判勿扰声音与点击补跑，以及 iOS 真机 `UNUserNotificationCenter` 锁屏点击唤起与真实 VoiceOver/TalkBack 辅助朗读顺序（当前已完成全套单测、Rust/插件检查及 `iPhone 16e` iOS 26.3 模拟器横屏端到端交互与双色视觉验证）。
 
 ## 大厅米家监控直播
 
@@ -192,6 +194,7 @@
 
 调研与实施方案见 [开源社区调研](docs/voice-wake-realtime-community-research.md) 与 [NSH 语音唤醒实施方案](docs/plans/nsh-voice-wake-realtime-plan.md)。
 
+- [ ] 排查魅族 20 Pro 横屏狼人杀「开局准备」偶发丢失唤醒监听。2026-11-22 复查时麦克风权限已授予、自动唤醒已开启，但最初无活动录音。进入「语音」页触发待机后，返回原页真人口述 Hey LOOI 成功。复发时记录关闭对话前后的语音阶段和原生音频错误码，定位待机未恢复的原因。
 - [ ] 在魅族 20 Pro 横屏验证音频焦点恢复后，真人说出唤醒词能进入新的豆包会话。焦点归还后 KWS（唤醒词检测）录音恢复已在真机记录。
 
 - [ ] **首版稳健基线（喊 Hey LOOI $\rightarrow$ 眼神/提示音就绪 $\rightarrow$ 开口多轮对话 + 12s 自动休眠）**

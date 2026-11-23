@@ -514,7 +514,7 @@ function SchedulesSpaceProbe() {
         throw new Error("@looi:runtimeEnterAValidGithubToken");
       }
       savedToken = trimmed;
-      const hint = trimmed.length >= 4 ? `•••${trimmed.slice(-4)}` : "••••";
+      const hint = trimmed.length >= 4 ? `••••••••${trimmed.slice(-4)}` : "••••";
       const next = { configured: true, tokenHint: hint };
       githubCredential.set(next);
       githubVerifyResult.set(null);
@@ -527,13 +527,21 @@ function SchedulesSpaceProbe() {
         ? {
             valid: false,
             configured: Boolean(savedToken),
-            tokenHint: savedToken ? `•••${savedToken.slice(-4)}` : undefined,
+            tokenHint: savedToken
+              ? savedToken.length >= 4
+                ? `••••••••${savedToken.slice(-4)}`
+                : "••••"
+              : undefined,
             failure: { stage: "github.verify", code: 401, reason: "Bad credentials" },
           }
         : {
             valid: true,
             configured: Boolean(savedToken),
-            tokenHint: savedToken ? `•••${savedToken.slice(-4)}` : undefined,
+            tokenHint: savedToken
+              ? savedToken.length >= 4
+                ? `••••••••${savedToken.slice(-4)}`
+                : "••••"
+              : undefined,
             rateLimit: { limit: 5000, remaining: 4991, resetAt: formatDate(baseNowMs + 3600_000) },
           };
       githubVerifyResult.set(res);

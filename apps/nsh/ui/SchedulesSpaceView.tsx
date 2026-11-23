@@ -879,33 +879,35 @@ export function SchedulesSpaceView(props: {
               </View>
 
               <View class="flex-row items-center gap-2 shrink-0">
-                <IconButton
-                  testID="schedule-run-now-btn"
-                  icon={
-                    selectedRule() &&
-                    (props.store.scheduleRunningRuleId() === selectedRule()!.id ||
-                      selectedRule()!.state === "running")
-                      ? "refresh"
-                      : "play"
-                  }
-                  label={
-                    selectedRule() &&
-                    (props.store.scheduleRunningRuleId() === selectedRule()!.id ||
-                      selectedRule()!.state === "running")
-                      ? t("scheduleRunningNow")
-                      : t("scheduleRunNow")
-                  }
-                  busy={Boolean(
+                <If
+                  when={Boolean(
                     selectedRule() &&
                       (props.store.scheduleRunningRuleId() === selectedRule()!.id ||
                         selectedRule()!.state === "running"),
                   )}
-                  kind="outline"
-                  onPress={() => {
-                    const rule = selectedRule();
-                    if (rule) void props.store.runScheduleRuleNow(rule.id);
-                  }}
-                />
+                  else={
+                    <IconButton
+                      testID="schedule-run-now-btn"
+                      icon="play"
+                      label={t("scheduleRunNow")}
+                      busy={false}
+                      kind="outline"
+                      onPress={() => {
+                        const rule = selectedRule();
+                        if (rule) void props.store.runScheduleRuleNow(rule.id);
+                      }}
+                    />
+                  }
+                >
+                  <IconButton
+                    testID="schedule-run-now-btn"
+                    icon="refresh"
+                    label={t("scheduleRunningNow")}
+                    busy={true}
+                    kind="outline"
+                    onPress={() => {}}
+                  />
+                </If>
                 <ActionButton
                   compact
                   testID="schedule-edit-rule-btn"
@@ -1238,16 +1240,16 @@ export function SchedulesSpaceView(props: {
           testID="github-pat-card"
           class="rounded-2xl bg-card border border-border p-4 gap-3"
         >
-          <View class="flex-row items-center justify-between gap-2">
-            <Text class="text-foreground text-sm font-semibold">
+          <View class="flex-row flex-wrap items-center justify-between gap-2">
+            <Text class="text-foreground text-sm font-semibold shrink-0">
               {t("githubPatTitle")}
             </Text>
             <View
               testID="github-pat-status-badge"
               class={
                 props.store.githubCredential().configured
-                  ? "rounded-full bg-verified/15 px-2.5 py-0.5"
-                  : "rounded-full bg-muted px-2.5 py-0.5"
+                  ? "max-w-full rounded-full bg-verified/15 px-2.5 py-0.5"
+                  : "max-w-full rounded-full bg-muted px-2.5 py-0.5"
               }
             >
               <Text
@@ -1256,6 +1258,7 @@ export function SchedulesSpaceView(props: {
                     ? "text-verified text-xs font-medium"
                     : "text-muted-foreground text-xs"
                 }
+                style={{ numberOfLines: 1 }}
               >
                 {props.store.githubCredential().configured
                   ? t("githubPatConfigured", {
@@ -1493,18 +1496,19 @@ export function SchedulesSpaceView(props: {
         onOpenChange={(event) => {
           if (!event.open) ruleDialogOpen.set(false);
         }}
-        class="m-auto rounded-3xl border border-border bg-popover p-5"
+        class="m-auto rounded-3xl border border-border bg-popover"
         backdropClass="bg-backdrop"
         style={{
-          width: Math.min(580, windowSize().width - 32),
+          width: Math.min(wide() ? 760 : 560, windowSize().width - 32),
           height: Math.max(
             140,
-            Math.min(350, windowSize().height - keyboardFrame().height - 24),
+            Math.min(358, windowSize().height - keyboardFrame().height - 20),
           ),
           marginBottom: keyboardFrame().height,
+          padding: keyboardFrame().height ? 12 : 16,
         }}
       >
-        <View class="flex-1 min-h-0 gap-3">
+        <View class="flex-1 min-h-0 gap-2.5">
           <View class="flex-row items-center justify-between gap-2">
             <Text class="text-foreground text-base font-bold" role="header">
               {editingRuleId()
@@ -1513,238 +1517,246 @@ export function SchedulesSpaceView(props: {
             </Text>
           </View>
 
-          <Scroll class="flex-1 min-h-0" contentClass="gap-3 pr-1">
-            <TextField
-              compact
-              testID="rule-dialog-title-input"
-              label={t("scheduleRuleTitleLabel")}
-              placeholder={t("scheduleRuleTitlePlaceholder")}
-              value={dialogTitle()}
-              onChange={(value) => dialogTitle.set(value)}
-            />
-
-            <View class="gap-1.5">
-              <Text class="text-muted-foreground text-xs font-medium">
-                {t("scheduleRulePromptLabel")}
-              </Text>
-              <Input
-                testID="rule-dialog-prompt-input"
-                accessibilityLabel={t("scheduleRulePromptLabel")}
-                value={dialogPrompt()}
-                onChange={(e) => dialogPrompt.set(e.value)}
-                placeholder={t("scheduleRulePromptPlaceholder")}
-                multiline
-                maxLength={8192}
-                class="min-h-16 py-2 rounded-xl border border-input bg-background px-3.5 text-foreground text-sm focus:border-ring focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </View>
-
-            <View class="gap-1.5">
-              <Text class="text-muted-foreground text-xs font-medium">
-                {t("scheduleTriggerKindLabel")}
-              </Text>
-              <View class="flex-row flex-wrap gap-1.5">
-                {(
-                  [
-                    ["once", "scheduleKindOnce"],
-                    ["interval", "scheduleKindInterval"],
-                    ["daily", "scheduleKindDaily"],
-                    ["cron", "scheduleKindCron"],
-                  ] as const
-                ).map(([kind, labelKey]) => {
-                  const selected = () => dialogTriggerKind() === kind;
-                  return (
-                    <Button
-                      testID={`rule-dialog-kind-${kind}`}
-                      selected={selected()}
-                      onPress={() => {
-                        dialogTriggerKind.set(kind);
-                        dialogRuleError.set("");
-                      }}
-                      class={
-                        selected()
-                          ? "min-h-11 px-3 rounded-full bg-primary items-center justify-center active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
-                          : "min-h-11 px-3 rounded-full bg-muted items-center justify-center hover:bg-secondary active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
-                      }
-                    >
-                      <Text
-                        class={
-                          selected()
-                            ? "text-primary-foreground text-xs font-semibold"
-                            : "text-muted-foreground text-xs font-medium"
-                        }
-                      >
-                        {t(labelKey)}
-                      </Text>
-                    </Button>
-                  );
-                })}
-              </View>
-            </View>
-
-            <If when={dialogTriggerKind() === "once"}>
-              <View class="gap-2">
-                <Text class="text-muted-foreground text-xs font-medium">
-                  {t("scheduleOnceQuickLabel")}
-                </Text>
-                <View class="flex-row flex-wrap gap-1.5">
-                  {(
-                    [
-                      [5, "scheduleDelay5m"],
-                      [15, "scheduleDelay15m"],
-                      [30, "scheduleDelay30m"],
-                      [60, "scheduleDelay1h"],
-                    ] as const
-                  ).map(([mins, key]) => (
-                    <Button
-                      testID={`rule-dialog-delay-${mins}m`}
-                      onPress={() => setQuickDelayMinutes(mins)}
-                      class="min-h-11 px-3 rounded-full bg-secondary items-center justify-center"
-                    >
-                      <Text class="text-secondary-foreground text-xs font-medium">
-                        {t(key)}
-                      </Text>
-                    </Button>
-                  ))}
-                </View>
+          <Scroll class="flex-1 min-h-0" contentClass="gap-2.5 pr-1">
+            <View class={wide() ? "flex-row items-start gap-4" : "gap-2.5"}>
+              {/* Left column: rule title, prompt, execution policy */}
+              <View class={wide() ? "w-[46%] min-w-0 gap-2.5" : "gap-2.5"}>
                 <TextField
                   compact
-                  testID="rule-dialog-once-input"
-                  label={t("scheduleOnceDatetimeLabel")}
-                  placeholder="2026-11-23 18:00"
-                  value={dialogOnceDatetime()}
-                  onChange={(value) => dialogOnceDatetime.set(value)}
+                  testID="rule-dialog-title-input"
+                  label={t("scheduleRuleTitleLabel")}
+                  placeholder={t("scheduleRuleTitlePlaceholder")}
+                  value={dialogTitle()}
+                  onChange={(value) => dialogTitle.set(value)}
                 />
-              </View>
-            </If>
 
-            <If when={dialogTriggerKind() === "interval"}>
-              <TextField
-                compact
-                testID="rule-dialog-interval-input"
-                label={t("scheduleIntervalMinutesLabel")}
-                placeholder="15"
-                value={dialogIntervalMin()}
-                onChange={(value) => dialogIntervalMin.set(value)}
-              />
-            </If>
-
-            <If when={dialogTriggerKind() === "daily"}>
-              <TextField
-                compact
-                testID="rule-dialog-daily-input"
-                label={t("scheduleDailyTimeLabel")}
-                placeholder="09:00"
-                value={dialogDailyTime()}
-                onChange={(value) => dialogDailyTime.set(value)}
-              />
-            </If>
-
-            <If when={dialogTriggerKind() === "cron"}>
-              <View class="gap-2">
-                <TextField
-                  compact
-                  testID="rule-dialog-cron-input"
-                  label={t("scheduleCronExprLabel")}
-                  placeholder="0 9 29 2 *"
-                  value={dialogCronExpr()}
-                  onChange={(value) => dialogCronExpr.set(value)}
-                />
-                <View
-                  testID="rule-dialog-cron-preview"
-                  class="rounded-xl bg-background border border-border p-2.5 gap-1"
-                >
+                <View class="gap-1.5">
                   <Text class="text-muted-foreground text-xs font-medium">
-                    {t("scheduleCronPreviewTitle")}
+                    {t("scheduleRulePromptLabel")}
+                  </Text>
+                  <Input
+                    testID="rule-dialog-prompt-input"
+                    accessibilityLabel={t("scheduleRulePromptLabel")}
+                    value={dialogPrompt()}
+                    onChange={(e) => dialogPrompt.set(e.value)}
+                    placeholder={t("scheduleRulePromptPlaceholder")}
+                    multiline
+                    maxLength={8192}
+                    class="h-20 py-2 rounded-xl border border-input bg-background px-3.5 text-foreground text-sm focus:border-ring focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </View>
+
+                <View class="gap-1.5">
+                  <Text class="text-muted-foreground text-xs font-medium">
+                    {t("scheduleExecutionPolicyLabel")}
                   </Text>
                   <If
-                    when={!cronPreview()?.error}
+                    when={!(editingRuleId() && editingRuleOrigin() === "agent_inferred")}
                     else={
-                      <Text testID="rule-dialog-cron-error" class="text-destructive text-xs">
-                        {cronPreview()?.error ?? ""}
+                      <Text class="text-muted-foreground text-xs">
+                        {t("schedulePolicyLockedNote")}
                       </Text>
                     }
                   >
-                    <Each
-                      of={cronPreview()?.dates ?? []}
-                      key={(item) => item}
-                    >
-                      {(item) => (
-                        <Text
-                          class="text-foreground text-xs"
-                          style={{ fontVariant: ["tabular-nums"] }}
+                    <View class="gap-1">
+                      <View class="flex-row flex-wrap gap-1.5">
+                        <Button
+                          testID="rule-dialog-policy-check_only"
+                          selected={dialogPolicy() === "check_only"}
+                          onPress={() => dialogPolicy.set("check_only")}
+                          class={
+                            dialogPolicy() === "check_only"
+                              ? "min-h-11 px-3 rounded-full bg-primary items-center justify-center active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
+                              : "min-h-11 px-3 rounded-full bg-muted items-center justify-center hover:bg-secondary active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
+                          }
                         >
-                          {item()}
-                        </Text>
-                      )}
-                    </Each>
+                          <Text
+                            class={
+                              dialogPolicy() === "check_only"
+                                ? "text-primary-foreground text-xs font-semibold"
+                                : "text-muted-foreground text-xs font-medium"
+                            }
+                          >
+                            {t("schedulePolicyCheckOnly")}
+                          </Text>
+                        </Button>
+                        <Button
+                          testID="rule-dialog-policy-authorized_action"
+                          selected={dialogPolicy() === "authorized_action"}
+                          onPress={() => dialogPolicy.set("authorized_action")}
+                          class={
+                            dialogPolicy() === "authorized_action"
+                              ? "min-h-11 px-3 rounded-full bg-primary items-center justify-center active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
+                              : "min-h-11 px-3 rounded-full bg-muted items-center justify-center hover:bg-secondary active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
+                          }
+                        >
+                          <Text
+                            class={
+                              dialogPolicy() === "authorized_action"
+                                ? "text-primary-foreground text-xs font-semibold"
+                                : "text-muted-foreground text-xs font-medium"
+                            }
+                          >
+                            {t("schedulePolicyAuthorizedAction")}
+                          </Text>
+                        </Button>
+                      </View>
+                      <Text class="text-subtle-text text-xs">
+                        {dialogPolicy() === "authorized_action"
+                          ? t("schedulePolicyAuthorizedDesc")
+                          : t("schedulePolicyCheckOnlyDesc")}
+                      </Text>
+                    </View>
                   </If>
                 </View>
               </View>
-            </If>
 
-            <View class="gap-1.5">
-              <Text class="text-muted-foreground text-xs font-medium">
-                {t("scheduleExecutionPolicyLabel")}
-              </Text>
-              <If
-                when={!(editingRuleId() && editingRuleOrigin() === "agent_inferred")}
-                else={
-                  <Text class="text-muted-foreground text-xs">
-                    {t("schedulePolicyLockedNote")}
-                  </Text>
-                }
-              >
+              {/* Right column: trigger type chips + parameters / Cron preview */}
+              <View class={wide() ? "flex-1 min-w-0 gap-2.5" : "gap-2.5"}>
                 <View class="gap-1.5">
-                  <View class="flex-row flex-wrap gap-1.5">
-                    <Button
-                      testID="rule-dialog-policy-check_only"
-                      selected={dialogPolicy() === "check_only"}
-                      onPress={() => dialogPolicy.set("check_only")}
-                      class={
-                        dialogPolicy() === "check_only"
-                          ? "min-h-11 px-3 rounded-full bg-primary items-center justify-center active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
-                          : "min-h-11 px-3 rounded-full bg-muted items-center justify-center hover:bg-secondary active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
-                      }
-                    >
-                      <Text
-                        class={
-                          dialogPolicy() === "check_only"
-                            ? "text-primary-foreground text-xs font-semibold"
-                            : "text-muted-foreground text-xs font-medium"
-                        }
-                      >
-                        {t("schedulePolicyCheckOnly")}
-                      </Text>
-                    </Button>
-                    <Button
-                      testID="rule-dialog-policy-authorized_action"
-                      selected={dialogPolicy() === "authorized_action"}
-                      onPress={() => dialogPolicy.set("authorized_action")}
-                      class={
-                        dialogPolicy() === "authorized_action"
-                          ? "min-h-11 px-3 rounded-full bg-primary items-center justify-center active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
-                          : "min-h-11 px-3 rounded-full bg-muted items-center justify-center hover:bg-secondary active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
-                      }
-                    >
-                      <Text
-                        class={
-                          dialogPolicy() === "authorized_action"
-                            ? "text-primary-foreground text-xs font-semibold"
-                            : "text-muted-foreground text-xs font-medium"
-                        }
-                      >
-                        {t("schedulePolicyAuthorizedAction")}
-                      </Text>
-                    </Button>
-                  </View>
-                  <Text class="text-subtle-text text-xs">
-                    {dialogPolicy() === "authorized_action"
-                      ? t("schedulePolicyAuthorizedDesc")
-                      : t("schedulePolicyCheckOnlyDesc")}
+                  <Text class="text-muted-foreground text-xs font-medium">
+                    {t("scheduleTriggerKindLabel")}
                   </Text>
+                  <View class="flex-row flex-wrap gap-1.5">
+                    {(
+                      [
+                        ["once", "scheduleKindOnce"],
+                        ["interval", "scheduleKindInterval"],
+                        ["daily", "scheduleKindDaily"],
+                        ["cron", "scheduleKindCron"],
+                      ] as const
+                    ).map(([kind, labelKey]) => {
+                      const selected = () => dialogTriggerKind() === kind;
+                      return (
+                        <Button
+                          testID={`rule-dialog-kind-${kind}`}
+                          selected={selected()}
+                          onPress={() => {
+                            dialogTriggerKind.set(kind);
+                            dialogRuleError.set("");
+                          }}
+                          class={
+                            selected()
+                              ? "min-h-11 px-3 rounded-full bg-primary items-center justify-center active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
+                              : "min-h-11 px-3 rounded-full bg-muted items-center justify-center hover:bg-secondary active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
+                          }
+                        >
+                          <Text
+                            class={
+                              selected()
+                                ? "text-primary-foreground text-xs font-semibold"
+                                : "text-muted-foreground text-xs font-medium"
+                            }
+                          >
+                            {t(labelKey)}
+                          </Text>
+                        </Button>
+                      );
+                    })}
+                  </View>
                 </View>
-              </If>
+
+                <If when={dialogTriggerKind() === "once"}>
+                  <View class="gap-2">
+                    <Text class="text-muted-foreground text-xs font-medium">
+                      {t("scheduleOnceQuickLabel")}
+                    </Text>
+                    <View class="flex-row flex-wrap gap-1.5">
+                      {(
+                        [
+                          [5, "scheduleDelay5m"],
+                          [15, "scheduleDelay15m"],
+                          [30, "scheduleDelay30m"],
+                          [60, "scheduleDelay1h"],
+                        ] as const
+                      ).map(([mins, key]) => (
+                        <Button
+                          testID={`rule-dialog-delay-${mins}m`}
+                          onPress={() => setQuickDelayMinutes(mins)}
+                          class="min-h-11 px-3 rounded-full bg-secondary items-center justify-center active:opacity-70 transition-colors duration-150 motion-reduce:transition-none"
+                        >
+                          <Text class="text-secondary-foreground text-xs font-medium">
+                            {t(key)}
+                          </Text>
+                        </Button>
+                      ))}
+                    </View>
+                    <TextField
+                      compact
+                      testID="rule-dialog-once-input"
+                      label={t("scheduleOnceDatetimeLabel")}
+                      placeholder="2026-11-23 18:00"
+                      value={dialogOnceDatetime()}
+                      onChange={(value) => dialogOnceDatetime.set(value)}
+                    />
+                  </View>
+                </If>
+
+                <If when={dialogTriggerKind() === "interval"}>
+                  <TextField
+                    compact
+                    testID="rule-dialog-interval-input"
+                    label={t("scheduleIntervalMinutesLabel")}
+                    placeholder="15"
+                    value={dialogIntervalMin()}
+                    onChange={(value) => dialogIntervalMin.set(value)}
+                  />
+                </If>
+
+                <If when={dialogTriggerKind() === "daily"}>
+                  <TextField
+                    compact
+                    testID="rule-dialog-daily-input"
+                    label={t("scheduleDailyTimeLabel")}
+                    placeholder="09:00"
+                    value={dialogDailyTime()}
+                    onChange={(value) => dialogDailyTime.set(value)}
+                  />
+                </If>
+
+                <If when={dialogTriggerKind() === "cron"}>
+                  <View class="gap-2">
+                    <TextField
+                      compact
+                      testID="rule-dialog-cron-input"
+                      label={t("scheduleCronExprLabel")}
+                      placeholder="0 9 29 2 *"
+                      value={dialogCronExpr()}
+                      onChange={(value) => dialogCronExpr.set(value)}
+                    />
+                    <View
+                      testID="rule-dialog-cron-preview"
+                      class="rounded-xl bg-background border border-border p-2.5 gap-1"
+                    >
+                      <Text class="text-muted-foreground text-xs font-medium">
+                        {t("scheduleCronPreviewTitle")}
+                      </Text>
+                      <If
+                        when={!cronPreview()?.error}
+                        else={
+                          <Text testID="rule-dialog-cron-error" class="text-destructive text-xs">
+                            {cronPreview()?.error ?? ""}
+                          </Text>
+                        }
+                      >
+                        <Each
+                          of={cronPreview()?.dates ?? []}
+                          key={(item) => item}
+                        >
+                          {(item) => (
+                            <Text
+                              class="text-foreground text-xs"
+                              style={{ fontVariant: ["tabular-nums"] }}
+                            >
+                              {item()}
+                            </Text>
+                          )}
+                        </Each>
+                      </If>
+                    </View>
+                  </View>
+                </If>
+              </View>
             </View>
 
             <If when={Boolean(dialogRuleError())}>
@@ -1786,15 +1798,16 @@ export function SchedulesSpaceView(props: {
         onOpenChange={(event) => {
           if (!event.open) quietDialogOpen.set(false);
         }}
-        class="m-auto rounded-3xl border border-border bg-popover p-5"
+        class="m-auto rounded-3xl border border-border bg-popover"
         backdropClass="bg-backdrop"
         style={{
-          width: Math.min(520, windowSize().width - 32),
+          width: Math.min(540, windowSize().width - 32),
           height: Math.max(
             140,
-            Math.min(340, windowSize().height - keyboardFrame().height - 24),
+            Math.min(340, windowSize().height - keyboardFrame().height - 20),
           ),
           marginBottom: keyboardFrame().height,
+          padding: keyboardFrame().height ? 12 : 16,
         }}
       >
         <View class="flex-1 min-h-0 gap-3">

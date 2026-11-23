@@ -60,10 +60,6 @@ if (!binary) {
   if (!valid(binary)) throw new Error("NSH CLI version verification failed");
 }
 const [command = "check", ...args] = process.argv.slice(2);
-const devToolchain = (command === "dev" || command === "run") && !args.includes("--help")
-  ? prepareDevCli(binary, revision)
-  : undefined;
-if (devToolchain) binary = devToolchain.binary;
 const option = (name: string) => {
   const index = args.indexOf(name);
   return index < 0
@@ -71,7 +67,17 @@ const option = (name: string) => {
     : args[index + 1];
 };
 const target = option("--target");
+const isIos = command.endsWith("-ios") || target === "ios" || target === "ios-simulator";
+const isAndroid = command.endsWith("-android") || target === "android";
 const iosSimulator = isIosSimulatorBuild(command, target, option("--device"));
+const devToolchain =
+  (command === "dev" ||
+    command === "run" ||
+    ((command === "test" || command.startsWith("ui-")) && (isIos || isAndroid))) &&
+  !args.includes("--help")
+    ? prepareDevCli(binary, revision)
+    : undefined;
+if (devToolchain) binary = devToolchain.binary;
 // Keep development bundles below the host's WebSocket frame limit.
 if ((command === "dev" || command === "run") && !args.includes("--release")) {
   args.push("--release");
@@ -101,8 +107,6 @@ const runtimeBuild = command !== "--help" && command !== "--version"
 const buildVariables = pickBuildVariables(config);
 if (command === "build" || command === "package" || target === "android" || target === "ios" || target === "ios-simulator" || command.endsWith("-android") || command.endsWith("-ios"))
   await prepareSherpaKws(target === "android" || command.endsWith("-android") ? "android" : target === "ios" || target === "ios-simulator" || command.endsWith("-ios") ? "ios" : "all");
-const isIos = command.endsWith("-ios") || target === "ios" || target === "ios-simulator";
-const isAndroid = command.endsWith("-android") || target === "android";
 if (isIos || isAndroid) await prepareLinuxShell(isAndroid ? "android" : "ios", { ...process.env, ...buildVariables });
 const nativeEnvironment = nativePluginEnvironment(buildVariables, {
   android: command.endsWith("-android") || target === "android",
@@ -114,6 +118,9 @@ const nativeEnvironment = nativePluginEnvironment(buildVariables, {
     command !== "package" &&
     (command.endsWith("-ios") || target === "ios" || target === "ios-simulator"),
 });
+if ((command === "test" || command.startsWith("ui-")) && (isIos || isAndroid)) {
+  nativeEnvironment.NSH_TEST_RELEASE = "1";
+}
 if (command === "dev" && target === "ios" && devToolchain) {
   nativeEnvironment.NSH_DEV_HOST_SOURCE = devToolchain.source;
 }

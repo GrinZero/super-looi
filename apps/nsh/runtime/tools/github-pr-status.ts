@@ -157,6 +157,25 @@ function extractNetworkFailure(
   };
 }
 
+function resolveFetcher(
+  stage: string,
+  explicit?: typeof fetch,
+): { ok: true; fetcher: typeof fetch } | { ok: false; failure: GitHubFailure } {
+  if (explicit) return { ok: true, fetcher: explicit };
+  const candidate = (globalThis as { fetch?: typeof fetch }).fetch;
+  if (typeof candidate === "function") {
+    return { ok: true, fetcher: candidate };
+  }
+  return {
+    ok: false,
+    failure: {
+      stage,
+      code: "ERR_GITHUB_FETCH_UNAVAILABLE",
+      reason: "globalThis.fetch is unavailable in this runtime environment",
+    },
+  };
+}
+
 async function fetchGitHubJson<T>(input: {
   stage: string;
   pathname: string;
@@ -278,13 +297,22 @@ export async function verifyGitHubToken(
   }
 
   const status = githubCredentialStatus(vault);
+  const resolvedFetcher = resolveFetcher("github.token.verify", options.fetcher);
+  if (!resolvedFetcher.ok) {
+    return {
+      valid: false,
+      configured: true,
+      tokenHint: status.tokenHint,
+      failure: resolvedFetcher.failure,
+    };
+  }
   const res = await fetchGitHubJson<{
     rate?: { limit?: number; remaining?: number; reset?: number };
   }>({
     stage: "github.token.verify",
     pathname: "/rate_limit",
     token,
-    fetcher: options.fetcher ?? fetch,
+    fetcher: resolvedFetcher.fetcher,
     timeoutMs: options.timeoutMs ?? DEFAULT_GITHUB_TIMEOUT_MS,
     signal: options.signal,
   });
@@ -415,7 +443,6 @@ const FAIL_CONCLUSIONS = new Set([
 export function createGitHubPrStatusTool(
   options: GitHubPrStatusOptions,
 ): AgentTool<typeof githubPrStatusParams> {
-  const fetcher = options.fetcher ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_GITHUB_TIMEOUT_MS;
 
   return {
@@ -440,6 +467,11 @@ export function createGitHubPrStatusTool(
         });
       }
       const pullNumber = params.pullNumber;
+      const resolvedFetcher = resolveFetcher("github.pr_status.fetch", options.fetcher);
+      if (!resolvedFetcher.ok) {
+        return failureResult(resolvedFetcher.failure);
+      }
+      const fetcher = resolvedFetcher.fetcher;
       const token = readGitHubToken(options.vault);
 
       const prRes = await fetchGitHubJson<GitHubPullResponse>({

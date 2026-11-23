@@ -287,7 +287,9 @@ test("Quiet hours multi-window cross-midnight, exact alarm degraded, and GitHub 
   await app.type("github-pat-input", "github_pat_test_secret_7890");
   await app.press("github-pat-save-btn");
   await app.waitUntil(() => app.value("github-pat-input") === "");
-  expect(app.shows("id:github-pat-status-badge >> text:已配置 · 令牌 •••7890")).toBe(true);
+  expect(
+    app.shows("id:github-pat-status-badge >> text:已配置 · 令牌 ••••••••7890"),
+  ).toBe(true);
 
   await app.press("github-pat-verify-btn");
   await app.waitFor("github-pat-verify-ok");
