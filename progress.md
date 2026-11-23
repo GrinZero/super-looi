@@ -1,3 +1,10 @@
+## GitHub Issue 路线图（2026-11-23）
+
+- [x] Step 1 — 盘点开放 Issue、现有里程碑、项目和原生依赖。
+- [x] Step 2 — 创建 5 个交付里程碑，为 20 条开放 Issue 标注优先级，并录入 10 条 GitHub 原生阻塞关系。
+  - [x] 独立复核前置关系。IM 定时摘要先以飞书验收，Slack 接入可并行。
+- [x] Step 3 — 在[仓库 Projects](https://github.com/GrinZero/super-looi/projects)关联[路线图](https://github.com/users/GrinZero/projects/3/views/1)，按里程碑分组并显示优先级标签。
+
 ## iOS 模拟器开发包重连（2026-11-23）
 
 - [x] Step 1 — 复现连接循环并测量 WebSocket 帧。源码映射为 16,850,894 字节，超过宿主 16 MiB 的单帧上限。
