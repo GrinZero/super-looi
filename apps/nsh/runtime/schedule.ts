@@ -472,7 +472,11 @@ export class ScheduleRuntime {
       ...(event.kind === "run_settled" ? { notificationPosted: false } : {}),
     };
     for (const listener of this.activityListeners) {
-      listener(notification);
+      try {
+        listener(notification);
+      } catch {
+        // Isolate subscriber callback errors from schedule delivery.
+      }
     }
   }
 
@@ -561,7 +565,11 @@ export class ScheduleRuntime {
         ...(notificationError ? { notificationError } : {}),
       };
       for (const listener of this.activityListeners) {
-        listener(notification);
+        try {
+          listener(notification);
+        } catch {
+          // Isolate subscriber callback errors from schedule delivery.
+        }
       }
     }
   }

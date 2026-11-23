@@ -455,8 +455,8 @@ export function createAppStore() {
   let voiceTaskCoordinator: VoiceTaskCoordinator | undefined;
   const stopVoiceSessionMotion = () => {
     if (!alive || !runtime) return;
-    void runtime
-      .stopVoiceMotion()
+    void runtime.body
+      .stopNonPluginMotion()
       .then((next) => {
         if (alive) syncBodyStatus(next);
       })
@@ -505,7 +505,7 @@ export function createAppStore() {
     } finally {
       if (alive) {
         if (runtime) {
-          plugins.set(runtime.pluginsSnapshot());
+          plugins.set(runtime.plugins.snapshots());
         }
         setPluginBusy(id, false);
       }
@@ -633,7 +633,7 @@ export function createAppStore() {
   function stopHomeCamera() {
     ++cameraAttempt;
     homeCamera.set({ phase: "idle", sessionId: null, seconds: 0, buffering: false });
-    void runtime?.stopHomeCamera().catch(() => {});
+    void runtime?.home.stopCamera().catch(() => {});
   }
   cleanup(stopHomeCamera);
   const homeLoggingIn = signal(false);
@@ -658,21 +658,21 @@ export function createAppStore() {
     }
     if (!alive || !runtime) return false;
     homeSyncInFlight = withHomeLoading(async () => {
-      homeConfiguration.set(runtime!.homeConfiguration());
-      homeConnection.set(runtime!.homeConnection());
+      homeConfiguration.set(runtime!.home.configuration());
+      homeConnection.set(runtime!.home.connection());
       if (!homeConnection()?.connectionId) {
         homePowerState.replaceDashboard(
-          runtime!.cachedHomeDashboard(effectiveLocale()) ?? {
+          runtime!.home.cachedDashboard(effectiveLocale()) ?? {
             homeName: "", totalAppliances: 0, activeAppliances: 0, rooms: [], allAppliances: [],
           },
           null,
         );
       }
       try {
-        const nextDashboard = await runtime!.homeDashboard(effectiveLocale());
+        const nextDashboard = await runtime!.home.dashboard(effectiveLocale());
         if (!alive) return false;
-        homeConnection.set(runtime!.homeConnection());
-        homePowerState.replaceDashboard(nextDashboard, runtime!.homeConnection()?.connectionId ?? null);
+        homeConnection.set(runtime!.home.connection());
+        homePowerState.replaceDashboard(nextDashboard, runtime!.home.connection()?.connectionId ?? null);
         const currentRoom = homeSelectedRoom();
         if (
           currentRoom !== "all" &&
@@ -757,7 +757,7 @@ export function createAppStore() {
       buffering: true,
       requestedAt: Date.now(),
     });
-    void runtime.startHomeCamera(appliance.deviceId).then(
+    void runtime.home.startCamera(appliance.deviceId).then(
       (playback) => {
         if (!alive || attempt !== cameraAttempt) return;
         homeCamera.update((state) => ({ ...state, sessionId: playback.sessionId }));
@@ -825,9 +825,9 @@ export function createAppStore() {
   const refreshTaskActivity = (historyChanged: boolean) => {
     if (!alive || !runtime || activeSpace() !== "tasks") return;
     try {
-      const page = historyChanged ? runtime.taskPage(tasks().offset) : undefined;
+      const page = historyChanged ? runtime.agent.history.page(tasks().offset) : undefined;
       const id = task()?.id ?? (windowSize().width >= 600 ? page?.items[0]?.id : undefined);
-      if (id) task.set(runtime.taskDetails(id));
+      if (id) task.set(runtime.agent.history.details(id));
       if (page) tasks.set(page);
     } catch (error) {
       fail(error);
@@ -993,7 +993,7 @@ export function createAppStore() {
       selectedScheduleRuleId.set(effectiveSelectedId);
     }
     if (runtime && effectiveSelectedId) {
-      const ruleRuns = runtime.listScheduleRuns(effectiveSelectedId, 30);
+      const ruleRuns = runtime.schedule.listRuns(effectiveSelectedId, 30);
       const merged = [...ruleRuns];
       for (const recent of snap.recentRuns) {
         if (!merged.some((item) => item.id === recent.id)) merged.push(recent);
@@ -1006,21 +1006,21 @@ export function createAppStore() {
     scheduleQuietNow.set(snap.isQuietNow);
     if (permission) schedulePermission.set(permission);
     if (runtime) {
-      scheduleExactAlarm.set(runtime.scheduleExactAlarmStatus());
-      githubCredential.set(runtime.githubCredentialStatus());
+      scheduleExactAlarm.set(runtime.schedule.exactAlarmStatus());
+      githubCredential.set(runtime.github.status());
     }
   };
   const syncScheduleSync = () => {
     if (!alive || !runtime) return;
     try {
-      applyScheduleData(runtime.scheduleSnapshotSync());
+      applyScheduleData(runtime.schedule.snapshotSync());
     } catch (error) {
       if (alive) fail(error);
     }
   };
   const syncNativeScheduleOnForeground = async (hostRuntime: NativeRuntime) => {
     try {
-      const handled = await hostRuntime.handleNativeScheduleEvents();
+      const handled = await hostRuntime.schedule.handleNativeEvents();
       if (!alive) return;
       syncScheduleSync();
       if (handled.tappedRule) {
@@ -1047,7 +1047,7 @@ export function createAppStore() {
       scheduleClockTick.set(Date.now());
       scheduleQuietNow.set(
         runtime
-          ? runtime.isQuietHoursNow()
+          ? runtime.schedule.isQuietHoursNow()
           : isWithinQuietHours(new Date(), scheduleSettings()),
       );
       armScheduleMinuteRefresh();
@@ -1081,8 +1081,8 @@ export function createAppStore() {
       return;
     }
     try {
-      if (stopPitch) await runtime.controlBody({ action: "stop" });
-      const snap = stopPitch ? runtime.bodyStatus() : await runtime.stopBody();
+      if (stopPitch) await runtime.body.control({ action: "stop" });
+      const snap = stopPitch ? runtime.body.status() : await runtime.body.stop();
       if (alive) syncBodyStatus(snap);
     } catch {}
   };
@@ -1094,7 +1094,7 @@ export function createAppStore() {
         await voiceTaskCoordinator.cancel();
         return;
       }
-      const stopped = await runtime?.cancel();
+      const stopped = await runtime?.cancelForeground();
       if (!alive) return;
       status.set(stopped?.confirmed ? "@looi:runtimeTaskStopped" : "@looi:runtimeStopResultUnverified");
     } catch (error) {
@@ -1106,12 +1106,12 @@ export function createAppStore() {
     const active = lifecycle() === "active";
     const enteredForeground = active && !previousLifecycleActive;
     previousLifecycleActive = active;
-    runtime?.setBodyForegroundActive(active);
-    runtime?.setDeviceCameraForegroundActive(active);
-    runtime?.setDeviceMotionForegroundActive(active);
-    runtime?.setLanRoomForegroundActive(active);
-    runtime?.setPluginsForegroundActive(active);
-    void runtime?.setScheduleForegroundActive(active);
+    runtime?.body.setForegroundActive(active);
+    runtime?.plugins.setDeviceCameraForegroundActive(active);
+    runtime?.plugins.setDeviceMotionForegroundActive(active);
+    runtime?.plugins.setLanRoomForegroundActive(active);
+    runtime?.plugins.setForegroundActive(active);
+    void runtime?.schedule.setForegroundActive(active);
     const conversational = !active
       ? null
       : voiceState().phase === "speaking"
@@ -1160,7 +1160,7 @@ export function createAppStore() {
       scheduleClockTick.set(Date.now());
       scheduleQuietNow.set(
         runtime
-          ? runtime.isQuietHoursNow()
+          ? runtime.schedule.isQuietHoursNow()
           : isWithinQuietHours(new Date(), scheduleSettings()),
       );
       armScheduleMinuteRefresh();
@@ -1207,7 +1207,7 @@ export function createAppStore() {
     }
     const timer = setInterval(() => {
       if (alive && runtime && !bodyStatus().scanning) {
-        syncBodyStatus(runtime.bodyStatus());
+        syncBodyStatus(runtime.body.status());
       }
     }, 250);
     return () => clearInterval(timer);
@@ -1279,24 +1279,24 @@ export function createAppStore() {
         return;
       }
       runtime = opened;
-      opened.attachFaceController(driver);
-      opened.setDeviceCameraForegroundActive(lifecycle() === "active");
+      opened.plugins.attachFaceController(driver);
+      opened.plugins.setDeviceCameraForegroundActive(lifecycle() === "active");
       try {
-        opened.attachNativeDeviceCamera(new DeviceCameraHost());
+        opened.plugins.attachNativeDeviceCamera(new DeviceCameraHost());
       } catch {}
-      opened.setDeviceMotionForegroundActive(lifecycle() === "active");
+      opened.plugins.setDeviceMotionForegroundActive(lifecycle() === "active");
       try {
-        opened.attachNativeDeviceMotion(new DeviceMotionHost());
+        opened.plugins.attachNativeDeviceMotion(new DeviceMotionHost());
       } catch {}
-      opened.setLanRoomForegroundActive(lifecycle() === "active");
+      opened.plugins.setLanRoomForegroundActive(lifecycle() === "active");
       try {
-        opened.attachNativeLanRoom(new LanRoomHost());
+        opened.plugins.attachNativeLanRoom(new LanRoomHost());
       } catch {}
-      opened.setPluginsForegroundActive(lifecycle() === "active");
-      plugins.set(opened.pluginsSnapshot());
-      activeStage.set(opened.activeStagePresentation());
-      resumableStage.set(opened.resumableStage());
-      unsubscribePlugins = opened.subscribePlugins(event => {
+      opened.plugins.setForegroundActive(lifecycle() === "active");
+      plugins.set(opened.plugins.snapshots());
+      activeStage.set(opened.plugins.activeStagePresentation());
+      resumableStage.set(opened.plugins.resumableStage());
+      unsubscribePlugins = opened.plugins.subscribe(event => {
         if (!alive) return;
         if (event.type === "state_changed") {
           plugins.update(current => {
@@ -1318,7 +1318,7 @@ export function createAppStore() {
                 }
               : null,
           );
-          resumableStage.set(opened.resumableStage());
+          resumableStage.set(opened.plugins.resumableStage());
         }
         if (event.type === "resumable_changed") {
           resumableStage.set(event.resumable);
@@ -1328,8 +1328,8 @@ export function createAppStore() {
           if (current?.enabled && current.auth?.state === "authorizing" && current.auth.sessionId === event.sessionId) void openUrl(event.url).catch(error => { if (alive) setPluginUiError(event.pluginId, String(error)); });
         }
       });
-      unsubscribeTaskActivity = opened.subscribeTaskActivity(refreshTaskActivity);
-      for (const pending of opened.pendingScheduleInteractions()) {
+      unsubscribeTaskActivity = opened.agent.history.subscribe(refreshTaskActivity);
+      for (const pending of opened.schedule.pendingInteractions()) {
         enqueueInteraction({
           ...pending.interaction,
           taskId: pending.taskId,
@@ -1339,7 +1339,7 @@ export function createAppStore() {
           runId: pending.runId,
         });
       }
-      unsubscribeScheduleInteractions = opened.subscribeScheduleInteractions((event) => {
+      unsubscribeScheduleInteractions = opened.schedule.subscribeInteractions((event) => {
         if (!alive) return;
         if (event.type === "requested") {
           enqueueInteraction({
@@ -1354,7 +1354,7 @@ export function createAppStore() {
           clearInteractionByKey(event.taskId, event.interactionId);
         }
       });
-      unsubscribeScheduleActivity = opened.subscribeScheduleActivity((event) => {
+      unsubscribeScheduleActivity = opened.schedule.subscribeActivity((event) => {
         if (!alive) return;
         syncScheduleSync();
         if (event.kind === "rule_created" && event.rule?.origin === "agent_inferred") {
@@ -1383,7 +1383,7 @@ export function createAppStore() {
           voice?.setContextNote(contextNote, false);
           return;
         }
-        const quietNow = Boolean(event.isQuietHours || opened.isQuietHoursNow());
+        const quietNow = Boolean(event.isQuietHours || opened.schedule.isQuietHoursNow());
         const toastText = t("scheduleRunNotifyToast", {
           title: ruleTitle,
           summary: clippedSummary,
@@ -1445,7 +1445,7 @@ export function createAppStore() {
         dispose: () => scheduleHost.dispose?.(),
       };
       try {
-        await opened.attachNativeSchedule(deferredScheduleHost, {
+        await opened.schedule.attachNative(deferredScheduleHost, {
           foregroundActive: lifecycle() === "active",
         });
       } catch (error) {
@@ -1454,7 +1454,7 @@ export function createAppStore() {
         deferInitialScheduleDrain = false;
       }
       try {
-        const initialSnap = await opened.scheduleSnapshot();
+        const initialSnap = await opened.schedule.snapshot();
         if (alive) {
           applyScheduleData(initialSnap, initialSnap.permissionStatus);
         }
@@ -1464,19 +1464,19 @@ export function createAppStore() {
       if (alive) {
         void syncNativeScheduleOnForeground(opened);
       }
-      if (cameraHost) opened.attachNativeCamera(cameraHost);
-      opened.setBodyForegroundActive(lifecycle() === "active");
+      if (cameraHost) opened.home.attachCamera(cameraHost);
+      opened.body.setForegroundActive(lifecycle() === "active");
       try {
-        opened.attachNativeBle(new LooiBle());
+        opened.body.attachNativeBle(new LooiBle());
       } catch {}
-      bodyConfiguration.set(opened.bodyConfiguration());
-      syncBodyStatus(opened.bodyStatus(), { suppressFeedback: true });
+      bodyConfiguration.set(opened.body.configuration());
+      syncBodyStatus(opened.body.status(), { suppressFeedback: true });
       voiceTaskCoordinator = new VoiceTaskCoordinator({
         defaultLanguage: effectiveLocale,
         isExternalBusy: () => busy(),
         sendRunningTaskMessage: (taskId, message, behavior) => {
           if (!runtime) throw new Error("@looi:runtimeRuntimeUnavailable");
-          return runtime.sendTaskMessage(taskId, message, behavior, action());
+          return runtime.agent.sendMessage(taskId, message, behavior, action());
         },
         runTask: async (prompt, hooks, traceContext) => {
           if (!alive || !runtime || busy() || !prompt.trim()) {
@@ -1488,7 +1488,7 @@ export function createAppStore() {
           shellOutput.set(undefined);
           let activeVoiceTaskId: string | undefined;
           try {
-            const result = await runtime.run(
+            const result = await runtime.agent.run(
               prompt,
               action(),
               (event) => {
@@ -1519,7 +1519,7 @@ export function createAppStore() {
               voiceTaskRunning.set(false);
               if (activeVoiceTaskId) clearInteractionsForTask(activeVoiceTaskId);
               else clearInteractionsBySource("foreground");
-              syncBodyStatus(runtime.bodyStatus());
+              syncBodyStatus(runtime.body.status());
             }
           }
         },
@@ -1527,7 +1527,7 @@ export function createAppStore() {
           clearInteractionsBySource("foreground");
           void stopBodyNow();
           try {
-            const stopped = await runtime?.cancel();
+            const stopped = await runtime?.cancelForeground();
             if (alive) {
               status.set(
                 stopped?.confirmed
@@ -1543,10 +1543,10 @@ export function createAppStore() {
         },
         onNotice: (notice) => {
           if (!alive) return;
-          let task: ReturnType<typeof opened.taskDetails> | undefined;
+          let task: ReturnType<typeof opened.agent.history.details> | undefined;
           if (notice.taskId) {
             try {
-              task = opened.taskDetails(notice.taskId);
+              task = opened.agent.history.details(notice.taskId);
             } catch {
               task = undefined;
             }
@@ -1568,7 +1568,7 @@ export function createAppStore() {
       });
       voice = new VoiceRuntime({
         vault,
-        conversationId: () => opened.voiceConversationId(),
+        conversationId: () => opened.agent.voiceConversationId(),
         defaultLanguage: effectiveLocale,
         tracer: opened.tracer,
         audio: new VoiceAudio(),
@@ -1596,21 +1596,21 @@ export function createAppStore() {
           }
         },
         taskBridge: voiceTaskCoordinator,
-        home: () => opened.voiceHome(),
-        schedule: () => runtime?.voiceSchedule(),
-        isQuietHoursNow: () => Boolean(runtime?.isQuietHoursNow()),
-        onConversationActivity: () => opened.touchVoiceConversation(),
+        home: () => opened.home.voiceHome(),
+        schedule: () => runtime?.schedule.voiceSchedule(),
+        isQuietHoursNow: () => Boolean(runtime?.schedule.isQuietHoursNow()),
+        onConversationActivity: () => opened.agent.touchVoiceConversation(),
         onSessionEnd: stopVoiceSessionMotion,
-        initialPluginContext: () => opened.pluginAmbientVoiceContext(),
-        pluginVoiceTools: () => opened.pluginVoiceTools(),
-        evaluateVoiceToolCall: (call) => opened.evaluateVoiceToolCall(call),
-        evaluateVoiceUserTurn: (text) => opened.evaluateVoiceUserTurn(text),
-        assembleVoiceTurn: (text) => opened.assembleVoiceTurn(text),
+        initialPluginContext: () => opened.plugins.ambientVoiceContext(),
+        pluginVoiceTools: () => opened.plugins.voiceTools(),
+        evaluateVoiceToolCall: (call) => opened.plugins.evaluateVoiceToolCall(call),
+        evaluateVoiceUserTurn: (text) => opened.plugins.evaluateVoiceUserTurn(text),
+        assembleVoiceTurn: (text) => opened.plugins.assembleVoiceTurn(text),
         controlBody: async (actionName, durationMs, extra) => {
           if (!alive || !runtime) {
             throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
           }
-          const receipt = await runtime.controlBody(
+          const receipt = await runtime.body.control(
             {
               action: actionName as BodyControlAction,
               ...(durationMs !== undefined ? { durationMs } : {}),
@@ -1621,17 +1621,17 @@ export function createAppStore() {
             },
             "voice_realtime",
           );
-          if (alive) syncBodyStatus(runtime.bodyStatus());
+          if (alive) syncBodyStatus(runtime.body.status());
           return receipt;
         },
         stopVoiceMotion: async () => {
           if (!alive || !runtime) return;
-          const next = await runtime.stopVoiceMotion();
+          const next = await runtime.body.stopNonPluginMotion();
           if (alive) syncBodyStatus(next);
         },
         redactSecrets: (text) => (runtime ? runtime.redactSecrets(text) : text),
       });
-      opened.setPluginAiBridge({
+      opened.plugins.setAiBridge({
         speak: ({
           spokenText,
           contextNote,
@@ -1664,11 +1664,11 @@ export function createAppStore() {
           if (alive) voice?.refreshPluginVoiceTools();
         },
       });
-      void opened.startPlugins().finally(() => {
+      void opened.plugins.startStartupPlugins().finally(() => {
         if (alive) {
-          plugins.set(opened.pluginsSnapshot());
-          activeStage.set(opened.activeStagePresentation());
-          resumableStage.set(opened.resumableStage());
+          plugins.set(opened.plugins.snapshots());
+          activeStage.set(opened.plugins.activeStagePresentation());
+          resumableStage.set(opened.plugins.resumableStage());
         }
       });
       if (wakePreferenceTouched) {
@@ -1681,10 +1681,10 @@ export function createAppStore() {
       voiceProviderId.set(voiceCfg.providerId);
       voiceId.set(voiceCfg.voiceId);
       voiceState.set(voice.snapshot());
-      configuration.set(opened.configuration());
-      llmSnapshot.set(opened.llmSnapshot());
+      configuration.set(opened.agent.models.configuration());
+      llmSnapshot.set(opened.agent.models.snapshot());
       homeLogin = new MiotLoginFlow({
-        runtime: opened,
+        runtime: opened.home,
         browser: () => {
           const browser = new MiotLoginBrowser();
           return {
@@ -1699,16 +1699,16 @@ export function createAppStore() {
           if (alive) homeLoggingIn.set(value);
         },
       });
-      homeConfiguration.set(opened.homeConfiguration());
-      homeConnection.set(opened.homeConnection());
-      if (opened.homeConfiguration().mode === "disabled") {
+      homeConfiguration.set(opened.home.configuration());
+      homeConnection.set(opened.home.connection());
+      if (opened.home.configuration().mode === "disabled") {
         await syncHomeDashboard();
       } else {
         void withHomeLoading(async () => {
           try {
             await syncHomeDashboard();
             if (alive) {
-              homeDevices.set(await opened.listHome());
+              homeDevices.set(await opened.home.list());
             }
           } catch {}
         });
@@ -1736,8 +1736,8 @@ export function createAppStore() {
     if (scheduleMinuteTimer) clearTimeout(scheduleMinuteTimer);
     voiceTaskCoordinator?.markExternallyCancelled();
     homeLogin?.cancel();
-    runtime?.cancelProviderOAuth();
-    runtime?.attachFaceController(undefined);
+    runtime?.agent.models.cancelOAuth();
+    runtime?.plugins.attachFaceController(undefined);
     driver.attachRecipeSyncBridge(undefined);
     voice?.close();
     driver.dispose();
@@ -1754,10 +1754,10 @@ export function createAppStore() {
     async resumePluginStage(id?: string) {
       if (!runtime) return;
       try {
-        await runtime.resumePluginStage(id);
-        activeStage.set(runtime.activeStagePresentation());
-        resumableStage.set(runtime.resumableStage());
-        plugins.set(runtime.pluginsSnapshot());
+        await runtime.plugins.resumeStage(id);
+        activeStage.set(runtime.plugins.activeStagePresentation());
+        resumableStage.set(runtime.plugins.resumableStage());
+        plugins.set(runtime.plugins.snapshots());
         api.backToFace();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1770,13 +1770,13 @@ export function createAppStore() {
       lastStageBackExitArmMs = 0;
       if (!targetId || !runtime) {
         activeStage.set(null);
-        resumableStage.set(runtime ? runtime.resumableStage() : null);
+        resumableStage.set(runtime ? runtime.plugins.resumableStage() : null);
         return;
       }
-      runtime.exitPluginStage(targetId);
-      activeStage.set(runtime.activeStagePresentation());
-      resumableStage.set(runtime.resumableStage());
-      plugins.set(runtime.pluginsSnapshot());
+      runtime.plugins.exitStage(targetId);
+      activeStage.set(runtime.plugins.activeStagePresentation());
+      resumableStage.set(runtime.plugins.resumableStage());
+      plugins.set(runtime.plugins.snapshots());
     },
     reportPluginStageCrash(
       pluginId: string,
@@ -1785,12 +1785,12 @@ export function createAppStore() {
     ) {
       lastStageBackExitArmMs = 0;
       if (runtime) {
-        const failure = runtime.reportPluginStageCrash(pluginId, slot, error);
+        const failure = runtime.plugins.reportStageCrash(pluginId, slot, error);
         const code = failure.code !== undefined ? String(failure.code) : "ERR_PLUGIN_STAGE_CRASH";
         setPluginUiError(pluginId, `[stage=${failure.stage} code=${code}] ${failure.reason}`);
-        activeStage.set(runtime.activeStagePresentation());
-        resumableStage.set(runtime.resumableStage());
-        plugins.set(runtime.pluginsSnapshot());
+        activeStage.set(runtime.plugins.activeStagePresentation());
+        resumableStage.set(runtime.plugins.resumableStage());
+        plugins.set(runtime.plugins.snapshots());
         notify(`${t("pluginStageCrashedReset")} ([${code}] ${pluginId}.${slot}: ${failure.reason})`);
         return;
       }
@@ -1823,14 +1823,14 @@ export function createAppStore() {
       const inspected = inspectedPluginId();
       return inspected ? (pluginUiErrorById()[inspected] ?? "") : "";
     },
-    refreshPlugin: (id: string) => pluginAction(id, host => host.refreshPlugin(id)),
-    configurePlugin: (id: string, values: Record<string, string>) => pluginAction(id, host => host.configurePlugin(id, plugins().find(item => item.id === id)?.enabled ?? true, values, action())),
-    setPluginEnabled: (id: string, enabled: boolean) => pluginAction(id, host => host.setPluginEnabled(id, enabled, action())),
+    refreshPlugin: (id: string) => pluginAction(id, host => host.plugins.refresh(id)),
+    configurePlugin: (id: string, values: Record<string, string>) => pluginAction(id, host => host.plugins.configure(id, plugins().find(item => item.id === id)?.enabled ?? true, values, action())),
+    setPluginEnabled: (id: string, enabled: boolean) => pluginAction(id, host => host.plugins.setEnabled(id, enabled, action())),
     sendPluginCommand: <TCommand = unknown, TResult = unknown>(id: string, command: TCommand) =>
-      pluginAction<TResult>(id, host => host.sendPluginCommand<TCommand, TResult>(id, command, action())),
-    beginPluginLogin: (id: string) => pluginAction(id, host => host.beginPluginLogin(id, action())),
-    cancelPluginLogin: (id: string) => pluginAction(id, host => host.cancelPluginLogin(id)),
-    logoutPlugin: (id: string) => pluginAction(id, host => host.logoutPlugin(id, action())),
+      pluginAction<TResult>(id, host => host.plugins.sendCommand<TCommand, TResult>(id, command, action())),
+    beginPluginLogin: (id: string) => pluginAction(id, host => host.plugins.beginLogin(id, action())),
+    cancelPluginLogin: (id: string) => pluginAction(id, host => host.plugins.cancelLogin(id)),
+    logoutPlugin: (id: string) => pluginAction(id, host => host.plugins.logout(id, action())),
     pluginViewContext<TState = Record<string, unknown>, TCommand = unknown>(
       id: string,
     ): PluginViewContext<TState, TCommand> {
@@ -2013,18 +2013,18 @@ export function createAppStore() {
       if (!runtime) return;
       modelRefreshCounts.set({ ...modelRefreshCounts(), [providerId]: (modelRefreshCounts()[providerId] ?? 0) + 1 });
       try {
-        llmSnapshot.set(await runtime.refreshProviderModels(providerId));
+        llmSnapshot.set(await runtime.agent.models.refreshModels(providerId));
       } catch {
-        llmSnapshot.set(runtime.llmSnapshot());
+        llmSnapshot.set(runtime.agent.models.snapshot());
       } finally {
         modelRefreshCounts.set({ ...modelRefreshCounts(), [providerId]: modelRefreshCounts()[providerId] - 1 });
       }
     },
     async saveProviderApiKey(
-      input: Parameters<NativeRuntime["saveProviderApiKey"]>[0],
+      input: Parameters<NativeRuntime["agent"]["models"]["saveApiKey"]>[0],
     ) {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-      const snap = await runtime.saveProviderApiKey(input, action());
+      const snap = await runtime.agent.models.saveApiKey(input, action());
       llmSnapshot.set(snap);
       const refreshedVoice = voice?.refreshCredentials(canAutoStandby(), input.providerId);
       voiceConfigured.set(refreshedVoice?.hasKey ?? false);
@@ -2033,7 +2033,7 @@ export function createAppStore() {
       if (input.providerId !== "custom") {
         await api.refreshProviderModels(input.providerId);
       }
-      configuration.set(runtime.configuration());
+      configuration.set(runtime.agent.models.configuration());
       status.set("@looi:runtimeStandingBy");
       notify("@looi:runtimeModelSettingsSavedAndApplied");
     },
@@ -2044,12 +2044,12 @@ export function createAppStore() {
     ) {
       try {
         if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-        const snap = await runtime.selectActiveModel(
+        const snap = await runtime.agent.models.selectActive(
           { providerId, modelId, addCustomModel },
           action(),
         );
         llmSnapshot.set(snap);
-        configuration.set(runtime.configuration());
+        configuration.set(runtime.agent.models.configuration());
         notify(uiMessage("switchedModel", { model: modelId }));
       } catch (error) {
         fail(error);
@@ -2058,7 +2058,7 @@ export function createAppStore() {
     async removeProviderCredential(providerId: string) {
       try {
         if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-        const snap = await runtime.removeProviderCredential(
+        const snap = await runtime.agent.models.removeCredential(
           providerId,
           action(),
         );
@@ -2067,7 +2067,7 @@ export function createAppStore() {
         voiceConfigured.set(refreshedVoice?.hasKey ?? false);
         voiceConfiguredProviders.set(refreshedVoice?.configuredProviders ?? {});
         voiceKeyHint.set(refreshedVoice?.keyHint ?? "");
-        configuration.set(runtime.configuration());
+        configuration.set(runtime.agent.models.configuration());
         notify("@looi:runtimeProviderCredentialsRemoved");
       } catch (error) {
         fail(error);
@@ -2089,7 +2089,7 @@ export function createAppStore() {
         error: "",
       });
       try {
-        const snap = await runtime.startProviderOAuth(
+        const snap = await runtime.agent.models.startOAuth(
           providerId,
           action(),
           (ev: LlmOAuthUiEvent) => {
@@ -2140,7 +2140,7 @@ export function createAppStore() {
         );
         if (!alive || attempt !== oauthAttempt) return;
         llmSnapshot.set(snap);
-        configuration.set(runtime.configuration());
+        configuration.set(runtime.agent.models.configuration());
         oauthFlow.set({
           running: false,
           providerId: "",
@@ -2179,7 +2179,7 @@ export function createAppStore() {
     submitProviderOAuthCallback(callbackUrl: string) {
       try {
         if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
-        runtime.submitProviderOAuthCallback(callbackUrl);
+        runtime.agent.models.submitOAuthCallback(callbackUrl);
         oauthFlow.set({ ...oauthFlow(), error: "" });
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
@@ -2190,7 +2190,7 @@ export function createAppStore() {
     cancelProviderOAuth() {
       ++oauthAttempt;
       try {
-        runtime?.cancelProviderOAuth();
+        runtime?.agent.models.cancelOAuth();
       } catch {}
       oauthFlow.set({
         running: false,
@@ -2394,7 +2394,7 @@ export function createAppStore() {
           await new Promise((resolve) => setTimeout(resolve, 280));
           return;
         }
-        await runtime.panTiltHomeCamera(did, direction, action());
+        await runtime.home.panTiltCamera(did, direction, action());
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         notify(msg.includes("camera_login_required")
@@ -2436,7 +2436,7 @@ export function createAppStore() {
         const connection = await homeLogin.start(region, action());
         homeConnection.set(connection);
         if (connection.configured && connection.connectionId) {
-          homeDevices.set(await runtime.listHome());
+          homeDevices.set(await runtime.home.list());
           homeSubView.set("devices");
         }
       } finally {
@@ -2450,18 +2450,18 @@ export function createAppStore() {
       stopHomeCamera();
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       homeLogin?.cancel();
-      await runtime.logoutMiot(action());
+      await runtime.home.logoutMiot(action());
       await videoAccount.disconnect();
       homeDevices.set({});
       await syncHomeDashboard();
     },
-    async configureHome(value: Parameters<NativeRuntime["configureHome"]>[0]) {
+    async configureHome(value: Parameters<NativeRuntime["home"]["configure"]>[0]) {
       stopHomeCamera();
       homeLogin?.cancel();
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       homeDevices.set({});
       try {
-        homeConfiguration.set(await runtime.configureHome(value, action()));
+        homeConfiguration.set(await runtime.home.configure(value, action()));
       } finally {
         await syncHomeDashboard();
       }
@@ -2472,8 +2472,8 @@ export function createAppStore() {
       await withHomeLoading(async () => {
         homeDevices.set({});
         try {
-          homeConnection.set(await runtime!.connectHome());
-          homeDevices.set(await runtime!.listHome());
+          homeConnection.set(await runtime!.home.connect());
+          homeDevices.set(await runtime!.home.list());
         } finally {
           await syncHomeDashboard();
         }
@@ -2485,10 +2485,10 @@ export function createAppStore() {
       try {
         await withHomeLoading(async () => {
           try {
-            if (!runtime!.homeConnection()?.healthy && runtime!.homeConfiguration().mode !== "disabled") {
-              homeConnection.set(await runtime!.connectHome());
+            if (!runtime!.home.connection()?.healthy && runtime!.home.configuration().mode !== "disabled") {
+              homeConnection.set(await runtime!.home.connect());
             }
-            homeDevices.set(await runtime!.listHome());
+            homeDevices.set(await runtime!.home.list());
           } catch {}
           await syncHomeDashboard();
         });
@@ -2501,9 +2501,9 @@ export function createAppStore() {
       if (!runtime) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
       await withHomeLoading(async () => {
         try {
-          homeConnection.set(await runtime!.setHomeSourceEnabled(source, enabled, action()));
-          if (runtime!.homeConnection()?.healthy) {
-            homeDevices.set(await runtime!.listHome());
+          homeConnection.set(await runtime!.home.setSourceEnabled(source, enabled, action()));
+          if (runtime!.home.connection()?.healthy) {
+            homeDevices.set(await runtime!.home.list());
           } else {
             homeDevices.set({});
           }
@@ -2518,7 +2518,7 @@ export function createAppStore() {
     ) {
       if (!runtime) return;
       try {
-        runtime.setHomeApplianceLayout(applianceId, patch);
+        runtime.home.setApplianceLayout(applianceId, patch);
         await syncHomeDashboard();
       } catch (error) {
         if (alive) fail(error);
@@ -2528,7 +2528,7 @@ export function createAppStore() {
       if (!runtime || orders.length === 0) return;
       try {
         for (const item of orders) {
-          runtime.setHomeApplianceLayout(item.id, { order: item.order });
+          runtime.home.setApplianceLayout(item.id, { order: item.order });
         }
         await syncHomeDashboard();
       } catch (error) {
@@ -2554,7 +2554,7 @@ export function createAppStore() {
       try {
         const res = await homePowerState.control(
           command,
-          () => runtime!.controlHomeAppliance(command, action()),
+          () => runtime!.home.controlAppliance(command, action()),
           () => syncHomeDashboard(true),
         );
         const reasonOrStatus = res?.receipt?.reason_code ?? res?.receipt?.status;
@@ -2579,7 +2579,7 @@ export function createAppStore() {
       for (const entityId of targets) {
         const domain = entityId.split(".")[0] || "switch";
         try {
-          await runtime.controlHomeAppliance(
+          await runtime.home.controlAppliance(
             {
               entity_id: entityId,
               domain,
@@ -2592,7 +2592,7 @@ export function createAppStore() {
       }
       if (alive) {
         try {
-          homeDevices.set(await runtime.listHome());
+          homeDevices.set(await runtime.home.list());
         } catch {}
         await syncHomeDashboard();
       }
@@ -2660,9 +2660,9 @@ export function createAppStore() {
       const modeChanged =
         next.mode !== undefined && next.mode !== bodyConfiguration().mode;
       try {
-        const snap = await runtime.configureBody(next, action());
+        const snap = await runtime.body.configure(next, action());
         if (alive) {
-          bodyConfiguration.set(runtime.bodyConfiguration());
+          bodyConfiguration.set(runtime.body.configuration());
           syncBodyStatus(snap, { suppressFeedback: modeChanged });
         }
       } catch (error) {
@@ -2670,7 +2670,7 @@ export function createAppStore() {
       }
     },
     async scanBodyDevices(durationMs = 8000) {
-      if (bodyStatus().scanning || runtime?.bodyStatus().scanning) return;
+      if (bodyStatus().scanning || runtime?.body.status().scanning) return;
       if (!runtime) {
         if (bodyStatus().mode === "simulation") {
           bodyStatus.update((prev) => ({
@@ -2687,15 +2687,15 @@ export function createAppStore() {
       }
       bodyStatus.update((prev) => ({ ...prev, scanning: true, error: null }));
       try {
-        await runtime.scanBodyDevices(durationMs);
+        await runtime.body.scan(durationMs);
         if (alive) {
-          const current = runtime.bodyStatus();
+          const current = runtime.body.status();
           syncBodyStatus(current);
           if (current.error) notify(current.error);
         }
       } catch (error) {
         if (alive) {
-          syncBodyStatus(runtime.bodyStatus());
+          syncBodyStatus(runtime.body.status());
           notifyBodyError(error);
         }
       }
@@ -2729,16 +2729,16 @@ export function createAppStore() {
       }
       bodyStatus.update((prev) => ({ ...prev, connecting: true, error: null }));
       try {
-        await runtime.connectBodyDevice(target);
+        await runtime.body.connect(target);
         if (alive && operation === bodyConnectionOperation) {
-          bodyConfiguration.set(runtime.bodyConfiguration());
-          const current = runtime.bodyStatus();
+          bodyConfiguration.set(runtime.body.configuration());
+          const current = runtime.body.status();
           syncBodyStatus(current);
           if (current.error) notify(current.error);
         }
       } catch (error) {
         if (alive && operation === bodyConnectionOperation) {
-          syncBodyStatus(runtime.bodyStatus());
+          syncBodyStatus(runtime.body.status());
           notifyBodyError(error);
         }
       }
@@ -2761,10 +2761,10 @@ export function createAppStore() {
         return;
       }
       try {
-        await runtime.disconnectBody();
+        await runtime.body.disconnect();
         if (alive && operation === bodyConnectionOperation) {
           bodyActiveCommand.set(null);
-          syncBodyStatus(runtime.bodyStatus());
+          syncBodyStatus(runtime.body.status());
         }
       } catch (error) {
         if (alive && operation === bodyConnectionOperation) notifyBodyError(error);
@@ -2797,11 +2797,11 @@ export function createAppStore() {
         return;
       }
       try {
-        await runtime.forgetSavedDock();
+        await runtime.body.forgetSavedDock();
         if (alive && operation === bodyConnectionOperation) {
           bodyActiveCommand.set(null);
-          bodyConfiguration.set(runtime.bodyConfiguration());
-          syncBodyStatus(runtime.bodyStatus());
+          bodyConfiguration.set(runtime.body.configuration());
+          syncBodyStatus(runtime.body.status());
         }
       } catch (error) {
         if (alive && operation === bodyConnectionOperation) notifyBodyError(error);
@@ -2821,7 +2821,7 @@ export function createAppStore() {
         return;
       }
       try {
-        const snap = runtime.setSimulatedDock(docked);
+        const snap = runtime.body.setSimulatedDock(docked);
         if (alive) syncBodyStatus(snap);
       } catch (error) {
         if (alive) notifyBodyError(error);
@@ -2843,11 +2843,11 @@ export function createAppStore() {
       }
       bodyStatus.update((prev) => ({ ...prev, powerReading: true }));
       try {
-        const snap = await runtime.readBodyPower();
+        const snap = await runtime.body.readPowerStatus();
         if (alive) syncBodyStatus(snap);
       } catch (error) {
         if (alive) {
-          syncBodyStatus(runtime.bodyStatus());
+          syncBodyStatus(runtime.body.status());
           notifyBodyError(error);
         }
       }
@@ -2934,7 +2934,7 @@ export function createAppStore() {
         bodyActiveCommand.set(actionName);
       }
       try {
-        const receipt = await runtime.controlBody({
+        const receipt = await runtime.body.control({
           action: actionName,
           ...(durationMs !== undefined ? { durationMs } : {}),
           ...(headDegrees !== undefined ? { headDegrees } : {}),
@@ -2943,7 +2943,7 @@ export function createAppStore() {
           ...(extra?.turn !== undefined ? { turn: extra.turn } : {}),
         });
         if (alive) {
-          syncBodyStatus(runtime.bodyStatus());
+          syncBodyStatus(runtime.body.status());
           if (receipt.status !== "verified" && receipt.reason) {
             if (receipt.reason !== "Pulse preempted by stop: user_stop") notify(receipt.reason);
           }
@@ -2973,9 +2973,9 @@ export function createAppStore() {
       const operation = ++bodyDriveOperation;
       bodyActiveCommand.set(moving ? "move" : null);
       try {
-        const snap = await runtime.setBodyDriveVector(clampedSpeed, clampedTurn);
+        const snap = await runtime.body.setDriveVector(clampedSpeed, clampedTurn);
         if (operation !== bodyDriveOperation) {
-          if (bodyActiveCommand() === null) await runtime.stopBody();
+          if (bodyActiveCommand() === null) await runtime.body.stop();
           return false;
         }
         if (alive) syncBodyStatus(snap);
@@ -2983,7 +2983,7 @@ export function createAppStore() {
       } catch (error) {
         if (operation === bodyDriveOperation) {
           if (alive) {
-            syncBodyStatus(runtime.bodyStatus());
+            syncBodyStatus(runtime.body.status());
             notifyBodyError(error);
           }
           bodyActiveCommand.set(null);
@@ -2996,9 +2996,9 @@ export function createAppStore() {
       const operation = ++bodyDriveOperation;
       bodyActiveCommand.set(action);
       try {
-        const snap = await runtime.startBodyDrive(action);
+        const snap = await runtime.body.startDrive(action);
         if (operation !== bodyDriveOperation) {
-          if (bodyActiveCommand() === null) await runtime.stopBody();
+          if (bodyActiveCommand() === null) await runtime.body.stop();
           return false;
         }
         if (alive) syncBodyStatus(snap);
@@ -3006,7 +3006,7 @@ export function createAppStore() {
       } catch (error) {
         if (operation === bodyDriveOperation) {
           if (alive) {
-            syncBodyStatus(runtime.bodyStatus());
+            syncBodyStatus(runtime.body.status());
             notifyBodyError(error);
           }
           bodyActiveCommand.set(null);
@@ -3015,10 +3015,10 @@ export function createAppStore() {
       }
     },
     renewBodyDrive() {
-      const renewed = runtime?.renewBodyDrive() ?? false;
+      const renewed = runtime?.body.renewDrive() ?? false;
       if (!renewed) {
         bodyActiveCommand.set(null);
-        if (alive && runtime) syncBodyStatus(runtime.bodyStatus());
+        if (alive && runtime) syncBodyStatus(runtime.body.status());
       }
       return renewed;
     },
@@ -3029,14 +3029,14 @@ export function createAppStore() {
       if (!runtime) return;
       try {
         const currentId = task()?.id;
-        const page = runtime.taskPage(offset);
+        const page = runtime.agent.history.page(offset);
         const preferredId =
           currentId && (offset === tasks().offset || page.items.some((item) => item.id === currentId))
             ? currentId
             : windowSize().width >= 600
               ? page.items[0]?.id
               : undefined;
-        const selectedTask = preferredId ? runtime.taskDetails(preferredId) : undefined;
+        const selectedTask = preferredId ? runtime.agent.history.details(preferredId) : undefined;
         tasks.set(page);
         task.set(selectedTask);
       } catch (error) {
@@ -3046,7 +3046,7 @@ export function createAppStore() {
     inspectTask(id: string) {
       if (!runtime) return;
       try {
-        task.set(runtime.taskDetails(id));
+        task.set(runtime.agent.history.details(id));
       } catch (error) {
         fail(error);
       }
@@ -3057,7 +3057,7 @@ export function createAppStore() {
     newConversation() {
       if (!runtime || busy()) return false;
       try {
-        runtime.newConversation(action());
+        runtime.agent.newConversation(action());
         voice?.setContextNote("", true);
         message.set("");
         notify("@looi:runtimeNewConversationStarted");
@@ -3101,7 +3101,7 @@ export function createAppStore() {
       selectedScheduleRuleId.set(id);
       if (!runtime || !id) return;
       try {
-        const ruleRuns = runtime.listScheduleRuns(id, 30);
+        const ruleRuns = runtime.schedule.listRuns(id, 30);
         scheduleRuns.update((prev) => {
           const merged = [...ruleRuns];
           for (const existing of prev) {
@@ -3118,7 +3118,7 @@ export function createAppStore() {
     async refreshSchedules() {
       if (!runtime) return;
       try {
-        const snap = await runtime.scheduleSnapshot();
+        const snap = await runtime.schedule.snapshot();
         applyScheduleData(snap, snap.permissionStatus);
       } catch (error) {
         if (alive) fail(error);
@@ -3126,14 +3126,14 @@ export function createAppStore() {
     },
     createScheduleRule(input: CreateScheduleRuleInput) {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-      const created = runtime.createScheduleRule(input, action());
+      const created = runtime.schedule.createRule(input, action());
       selectedScheduleRuleId.set(created.rule.id);
       syncScheduleSync();
       return created;
     },
     updateScheduleRule(id: string, patch: UpdateScheduleRuleInput) {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-      const updated = runtime.updateScheduleRule(id, patch, action());
+      const updated = runtime.schedule.updateRule(id, patch, action());
       selectedScheduleRuleId.set(updated.id);
       syncScheduleSync();
       return updated;
@@ -3141,7 +3141,7 @@ export function createAppStore() {
     setScheduleRuleEnabled(id: string, enabled: boolean) {
       if (!runtime) return;
       try {
-        runtime.setScheduleRuleEnabled(id, enabled, action());
+        runtime.schedule.setRuleEnabled(id, enabled, action());
         syncScheduleSync();
       } catch (error) {
         fail(error);
@@ -3150,7 +3150,7 @@ export function createAppStore() {
     async cancelScheduleRule(id: string) {
       if (!runtime) return;
       try {
-        await runtime.cancelScheduleRule(id, action());
+        await runtime.schedule.cancelRule(id, action());
         syncScheduleSync();
       } catch (error) {
         if (alive) fail(error);
@@ -3159,7 +3159,7 @@ export function createAppStore() {
     async deleteScheduleRule(id: string) {
       if (!runtime) return;
       try {
-        await runtime.deleteScheduleRule(id, action());
+        await runtime.schedule.deleteRule(id, action());
         if (selectedScheduleRuleId() === id) selectedScheduleRuleId.set(null);
         syncScheduleSync();
       } catch (error) {
@@ -3170,7 +3170,7 @@ export function createAppStore() {
       if (!runtime || scheduleRunningRuleId() === id) return;
       scheduleRunningRuleId.set(id);
       try {
-        await runtime.runScheduleRuleNow(id, action());
+        await runtime.schedule.runRuleNow(id, action());
         syncScheduleSync();
       } catch (error) {
         if (alive) fail(error);
@@ -3183,10 +3183,10 @@ export function createAppStore() {
     async requestSchedulePermission() {
       if (!runtime) return;
       try {
-        const perm = await runtime.requestSchedulePermission(action());
+        const perm = await runtime.schedule.requestPermission(action());
         if (!alive) return;
         schedulePermission.set(perm);
-        scheduleExactAlarm.set(runtime.scheduleExactAlarmStatus());
+        scheduleExactAlarm.set(runtime.schedule.exactAlarmStatus());
       } catch (error) {
         if (alive) fail(error);
       }
@@ -3194,9 +3194,9 @@ export function createAppStore() {
     async openScheduleExactAlarmSettings() {
       if (!runtime) return false;
       try {
-        const opened = await runtime.openScheduleExactAlarmSettings();
+        const opened = await runtime.schedule.openExactAlarmSettings();
         if (!alive) return opened;
-        scheduleExactAlarm.set(runtime.scheduleExactAlarmStatus());
+        scheduleExactAlarm.set(runtime.schedule.exactAlarmStatus());
         return opened;
       } catch (error) {
         if (alive) fail(error);
@@ -3206,7 +3206,7 @@ export function createAppStore() {
     setAutoFollowUpEnabled(enabled: boolean) {
       if (!runtime) return;
       try {
-        runtime.updateScheduleSettings({ autoFollowUpEnabled: enabled }, action());
+        runtime.schedule.updateSettings({ autoFollowUpEnabled: enabled }, action());
         syncScheduleSync();
       } catch (error) {
         fail(error);
@@ -3215,7 +3215,7 @@ export function createAppStore() {
     setQuietHoursEnabled(enabled: boolean) {
       if (!runtime) return;
       try {
-        runtime.setQuietHoursEnabled(enabled, action());
+        runtime.schedule.setQuietHoursEnabled(enabled, action());
         syncScheduleSync();
       } catch (error) {
         fail(error);
@@ -3223,20 +3223,20 @@ export function createAppStore() {
     },
     addQuietHoursWindow(input: Omit<QuietHoursWindow, "id"> & { id?: string }) {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-      const next = runtime.addQuietHoursWindow(input, action());
+      const next = runtime.schedule.addQuietHoursWindow(input, action());
       syncScheduleSync();
       return next;
     },
     updateQuietHoursWindow(id: string, patch: Partial<Omit<QuietHoursWindow, "id">>) {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-      const next = runtime.updateQuietHoursWindow(id, patch, action());
+      const next = runtime.schedule.updateQuietHoursWindow(id, patch, action());
       syncScheduleSync();
       return next;
     },
     removeQuietHoursWindow(id: string) {
       if (!runtime) return;
       try {
-        runtime.removeQuietHoursWindow(id, action());
+        runtime.schedule.removeQuietHoursWindow(id, action());
         syncScheduleSync();
       } catch (error) {
         fail(error);
@@ -3244,7 +3244,7 @@ export function createAppStore() {
     },
     saveGitHubToken(token: string) {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-      const next = runtime.saveGitHubToken(token, action());
+      const next = runtime.github.save(token, action());
       githubCredential.set(next);
       githubVerifyResult.set(null);
       notify(t("githubPatSavedToast"));
@@ -3254,7 +3254,7 @@ export function createAppStore() {
       if (!runtime || githubBusy()) return null;
       githubBusy.set(true);
       try {
-        const result = await runtime.verifyGitHubToken(action());
+        const result = await runtime.github.verify(action());
         if (!alive) return result;
         githubVerifyResult.set(result);
         githubCredential.set({
@@ -3272,7 +3272,7 @@ export function createAppStore() {
     clearGitHubToken() {
       if (!runtime) return;
       try {
-        const next = runtime.clearGitHubToken(action());
+        const next = runtime.github.clear(action());
         githubCredential.set(next);
         githubVerifyResult.set(null);
         notify(t("githubPatClearedToast"));
@@ -3288,7 +3288,7 @@ export function createAppStore() {
     continueScheduledSession(sessionId: string) {
       if (!runtime) return false;
       try {
-        runtime.adoptConversationSession(sessionId, action());
+        runtime.agent.adoptConversationSession(sessionId, action());
         voice?.setContextNote("", true);
         message.set("");
         api.backToFace();
@@ -3301,9 +3301,9 @@ export function createAppStore() {
     },
     async configure(value: { baseUrl: string; model: string; apiKey: string }) {
       if (!runtime) throw new Error("@looi:runtimeLocalStorageIsNotReady");
-      await runtime.configure(value);
-      configuration.set(runtime.configuration());
-      llmSnapshot.set(runtime.llmSnapshot());
+      await runtime.agent.models.configureLegacy(value);
+      configuration.set(runtime.agent.models.configuration());
+      llmSnapshot.set(runtime.agent.models.snapshot());
       status.set("@looi:runtimeStandingBy");
       notify("@looi:runtimeModelConfigured");
     },
@@ -3316,7 +3316,7 @@ export function createAppStore() {
       status.set("@looi:runtimeAgentIsThinking");
       let activeSendTaskId: string | undefined;
       try {
-        const result = await runtime.run(
+        const result = await runtime.agent.run(
           prompt,
           action(),
           (event) => {
@@ -3346,14 +3346,14 @@ export function createAppStore() {
           busy.set(false);
           if (activeSendTaskId) clearInteractionsForTask(activeSendTaskId);
           else clearInteractionsBySource("foreground");
-          syncBodyStatus(runtime.bodyStatus());
+          syncBodyStatus(runtime.body.status());
         }
       }
     },
     approve(allowed: boolean, target = interaction()) {
       if (!target || !runtime) return;
       try {
-        runtime.respondTask(target.taskId, target.id, {
+        runtime.agent.respond(target.taskId, target.id, {
           outcome: allowed ? "allowed-once" : "rejected",
           userAction: allowed ? action() : undefined,
         });
@@ -3368,7 +3368,7 @@ export function createAppStore() {
     ) {
       if (!target || !runtime) return;
       try {
-        runtime.respondTask(target.taskId, target.id, { answers });
+        runtime.agent.respond(target.taskId, target.id, { answers });
         clearInteractionByKey(target.taskId, target.id);
       } catch (error) {
         fail(error);
@@ -3383,7 +3383,7 @@ export function createAppStore() {
       clearInteractionsForTask(target.taskId);
       if (!runtime) return;
       try {
-        await runtime.cancelTask(target.taskId);
+        await runtime.agent.cancelTask(target.taskId);
         if (alive) syncScheduleSync();
       } catch (error) {
         if (alive) fail(error);

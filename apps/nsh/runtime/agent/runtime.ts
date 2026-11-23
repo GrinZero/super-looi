@@ -472,8 +472,11 @@ export class AgentRuntime {
     for (const bgTaskId of this.activePluginTaskIds) {
       void this.executor?.cancel(bgTaskId).catch(() => {});
     }
-    await this.executor?.close();
-    this.executor = undefined;
-    this.history.clearListeners();
+    try {
+      await this.executor?.close();
+    } finally {
+      this.executor = undefined;
+      this.history.clearListeners();
+    }
   }
 }

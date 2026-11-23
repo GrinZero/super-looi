@@ -36,7 +36,7 @@ export async function verifyVoicePipeline(options: {
     };
   };
   const note = `软件验收码${Date.now()}是纸鸢`;
-  await options.runtime.run(`请记住并在后续对话中直接回答：${note}（无需调用工具，直接回复“已记住”）`, action(), () => {});
+  await options.runtime.agent.run(`请记住并在后续对话中直接回答：${note}（无需调用工具，直接回复“已记住”）`, action(), () => {});
   const audio: VoiceAudioPort = {
     beginWake: () => 0, startWake: async () => { audio.setCaptureMode("kws"); return true; },
     requestPermission: () => "granted", // Synthetic-input adapter; no OS permission request.
@@ -97,13 +97,13 @@ export async function verifyVoicePipeline(options: {
         calls++;
         if (calls !== 1 || !/记忆|回忆|验收码/.test(prompt))
           throw new Error("Unexpected voice task");
-        const result = await options.runtime.run(
+        const result = await options.runtime.agent.run(
           prompt,
           action(),
           (event) => {
             // A live test may only read the test note; never authorize model writes.
             if (event.interaction?.kind === "approval" && event.taskId)
-              options.runtime.respond(event.taskId, event.interaction.id, {
+              options.runtime.agent.respond(event.taskId, event.interaction.id, {
                 outcome: "rejected",
               });
           },
@@ -123,7 +123,7 @@ export async function verifyVoicePipeline(options: {
       }
     },
     cancelTask: () => {
-      void options.runtime.cancel();
+      void options.runtime.cancelForeground();
     },
   });
   try {
@@ -155,7 +155,7 @@ export async function verifyVoicePipeline(options: {
     };
   } finally {
     voice.close();
-    await options.runtime.cancel();
-    options.runtime.newConversation(action());
+    await options.runtime.cancelForeground();
+    options.runtime.agent.newConversation(action());
   }
 }

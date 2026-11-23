@@ -117,7 +117,7 @@ function Probe(){const status=signal("Testing native model");
 void(async()=>{let runtime;const config=${JSON.stringify(config)};try{
 runtime=await openRuntime(new NodeCompat(),{get:(key)=>key==="model"?JSON.stringify(config):"",set:()=>{},remove:()=>{}});
 const now=Date.now();
-const result=await runtime.run("Reply with exactly OK. Do not call any tools.",{event_id:"native-live",ui_session_id:runtime.uiSessionId,kind:"tap",captured_at:new Date(now).toISOString(),expires_at:new Date(now+10000).toISOString()},()=>{});
+const result=await runtime.agent.run("Reply with exactly OK. Do not call any tools.",{event_id:"native-live",ui_session_id:runtime.uiSessionId,kind:"tap",captured_at:new Date(now).toISOString(),expires_at:new Date(now+10000).toISOString()},()=>{});
 if(!result.runtimeExited || !result.taskId || !result.answer.trim())throw new Error("Incomplete native result");
 await runtime.close();runtime=undefined;
 ${sdk ? "await verifySdk(new NodeCompat(),config);" : ""}

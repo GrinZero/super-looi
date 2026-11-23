@@ -3212,7 +3212,8 @@
   - [x] Step 2：创建 `apps/nsh/runtime/agent/`（`types.ts`、`oauth.ts`、`models.ts`、`history.ts`、`runtime.ts`）与入口 `apps/nsh/runtime/agent.ts`。
   - [x] Step 3：创建 `apps/nsh/runtime/schedule.ts`、`apps/nsh/runtime/home-controller.ts`、`apps/nsh/runtime/plugins/controller.ts`。
   - [x] Step 4：重构 `apps/nsh/runtime/application.ts`（挂载 6 个分域子门面并暂时保留平铺兼容转发），新增独立单测 `apps/nsh/tests/agent-runtime.node.ts`，同步更新 `schedule-runtime.node.ts` 与 `verify-mobile-runtime.ts`，完成 Phase 1 全量验证并提交 Commit 1。
-- [ ] Phase 2 — 切换分域子门面、清理透传壳、更新文档与独立审查
-  - [ ] Step 5：更新 `build-runtime.ts`、`store.ts` 及全部测试/脚本调用方切换到分域子门面，删除 `application.ts` 平铺透传方法，更新 `docs/arch/architecture.js` 与 `docs/arch/index.html`。
-  - [ ] Step 6：运行 Phase 2 全量类型检查、Node 测试与 QuickJS 验收。
-  - [ ] Step 7：通过只读 `research` 子 Agent 完成独立架构与 Diff 审查，修复问题并完成 Commit 2。
+- [x] Phase 2 — 切换分域子门面、清理透传壳、更新文档与独立审查
+  - [x] Step 5：更新 `build-runtime.ts`、`store.ts` 及全部测试/脚本调用方切换到分域子门面，删除 `application.ts` 平铺透传方法，更新 `docs/arch/architecture.js` 与 `docs/arch/index.html`。
+  - [x] Step 6：运行 Phase 2 全量类型检查、Node 测试与 QuickJS 验收。
+  - [x] Step 7：通过只读 `research` 子 Agent 完成独立架构与 Diff 审查，修复问题并完成 Commit 2。
+- [x] 额外修复 — `packages/looi-runtime` 保留 Pi 结构化 `sections` 系统提示词分段（消除 `forceSystemPrompt` 拍扁与 `llm-observer` 回放同步）。

@@ -146,7 +146,7 @@ export type ApplianceIconKind = "camera" | "lock" | "bell" | "cooker" | "washer"
 export interface HomeSourceStatus {enabled:boolean;configured:boolean;healthy:boolean;entityCount:number;error:string|null}
 export interface HomeLayoutPreferences {version:1;appliances:Record<string,{span?:TileSpan;order?:number}>}
 export interface HomeConfiguration {mode:"disabled"|"simulation"|"external_ha"|"direct_miot";haUrl:string;region:"cn"|"de"|"i2"|"ru"|"sg"|"us";hasToken:boolean;hasMiotAccount:boolean;enabledSources?:Record<HomeSourceId,boolean>;layout?:HomeLayoutPreferences}
-export interface HomeConnection {mode:string;simulation:boolean;configured:boolean;healthy:boolean;connectionId:string|null;lastVerifiedAt:string|null;error:string|null;entityCount:number;sources?:Record<HomeSourceId,HomeSourceStatus>}
+export interface HomeConnection {mode:HomeConfiguration["mode"];simulation:boolean;configured:boolean;healthy:boolean;connectionId:string|null;lastVerifiedAt:string|null;error:string|null;entityCount:number;sources?:Record<HomeSourceId,HomeSourceStatus>}
 export interface MultiGangChannel {id:string;label:string;entityId:string;domain:string;isOn:boolean;controllable:boolean}
 export interface ModeOption {value:string;label:string}
 export interface ModeBarCapability {entityId:string;domain:string;service:string;parameterKey:string;currentMode:string;currentLabel:string;options:ModeOption[];controllable:boolean}
@@ -185,7 +185,7 @@ export type BodyControlAction = "head_up" | "head_center" | "head_down" | "head_
 export interface BodyActionReceipt {action:BodyControlAction;status:"verified"|"sent"|"rejected"|"failed";simulation:boolean;isDocked:boolean;headDegrees:number;lightOn:boolean;lightBrightness:number;powerStatus:BodyPowerStatus|null;speed?:number;turn?:number;durationMs:number|null;stopCommandAt:string|null;recordedAt:string;reason?:string}
 export interface NativeBlePort {permission():string;requestPermission():string;startScan():void;stopScan():void;scannedDevices():Array<{id:string;name:string;rssi:number}>;connect(deviceId:string):void;disconnect():void;subscribe(characteristic:string):void;write(characteristic:string,hexPayload:string,withResponse:boolean):void;read(characteristic:string):void;drainEvents():Array<{kind:string;characteristic:string;payload:string}>;status():{state:string;permission:string;deviceId:string;deviceName:string;error:string}}
 export class MiotLoginFlow {
- constructor(options:{runtime:NativeRuntime;browser:()=>{open(authorization:string,redirect:string):void;status():string;takeCallback():string;cancel():void};active:()=>boolean;onRunning:(value:boolean)=>void});
+ constructor(options:{runtime:Pick<NativeHomeController,"beginMiotLogin"|"finishMiotLogin"|"cancelMiotLogin">;browser:()=>{open(authorization:string,redirect:string):void;status():string;takeCallback():string;cancel():void};active:()=>boolean;onRunning:(value:boolean)=>void});
  start(region:HomeConfiguration["region"],action:UiAction):Promise<HomeConnection>;
  cancel():void;
 }
@@ -245,16 +245,116 @@ export function previewCronOccurrences(expr:string,count?:number,after?:Date,opt
 export function isWithinQuietHours(now:Date,settings:Pick<ScheduleSettings,"quietHoursEnabled"|"quietHours">):boolean;
 import type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,ResumableStageView,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraFrame,NativeDeviceCameraFacesFrame,NativeCroppedPortrait,NativeDeviceCameraPort,VisionBrokerAttachOptions,NativeDeviceMotionSample,NativeDeviceMotionPort,MotionBrokerAttachOptions,BodyCliffState,BodySensorPacket,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
 export type {PluginSnapshot,PluginFailure,PluginEvent,PluginCategory,PluginManifest,PluginDependencyStatus,PluginStagePresentation,ResumableStageView,FaceStagePosture,StageDrawerDetent,PluginVoiceTool,ToolCallBailResult,UserTurnBailResult,AiTurnDraft,DetectedCameraFace,NativeDeviceCameraFrame,NativeDeviceCameraFacesFrame,NativeCroppedPortrait,NativeDeviceCameraPort,VisionBrokerAttachOptions,NativeDeviceMotionSample,NativeDeviceMotionPort,MotionBrokerAttachOptions,BodyCliffState,BodySensorPacket,LanHttpRequest,LanHttpResponse,LanRoomSession,NativeLanRoomInfo,NativeLanHttpRequest,NativeLanRoomPort} from "../runtime/plugins/shared-types.js";
-export interface NativeRuntime {
- pluginsSnapshot():PluginSnapshot[];
- startPlugins():Promise<void>;
+export interface NativeAgentModels {
+ configuration():{baseUrl:string;model:string;hasKey:boolean};
+ configureLegacy(input:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
+ snapshot():LlmCatalogSnapshot;
+ refreshModels(providerId:string,signal?:AbortSignal):Promise<LlmCatalogSnapshot>;
+ saveApiKey(input:{providerId:string;apiKey?:string;modelId?:string;custom?:CustomEndpointConfig;setActive?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
+ selectActive(input:{providerId:string;modelId:string;addCustomModel?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
+ removeCredential(providerId:string,action:UiAction):Promise<LlmCatalogSnapshot>;
+ startOAuth(providerId:string,action:UiAction,onEvent:(event:LlmOAuthUiEvent)=>void):Promise<LlmCatalogSnapshot>;
+ submitOAuthCallback(callbackUrl:string):void;
+ cancelOAuth():void;
+}
+export interface NativeAgentHistory {
+ page(offset?:number):NativeTaskPage;
+ details(id:string):NativeTask;
+ subscribe(listener:(historyChanged:boolean)=>void):()=>void;
+}
+export interface NativeAgentRuntime {
+ readonly models:NativeAgentModels;
+ readonly history:NativeAgentHistory;
+ newConversation(action:UiAction):void;
+ activeConversationId():string;
+ adoptConversationSession(sessionId:string,action:UiAction):{conversationId:string};
+ voiceConversationId():string;
+ touchVoiceConversation():void;
+ run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{onShellOutput?:(event:NativeShellOutput)=>void;agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
+ respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
+ sendMessage(taskId:string,message:string,behavior:"steer"|"followUp",action:UiAction):Promise<"queued"|"handled">;
+ cancelTask(taskId:string):Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
+ cancelForeground():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
+}
+export interface NativeScheduleRuntime {
+ attachNative(hostOrPort:NativeScheduleHost|NativeSchedulePort|null,options?:{foregroundActive?:boolean}):Promise<void>;
+ setForegroundActive(active:boolean):Promise<void>;
+ handleNativeEvents(events?:readonly NativeScheduleEvent[]):Promise<{tappedRule?:ScheduleRule;tappedRun?:ScheduleRunRecord}>;
+ reconcileDueRules():Promise<ScheduleRunRecord[]>;
+ exactAlarmStatus():NativeScheduleExactAlarmStatus|null;
+ openExactAlarmSettings():Promise<boolean>;
+ requestPermission(action?:UiAction):Promise<NativePermissionStatusResult>;
+ snapshot():Promise<ScheduleSnapshot>;
+ snapshotSync():Omit<ScheduleSnapshot,"permissionStatus">;
+ subscribeActivity(listener:(event:ScheduleActivityNotification)=>void):()=>void;
+ subscribeInteractions(listener:(event:ScheduleInteractionEvent)=>void):()=>void;
+ pendingInteractions():Array<ScheduleInteractionEvent&{type:"requested"}>;
+ listRules(filter?:{state?:ScheduleRuleState;origin?:ScheduleOrigin}):ScheduleRule[];
+ listRuns(ruleId?:string,limit?:number):ScheduleRunRecord[];
+ createRule(input:CreateScheduleRuleInput,action?:UiAction):{rule:ScheduleRule;merged:boolean};
+ updateRule(id:string,patch:UpdateScheduleRuleInput,action?:UiAction):ScheduleRule;
+ setRuleEnabled(id:string,enabled:boolean,action?:UiAction):ScheduleRule;
+ cancelRule(id:string,action?:UiAction):Promise<ScheduleRule>;
+ deleteRule(id:string,action?:UiAction):Promise<boolean>;
+ runRuleNow(id:string,action?:UiAction):Promise<ScheduleRunRecord>;
+ updateSettings(patch:Partial<ScheduleSettings>,action?:UiAction):ScheduleSettings;
+ addQuietHoursWindow(input:Omit<QuietHoursWindow,"id">&{id?:string},action?:UiAction):ScheduleSettings;
+ updateQuietHoursWindow(id:string,patch:Partial<Omit<QuietHoursWindow,"id">>,action?:UiAction):ScheduleSettings;
+ removeQuietHoursWindow(id:string,action?:UiAction):ScheduleSettings;
+ setQuietHoursEnabled(enabled:boolean,action?:UiAction):ScheduleSettings;
+ isQuietHoursNow():boolean;
+ voiceSchedule():VoiceSchedule;
+}
+export interface NativeHomeController {
+ configuration():HomeConfiguration;
+ connection():HomeConnection;
+ voiceHome():VoiceHome|undefined;
+ configure(input:{mode:HomeConfiguration["mode"];haUrl?:string;haToken?:string;region?:HomeConfiguration["region"];enabledSources?:Partial<Record<HomeSourceId,boolean>>},action:UiAction):Promise<HomeConfiguration>;
+ connect():Promise<HomeConnection>;
+ beginMiotLogin(region:HomeConfiguration["region"],action:UiAction):Promise<{authorizationUrl:string;redirectUri:string;expiresAt:number;attempt:number}>;
+ finishMiotLogin(attempt:number,callback:string,isCurrent:()=>boolean):Promise<HomeConnection>;
+ cancelMiotLogin():void;
+ logoutMiot(action:UiAction):Promise<void>;
+ list(query?:string,offset?:number):Promise<Record<string,unknown>>;
+ dashboard(lang?:"zh-CN"|"en-US"):Promise<HomeDashboardModel>;
+ cachedDashboard(lang?:"zh-CN"|"en-US"):HomeDashboardModel|null;
+ setSourceEnabled(source:HomeSourceId,enabled:boolean,action:UiAction):Promise<HomeConnection>;
+ setApplianceLayout(applianceId:string,patch:{span?:TileSpan;order?:number}):HomeLayoutPreferences;
+ attachCamera(camera: import("../runtime/camera.js").NativeCamera):void;
+ startCamera(did:string):Promise<{sessionId:string;protocol:"native"}>;
+ stopCamera():Promise<void>;
+ panTiltCamera(did:string,direction:"left"|"right"|"up"|"down",action:UiAction):Promise<void>;
+ controlAppliance(command:{entity_id:string;domain:string;service:string;service_data?:Record<string,unknown>;timeout_ms?:number},action:UiAction):Promise<{receipt:{status:string;outcome?:string;reason_code?:string|null};simulation:boolean;connectionId:string;instruction:string}>;
+}
+export interface NativeBodyRuntime {
+ configuration():BodyConfiguration;
+ status():BodyStatusSnapshot;
+ attachNativeBle(port:NativeBlePort|null):BodyStatusSnapshot;
+ setForegroundActive(active:boolean):BodyStatusSnapshot;
+ configure(input:Partial<BodyConfiguration>,action:UiAction):Promise<BodyStatusSnapshot>;
+ scan(timeoutMs?:number):Promise<BodyStatusSnapshot>;
+ connect(target?:{deviceId?:string;deviceName?:string}):Promise<BodyStatusSnapshot>;
+ disconnect():Promise<BodyStatusSnapshot>;
+ forgetSavedDock():Promise<BodyStatusSnapshot>;
+ setSimulatedDock(docked:boolean):BodyStatusSnapshot;
+ control(input:{action:BodyControlAction;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number},holder?:string):Promise<BodyActionReceipt>;
+ stop(reason?:import("@super-looi/contracts").BodyStopRequest["reason"]):Promise<BodyStatusSnapshot>;
+ stopNonPluginMotion():Promise<BodyStatusSnapshot>;
+ startDrive(action:"forward"|"backward"|"turn_left"|"turn_right"):Promise<BodyStatusSnapshot>;
+ renewDrive():boolean;
+ setDriveVector(speed:number,turn:number):Promise<BodyStatusSnapshot>;
+ readPowerStatus():Promise<BodyStatusSnapshot>;
+}
+export interface NativePluginController {
+ snapshots():PluginSnapshot[];
+ startStartupPlugins():Promise<void>;
  activeStagePresentation():{pluginId:string;revision:number;presentation:PluginStagePresentation}|null;
  resumableStage():ResumableStageView|null;
- resumePluginStage(id?:string):Promise<void>;
- setPluginsForegroundActive(active:boolean):void;
- exitPluginStage(id:string):void;
- reportPluginStageCrash(id:string,slot:"StageCanvas"|"StageCompanion"|"StageCapsule"|"StageDrawer",error:unknown):PluginFailure;
- installMarketplacePlugin(rawArchive:string|Uint8Array|{readonly format:"nshpkg-v1";readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string;readonly signature:string},verifyOptions:{readonly trustedKeys:Readonly<Record<string,string|Uint8Array>>;readonly hostApiVersion?:number},createDefinition:(verified:{readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string})=>unknown,action:UiAction):Promise<PluginSnapshot>;
+ resumeStage(id?:string):Promise<void>;
+ setForegroundActive(active:boolean):void;
+ exitStage(id:string):void;
+ reportStageCrash(id:string,slot:"StageCanvas"|"StageCompanion"|"StageCapsule"|"StageDrawer",error:unknown):PluginFailure;
+ installMarketplacePackage(rawArchive:string|Uint8Array|{readonly format:"nshpkg-v1";readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string;readonly signature:string},verifyOptions:{readonly trustedKeys:Readonly<Record<string,string|Uint8Array>>;readonly hostApiVersion?:number},createDefinition:(verified:{readonly manifest:PluginManifest;readonly runtimeEntry:string;readonly uiEntry?:string;readonly sha256:string;readonly keyId:string})=>import("../runtime/plugins/contracts.js").PluginDefinition<any,any>,action:UiAction):Promise<PluginSnapshot>;
  attachFaceController(controller:RobotFaceController|undefined):void;
  attachNativeDeviceCamera(port:NativeDeviceCameraPort|null,options?:VisionBrokerAttachOptions):void;
  setDeviceCameraForegroundActive(active:boolean):void;
@@ -262,115 +362,39 @@ export interface NativeRuntime {
  setDeviceMotionForegroundActive(active:boolean):void;
  attachNativeLanRoom(port:NativeLanRoomPort|null):void;
  setLanRoomForegroundActive(active:boolean):void;
- setPluginAiBridge(bridge:{speak?:(options:{pluginId:string;spokenText:string;contextNote?:string;delivery:"when_idle"|"interrupt";capturePolicy?:"inherit"|"duplex"|"muted_broadcast";verbatim?:boolean;holdAliveMs?:number;closeToStandbyOnComplete?:boolean;signal?:AbortSignal})=>Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;listenUntil?:(deadlineMs:number,signal:AbortSignal)=>Promise<void>;runBackgroundTask?:(options:{pluginId:string;prompt:string})=>Promise<{readonly taskId:string;readonly answer:string}>;onVoiceContextUpdated?:(summaryPrompt:string)=>void;onVoiceToolsUpdated?:()=>void}):void;
- pluginAmbientVoiceContext():string;
- pluginVoiceTools():readonly PluginVoiceTool[];
+ setAiBridge(bridge:{speak?:(options:{pluginId:string;spokenText:string;contextNote?:string;delivery:"when_idle"|"interrupt";capturePolicy?:"inherit"|"duplex"|"muted_broadcast";verbatim?:boolean;holdAliveMs?:number;closeToStandbyOnComplete?:boolean;signal?:AbortSignal})=>Promise<{readonly completed:boolean;readonly interruptedReason?:string}>;listenUntil?:(deadlineMs:number,signal:AbortSignal)=>Promise<void>;runBackgroundTask?:(options:{pluginId:string;prompt:string})=>Promise<{readonly taskId:string;readonly answer:string}>;onVoiceContextUpdated?:(summaryPrompt:string)=>void;onVoiceToolsUpdated?:()=>void}):void;
+ ambientVoiceContext():string;
+ voiceTools():readonly PluginVoiceTool[];
  evaluateVoiceToolCall(call:{toolName:string;arguments:Record<string,unknown>}):Promise<(Exclude<ToolCallBailResult,undefined>&{readonly pluginId:string})|undefined>;
  evaluateVoiceUserTurn(text:string):Promise<(Exclude<UserTurnBailResult,undefined>&{readonly pluginId:string})|undefined>;
  assembleVoiceTurn(text:string):Promise<AiTurnDraft>;
- subscribePlugins(listener:(event:PluginEvent)=>void):()=>void;
- refreshPlugin(id:string):Promise<PluginSnapshot[]>;
- setPluginEnabled(id:string,enabled:boolean,action:UiAction):Promise<PluginSnapshot>;
- configurePlugin(id:string,enabled:boolean,values:Record<string,string>,action:UiAction):Promise<PluginSnapshot>;
- sendPluginCommand<TCommand=unknown,TResult=unknown>(id:string,command:TCommand,action:UiAction):Promise<TResult>;
- beginPluginLogin(id:string,action:UiAction):Promise<{sessionId:string}>;
- cancelPluginLogin(id:string):Promise<void>;
- logoutPlugin(id:string,action:UiAction):Promise<void>;
- readonly tracer:{start(name:string,type:"span"|"agent"|"generation"|"tool",context?:TraceContext,attributes?:Record<string,unknown>):{end(attributes?:Record<string,unknown>):void}};
- subscribeTaskActivity(listener:(historyChanged:boolean)=>void):()=>void;
- homeConfiguration():HomeConfiguration;
- voiceHome():VoiceHome|undefined;
- voiceSchedule():VoiceSchedule;
- homeConnection():HomeConnection;
- configureHome(input:{mode:HomeConfiguration["mode"];haUrl?:string;haToken?:string;region?:HomeConfiguration["region"];enabledSources?:Partial<Record<HomeSourceId,boolean>>},action:UiAction):Promise<HomeConfiguration>;
- connectHome():Promise<HomeConnection>;
- beginMiotLogin(region:HomeConfiguration["region"],action:UiAction):Promise<{authorizationUrl:string;redirectUri:string;expiresAt:number;attempt:number}>;
- finishMiotLogin(attempt:number,callback:string,isCurrent:()=>boolean):Promise<HomeConnection>;
- cancelMiotLogin():void;
- logoutMiot(action:UiAction):Promise<void>;
- listHome(query?:string,offset?:number):Promise<Record<string,unknown>>;
- homeDashboard(lang?:"zh-CN"|"en-US"):Promise<HomeDashboardModel>;
- cachedHomeDashboard(lang?:"zh-CN"|"en-US"):HomeDashboardModel|null;
- setHomeSourceEnabled(source:HomeSourceId,enabled:boolean,action:UiAction):Promise<HomeConnection>;
- startHomeCamera(did:string):Promise<{sessionId:string;protocol:"native"}>;
- attachNativeCamera(camera: import("../runtime/camera.js").NativeCamera):void;
- stopHomeCamera():Promise<void>;
- panTiltHomeCamera(did:string,direction:"left"|"right"|"up"|"down",action:UiAction):Promise<void>;
- setHomeApplianceLayout(applianceId:string,patch:{span?:TileSpan;order?:number}):HomeLayoutPreferences;
- controlHomeAppliance(command:{entity_id:string;domain:string;service:string;service_data?:Record<string,unknown>;timeout_ms?:number},action:UiAction):Promise<{receipt:{status:string;outcome?:string;reason_code?:string|null};simulation:boolean;connectionId:string;instruction:string}>;
- bodyConfiguration():BodyConfiguration;
- bodyStatus():BodyStatusSnapshot;
- attachNativeBle(port:NativeBlePort|null):BodyStatusSnapshot;
- setBodyForegroundActive(active:boolean):BodyStatusSnapshot;
- configureBody(input:Partial<BodyConfiguration>,action:UiAction):Promise<BodyStatusSnapshot>;
- scanBodyDevices(timeoutMs?:number):Promise<BodyStatusSnapshot>;
- connectBodyDevice(target?:{deviceId?:string;deviceName?:string}):Promise<BodyStatusSnapshot>;
- disconnectBody():Promise<BodyStatusSnapshot>;
- forgetSavedDock():Promise<BodyStatusSnapshot>;
- setSimulatedDock(docked:boolean):BodyStatusSnapshot;
- controlBody(input:{action:BodyControlAction;durationMs?:number;headDegrees?:number;brightness?:number;speed?:number;turn?:number},holder?:string):Promise<BodyActionReceipt>;
- stopBody():Promise<BodyStatusSnapshot>;
- stopVoiceMotion():Promise<BodyStatusSnapshot>;
- redactSecrets(text:string):string;
- startBodyDrive(action:"forward"|"backward"|"turn_left"|"turn_right"):Promise<BodyStatusSnapshot>;
- renewBodyDrive():boolean;
- setBodyDriveVector(speed:number,turn:number):Promise<BodyStatusSnapshot>;
- readBodyPower():Promise<BodyStatusSnapshot>;
+ subscribe(listener:(event:PluginEvent)=>void):()=>void;
+ refresh(id:string):Promise<PluginSnapshot[]>;
+ setEnabled(id:string,enabled:boolean,action:UiAction):Promise<PluginSnapshot>;
+ configure(id:string,enabled:boolean,values:Record<string,string>,action:UiAction):Promise<PluginSnapshot>;
+ sendCommand<TCommand=unknown,TResult=unknown>(id:string,command:TCommand,action:UiAction):Promise<TResult>;
+ beginLogin(id:string,action:UiAction):Promise<{sessionId:string}>;
+ cancelLogin(id:string):Promise<void>;
+ logout(id:string,action:UiAction):Promise<void>;
+}
+export interface NativeGitHubCredentials {
+ status():GitHubCredentialStatus;
+ save(token:string,action:UiAction):GitHubCredentialStatus;
+ verify(action:UiAction):Promise<GitHubTokenVerificationResult>;
+ clear(action:UiAction):GitHubCredentialStatus;
+}
+export interface NativeRuntime {
  readonly uiSessionId:string;
- configuration():{baseUrl:string;model:string;hasKey:boolean};
- taskPage(offset?:number):NativeTaskPage;
- taskDetails(id:string):NativeTask;
- newConversation(action:UiAction):void;
- activeConversationId():string;
- adoptConversationSession(sessionId:string,action:UiAction):{conversationId:string};
- configure(value:{baseUrl:string;model:string;apiKey:string}):Promise<void>;
- voiceConversationId():string;
- touchVoiceConversation():void;
- run(prompt:string,action:UiAction,onStep:(event:NativeStep)=>void,options?:{onShellOutput?:(event:NativeShellOutput)=>void;agentOnly?:boolean;mode?:"text"|"voice";approvalMode?:"ask"|"local_auto"|"yolo";defaultLanguage?:"zh-CN"|"en-US";traceContext?:TraceContext}):Promise<{answer:string;taskId:string;runtimeExited:boolean}>;
- sendTaskMessage(taskId:string,message:string,behavior:"steer"|"followUp",action:UiAction):Promise<"queued"|"handled">;
- respond(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
- respondTask(taskId:string,requestId:string,answer:{outcome:"allowed-once"|"rejected"|"cancelled";userAction?:UiAction}|{answers:Array<{id:string;selected:string[];custom?:string}>}|{cancelled:true}):void;
- cancelTask(taskId:string):Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
- cancel():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
+ readonly tracer:{start(name:string,type:"span"|"agent"|"generation"|"tool",context?:TraceContext,attributes?:Record<string,unknown>):{end(attributes?:Record<string,unknown>):void}};
+ readonly agent:NativeAgentRuntime;
+ readonly schedule:NativeScheduleRuntime;
+ readonly home:NativeHomeController;
+ readonly body:NativeBodyRuntime;
+ readonly plugins:NativePluginController;
+ readonly github:NativeGitHubCredentials;
+ redactSecrets(text:string):string;
+ cancelForeground():Promise<{state:string;runtimeExited:boolean;confirmed:boolean}>;
  close():Promise<void>;
- llmSnapshot():LlmCatalogSnapshot;
- refreshProviderModels(providerId:string):Promise<LlmCatalogSnapshot>;
- saveProviderApiKey(input:{providerId:string;apiKey?:string;modelId?:string;custom?:CustomEndpointConfig;setActive?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
- selectActiveModel(input:{providerId:string;modelId:string;addCustomModel?:boolean},action:UiAction):Promise<LlmCatalogSnapshot>;
- removeProviderCredential(providerId:string,action:UiAction):Promise<LlmCatalogSnapshot>;
- startProviderOAuth(providerId:string,action:UiAction,onEvent:(event:LlmOAuthUiEvent)=>void):Promise<LlmCatalogSnapshot>;
- submitProviderOAuthCallback(callbackUrl:string):void;
- cancelProviderOAuth():void;
- attachNativeSchedule(hostOrPort:NativeScheduleHost|NativeSchedulePort|null,options?:{foregroundActive?:boolean}):Promise<void>;
- setScheduleForegroundActive(active:boolean):Promise<void>;
- handleNativeScheduleEvents(events?:readonly NativeScheduleEvent[]):Promise<{tappedRule?:ScheduleRule;tappedRun?:ScheduleRunRecord}>;
- reconcileScheduleDueRules():Promise<ScheduleRunRecord[]>;
- scheduleExactAlarmStatus():NativeScheduleExactAlarmStatus|null;
- openScheduleExactAlarmSettings():Promise<boolean>;
- requestSchedulePermission(action?:UiAction):Promise<NativePermissionStatusResult>;
- scheduleSnapshot():Promise<ScheduleSnapshot>;
- scheduleSnapshotSync():Omit<ScheduleSnapshot,"permissionStatus">;
- subscribeScheduleActivity(listener:(event:ScheduleActivityNotification)=>void):()=>void;
- subscribeScheduleInteractions(listener:(event:ScheduleInteractionEvent)=>void):()=>void;
- pendingScheduleInteractions():Array<ScheduleInteractionEvent&{type:"requested"}>;
- listScheduleRules(filter?:{state?:ScheduleRuleState;origin?:ScheduleOrigin}):ScheduleRule[];
- listScheduleRuns(ruleId?:string,limit?:number):ScheduleRunRecord[];
- createScheduleRule(input:CreateScheduleRuleInput,action?:UiAction):{rule:ScheduleRule;merged:boolean};
- updateScheduleRule(id:string,patch:UpdateScheduleRuleInput,action?:UiAction):ScheduleRule;
- setScheduleRuleEnabled(id:string,enabled:boolean,action?:UiAction):ScheduleRule;
- cancelScheduleRule(id:string,action?:UiAction):Promise<ScheduleRule>;
- deleteScheduleRule(id:string,action?:UiAction):Promise<boolean>;
- runScheduleRuleNow(id:string,action?:UiAction):Promise<ScheduleRunRecord>;
- updateScheduleSettings(patch:Partial<ScheduleSettings>,action?:UiAction):ScheduleSettings;
- addQuietHoursWindow(input:Omit<QuietHoursWindow,"id">&{id?:string},action?:UiAction):ScheduleSettings;
- updateQuietHoursWindow(id:string,patch:Partial<Omit<QuietHoursWindow,"id">>,action?:UiAction):ScheduleSettings;
- removeQuietHoursWindow(id:string,action?:UiAction):ScheduleSettings;
- setQuietHoursEnabled(enabled:boolean,action?:UiAction):ScheduleSettings;
- isQuietHoursNow():boolean;
- githubCredentialStatus():GitHubCredentialStatus;
- saveGitHubToken(token:string,action:UiAction):GitHubCredentialStatus;
- verifyGitHubToken(action:UiAction):Promise<GitHubTokenVerificationResult>;
- clearGitHubToken(action:UiAction):GitHubCredentialStatus;
 }
 export const FACE_EXPRESSION_IDS: readonly ["neutral","listening","thinking","speaking","curious","sleeping","alarmed","wake_spark","aha_eureka","confused","interrupted","wave_bye","happy_squint","laughing","wink","love_eyes","shy_blush","starry_eyed","smug_proud","kitty_playful","touched_warm","kissy","excited_bounce","zen_content","pouty","sad_droop","teary_cry","grumpy_puff","angry_glare","speechless","side_eye","shocked","dizzy_spiral","nervous_sweat","mischievous","relieved_sigh","sleepy_drowsy","yawning","deep_snore","coffee_sip","munching","sipping_straw","music_vibe","focus_glasses","reading_scan","pomodoro_timer","celebrate_party","bored_sigh","coding_terminal","searching_radar","approval_ask","task_verified","task_warning","memory_recall","memory_saved","sync_pulse","privacy_shield","rate_limited","offline_lost","night_watch","dock_snap","undock_float","drive_forward","turn_peek","head_up_sky","head_down_floor","charging_pulse","low_battery","fill_light_glow","home_command","weather_sunny","weather_rain_chill"];
 export type CanonicalFaceExpression = (typeof FACE_EXPRESSION_IDS)[number];

@@ -30,12 +30,12 @@ const runtime = new MobileRuntime(
 );
 let rejected = false;
 try {
-  await runtime.configure({ ...oldConfig, model: "replacement" });
+  await runtime.agent.models.configureLegacy({ ...oldConfig, model: "replacement" });
 } catch {
   rejected = true;
 }
 assert(rejected, "Native vault failure must be reported");
-equal(runtime.configuration().model, "original");
+equal(runtime.agent.models.configuration().model, "original");
 equal(JSON.parse(saved).model, "original");
 // Exercise the retained executor's public admission path without a network call.
 // A closed executor rejects before task creation; a usable one reaches provider setup.
@@ -52,7 +52,7 @@ globalThis.fetch = async (_input, init) => {
   );
 };
 try {
-  await runtime.run(
+  await runtime.agent.run(
     "Say OK",
     {
       event_id: "vault-failure",
@@ -81,8 +81,8 @@ assert(
   "Vault failure left a closed executor",
 );
 failWrite = false;
-await runtime.configure({ ...oldConfig, model: "replacement" });
-equal(runtime.configuration().model, "replacement");
+await runtime.agent.models.configureLegacy({ ...oldConfig, model: "replacement" });
+equal(runtime.agent.models.configuration().model, "replacement");
 equal(JSON.parse(saved).model, "replacement");
 await runtime.close();
 assert(released);
@@ -132,11 +132,11 @@ const action = () => {
   };
 };
 try {
-  const first = await mobile.run("My code is ORCHID", action(), () => {});
+  const first = await mobile.agent.run("My code is ORCHID", action(), () => {});
   const conversation = JSON.parse(saved).conversationId;
   await mobile.close();
   mobile = new MobileRuntime(vault, () => {});
-  const second = await mobile.run("What was my code?", action(), () => {});
+  const second = await mobile.agent.run("What was my code?", action(), () => {});
   assert(
     first.taskId !== second.taskId,
     "Each turn keeps independent task evidence",
@@ -152,37 +152,37 @@ try {
     ),
     "App reopen lost the prior answer",
   );
-  const beforeTasks = mobile.taskPage();
+  const beforeTasks = mobile.agent.history.page();
   assert(beforeTasks.items.some((task) => task.id === first.taskId));
-  const detail = mobile.taskDetails(first.taskId);
+  const detail = mobile.agent.history.details(first.taskId);
   detail.prompt = "tampered";
-  equal(mobile.taskDetails(first.taskId).prompt, "My code is ORCHID");
+  equal(mobile.agent.history.details(first.taskId).prompt, "My code is ORCHID");
   let invalidPage = false;
   try {
-    mobile.taskPage(-1);
+    mobile.agent.history.page(-1);
   } catch {
     invalidPage = true;
   }
   assert(invalidPage, "Negative task offsets must be rejected");
-  mobile.newConversation(action());
+  mobile.agent.newConversation(action());
   assert(JSON.parse(saved).conversationId !== conversation);
-  equal(mobile.taskPage().total, beforeTasks.total);
-  await mobile.run("New conversation", action(), () => {});
+  equal(mobile.agent.history.page().total, beforeTasks.total);
+  await mobile.agent.run("New conversation", action(), () => {});
   assert(
     !JSON.stringify(prompts[2]).includes("ORCHID"),
     "New conversation leaked prior history",
   );
-  await mobile.configure({ ...oldConfig, model: "new-account" });
+  await mobile.agent.models.configureLegacy({ ...oldConfig, model: "new-account" });
   assert(
     JSON.parse(saved).conversationId !== conversation,
     "Changing model configuration must rotate conversation identity",
   );
-  await mobile.run("Hello", action(), () => {});
+  await mobile.agent.run("Hello", action(), () => {});
   assert(
     !JSON.stringify(prompts[3]).includes("ORCHID"),
     "Configuration switch leaked prior conversation",
   );
-  const semanticRecall = await mobile.run(
+  const semanticRecall = await mobile.agent.run(
     "回忆我曾经保存的某件事",
     action(),
     () => {},
@@ -226,8 +226,8 @@ const homeAction = () => {
     expires_at: new Date(now + 10000).toISOString(),
   };
 };
-await homeMobile.configureHome({ mode: "simulation" }, homeAction());
-const homeConnection = await homeMobile.connectHome();
+await homeMobile.home.configure({ mode: "simulation" }, homeAction());
+const homeConnection = await homeMobile.home.connect();
 let round = 0,
   approvals = 0;
 let homeTask = "";
@@ -268,13 +268,13 @@ globalThis.fetch = async () => {
   ]);
 };
 try {
-  const outcome = await homeMobile.run(
+  const outcome = await homeMobile.agent.run(
     "打开演示书房灯",
     homeAction(),
     (event) => {
       if (event.interaction?.kind === "approval" && event.taskId) {
         approvals++;
-        homeMobile.respond(event.taskId, event.interaction.id, {
+        homeMobile.agent.respond(event.taskId, event.interaction.id, {
           outcome: "allowed-once",
           userAction: homeAction(),
         });
@@ -283,18 +283,18 @@ try {
   );
   homeTask = outcome.taskId;
   equal(approvals, 1);
-  const evidence = homeMobile.taskDetails(homeTask).homeActions;
+  const evidence = homeMobile.agent.history.details(homeTask).homeActions;
   equal(evidence.length, 1);
   equal(evidence[0].status, "verified");
   equal(evidence[0].simulation, true);
   equal(evidence[0].command.entity_id, "light.study_ceiling");
-  const autoOutcome = await homeMobile.run(
+  const autoOutcome = await homeMobile.agent.run(
     "再次打开演示书房灯",
     homeAction(),
     (event) => {
       if (event.interaction?.kind === "approval" && event.taskId) {
         approvals++;
-        homeMobile.respond(event.taskId, event.interaction.id, {
+        homeMobile.agent.respond(event.taskId, event.interaction.id, {
           outcome: "allowed-once",
           userAction: homeAction(),
         });
@@ -303,8 +303,8 @@ try {
     { approvalMode: "local_auto" },
   );
   equal(approvals, 2);
-  equal(homeMobile.taskDetails(autoOutcome.taskId).homeActions[0].status, "verified");
-  const yoloOutcome = await homeMobile.run(
+  equal(homeMobile.agent.history.details(autoOutcome.taskId).homeActions[0].status, "verified");
+  const yoloOutcome = await homeMobile.agent.run(
     "自动打开演示书房灯",
     homeAction(),
     (event) => {
@@ -313,7 +313,7 @@ try {
     { approvalMode: "yolo" },
   );
   equal(approvals, 2);
-  equal(homeMobile.taskDetails(yoloOutcome.taskId).homeActions[0].status, "verified");
+  equal(homeMobile.agent.history.details(yoloOutcome.taskId).homeActions[0].status, "verified");
   await homeMobile.close();
   homeMobile = new MobileRuntime(
     {
@@ -327,7 +327,7 @@ try {
     },
     () => {},
   );
-  equal(homeMobile.taskDetails(homeTask).homeActions, evidence);
+  equal(homeMobile.agent.history.details(homeTask).homeActions, evidence);
   await homeMobile.close();
   // Model the durable crash boundary: intent committed, receipt not yet saved.
   const database = new DatabaseSync("/home/looi.sqlite");
@@ -352,18 +352,18 @@ try {
     },
     () => {},
   );
-  equal(homeMobile.taskDetails(homeTask).state, "succeeded");
-  equal(homeMobile.taskDetails(homeTask).homeActions[0].status, "unknown");
-  equal(homeMobile.taskDetails(homeTask).homeActions[0].receipt, null);
-  const continuedOutcome = await homeMobile.run(
+  equal(homeMobile.agent.history.details(homeTask).state, "succeeded");
+  equal(homeMobile.agent.history.details(homeTask).homeActions[0].status, "unknown");
+  equal(homeMobile.agent.history.details(homeTask).homeActions[0].receipt, null);
+  const continuedOutcome = await homeMobile.agent.run(
     "Continue",
     homeAction(),
     () => {},
     { approvalMode: "yolo" },
   );
   equal(continuedOutcome.answer, "演示设备已回读确认");
-  homeMobile.newConversation(homeAction());
-  equal(homeMobile.taskDetails(homeTask).homeActions[0].status, "unknown");
+  homeMobile.agent.newConversation(homeAction());
+  equal(homeMobile.agent.history.details(homeTask).homeActions[0].status, "unknown");
 } finally {
   globalThis.fetch = nativeFetch;
   await homeMobile.close();
@@ -387,20 +387,20 @@ async function loginReject(operation: () => unknown) {
   assert(rejected, "Login boundary unexpectedly allowed an operation");
 }
 try {
-  await loginReject(() => loginMobile.beginMiotLogin("cn", { ...loginAction(), ui_session_id: "old-page" }));
+  await loginReject(() => loginMobile.home.beginMiotLogin("cn", { ...loginAction(), ui_session_id: "old-page" }));
   equal(loginSlots.size, 1);
-  const session = await loginMobile.beginMiotLogin("cn", loginAction());
-  await loginReject(() => loginMobile.connectHome());
-  await loginReject(() => loginMobile.listHome());
-  await loginReject(() => loginMobile.configureHome({ mode: "simulation" }, loginAction()));
+  const session = await loginMobile.home.beginMiotLogin("cn", loginAction());
+  await loginReject(() => loginMobile.home.connect());
+  await loginReject(() => loginMobile.home.list());
+  await loginReject(() => loginMobile.home.configure({ mode: "simulation" }, loginAction()));
   await loginReject(() =>
-    loginMobile.controlHomeAppliance(
+    loginMobile.home.controlAppliance(
       { entity_id: "light.study_ceiling", domain: "light", service: "turn_on" },
       loginAction(),
     ),
   );
   // Non-home operations (body/LLM/agent) stay unblocked during MIoT OAuth, while home tools fail closed.
-  const loginBodyStatus = await loginMobile.configureBody({ mode: "simulation" }, loginAction());
+  const loginBodyStatus = await loginMobile.body.configure({ mode: "simulation" }, loginAction());
   equal(loginBodyStatus.mode, "simulation");
   const seenToolErrors: string[] = [];
   let loginRound = 0;
@@ -440,7 +440,7 @@ try {
     ]);
   };
   try {
-    const loginAgentRes = await loginMobile.run("列出设备", loginAction(), () => {});
+    const loginAgentRes = await loginMobile.agent.run("列出设备", loginAction(), () => {});
     equal(loginAgentRes.answer, "MIoT sign-in pending isolated");
     assert(
       seenToolErrors.some((text) => text.includes("FinishOrCancelXiaomiSigninFirst")),
@@ -449,18 +449,18 @@ try {
   } finally {
     globalThis.fetch = nativeFetch;
   }
-  await loginReject(() => loginMobile.finishMiotLogin(session.attempt,
+  await loginReject(() => loginMobile.home.finishMiotLogin(session.attempt,
     `${session.redirectUri}?state=${session.state}&code=fixture`, () => false));
-  assert(!loginMobile.homeConfiguration().hasMiotAccount, "Native invalidation persisted an account");
-  const stale = loginMobile.beginMiotLogin("cn", loginAction());
-  loginMobile.cancelMiotLogin();
+  assert(!loginMobile.home.configuration().hasMiotAccount, "Native invalidation persisted an account");
+  const stale = loginMobile.home.beginMiotLogin("cn", loginAction());
+  loginMobile.home.cancelMiotLogin();
   await loginReject(() => stale);
-  const fresh = await loginMobile.beginMiotLogin("sg", loginAction());
-  await loginReject(() => loginMobile.finishMiotLogin(session.attempt, "old-callback", () => true));
-  await loginReject(() => loginMobile.connectHome());
-  loginMobile.cancelMiotLogin();
-  await loginMobile.configureHome({ mode: "simulation" }, loginAction());
-  assert((await loginMobile.connectHome()).healthy, "Login cancellation did not release the home runtime");
+  const fresh = await loginMobile.home.beginMiotLogin("sg", loginAction());
+  await loginReject(() => loginMobile.home.finishMiotLogin(session.attempt, "old-callback", () => true));
+  await loginReject(() => loginMobile.home.connect());
+  loginMobile.home.cancelMiotLogin();
+  await loginMobile.home.configure({ mode: "simulation" }, loginAction());
+  assert((await loginMobile.home.connect()).healthy, "Login cancellation did not release the home runtime");
   assert(fresh.attempt !== session.attempt, "Login attempt identity was reused");
 } finally { await loginMobile.close(); }
 console.log("PASS mobile MIoT: fresh UI authorization, pending-operation isolation, native commit guard and cancellation generations");
@@ -488,8 +488,8 @@ const llmAction = () => ({
 });
 
 try {
-  // 1. llmSnapshot() has 6 brands (including zai-cn standard endpoint vs zai-coding-cn)
-  const snapshot = llmMobile.llmSnapshot();
+  // 1. llm.snapshot() has 6 brands (including zai-cn standard endpoint vs zai-coding-cn)
+  const snapshot = llmMobile.agent.models.snapshot();
   equal(snapshot.brands.length, 6);
   const brandIds = snapshot.brands.map((b) => b.brandId);
   equal(brandIds, ["openai", "kimi", "minimax", "xiaomi", "zai", "custom"]);
@@ -505,8 +505,8 @@ try {
   const zaiCodingChannel = zaiBrand!.channels.find((c) => c.providerId === "zai-coding-cn")!;
   equal(zaiCodingChannel.baseUrl, "https://open.bigmodel.cn/api/coding/paas/v4");
 
-  // 2. saveProviderApiKey saves Zhipu zai-cn API Key and switches active model
-  const snapAfterSave = await llmMobile.saveProviderApiKey(
+  // 2. saveApiKey saves Zhipu zai-cn API Key and switches active model
+  const snapAfterSave = await llmMobile.agent.models.saveApiKey(
     {
       providerId: "zai-cn",
       apiKey: "test-zhipu-key-12345",
@@ -522,12 +522,12 @@ try {
   assert(updatedZaiBrand.configured, "Zai brand should be marked configured");
   const updatedZaiCn = updatedZaiBrand.channels.find((c) => c.providerId === "zai-cn")!;
   assert(updatedZaiCn.hasApiKey, "zai-cn channel should have apiKey");
-  equal(llmMobile.configuration().model, "glm-5.3");
-  equal(llmMobile.configuration().baseUrl, "https://open.bigmodel.cn/api/paas/v4");
-  equal(llmMobile.configuration().hasKey, true);
+  equal(llmMobile.agent.models.configuration().model, "glm-5.3");
+  equal(llmMobile.agent.models.configuration().baseUrl, "https://open.bigmodel.cn/api/paas/v4");
+  equal(llmMobile.agent.models.configuration().hasKey, true);
 
-  // 3. selectActiveModel injects a custom model ID
-  const snapAfterCustom = await llmMobile.selectActiveModel(
+  // 3. selectActive injects a custom model ID
+  const snapAfterCustom = await llmMobile.agent.models.selectActive(
     {
       providerId: "zai-cn",
       modelId: "glm-custom-pro-v1",
@@ -536,7 +536,7 @@ try {
   );
   equal(snapAfterCustom.active?.providerId, "zai-cn");
   equal(snapAfterCustom.active?.modelId, "glm-custom-pro-v1");
-  equal(llmMobile.configuration().model, "glm-custom-pro-v1");
+  equal(llmMobile.agent.models.configuration().model, "glm-custom-pro-v1");
   const customModelItem = snapAfterCustom.brands
     .find((b) => b.brandId === "zai")!
     .channels.find((c) => c.providerId === "zai-cn")!
@@ -544,17 +544,17 @@ try {
   assert(Boolean(customModelItem), "Injected custom model must appear in models list");
   equal(customModelItem!.isCustom, true);
 
-  // 4. removeProviderCredential clears credential
-  const snapAfterRemove = await llmMobile.removeProviderCredential("zai-cn", llmAction());
+  // 4. removeCredential clears credential
+  const snapAfterRemove = await llmMobile.agent.models.removeCredential("zai-cn", llmAction());
   equal(snapAfterRemove.active, null);
   const clearedZaiBrand = snapAfterRemove.brands.find((b) => b.brandId === "zai")!;
   assert(!clearedZaiBrand.configured, "Zai brand should no longer be configured");
   const clearedZaiCn = clearedZaiBrand.channels.find((c) => c.providerId === "zai-cn")!;
   assert(!clearedZaiCn.hasApiKey, "zai-cn channel should no longer have apiKey");
-  equal(llmMobile.configuration().model, "");
-  equal(llmMobile.configuration().hasKey, false);
+  equal(llmMobile.agent.models.configuration().model, "");
+  equal(llmMobile.agent.models.configuration().hasKey, false);
 
-  // 5. startProviderOAuth("kimi-coding", ...) under mock fetch
+  // 5. startOAuth("kimi-coding", ...) under mock fetch
   const oauthFetch = globalThis.fetch;
   const origTimeout = AbortSignal.timeout;
   AbortSignal.timeout = () => new AbortController().signal;
@@ -593,7 +593,7 @@ try {
   };
 
   try {
-    const snapAfterOAuth = await llmMobile.startProviderOAuth(
+    const snapAfterOAuth = await llmMobile.agent.models.startOAuth(
       "kimi-coding",
       llmAction(),
       (ev) => {
@@ -623,13 +623,13 @@ try {
       typeof kimiChannel.oauthExpiresAt === "number",
       "oauthExpiresAt should be set",
     );
-    equal(llmMobile.configuration().model, "k3.1-pro");
-    equal(llmMobile.configuration().baseUrl, "https://api.kimi.com/coding/v1");
-    equal(llmMobile.configuration().hasKey, true);
+    equal(llmMobile.agent.models.configuration().model, "k3.1-pro");
+    equal(llmMobile.agent.models.configuration().baseUrl, "https://api.kimi.com/coding/v1");
+    equal(llmMobile.agent.models.configuration().hasKey, true);
 
-    // 6. OpenAI PKCE manual callback prompt + cancelProviderOAuth releases lock cleanly
+    // 6. OpenAI PKCE manual callback prompt + cancelOAuth releases lock cleanly
     const openaiEvents: any[] = [];
-    const pendingOpenai = llmMobile.startProviderOAuth(
+    const pendingOpenai = llmMobile.agent.models.startOAuth(
       "openai",
       llmAction(),
       (ev) => {
@@ -647,13 +647,13 @@ try {
     ]) {
       let callbackError = "";
       try {
-        llmMobile.submitProviderOAuthCallback(callback);
+        llmMobile.agent.models.submitOAuthCallback(callback);
       } catch (error) {
         callbackError = error instanceof Error ? error.message : String(error);
       }
       equal(callbackError, expectedError);
     }
-    llmMobile.cancelProviderOAuth();
+    llmMobile.agent.models.cancelOAuth();
     let cancelledError = false;
     try {
       await pendingOpenai;
@@ -661,7 +661,7 @@ try {
       cancelledError = true;
     }
     assert(cancelledError, "Cancelled OpenAI OAuth should reject cleanly");
-    const afterCancelSnap = await llmMobile.saveProviderApiKey(
+    const afterCancelSnap = await llmMobile.agent.models.saveApiKey(
       {
         providerId: "openai",
         apiKey: "sk-openai-after-cancel",

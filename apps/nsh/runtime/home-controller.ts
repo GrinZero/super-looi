@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { UserActionRef } from "@super-looi/contracts";
+import type { TileSpan } from "@super-looi/home-devices";
 import type { NativeCamera } from "./camera.js";
 import { createHomeCache } from "./home-cache.js";
 import { HomeRuntime, type HomeSettings } from "./home.js";
@@ -164,7 +165,7 @@ export class HomeController {
 
   setApplianceLayout(
     applianceId: string,
-    patch: { span?: "1x1" | "2x1" | "2x2"; order?: number },
+    patch: { span?: TileSpan; order?: number },
   ) {
     if (this.isClosed()) throw new Error("@looi:runtimeLocalRuntimeIsNotReady");
     return this.raw.setApplianceLayout(applianceId, patch);

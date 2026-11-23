@@ -1356,45 +1356,45 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
 
     // 1. GitHub token UI action guard + secret redaction + verify
     assert.throws(
-      () => runtime1.saveGitHubToken("github_pat_MOBILE_RUNTIME_1234", makeUiAction(runtime1.uiSessionId, "voice_command")),
+      () => runtime1.github.save("github_pat_MOBILE_RUNTIME_1234", makeUiAction(runtime1.uiSessionId, "voice_command")),
       /fresh explicit UI action/i,
     );
-    const ghSaved = runtime1.saveGitHubToken("github_pat_MOBILE_RUNTIME_1234", tap());
+    const ghSaved = runtime1.github.save("github_pat_MOBILE_RUNTIME_1234", tap());
     assert.equal(ghSaved.configured, true);
     assert.ok(!ghSaved.tokenHint?.includes("github_pat_MOBILE_RUNTIME_1234"));
     assert.equal(
       runtime1.redactSecrets("failed with github_pat_MOBILE_RUNTIME_1234!"),
       "failed with [redacted]!",
     );
-    const ghVerify = await runtime1.verifyGitHubToken(tap());
+    const ghVerify = await runtime1.github.verify(tap());
     assert.equal(ghVerify.valid, true);
     assert.equal(ghVerify.rateLimit?.limit, 5000);
-    assert.equal(runtime1.clearGitHubToken(tap()).configured, false);
+    assert.equal(runtime1.github.clear(tap()).configured, false);
 
     // Configure model + simulated home
-    await runtime1.configure({
+    await runtime1.agent.models.configureLegacy({
       baseUrl: "https://mock-llm.local/v1",
       model: "mock-gpt",
       apiKey: "sk-mock-llm-1234",
     });
-    await runtime1.configureHome({ mode: "simulation" }, tap());
+    await runtime1.home.configure({ mode: "simulation" }, tap());
 
     // Attach ScheduleHost
-    await runtime1.attachNativeSchedule(fakeNative.host, { foregroundActive: true });
-    assert.equal(runtime1.scheduleExactAlarmStatus()?.mode, "exact");
+    await runtime1.schedule.attachNative(fakeNative.host, { foregroundActive: true });
+    assert.equal(runtime1.schedule.exactAlarmStatus()?.mode, "exact");
 
     // 2. adoptConversationSession persists across close/reopen & enforces guards
     assert.throws(
-      () => runtime1.adoptConversationSession("sess_bad/../x", tap()),
+      () => runtime1.agent.adoptConversationSession("sess_bad/../x", tap()),
       /runtimeInvalidScheduleSession/,
     );
     assert.throws(
-      () => runtime1.adoptConversationSession("sess_adopted_1", makeUiAction(runtime1.uiSessionId, "voice_command")),
+      () => runtime1.agent.adoptConversationSession("sess_adopted_1", makeUiAction(runtime1.uiSessionId, "voice_command")),
       /fresh explicit UI action/i,
     );
-    const adopted = runtime1.adoptConversationSession("sess_adopted_1", tap());
+    const adopted = runtime1.agent.adoptConversationSession("sess_adopted_1", tap());
     assert.equal(adopted.conversationId, "sess_adopted_1");
-    assert.equal(runtime1.activeConversationId(), "sess_adopted_1");
+    assert.equal(runtime1.agent.activeConversationId(), "sess_adopted_1");
   } finally {
     await runtime1.close();
   }
@@ -1403,17 +1403,17 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
   const runtime2 = await openRuntime(createNodeCompatHost(tempRoot), vault);
   try {
     const tap = () => makeUiAction(runtime2.uiSessionId, "tap");
-    assert.equal(runtime2.activeConversationId(), "sess_adopted_1");
+    assert.equal(runtime2.agent.activeConversationId(), "sess_adopted_1");
 
-    await runtime2.attachNativeSchedule(fakeNative.host, { foregroundActive: true });
+    await runtime2.schedule.attachNative(fakeNative.host, { foregroundActive: true });
 
     // Quiet hours mutation pushes syncQuietHours & updates isQuietHoursNow
-    runtime2.addQuietHoursWindow(
+    runtime2.schedule.addQuietHoursWindow(
       { id: "qh_all_day", startMinute: 0, endMinute: 23 * 60 + 59, enabled: true },
       tap(),
     );
-    runtime2.setQuietHoursEnabled(false, tap());
-    assert.equal(runtime2.isQuietHoursNow(), false);
+    runtime2.schedule.setQuietHoursEnabled(false, tap());
+    assert.equal(runtime2.schedule.isQuietHoursNow(), false);
     assert.ok(fakeNative.quietSnapshots.length >= 2);
 
     // Track activity & schedule interactions
@@ -1424,13 +1424,13 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       notificationError?: { stage: string; code?: string | number; reason: string };
     }> = [];
     const interactions: Array<any> = [];
-    runtime2.subscribeScheduleActivity((ev) => activities.push(ev));
-    runtime2.subscribeScheduleInteractions((ev) => interactions.push(ev));
+    runtime2.schedule.subscribeActivity((ev) => activities.push(ev));
+    runtime2.schedule.subscribeInteractions((ev) => interactions.push(ev));
 
     // 3. Foreground turn calling bash -> PostTurnScheduleObserver seeds check_only rule automatically
-    const fgRes = await runtime2.run("CREATE_AND_CHECK_PR_88", tap(), (step) => {
+    const fgRes = await runtime2.agent.run("CREATE_AND_CHECK_PR_88", tap(), (step) => {
       if (step.phase === "awaiting_approval" && step.interaction) {
-        runtime2.respondTask(step.taskId!, step.interaction.id, {
+        runtime2.agent.respond(step.taskId!, step.interaction.id, {
           outcome: "allowed-once",
           userAction: tap(),
         });
@@ -1438,13 +1438,13 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
     });
     assert.match(fgRes.answer, /PR #88/);
     await waitForCondition(() =>
-      runtime2
-        .listScheduleRules({ origin: "agent_inferred" })
+      runtime2.schedule
+        .listRules({ origin: "agent_inferred" })
         .some((r) => r.dedupeKey === "github_pr:acme/app#88" && r.executionPolicy === "check_only"),
     );
 
     // 4. Create an authorized_action schedule rule that triggers control_home_device (awaiting_approval)
-    const { rule: authRule1 } = runtime2.createScheduleRule({
+    const { rule: authRule1 } = runtime2.schedule.createRule({
       title: "开客厅灯检查",
       prompt: "SCHED_CONTROL_HOME rule 1",
       origin: "user",
@@ -1455,25 +1455,25 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       fakeNative.syncedAlarms.some((list) => list.some((a) => a.ruleId === authRule1.id)),
     );
 
-    // Run rule 1 -> pauses at awaiting_approval -> emits subscribeScheduleInteractions
-    await runtime2.setScheduleForegroundActive(false);
-    const run1Promise = runtime2.runScheduleRuleNow(authRule1.id);
+    // Run rule 1 -> pauses at awaiting_approval -> emits subscribeInteractions
+    await runtime2.schedule.setForegroundActive(false);
+    const run1Promise = runtime2.schedule.runRuleNow(authRule1.id);
     await waitForCondition(
       () =>
         interactions.some((ev) => ev.type === "requested" && ev.ruleId === authRule1.id) ||
-        runtime2.listScheduleRuns(authRule1.id).some((r) => r.status !== "running"),
+        runtime2.schedule.listRuns(authRule1.id).some((r) => r.status !== "running"),
     );
 
-    const req1 = runtime2.pendingScheduleInteractions().find((ev) => ev.ruleId === authRule1.id);
+    const req1 = runtime2.schedule.pendingInteractions().find((ev) => ev.ruleId === authRule1.id);
     assert.ok(
       req1,
-      `Expected pending schedule interaction, runs=${JSON.stringify(runtime2.listScheduleRuns(authRule1.id))}, interactions=${JSON.stringify(interactions)}`,
+      `Expected pending schedule interaction, runs=${JSON.stringify(runtime2.schedule.listRuns(authRule1.id))}, interactions=${JSON.stringify(interactions)}`,
     );
     assert.equal(req1.interaction.kind, "approval");
 
     // WHILE schedule run is paused on schedule lane:
     // (a) Second rule on schedule lane cannot double-enter schedule lane
-    const { rule: authRule2 } = runtime2.createScheduleRule({
+    const { rule: authRule2 } = runtime2.schedule.createRule({
       title: "第二个调度规则",
       prompt: "FG_FAST_QUESTION",
       origin: "user",
@@ -1481,16 +1481,16 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       trigger: { kind: "interval", everySeconds: 3600 },
     });
     await assert.rejects(
-      () => runtime2.runScheduleRuleNow(authRule2.id),
+      () => runtime2.schedule.runRuleNow(authRule2.id),
       (error: any) => error?.code === "ERR_AGENT_LANE_BUSY",
     );
 
     // (b) Foreground turn STILL succeeds concurrently without hitting busy lock!
-    const concurrentFg = await runtime2.run("FG_FAST_QUESTION", tap(), () => {});
+    const concurrentFg = await runtime2.agent.run("FG_FAST_QUESTION", tap(), () => {});
     assert.equal(concurrentFg.answer, "Foreground answered concurrently");
 
-    // Resolve first scheduled interaction via respondTask -> settles & clears ONLY task 1, posts notification (background!)
-    runtime2.respondTask(req1.taskId, req1.interaction.id, {
+    // Resolve first scheduled interaction via respond -> settles & clears ONLY task 1, posts notification (background!)
+    runtime2.agent.respond(req1.taskId, req1.interaction.id, {
       outcome: "allowed-once",
       userAction: tap(),
     });
@@ -1500,7 +1500,7 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
     await waitForCondition(() =>
       interactions.some((ev) => ev.type === "cleared" && ev.taskId === req1.taskId),
     );
-    assert.equal(runtime2.pendingScheduleInteractions().length, 0);
+    assert.equal(runtime2.schedule.pendingInteractions().length, 0);
     assert.ok(
       fakeNative.postedNotifications.some((n) => n.ruleId === authRule1.id && n.silent === false),
       "Settled background notify run should post native OS notification once",
@@ -1509,7 +1509,7 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       activities.some((a) => a.kind === "run_settled" && a.ruleId === authRule1.id && a.notificationPosted === true),
     );
 
-    // Tap notification event -> handleNativeScheduleEvents returns tappedRule & tappedRun
+    // Tap notification event -> handleNativeEvents returns tappedRule & tappedRun
     fakeNative.pushEvent({
       kind: "notification_tapped",
       ruleId: authRule1.id,
@@ -1521,14 +1521,14 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       }),
       occurredAtMs: Date.now(),
     });
-    const tapped = await runtime2.handleNativeScheduleEvents();
+    const tapped = await runtime2.schedule.handleNativeEvents();
     assert.equal(tapped.tappedRule?.id, authRule1.id);
     assert.equal(tapped.tappedRun?.id, run1Result.id);
 
     // 5. Multi-task interaction isolation: concurrent foreground + scheduled approval without cross-clearing
     let fgPaused: { taskId: string; interactionId: string } | undefined;
     let fgDone = false;
-    const fgPausedPromise = runtime2
+    const fgPausedPromise = runtime2.agent
       .run("CREATE_AND_CHECK_PR_88", tap(), (step) => {
         if (step.phase === "awaiting_approval" && step.interaction && step.taskId) {
           fgPaused = { taskId: step.taskId, interactionId: step.interaction.id };
@@ -1540,13 +1540,13 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       });
     await waitForCondition(() => Boolean(fgPaused));
 
-    const run1AgainPromise = runtime2.runScheduleRuleNow(authRule1.id);
+    const run1AgainPromise = runtime2.schedule.runRuleNow(authRule1.id);
     await waitForCondition(() => interactions.some((ev) => ev.type === "requested" && ev.taskId !== req1.taskId));
-    const req2 = runtime2.pendingScheduleInteractions()[0]!;
+    const req2 = runtime2.schedule.pendingInteractions()[0]!;
     assert.notEqual(req2.taskId, fgPaused!.taskId);
 
     // Cancelling ONLY the scheduled interaction leaves foreground interaction untouched
-    await runtime2.cancelTask(req2.taskId);
+    await runtime2.agent.cancelTask(req2.taskId);
     const run1Again = await run1AgainPromise;
     assert.notEqual(run1Again.status, "running");
     await waitForCondition(() =>
@@ -1555,7 +1555,7 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
     assert.equal(fgDone, false, "Cancelling schedule task must not clear or settle foreground task");
 
     // Now respond to the foreground interaction and verify it completes cleanly
-    runtime2.respondTask(fgPaused!.taskId, fgPaused!.interactionId, {
+    runtime2.agent.respond(fgPaused!.taskId, fgPaused!.interactionId, {
       outcome: "allowed-once",
       userAction: tap(),
     });
@@ -1564,7 +1564,7 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
 
     // 6. Body configuration updates taskTools dynamically without killing active schedule runs;
     // real model rebuild cancels active schedule run cleanly and restores healthy execution + reconcile
-    const { rule: heldRule } = runtime2.createScheduleRule({
+    const { rule: heldRule } = runtime2.schedule.createRule({
       title: "长耗时复查",
       prompt: "HOLD_SCHED_RUN",
       origin: "user",
@@ -1572,29 +1572,29 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       trigger: { kind: "interval", everySeconds: 3600 },
     });
     let heldSettledFlag = false;
-    const heldPromise = runtime2.runScheduleRuleNow(heldRule.id).then((run) => {
+    const heldPromise = runtime2.schedule.runRuleNow(heldRule.id).then((run) => {
       heldSettledFlag = true;
       return run;
     });
     await waitForCondition(() => scheduleToolStartedCount === 1);
-    await runtime2.configureBody({ mode: "simulation" }, tap());
+    await runtime2.body.configure({ mode: "simulation" }, tap());
     await wait(30);
     assert.equal(heldSettledFlag, false, "Body configuration must not cancel an active schedule run");
-    const dynamicToolsFg = await runtime2.run("FG_FAST_QUESTION", tap(), () => {});
+    const dynamicToolsFg = await runtime2.agent.run("FG_FAST_QUESTION", tap(), () => {});
     assert.equal(dynamicToolsFg.answer, "Foreground answered concurrently");
     assert.ok(
       lastFgToolNames.includes("get_looi_body_status") && lastFgToolNames.includes("control_looi_body"),
       `Expected body tools to mount dynamically without executor rebuild, got: ${JSON.stringify(lastFgToolNames)}`,
     );
 
-    await runtime2.configure({
+    await runtime2.agent.models.configureLegacy({
       baseUrl: "https://mock-llm.local/v1",
       model: "mock-gpt-v2",
       apiKey: "sk-mock-llm-1234",
     });
     const heldSettled = await heldPromise;
     assert.notEqual(heldSettled.status, "running");
-    const postRebuildFg = await runtime2.run("FG_FAST_QUESTION", tap(), () => {});
+    const postRebuildFg = await runtime2.agent.run("FG_FAST_QUESTION", tap(), () => {});
     assert.equal(postRebuildFg.answer, "Foreground answered concurrently");
 
     // Direct schedule-native-adapter unit assertion on drainEvents & permission normalization
@@ -1619,7 +1619,7 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
     });
 
     // Verify notification delivery failures preserve stage, code, and redacted reason (Fix #2)
-    runtime2.saveGitHubToken("github_pat_MOBILE_NOTIFY_SECRET_99", tap());
+    runtime2.github.save("github_pat_MOBILE_NOTIFY_SECRET_99", tap());
     const origPostNotification = fakeNative.host.postNotification;
     fakeNative.host.postNotification = () => {
       throw Object.assign(
@@ -1627,15 +1627,15 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
         { code: "ERR_OS_NOTIFY_DENIED" },
       );
     };
-    const { rule: failingNotifyRule } = runtime2.createScheduleRule({
+    const { rule: failingNotifyRule } = runtime2.schedule.createRule({
       title: "通知失败留痕检查",
       prompt: "SCHED_NOTIFY_ONLY",
       origin: "user",
       executionPolicy: "check_only",
       trigger: { kind: "interval", everySeconds: 3600 },
     });
-    await runtime2.setScheduleForegroundActive(false);
-    await runtime2.runScheduleRuleNow(failingNotifyRule.id);
+    await runtime2.schedule.setForegroundActive(false);
+    await runtime2.schedule.runRuleNow(failingNotifyRule.id);
     fakeNative.host.postNotification = origPostNotification;
     const notifyFailEv = activities.find(
       (ev) => ev.kind === "run_settled" && ev.ruleId === failingNotifyRule.id,

@@ -564,6 +564,7 @@ export class LlmModelManager {
         return draft;
       },
     });
+    this.invalidateFetchedModels("custom");
   }
 
   async saveApiKey(
