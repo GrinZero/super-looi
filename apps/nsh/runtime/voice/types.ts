@@ -1,4 +1,4 @@
-import type { Vault } from "../application.js";
+import type { Vault } from "../vault.js";
 import type {
   AiTurnDraft,
   PluginVoiceTool,

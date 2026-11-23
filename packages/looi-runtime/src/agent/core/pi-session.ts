@@ -20,6 +20,7 @@ import { wrapStreamFnWithLangfuse } from "../../telemetry/llm-observer.js";
 export interface PiSessionConfig extends ModelStreamConfig {
   taskTools?: (context: {
     taskId: string;
+    sessionId?: string;
     workspaceRoot: string;
     approvalMode: "ask" | "local_auto" | "yolo";
     commandTimeoutMs: number;

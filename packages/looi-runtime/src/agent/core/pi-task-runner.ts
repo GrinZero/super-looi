@@ -517,6 +517,7 @@ export class PiTaskRunner {
       });
       const contribution = config.taskTools?.({
         taskId: task.id,
+        sessionId: task.sessionId,
         workspaceRoot: task.workspaceRoot,
         approvalMode: options.approvalMode ?? "ask",
         commandTimeoutMs: config.commandTimeoutMs ?? 300_000,

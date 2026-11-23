@@ -1,4 +1,4 @@
-import type { BodyActionLease, BodyPrimitive, BodyStopRequest, BodySupervisorState, SelfEventWindow } from "@super-looi/contracts";
+import type { BodyActionLease, BodyPrimitive, BodyStopRequest, BodySupervisorState, SelfEventWindow, UserActionRef } from "@super-looi/contracts";
 import {
   BodySupervisor,
   CrossPlatformBleTransport,
@@ -14,7 +14,7 @@ import {
   type LooiPowerStatus,
   type NativeBleAdapter,
 } from "../../../packages/looi-driver/src/index.js";
-import type { Vault } from "./application.js";
+import type { Vault } from "./vault.js";
 import type { BodyServoLease, EffectScope } from "./plugins/contracts.js";
 import { PluginKernelError } from "./plugins/errors.js";
 import type { BodyCliffState, BodySensorPacket } from "./plugins/shared-types.js";
@@ -599,6 +599,7 @@ const DEFAULT_SIM_CANDIDATES: LooiDeviceCandidate[] = [
 export interface BodyRuntimeOptions {
   vault: Vault;
   nativePort?: NativeBlePort | null;
+  assertUiAction?: (action?: UserActionRef) => void;
   reconnectBackoffMs?: readonly number[];
   silentConnectTimeoutMs?: number;
   silentScanWindowMs?: number;
@@ -670,6 +671,7 @@ export class BodyRuntime {
 
   constructor(options: BodyRuntimeOptions) {
     this.vault = options.vault;
+    this.assertUiAction = options.assertUiAction;
     this.reconnectBackoffMs =
       options.reconnectBackoffMs && options.reconnectBackoffMs.length > 0
         ? options.reconnectBackoffMs
@@ -697,6 +699,7 @@ export class BodyRuntime {
   }
 
   private readonly vault: Vault;
+  private readonly assertUiAction?: (action?: UserActionRef) => void;
 
   private loadVault(): void {
     try {
@@ -1296,7 +1299,11 @@ export class BodyRuntime {
     };
   }
 
-  public async configure(patch: Partial<BodyConfiguration>): Promise<BodyStatusSnapshot> {
+  public async configure(
+    patch: Partial<BodyConfiguration>,
+    action?: UserActionRef,
+  ): Promise<BodyStatusSnapshot> {
+    this.assertUiAction?.(action);
     const modeChanged = patch.mode !== undefined && patch.mode !== this.config.mode;
     if (modeChanged) {
       await this.disconnectInternal(false);

@@ -1,4 +1,4 @@
-import type { Vault } from "../application.js";
+import type { Vault } from "../vault.js";
 import { MOSS_DEFAULT_VOICE_ID } from "../../voice-defaults.js";
 
 export interface VoiceConfigurationSnapshot {

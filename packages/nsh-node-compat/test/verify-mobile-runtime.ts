@@ -372,7 +372,9 @@ console.log(
   "PASS mobile home: real Agent approval, simulated control receipt, SQLite evidence after reopen",
 );
 
-const loginSlots = new Map<string, string>();
+const loginSlots = new Map<string, string>([
+  ["model", JSON.stringify(oldConfig)],
+]);
 const loginMobile = new MobileRuntime({
   get: (key) => loginSlots.get(key) ?? "",
   set: (key, value) => { loginSlots.set(key, value); },
@@ -386,12 +388,67 @@ async function loginReject(operation: () => unknown) {
 }
 try {
   await loginReject(() => loginMobile.beginMiotLogin("cn", { ...loginAction(), ui_session_id: "old-page" }));
-  equal(loginSlots.size, 0);
+  equal(loginSlots.size, 1);
   const session = await loginMobile.beginMiotLogin("cn", loginAction());
   await loginReject(() => loginMobile.connectHome());
   await loginReject(() => loginMobile.listHome());
-  await loginReject(() => loginMobile.run("记住不应执行的笔记", loginAction(), () => {}));
   await loginReject(() => loginMobile.configureHome({ mode: "simulation" }, loginAction()));
+  await loginReject(() =>
+    loginMobile.controlHomeAppliance(
+      { entity_id: "light.study_ceiling", domain: "light", service: "turn_on" },
+      loginAction(),
+    ),
+  );
+  // Non-home operations (body/LLM/agent) stay unblocked during MIoT OAuth, while home tools fail closed.
+  const loginBodyStatus = await loginMobile.configureBody({ mode: "simulation" }, loginAction());
+  equal(loginBodyStatus.mode, "simulation");
+  const seenToolErrors: string[] = [];
+  let loginRound = 0;
+  globalThis.fetch = async (_input, init) => {
+    const reqBody = JSON.parse(String(init?.body ?? "{}"));
+    for (const msg of reqBody.messages ?? []) {
+      if (msg?.role === "tool") {
+        seenToolErrors.push(JSON.stringify(msg.content));
+      }
+    }
+    const callHome = loginRound++ === 0;
+    return sseResponse([
+      {
+        id: "login-chat",
+        object: "chat.completion.chunk",
+        choices: [
+          {
+            index: 0,
+            delta: callHome
+              ? {
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "call_home_during_login",
+                      type: "function",
+                      function: { name: "list_home_devices", arguments: "{}" },
+                    },
+                  ],
+                }
+              : { role: "assistant", content: "MIoT sign-in pending isolated" },
+            finish_reason: callHome ? "tool_calls" : "stop",
+          },
+        ],
+      },
+      "[DONE]",
+    ]);
+  };
+  try {
+    const loginAgentRes = await loginMobile.run("列出设备", loginAction(), () => {});
+    equal(loginAgentRes.answer, "MIoT sign-in pending isolated");
+    assert(
+      seenToolErrors.some((text) => text.includes("FinishOrCancelXiaomiSigninFirst")),
+      `Home tool must fail during MIoT login, got: ${JSON.stringify(seenToolErrors)}`,
+    );
+  } finally {
+    globalThis.fetch = nativeFetch;
+  }
   await loginReject(() => loginMobile.finishMiotLogin(session.attempt,
     `${session.redirectUri}?state=${session.state}&code=fixture`, () => false));
   assert(!loginMobile.homeConfiguration().hasMiotAccount, "Native invalidation persisted an account");

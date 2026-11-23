@@ -3202,3 +3202,17 @@
 - [ ] Milestone 2 — 双机协同分层、白天可选眼神复用与 Stage 2 轮差/防跌落回归
   - [ ] Step 1：`lan_companion` 与 `on_device` 能力分层、白天自由发言复用座位角度表与夜间严格封禁验证。
   - [ ] Step 2：左右轮差标定、`FED9` 实时悬崖急停回归与 `docs/arch/index.html` 架构图同步。
+
+
+## MobileRuntime 瘦身与后台 Agent / Schedule 移动端宿主拆解（2026-11-23）
+
+- [x] Phase 1 — 内核微调、子系统拆解与兼容验证
+  - [x] Step 0：创建计划文档 `docs/plans/mobile-runtime-and-agent-split-plan.md` 并初始化 `progress.md` 进度清单。
+  - [x] Step 1：`packages/looi-runtime` 透传 `sessionId` 到 `taskTools(context)`；新增 `apps/nsh/runtime/vault.ts` 消除循环依赖；更新 `body.ts`、`voice/credentials.ts`、`voice/types.ts`、`tools/home-tools.ts`、`tools/github-pr-status.ts`、`tools/index.ts`。
+  - [x] Step 2：创建 `apps/nsh/runtime/agent/`（`types.ts`、`oauth.ts`、`models.ts`、`history.ts`、`runtime.ts`）与入口 `apps/nsh/runtime/agent.ts`。
+  - [x] Step 3：创建 `apps/nsh/runtime/schedule.ts`、`apps/nsh/runtime/home-controller.ts`、`apps/nsh/runtime/plugins/controller.ts`。
+  - [x] Step 4：重构 `apps/nsh/runtime/application.ts`（挂载 6 个分域子门面并暂时保留平铺兼容转发），新增独立单测 `apps/nsh/tests/agent-runtime.node.ts`，同步更新 `schedule-runtime.node.ts` 与 `verify-mobile-runtime.ts`，完成 Phase 1 全量验证并提交 Commit 1。
+- [ ] Phase 2 — 切换分域子门面、清理透传壳、更新文档与独立审查
+  - [ ] Step 5：更新 `build-runtime.ts`、`store.ts` 及全部测试/脚本调用方切换到分域子门面，删除 `application.ts` 平铺透传方法，更新 `docs/arch/architecture.js` 与 `docs/arch/index.html`。
+  - [ ] Step 6：运行 Phase 2 全量类型检查、Node 测试与 QuickJS 验收。
+  - [ ] Step 7：通过只读 `research` 子 Agent 完成独立架构与 Diff 审查，修复问题并完成 Commit 2。

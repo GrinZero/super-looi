@@ -1146,6 +1146,7 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
   const originalFetch = globalThis.fetch;
   let releaseScheduleToolGate: (() => void) | undefined;
   let scheduleToolStartedCount = 0;
+  let lastFgToolNames: string[] = [];
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -1324,6 +1325,17 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       }
 
       if (currentUserText.includes("FG_FAST_QUESTION")) {
+        lastFgToolNames = Array.isArray(body.tools)
+          ? body.tools
+              .map((tool: any) =>
+                typeof tool?.function?.name === "string"
+                  ? tool.function.name
+                  : typeof tool?.name === "string"
+                    ? tool.name
+                    : "",
+              )
+              .filter(Boolean)
+          : [];
         return buildOpenAiSseResponse({ type: "text", text: "Foreground answered concurrently" });
       }
 
@@ -1550,7 +1562,8 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
     const fgResumedResult = await fgPausedPromise;
     assert.match(fgResumedResult.answer, /PR #88/);
 
-    // 6. Executor rebuild cancels active schedule run cleanly and restores healthy execution + reconcile
+    // 6. Body configuration updates taskTools dynamically without killing active schedule runs;
+    // real model rebuild cancels active schedule run cleanly and restores healthy execution + reconcile
     const { rule: heldRule } = runtime2.createScheduleRule({
       title: "长耗时复查",
       prompt: "HOLD_SCHED_RUN",
@@ -1558,9 +1571,27 @@ test("MobileRuntime bundle: GitHub PAT guards, adoptConversationSession persiste
       executionPolicy: "check_only",
       trigger: { kind: "interval", everySeconds: 3600 },
     });
-    const heldPromise = runtime2.runScheduleRuleNow(heldRule.id);
+    let heldSettledFlag = false;
+    const heldPromise = runtime2.runScheduleRuleNow(heldRule.id).then((run) => {
+      heldSettledFlag = true;
+      return run;
+    });
     await waitForCondition(() => scheduleToolStartedCount === 1);
     await runtime2.configureBody({ mode: "simulation" }, tap());
+    await wait(30);
+    assert.equal(heldSettledFlag, false, "Body configuration must not cancel an active schedule run");
+    const dynamicToolsFg = await runtime2.run("FG_FAST_QUESTION", tap(), () => {});
+    assert.equal(dynamicToolsFg.answer, "Foreground answered concurrently");
+    assert.ok(
+      lastFgToolNames.includes("get_looi_body_status") && lastFgToolNames.includes("control_looi_body"),
+      `Expected body tools to mount dynamically without executor rebuild, got: ${JSON.stringify(lastFgToolNames)}`,
+    );
+
+    await runtime2.configure({
+      baseUrl: "https://mock-llm.local/v1",
+      model: "mock-gpt-v2",
+      apiKey: "sk-mock-llm-1234",
+    });
     const heldSettled = await heldPromise;
     assert.notEqual(heldSettled.status, "running");
     const postRebuildFg = await runtime2.run("FG_FAST_QUESTION", tap(), () => {});

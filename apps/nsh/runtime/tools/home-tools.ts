@@ -8,6 +8,7 @@ export interface HomeToolsHost {
   home: HomeRuntime;
   database: DatabaseSync;
   getActiveTaskId: () => string | undefined;
+  isLoginPending?: () => boolean;
 }
 
 export const listHomeParameters = obj({
@@ -62,8 +63,12 @@ export function createHomeTools(host: HomeToolsHost): AgentTool<any>[] {
       description:
         "Find smart-home devices (lamps, room lights, sockets, appliances) and current readbacks through the App's configured Mi Home / Home Assistant service. Independent of the LOOI robot dock and its BLE connection; no body status check is needed. Use actual entity_id and connectionId for control. Simulation is explicitly labelled and never represents real devices. Ask when multiple matches exist.",
       parameters: listHomeParameters,
-      execute: async (_, args) =>
-        result(await host.home.list(args.query, args.offset)),
+      execute: async (_, args) => {
+        if (host.isLoginPending?.()) {
+          throw new Error("@looi:runtimeFinishOrCancelXiaomiSigninFirst");
+        }
+        return result(await host.home.list(args.query, args.offset));
+      },
     },
     {
       name: "control_home_device",
@@ -72,6 +77,9 @@ export function createHomeTools(host: HomeToolsHost): AgentTool<any>[] {
         "Control one smart-home device through Mi Home / Home Assistant using the task's approval setting; no LOOI dock or BLE connection is required. Requires entity_id and connectionId from a recent list_home_devices call; connectionId identifies the home-service connection. Only a verified receipt confirms success. For failures report diagnostics.stage and the actual error/return code; claim acceptance only when diagnostics.write_acknowledged is true. Unknown must not be retried automatically. Simulation changes no real device.",
       parameters: controlHomeParameters,
       execute: async (callId, args, signal) => {
+        if (host.isLoginPending?.()) {
+          throw new Error("@looi:runtimeFinishOrCancelXiaomiSigninFirst");
+        }
         const taskId = host.getActiveTaskId();
         if (signal?.aborted || !taskId) {
           throw new Error("@looi:runtimeTaskStopped");

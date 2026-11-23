@@ -1,5 +1,6 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { int, obj, str } from "@earendil-works/pi-schema";
+import type { UserActionRef } from "@super-looi/contracts";
 
 export interface GitHubVault {
   get(key: string): string;
@@ -651,6 +652,45 @@ export function createGitHubPrStatusTool(
         content: [{ type: "text", text: JSON.stringify(summaryPayload) }],
         details: summaryPayload,
       };
+    },
+  };
+}
+
+export interface GitHubCredentials {
+  status(): GitHubCredentialStatus;
+  save(token: string, action: UserActionRef): GitHubCredentialStatus;
+  verify(action: UserActionRef): Promise<GitHubTokenVerificationResult>;
+  clear(action: UserActionRef): GitHubCredentialStatus;
+}
+
+/**
+ * Creates a UI-guarded credential facade over the encrypted `"github"` vault slot.
+ */
+export function createGitHubCredentials(options: {
+  vault: GitHubVault;
+  assertOpen: () => void;
+  assertUiAction: (action: UserActionRef) => void;
+  onSecretChanged?: (token: string) => void;
+}): GitHubCredentials {
+  return {
+    status: () => {
+      options.assertOpen();
+      return githubCredentialStatus(options.vault);
+    },
+    save: (token, action) => {
+      options.assertUiAction(action);
+      const status = saveGitHubToken(options.vault, token);
+      const savedToken = readGitHubToken(options.vault);
+      if (savedToken) options.onSecretChanged?.(savedToken);
+      return status;
+    },
+    verify: async (action) => {
+      options.assertUiAction(action);
+      return verifyGitHubToken(options.vault);
+    },
+    clear: (action) => {
+      options.assertUiAction(action);
+      return clearGitHubToken(options.vault);
     },
   };
 }

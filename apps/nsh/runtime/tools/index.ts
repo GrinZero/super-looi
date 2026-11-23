@@ -1,6 +1,7 @@
 export { createBodyTools, type BodyToolsHost } from "./body-tools.js";
 export { createHomeTools, type HomeToolsHost } from "./home-tools.js";
 export {
+  createGitHubCredentials,
   createGitHubPrStatusTool,
   githubCredentialStatus,
   saveGitHubToken,
@@ -8,6 +9,7 @@ export {
   clearGitHubToken,
   readGitHubToken,
   redactGitHubSecret,
+  type GitHubCredentials,
   type GitHubVault,
   type GitHubFailure,
   type GitHubCredentialStatus,
