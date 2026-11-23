@@ -25,12 +25,12 @@ export interface AgentTurnPrompts {
 }
 
 /**
- * Assembles the system prompt and user turn prompt for an Agent task run,
- * enforcing language continuity on short acknowledgements and brevity in voice mode.
+ * Computes the dynamic per-turn system instructions (hosted search notice, language continuity,
+ * and voice brevity constraint) without flattening or duplicating the base system prompt sections.
  */
-export function buildAgentTurnPrompts(
-  input: AgentTurnPromptInput,
-): AgentTurnPrompts {
+export function buildAgentTurnSystemAddendum(
+  input: Omit<AgentTurnPromptInput, "baseSystemPrompt">,
+): { addendum: string; acknowledgement?: ConversationLanguage } {
   const defaultLanguage = input.defaultLanguage ?? "zh-CN";
   const previousAssistant = [...(input.restoredMessages ?? [])]
     .reverse()
@@ -42,21 +42,40 @@ export function buildAgentTurnPrompts(
       : "",
     defaultLanguage,
   );
-  const turnLanguage = acknowledgement
-    ? `\nFor this acknowledgement, reply only in ${acknowledgement === "en-US" ? "English" : "Simplified Chinese"}. This maintains the preceding conversation language.`
-    : "";
+  const parts = [
+    ...(input.webSearchEnabled
+      ? [
+          "OpenAI's built-in web_search tool is available. Use it for explicit web searches and questions needing current information. Cite the sources in your answer.",
+        ]
+      : []),
+    conversationLanguageInstructions(defaultLanguage),
+    ...(acknowledgement
+      ? [
+          `For this acknowledgement, reply only in ${acknowledgement === "en-US" ? "English" : "Simplified Chinese"}. This maintains the preceding conversation language.`,
+        ]
+      : []),
+    ...(input.mode === "voice"
+      ? ["Keep the final answer brief and natural for speech."]
+      : []),
+  ];
+  return {
+    addendum: parts.join("\n").trim(),
+    acknowledgement,
+  };
+}
 
+/**
+ * Assembles the system prompt and user turn prompt for an Agent task run,
+ * enforcing language continuity on short acknowledgements and brevity in voice mode.
+ */
+export function buildAgentTurnPrompts(
+  input: AgentTurnPromptInput,
+): AgentTurnPrompts {
+  const defaultLanguage = input.defaultLanguage ?? "zh-CN";
+  const { addendum, acknowledgement } = buildAgentTurnSystemAddendum(input);
   const baseSystem =
     input.baseSystemPrompt ?? DEFAULT_TASK_ASSISTANT_SYSTEM_PROMPT;
-  const systemPrompt =
-    baseSystem +
-    (input.webSearchEnabled
-      ? "\nOpenAI's built-in web_search tool is available. Use it for explicit web searches and questions needing current information. Cite the sources in your answer."
-      : "") +
-    "\n" +
-    conversationLanguageInstructions(defaultLanguage) +
-    turnLanguage +
-    (input.mode === "voice" ? "\nKeep the final answer brief and natural for speech." : "");
+  const systemPrompt = addendum ? `${baseSystem}\n${addendum}` : baseSystem;
 
   const modePrefix =
     input.mode === "voice"

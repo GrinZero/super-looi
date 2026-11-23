@@ -1,4 +1,4 @@
-import { createAssistantMessageEventStream, type AssistantMessage, type Model, type Api } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentSystemMessage, getSystemMessageText, type AssistantMessage, type Model, type Api } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { LangfuseTracer, TraceContext } from "./langfuse.js";
 
@@ -8,11 +8,12 @@ export function wrapStreamFnWithLangfuse(baseStreamFn: StreamFn, options: {
   onGeneration?: (context: TraceContext) => void;
 }): (...args: Parameters<StreamFn>) => ReturnType<typeof createAssistantMessageEventStream> {
   return (model, context, streamOptions) => {
-    const system = context.messages[0]?.role === "system" ? context.messages[0] : undefined;
+    const system = getCurrentSystemMessage(context.messages);
+    const systemPrompt = system ? getSystemMessageText(system) : undefined;
     const observation = options.tracer.start("llm.chat", "generation", options.getTraceContext(), {
       "langfuse.observation.model.name": model.id,
       "langfuse.observation.model.parameters": { samplingParams: model.samplingParams, thinkingLevel: streamOptions?.reasoning },
-      "langfuse.observation.input": { systemPrompt: system?.content, messages: context.messages, tools: system?.toolsAdded },
+      "langfuse.observation.input": { systemPrompt, messages: context.messages, tools: system?.toolsAdded },
     });
     if (options.tracer.enabled) options.onGeneration?.(observation.context);
     let requestPayload: unknown;

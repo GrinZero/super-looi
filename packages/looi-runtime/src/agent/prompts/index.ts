@@ -7,6 +7,7 @@ export {
 export {
   DEFAULT_TASK_ASSISTANT_SYSTEM_PROMPT,
   buildAgentTurnPrompts,
+  buildAgentTurnSystemAddendum,
   type AgentTurnPromptInput,
   type AgentTurnPrompts,
 } from "./task-prompts.js";

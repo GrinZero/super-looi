@@ -347,3 +347,63 @@ test("TTS error or cancellation before audio does not invent a spoken history en
     }
   }
 });
+
+test("wrapStreamFnWithLangfuse renders full systemPrompt across structured sections and mid-conversation patches", async () => {
+  const { tracer, spans, attrs } = fixture();
+  const model = {
+    id: "structured-model",
+    api: "openai-completions",
+    provider: "openai",
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  } as any;
+  const done = {
+    role: "assistant",
+    content: [{ type: "text", text: "ok" }],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  } as any;
+  const stream = createAssistantMessageEventStream();
+  stream.push({ type: "done", reason: "stop", message: done });
+  stream.end(done);
+  const wrapped = wrapStreamFnWithLangfuse(() => stream, {
+    tracer,
+    getTraceContext: () => ({ traceId: "c".repeat(32), parentSpanId: "d".repeat(16), traceName: "agent.run", sessionId: "task-sections" }),
+  });
+  const result = await wrapped(model, {
+    messages: [
+      {
+        role: "system",
+        content: "",
+        sections: {
+          preamble: "Base preamble",
+          app_instructions: "<app_instructions>\nApp rule\n</app_instructions>",
+          turn_context: "<turn_context>\nOld context\n</turn_context>",
+        },
+        toolsAdded: [{ name: "ping", description: "ping", parameters: { type: "object", properties: {} } }],
+        timestamp: 1,
+      },
+      { role: "user", content: "hi", timestamp: 2 },
+      {
+        role: "system",
+        content: "",
+        sections: {
+          turn_context: "<turn_context>\nNew context\n</turn_context>",
+        },
+        timestamp: 3,
+      },
+    ],
+  } as any);
+  await result.result();
+  await tracer.shutdown();
+  const generation = spans().find((span: any) => span.name === "llm.chat");
+  const input = JSON.parse(attrs(generation)["langfuse.observation.input"].stringValue);
+  assert.match(input.systemPrompt, /Base preamble/);
+  assert.match(input.systemPrompt, /App rule/);
+  assert.match(input.systemPrompt, /New context/);
+  assert.doesNotMatch(input.systemPrompt, /Old context/);
+  assert.deepEqual(input.tools, [{ name: "ping", description: "ping", parameters: { type: "object", properties: {} } }]);
+});

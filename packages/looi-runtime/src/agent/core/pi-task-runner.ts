@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { contentText, type AssistantMessage } from "@earendil-works/pi-ai";
+import { contentText, getCurrentSystemMessage, type AssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager, type AgentSession, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import {
   evaluateScheduledToolPolicy,
@@ -25,7 +25,7 @@ import {
   type ApprovalActionReplayGuard,
   type ToolApprovalRule,
 } from "../governance/index.js";
-import { buildAgentTurnPrompts } from "../prompts/index.js";
+import { buildAgentTurnSystemAddendum } from "../prompts/index.js";
 import {
   WorkspaceArtifactTracker,
   createWorkspaceCodingTools,
@@ -587,22 +587,23 @@ export class PiTaskRunner {
               prompt: turnPrompt,
             });
           }
-          const extraContext = assembled?.contextText?.trim() ? `\n${assembled.contextText.trim()}` : "";
-          const { systemPrompt } = buildAgentTurnPrompts({
-            baseSystemPrompt:
-              event.systemPrompt +
-              (config.systemPrompt ? `\n${config.systemPrompt}` : "") +
-              extraContext,
+          const setSection = (name: string, value?: string) => {
+            const trimmed = value?.trim();
+            if (trimmed) event.systemPromptOptions.sections[name] = trimmed;
+            else delete event.systemPromptOptions.sections[name];
+          };
+          const { addendum } = buildAgentTurnSystemAddendum({
             prompt: turnPrompt,
             mode: options.mode,
             defaultLanguage: options.defaultLanguage,
             restoredMessages: manager.buildSessionContext().messages,
             webSearchEnabled: ctx.model ? hasOpenAIWebSearch(ctx.model) : false,
           });
-          const finalSystemPrompt = options.systemPromptOverrideSuffix?.trim()
-            ? `${systemPrompt}\n${options.systemPromptOverrideSuffix.trim()}`
-            : systemPrompt;
-          return { systemPrompt: finalSystemPrompt };
+          setSection("app_instructions", config.systemPrompt);
+          setSection("turn_context", assembled?.contextText);
+          setSection("turn_instructions", addendum);
+          setSection("schedule_policy", options.systemPromptOverrideSuffix);
+          return undefined;
         });
         pi.on("before_provider_request", (event, ctx) =>
           ctx.model ? webSearch.onPayload(event.payload, ctx.model) : undefined,
@@ -724,7 +725,7 @@ export class PiTaskRunner {
             "langfuse.observation.input": {
               sessionId: task.sessionId,
               history: event.messages.filter(message => message.role !== "system"),
-              systemPrompt: event.messages.find(message => message.role === "system"),
+              systemPrompt: getCurrentSystemMessage(event.messages),
             },
           }).end({ "langfuse.observation.output": { historyMessages: event.messages.filter(message => message.role !== "system").length } });
         });

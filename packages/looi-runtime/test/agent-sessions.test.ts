@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, resolveTranscript } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, getCurrentSystemMessage, resolveTranscript } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiAgentExecutor } from "../src/agent/pi-executor.js";
 
@@ -115,6 +115,70 @@ test("legacy JSON is ignored and explicit resume requires a JSONL session", asyn
       executor.run("Resume", { taskId: "new_request", resume: true }),
       /Persisted session transcript was not found/,
     );
+  } finally {
+    await executor.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("multi-turn runs preserve structured prompt sections and emit targeted turn_context diffs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "looi-sections-"));
+  const workspaceRoot = join(root, "work");
+  const stateDirectory = join(root, "state");
+  mkdirSync(workspaceRoot, { recursive: true });
+  const contexts = ["turn context one", "turn context two", undefined];
+  const faux = fauxProvider(), models = createModels();
+  models.setProvider(faux.provider);
+  const executor = new PiAgentExecutor({
+    stateDirectory,
+    workspaceRoot,
+    modelSpec: faux.getModel(),
+    modelsRegistry: models,
+    streamFn: models.streamSimple.bind(models),
+    systemPrompt: "App domain instructions stay stable across turns.",
+    assembleTurnContext: () => {
+      const text = contexts.shift();
+      return text ? { contextText: text } : undefined;
+    },
+  });
+  const capturedSystems: Array<ReturnType<typeof getCurrentSystemMessage>> = [];
+  const rawDeltas: Array<any[]> = [];
+  try {
+    faux.setResponses([
+      (ctx) => {
+        rawDeltas.push(ctx.messages.filter((m) => m.role === "system"));
+        capturedSystems.push(getCurrentSystemMessage(resolveTranscript(ctx, undefined).messages));
+        return fauxAssistantMessage("First reply");
+      },
+      (ctx) => {
+        rawDeltas.push(ctx.messages.filter((m) => m.role === "system"));
+        capturedSystems.push(getCurrentSystemMessage(resolveTranscript(ctx, undefined).messages));
+        return fauxAssistantMessage("Second reply");
+      },
+      (ctx) => {
+        rawDeltas.push(ctx.messages.filter((m) => m.role === "system"));
+        capturedSystems.push(getCurrentSystemMessage(resolveTranscript(ctx, undefined).messages));
+        return fauxAssistantMessage("Third reply");
+      },
+    ]);
+
+    await executor.run("First turn", { sessionId: "sections_session", taskId: "sec_1" });
+    await executor.run("Second turn", { sessionId: "sections_session", taskId: "sec_2" });
+    await executor.run("Third turn", { sessionId: "sections_session", taskId: "sec_3" });
+
+    assert.equal(capturedSystems[0]?.content, "");
+    assert.match(capturedSystems[0]?.sections?.app_instructions ?? "", /App domain instructions stay stable/);
+    assert.match(capturedSystems[0]?.sections?.turn_context ?? "", /turn context one/);
+
+    assert.equal(capturedSystems[1]?.content, "");
+    assert.match(capturedSystems[1]?.sections?.turn_context ?? "", /turn context two/);
+    assert.match(capturedSystems[1]?.sections?.app_instructions ?? "", /App domain instructions stay stable/);
+    assert.deepEqual(Object.keys(rawDeltas[1]?.at(-1)?.sections ?? {}), ["turn_context"]);
+
+    assert.equal(capturedSystems[2]?.content, "");
+    assert.equal(capturedSystems[2]?.sections?.turn_context, undefined);
+    assert.match(capturedSystems[2]?.sections?.app_instructions ?? "", /App domain instructions stay stable/);
+    assert.equal(rawDeltas[2]?.at(-1)?.sections?.turn_context, null);
   } finally {
     await executor.close();
     rmSync(root, { recursive: true, force: true });
