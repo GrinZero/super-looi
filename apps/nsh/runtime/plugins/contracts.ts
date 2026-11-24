@@ -1,5 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { FaceExpression } from "../../../../packages/looi-runtime/src/ui/robot-face-controller.js";
+import type { FaceExpression } from "@super-looi/runtime/face";
 import type { BodyActionReceipt, BodyControlInput, BodyStatusSnapshot } from "../body.js";
 import type {
   BodyCliffState,

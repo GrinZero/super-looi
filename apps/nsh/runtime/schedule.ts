@@ -1,7 +1,11 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { UserActionRef } from "@super-looi/contracts";
-import type { AgentRunResult, AgentTask } from "@super-looi/runtime/agent/executor";
-import type { PiAgentExecutor } from "@super-looi/runtime/agent/pi-executor";
+import type {
+  AgentInteraction,
+  AgentRunResult,
+  AgentTask,
+  PiAgentExecutor,
+} from "@super-looi/runtime/agent";
 import {
   PostTurnScheduleObserver,
   ScheduleEngine,
@@ -21,8 +25,8 @@ import {
   type ScheduleSnapshot,
   type UpdateScheduleRuleInput,
 } from "@super-looi/runtime/schedule";
-import type { SqliteRuntimeStore } from "@super-looi/runtime/storage/sqlite";
-import type { LangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { SqliteRuntimeStore } from "@super-looi/runtime/storage";
+import type { LangfuseTracer } from "@super-looi/runtime/telemetry";
 import type { LlmModelStreamConfig } from "./agent/types.js";
 import {
   createScheduleNativePort,
@@ -51,7 +55,7 @@ export type ScheduleInteractionEvent =
       ruleId?: string;
       ruleTitle?: string;
       runId?: string;
-      interaction: import("@super-looi/runtime/agent/executor").AgentInteraction;
+      interaction: AgentInteraction;
     }
   | {
       type: "cleared";

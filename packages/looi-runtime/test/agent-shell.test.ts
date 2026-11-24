@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 import { utf8Tail } from "../src/agent/shell-output.js";
 
 function fixture(command: string, config: { commandTimeoutMs?: number } = {}) {

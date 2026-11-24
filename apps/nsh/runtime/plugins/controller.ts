@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { UserActionRef } from "@super-looi/contracts";
-import type { LangfuseTracer, TraceContext } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
-import type { RobotFaceController } from "../../../../packages/looi-runtime/src/ui/robot-face-controller.js";
+import type { LangfuseTracer, TraceContext } from "@super-looi/runtime/telemetry";
+import type { RobotFaceController } from "@super-looi/runtime/face";
 import { createBuiltinPluginDefinitions } from "../../plugins/registry.js";
 import type { BodyRuntime } from "../body.js";
 import {

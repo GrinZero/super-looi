@@ -7,7 +7,7 @@ import { LiveVoiceSession } from "./live-session.js";
 import { VoiceConversationWindow } from "./conversation-window.js";
 import { VoiceHomeReferences } from "./tools/home.js";
 import { describeVoiceFailure, nativeAudioFailure } from "./failure.js";
-import type { VoiceConversationMessage, VoiceSessionFailure } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
+import type { VoiceConversationMessage, VoiceSessionFailure } from "@super-looi/runtime/telemetry";
 import {
   createVoiceProtocol,
   type RealtimeProtocolAdapter,

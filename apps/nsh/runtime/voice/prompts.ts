@@ -1,7 +1,7 @@
 import {
   conversationLanguageInstructions,
   type ConversationLanguage,
-} from "../../../../packages/looi-runtime/src/agent/conversation-language.js";
+} from "@super-looi/runtime/agent/language";
 import { deviceControlInstructions } from "../device-control-instructions.js";
 
 /** Model-facing text for the Duplex voice session. Edit conversation behavior here. */

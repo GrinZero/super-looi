@@ -1,4 +1,4 @@
-import type { TraceContext } from "../../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { TraceContext } from "@super-looi/runtime/telemetry";
 import type { PluginVoiceTool, ToolCallBailResult } from "../../plugins/contracts.js";
 import type { VoiceTaskBridge } from "../types.js";
 import type { VoiceHome, VoiceHomeReferences } from "./home.js";

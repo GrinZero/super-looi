@@ -9,8 +9,8 @@ import {
   fauxAssistantMessage,
   resolveTranscript,
 } from "@earendil-works/pi-ai";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
-import { AgentTaskStore } from "../src/agent/task-store.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
+import { AgentTaskStore } from "../src/agent/memory/task-store.js";
 
 test("conversation history survives new task IDs and executor restart without crossing sessions", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-chat-"));

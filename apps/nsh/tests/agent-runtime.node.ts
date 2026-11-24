@@ -6,9 +6,9 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import type { UserActionRef } from "@super-looi/contracts";
-import { assertFreshUiAction } from "@super-looi/runtime/productivity/authorization";
-import { SqliteRuntimeStore } from "@super-looi/runtime/storage/sqlite";
-import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import { assertFreshUiAction } from "@super-looi/runtime/agent";
+import { SqliteRuntimeStore } from "@super-looi/runtime/storage";
+import { createLangfuseTracer } from "@super-looi/runtime/telemetry";
 import { AgentRuntime, type AgentRuntimeOptions } from "../runtime/agent.js";
 
 function sseResponse(events: Array<unknown | "[DONE]">): Response {

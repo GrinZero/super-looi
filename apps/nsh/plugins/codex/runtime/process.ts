@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { bundledBin, installedBin, installCliScript } from "./cli-update.js";
 import type { CliReceipt } from "../../../runtime/plugins/contracts.js";
-import type { LangfuseTracer, TraceContext } from "../../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { LangfuseTracer, TraceContext } from "@super-looi/runtime/telemetry";
 
 export interface CliRequest {
   stage: string;

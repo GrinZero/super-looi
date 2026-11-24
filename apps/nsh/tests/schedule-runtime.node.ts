@@ -10,7 +10,7 @@ import {
   ScheduleError,
   type NativeSchedulePort,
 } from "@super-looi/runtime/schedule";
-import { SqliteRuntimeStore } from "@super-looi/runtime/storage/sqlite";
+import { SqliteRuntimeStore } from "@super-looi/runtime/storage";
 import type { UserActionRef } from "@super-looi/contracts";
 import { openRuntime, type NativeScheduleHost } from "../generated/looi-runtime.js";
 import { codexDefinition } from "../plugins/codex/runtime/index.js";
@@ -25,7 +25,7 @@ import {
   saveGitHubToken,
   verifyGitHubToken,
 } from "../runtime/tools/index.js";
-import { createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+import { createOpenAiRealtimeProtocol } from "@super-looi/runtime/voice";
 import { VoiceRuntime, type VoiceAudioPort, type VoiceSocket } from "../runtime/voice.js";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

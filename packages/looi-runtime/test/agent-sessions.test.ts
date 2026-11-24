@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, getCurrentSystemMessage, resolveTranscript } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 
 for (const outcome of ["failed", "cancelled"] as const) {
   test(`JSONL checkpoints survive ${outcome} tasks and executor restart`, async () => {

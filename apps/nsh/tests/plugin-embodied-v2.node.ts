@@ -5,7 +5,7 @@ import {
   FACE_EXPRESSION_IDS,
   RobotFaceController,
   isFaceExpression,
-} from "../../../packages/looi-runtime/src/ui/robot-face-controller.js";
+} from "@super-looi/runtime/face";
 import { BodyRuntime, parseCliffPacket, type BodyServoPreemptReason } from "../runtime/body.js";
 import { MotionBroker } from "../runtime/device-motion.js";
 import { VisionBroker } from "../runtime/device-camera.js";

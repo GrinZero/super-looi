@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
   replyTextLanguage,
   type ConversationLanguage,
-} from "../../../../packages/looi-runtime/src/agent/conversation-language.js";
-import { type VoiceConversationMessage } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
+} from "@super-looi/runtime/agent/language";
 import {
   NOOP_TRACER,
   type LangfuseTracer,
   type TraceContext,
-} from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+  type VoiceConversationMessage,
+} from "@super-looi/runtime/telemetry";
 import { VoiceAudioPipeline } from "./audio-pipeline.js";
 import { voiceInstructions } from "./prompts.js";
 import type {

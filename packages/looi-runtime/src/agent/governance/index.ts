@@ -1,3 +1,4 @@
+export { assertFreshUiAction } from "./authorization.js";
 export {
   ApprovalActionReplayGuard,
   InteractionGate,

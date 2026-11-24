@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { contentText, createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, resolveTranscript } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createSessionsTool } from "../src/agent/tools/sessions.js";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 
 function fixture(t: TestContext) {
   const root = mkdtempSync(join(tmpdir(), "looi-sessions-tool-"));

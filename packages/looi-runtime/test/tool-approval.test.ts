@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   createToolApprovalPolicy,
   type ToolApprovalContext,
-} from "../src/agent/tool-approval.js";
+} from "../src/agent/governance/tool-approval.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "looi-approval-"));

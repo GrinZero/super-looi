@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { RobotFaceController } from "../../../packages/looi-runtime/src/ui/robot-face-controller.js";
+import { RobotFaceController } from "@super-looi/runtime/face";
 import {
   PERSON_TRACKER_SERVICE_ID,
   encodeJpegDataUri,

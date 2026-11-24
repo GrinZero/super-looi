@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { RobotFaceController } from "../../../packages/looi-runtime/src/ui/robot-face-controller.js";
+import { RobotFaceController } from "@super-looi/runtime/face";
 import { BodyRuntime } from "../runtime/body.js";
 import {
   VisionBroker,

@@ -12,7 +12,7 @@ import {
   resolveTranscript,
 } from "@earendil-works/pi-ai";
 import { obj, str } from "@earendil-works/pi-schema";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 import {
   CHECK_ONLY_ALLOWED_TOOLS,
   evaluateScheduledToolPolicy,

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { AgentTask } from "@super-looi/runtime/agent/executor";
-import type { SqliteRuntimeStore } from "@super-looi/runtime/storage/sqlite";
+import type { AgentTask } from "@super-looi/runtime/agent";
+import type { SqliteRuntimeStore } from "@super-looi/runtime/storage";
 import { directVoiceToolName, voiceToolTask, voiceToolTaskPrefix } from "../voice-tool-history.js";
 
 /**

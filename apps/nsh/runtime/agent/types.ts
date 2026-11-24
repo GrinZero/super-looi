@@ -5,15 +5,15 @@ import type {
   AgentRunResult,
   AgentScheduleExecutionPolicy,
   AgentTask,
-} from "@super-looi/runtime/agent/executor";
+  PiExecutorConfig,
+} from "@super-looi/runtime/agent";
 import type {
   CompatibleApiProtocol,
   CustomEndpointConfig,
   LlmBrandId,
 } from "@super-looi/runtime/agent/llm-providers";
-import type { PiExecutorConfig } from "@super-looi/runtime/agent/pi-executor";
-import type { SqliteRuntimeStore } from "@super-looi/runtime/storage/sqlite";
-import type { LangfuseTracer, TraceContext } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { SqliteRuntimeStore } from "@super-looi/runtime/storage";
+import type { LangfuseTracer, TraceContext } from "@super-looi/runtime/telemetry";
 import type { UiActionGuard, Vault } from "../vault.js";
 
 export interface ModelConfiguration {

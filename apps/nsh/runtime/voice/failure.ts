@@ -1,5 +1,5 @@
 import type { VoiceAudioPort } from "./types.js";
-import type { VoiceSessionFailure } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
+import type { VoiceSessionFailure } from "@super-looi/runtime/telemetry";
 
 export function describeVoiceFailure(
   stage: string,

@@ -1,8 +1,7 @@
-import { AcceptanceRunner } from "../../looi-runtime/src/acceptance/runner.js";
-import { PiAgentExecutor } from "../../looi-runtime/src/agent/pi-executor.js";
+import { PiAgentExecutor } from "@super-looi/runtime/agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { SqliteRuntimeStore } from "../../looi-runtime/src/storage/sqlite.js";
-import { createLangfuseTracer } from "../../looi-runtime/src/telemetry/langfuse.js";
+import { SqliteRuntimeStore } from "@super-looi/runtime/storage";
+import { createLangfuseTracer } from "@super-looi/runtime/telemetry";
 import {
   type UserActionRef,
 } from "../../contracts/src/index.js";
@@ -18,18 +17,6 @@ import {
 import fs from "node:fs";
 import { assert, equal } from "./assert.js";
 
-const report = await new AcceptanceRunner().runFullSuite();
-equal(report.totalCases, 33);
-equal(
-  report.passedCases,
-  33,
-  JSON.stringify(report.cases.filter((item) => !item.passed)),
-);
-assert(report.success);
-equal(report.hardGates, {
-  unauthorizedActions: 0,
-  unverifiedCompletions: 0,
-});
 const databasePath = "/home/looi-business.sqlite";
 let storage = new SqliteRuntimeStore(new DatabaseSync(databasePath));
 const localTracer = createLangfuseTracer({ onObservation: node => storage.saveObservation(node) });
@@ -248,7 +235,7 @@ release();
 assert(await stalled);
 equal(stubborn.getTask(stoppedTask)?.state, "unknown");
 console.log(
-  "PASS portable LOOI runtime: 33 behavioral contracts, enforced UI approval, real Pi tool/file/shell evidence, SQLite task reopen and honest unconfirmed stop",
+  "PASS portable LOOI runtime: enforced UI approval, real Pi tool/file/shell evidence, SQLite task reopen and honest unconfirmed stop",
 );
 
 // A native cleanup failure is not evidence that the guest descendants exited.

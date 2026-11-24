@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { PiAgentExecutor } from "../../looi-runtime/src/agent/pi-executor.js";
-import type { AgentShellOutput } from "../../looi-runtime/src/agent/executor.js";
+import { PiAgentExecutor, type AgentShellOutput } from "@super-looi/runtime/agent";
 
 function equal(actual: unknown, expected: unknown) {
   if (actual !== expected) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);

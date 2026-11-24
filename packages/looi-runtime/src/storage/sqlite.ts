@@ -1,5 +1,5 @@
 import type { AgentTask } from "../agent/executor.js";
-import type { TaskPersistence } from "../agent/task-store.js";
+import type { TaskPersistence } from "../agent/memory/task-store.js";
 import { nextCronOccurrence } from "../schedule/cron.js";
 import {
   DEFAULT_SCHEDULE_SETTINGS,

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses";
 import { createModels, createProvider, type Model } from "@earendil-works/pi-ai";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createLangfuseTracer, type TraceObservation } from "../src/telemetry/langfuse.js";
 
@@ -107,7 +107,7 @@ test("provider-rendered Markdown citations stay clickable without duplicate sour
     annotations: [{ type: "url_citation", start_index: Array.from(introduction).length, end_index: Array.from(introduction + citation).length, title: "GRIN: Zero-Shot Metric Depth", url }],
   };
   const executor = new PiAgentExecutor({
-    stateDirectory: root, apiKey: "sk-test", modelSpec: model,
+    stateDirectory: root, workspaceRoot: join(root, "work"), apiKey: "sk-test", modelSpec: model,
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
       fetch: async () => new Response(responseBody(true, false, undefined, output), { headers: { "content-type": "text/event-stream" } }),
@@ -125,7 +125,7 @@ test("provider-rendered Markdown citations stay clickable without duplicate sour
 test("official OpenAI refusal text remains intact when there are no citations", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-search-refusal-"));
   const executor = new PiAgentExecutor({
-    stateDirectory: root, apiKey: "sk-test", modelSpec: model,
+    stateDirectory: root, workspaceRoot: join(root, "work"), apiKey: "sk-test", modelSpec: model,
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
       fetch: async () => new Response(responseBody(false, false, "无法协助此请求。"), { headers: { "content-type": "text/event-stream" } }),
@@ -151,7 +151,7 @@ test("OpenAI-compatible third-party endpoints receive no hosted search declarati
   }));
   const executor = new PiAgentExecutor({
     modelsRegistry: models,
-    stateDirectory: root, apiKey: "sk-test", modelSpec: { ...model, provider: "custom", baseUrl: "https://gateway.example/v1" },
+    stateDirectory: root, workspaceRoot: join(root, "work"), apiKey: "sk-test", modelSpec: { ...model, provider: "custom", baseUrl: "https://gateway.example/v1" },
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
       fetch: async (_url, init) => {
@@ -177,7 +177,7 @@ test("hosted search stays enabled through Pi retries and preserves the final err
   let requests = 0;
   const executor = new PiAgentExecutor({
     settings: { retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 } },
-    stateDirectory: root, apiKey: "sk-test", modelSpec: model,
+    stateDirectory: root, workspaceRoot: join(root, "work"), apiKey: "sk-test", modelSpec: model,
     streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
       ...options, apiKey: "sk-test", maxRetries: 0,
       fetch: async (_url, init) => {

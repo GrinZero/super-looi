@@ -5,27 +5,9 @@ import {
   getFaceExpressionBehavior,
   isFaceExpression,
   RobotFaceController,
-  KeepAwakeController,
-} from "../src/ui/robot-face-controller.js";
-import { LightToastQueue } from "../src/ui/light-toast-queue.js";
-import {
-  LOOI_PALETTE,
-  getColorForReceiptStatus,
-  getColorForClaimStatus,
-} from "../src/ui/theme.js";
+} from "../src/face/robot-face-controller.js";
 
-describe("Robot Face Kinematics, Toast Queue, and Theme (Phase 1)", () => {
-  it("enforces color palette semantic rules for receipts and memory claims", () => {
-    assert.equal(getColorForReceiptStatus("verified"), LOOI_PALETTE.confirmGreen);
-    assert.equal(getColorForReceiptStatus("unverified"), LOOI_PALETTE.amberWarning);
-    assert.equal(getColorForReceiptStatus("rejected"), LOOI_PALETTE.alertCoral);
-
-    assert.equal(getColorForClaimStatus("confirmed"), LOOI_PALETTE.confirmGreen);
-    assert.equal(getColorForClaimStatus("inferred"), LOOI_PALETTE.amberWarning);
-    assert.equal(getColorForClaimStatus("candidate"), LOOI_PALETTE.amberWarning);
-    assert.equal(getColorForClaimStatus("observed"), LOOI_PALETTE.presenceCyan);
-  });
-
+describe("Robot Face Kinematics and Expression Catalog", () => {
   it("controls eye gaze vector with safe clamping in [-1, 1]", () => {
     const face = new RobotFaceController();
     face.setGaze(0.5, -0.2);
@@ -75,54 +57,6 @@ describe("Robot Face Kinematics, Toast Queue, and Theme (Phase 1)", () => {
     assert.equal(stopCalled, true);
     assert.equal(stopReason, "user_stop");
     assert.equal(face.getState().expression, "alarmed");
-  });
-
-  it("manages keep-awake policy across docked and privacy pause states", () => {
-    const keepAwake = new KeepAwakeController();
-
-    // 1. Docked and active -> keep-awake active
-    assert.equal(keepAwake.updatePolicy(true, "docked_context"), true);
-    assert.equal(keepAwake.isKeepAwakeActive(), true);
-
-    // 2. Undocked -> keep-awake disabled (saves battery)
-    assert.equal(keepAwake.updatePolicy(false, "docked_context"), false);
-    assert.equal(keepAwake.isKeepAwakeActive(), false);
-
-    // 3. Docked but in privacy pause (captureMode === 'off') -> keep-awake disabled
-    assert.equal(keepAwake.updatePolicy(true, "off"), false);
-    assert.equal(keepAwake.isKeepAwakeActive(), false);
-  });
-
-  it("queues toast notifications during active speech and auto-expires after 3000ms", () => {
-    const queue = new LightToastQueue();
-    const t0 = 10_000;
-
-    // Normal toast shown immediately
-    const t1 = queue.enqueueToast("Ceiling light turned on", { receiptStatus: "verified", nowMs: t0 });
-    assert.equal(queue.getActiveToast(t0)?.id, t1.id);
-    assert.equal(queue.getActiveToast(t0)?.color, LOOI_PALETTE.confirmGreen);
-
-    // User starts speaking
-    queue.updateUserSpeechState(true, t0 + 500);
-
-    // Enqueue second toast while speaking -> deferred to pending queue
-    const t2 = queue.enqueueToast("Temperature claim recorded", { claimStatus: "observed", nowMs: t0 + 1000 });
-    assert.equal(queue.getPendingQueueLength(), 1);
-    assert.equal(queue.getActiveToast(t0 + 1000), null); // t1 suspended during speech
-
-    // T1 expires at t0 + 3000ms
-    assert.equal(queue.getActiveToast(t0 + 3001), null);
-    // T2 still deferred because user is speaking
-    assert.equal(queue.getPendingQueueLength(), 1);
-
-    // Resume T1 with its remaining 2500ms, then show T2 for a full 3000ms.
-    queue.updateUserSpeechState(false, t0 + 3100);
-    assert.equal(queue.getActiveToast(t0 + 3100)?.id, t1.id);
-    assert.equal(queue.getActiveToast(t0 + 5599)?.id, t1.id);
-    assert.equal(queue.getActiveToast(t0 + 5600)?.id, t2.id);
-    assert.equal(queue.getPendingQueueLength(), 0);
-    assert.equal(queue.getActiveToast(t0 + 8599)?.id, t2.id);
-    assert.equal(queue.getActiveToast(t0 + 8600), null);
   });
 
   it("privacy pause cancels pending blink work and dispose prevents reopening", async () => {

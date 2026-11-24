@@ -7,8 +7,8 @@ import {
   type NativeSchedulePort,
   type NativeUpcomingAlarm,
 } from "@super-looi/runtime/schedule";
-import { SqliteRuntimeStore } from "@super-looi/runtime/storage/sqlite";
-import { createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+import { SqliteRuntimeStore } from "@super-looi/runtime/storage";
+import { createOpenAiRealtimeProtocol } from "@super-looi/runtime/voice";
 import { VoiceRuntime, type VoiceAudioPort, type VoiceSocket } from "../runtime/voice.js";
 import { voiceInstructions } from "../runtime/voice/prompts.js";
 import { createVoiceTools } from "../runtime/voice/tools/index.js";

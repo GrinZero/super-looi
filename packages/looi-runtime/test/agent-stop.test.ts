@@ -9,7 +9,7 @@ import {
   fauxAssistantMessage,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 
 test("an unresponsive tool cannot turn a stop timeout into an exit receipt", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-stop-"));

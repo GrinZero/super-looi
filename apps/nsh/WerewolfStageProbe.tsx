@@ -2,7 +2,7 @@ import { cleanup, locale, mount, signal, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import { BackHandler } from "nsh/mobile";
 import { DeviceCameraHost, LanRoomHost } from "super-looi/native";
-import { RobotFaceController } from "../../packages/looi-runtime/src/ui/robot-face-controller";
+import { RobotFaceController } from "@super-looi/runtime/face";
 import type { VoiceState } from "./generated/looi-runtime.js";
 import { bindLocale, resolveLocale } from "./i18n";
 import { visionPersonTrackerDefinition } from "./plugins/vision-person-tracker/runtime/index";

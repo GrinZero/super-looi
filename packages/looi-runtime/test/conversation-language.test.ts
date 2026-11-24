@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { acknowledgementLanguage } from "../src/agent/conversation-language.js";
+import { acknowledgementLanguage } from "../src/agent/prompts/conversation-language.js";
 
 test("acknowledgements retain the answer language rather than quoted words", () => {
   assert.equal(acknowledgementLanguage("嗯", "Grass is green.", "zh-CN"), "en-US");

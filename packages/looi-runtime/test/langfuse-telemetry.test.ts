@@ -5,7 +5,7 @@ import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 import { createLangfuseTracer, NOOP_TRACER } from "../src/telemetry/langfuse.js";
 import { observeVoiceSocket } from "../src/telemetry/realtime-observer.js";
 import { wrapStreamFnWithLangfuse } from "../src/telemetry/llm-observer.js";

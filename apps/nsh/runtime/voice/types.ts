@@ -6,11 +6,11 @@ import type {
   UserTurnBailResult,
 } from "../plugins/contracts.js";
 import type { RealtimeProtocolAdapter } from "./protocol.js";
-import type { VoiceSessionFailure } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 import type {
   LangfuseTracer,
   TraceContext,
-} from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+  VoiceSessionFailure,
+} from "@super-looi/runtime/telemetry";
 
 export interface VoiceAudioPort {
   requestPermission(): string;

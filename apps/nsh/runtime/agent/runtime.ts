@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { UserActionRef } from "@super-looi/contracts";
-import type {
-  AgentInteractionAnswer,
-  AgentStepEvent,
-  AgentStopResult,
-} from "@super-looi/runtime/agent/executor";
+import {
+  PiAgentExecutor,
+  type AgentInteractionAnswer,
+  type AgentStepEvent,
+  type AgentStopResult,
+} from "@super-looi/runtime/agent";
 import {
   syncLooiModelsRegistry,
   type ActiveLlmSelection,
 } from "@super-looi/runtime/agent/llm-providers";
-import { PiAgentExecutor } from "@super-looi/runtime/agent/pi-executor";
-import type { TraceContext } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { TraceContext } from "@super-looi/runtime/telemetry";
 import { VoiceConversationWindow } from "../voice/conversation-window.js";
 import { TaskHistoryStore } from "./history.js";
 import { LlmModelManager } from "./models.js";

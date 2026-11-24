@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { UserActionRef } from "@super-looi/contracts";
-import { assertFreshUiAction } from "../../productivity/authorization.js";
+import { assertFreshUiAction } from "./authorization.js";
 import type {
   AgentInteractionAnswer,
   AgentStepEvent,

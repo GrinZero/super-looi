@@ -12,15 +12,50 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./schedule": {
-      "types": "./dist/schedule.d.ts",
-      "import": "./dist/schedule.js",
-      "default": "./dist/schedule.js"
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "import": "./dist/agent/index.js",
+      "default": "./dist/agent/index.js"
     },
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js",
-      "default": "./dist/*.js"
+    "./agent/llm-providers": {
+      "types": "./dist/agent/llm-providers.d.ts",
+      "import": "./dist/agent/llm-providers.js",
+      "default": "./dist/agent/llm-providers.js"
+    },
+    "./agent/language": {
+      "types": "./dist/agent/prompts/conversation-language.d.ts",
+      "import": "./dist/agent/prompts/conversation-language.js",
+      "default": "./dist/agent/prompts/conversation-language.js"
+    },
+    "./agent/shell-output": {
+      "types": "./dist/agent/shell-output.d.ts",
+      "import": "./dist/agent/shell-output.js",
+      "default": "./dist/agent/shell-output.js"
+    },
+    "./face": {
+      "types": "./dist/face/index.d.ts",
+      "import": "./dist/face/index.js",
+      "default": "./dist/face/index.js"
+    },
+    "./schedule": {
+      "types": "./dist/schedule/index.d.ts",
+      "import": "./dist/schedule/index.js",
+      "default": "./dist/schedule/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/sqlite.d.ts",
+      "import": "./dist/storage/sqlite.js",
+      "default": "./dist/storage/sqlite.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "import": "./dist/telemetry/index.js",
+      "default": "./dist/telemetry/index.js"
+    },
+    "./voice": {
+      "types": "./dist/voice/realtime-protocol.d.ts",
+      "import": "./dist/voice/realtime-protocol.js",
+      "default": "./dist/voice/realtime-protocol.js"
     }
   },
   "scripts": {
@@ -31,8 +66,6 @@
   },
   "dependencies": {
     "@super-looi/contracts": "workspace:*",
-    "@super-looi/home-assistant": "workspace:*",
-    "@super-looi/looi-driver": "workspace:*",
     "@earendil-works/pi-agent-core": "1.5.0",
     "@earendil-works/pi-ai": "1.5.0",
     "@earendil-works/pi-coding-agent": "1.5.0",

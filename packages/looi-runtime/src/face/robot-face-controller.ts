@@ -7,7 +7,7 @@ import {
   type FaceExpression,
   type FaceExpressionBehavior,
   type PluginFaceExpressionId,
-} from "../shell/presence-state.js";
+} from "./face-expressions.js";
 import type { BodySupervisorState } from "@super-looi/contracts";
 
 export {
@@ -501,32 +501,5 @@ export class RobotFaceController {
         success: false,
       };
     }
-  }
-}
-
-/**
- * Landscape Keep-Awake policy manager:
- * Keeps the screen awake when docked and captureMode !== 'off'.
- * Releases wake lock when undocked or in privacy pause to save battery/thermals.
- */
-export class KeepAwakeController {
-  private isDocked = false;
-  private captureMode: "off" | "foreground_explicit" | "docked_context" =
-    "docked_context";
-  private nativeKeepAwakeActive = false;
-
-  public updatePolicy(
-    isDocked: boolean,
-    captureMode: "off" | "foreground_explicit" | "docked_context",
-  ): boolean {
-    this.isDocked = isDocked;
-    this.captureMode = captureMode;
-    const shouldKeepAwake = this.isDocked && this.captureMode !== "off";
-    this.nativeKeepAwakeActive = shouldKeepAwake;
-    return shouldKeepAwake;
-  }
-
-  public isKeepAwakeActive(): boolean {
-    return this.nativeKeepAwakeActive;
   }
 }

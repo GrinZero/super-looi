@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { AgentStepEvent, AgentTaskState } from "../src/agent/executor.js";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 
 test("additional tool rules drive the existing approval interaction before execution", async () => {
   for (const outcome of ["allowed-once", "rejected", "cancelled"] as const) {

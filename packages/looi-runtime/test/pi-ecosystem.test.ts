@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, resolveTranscript } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { PiAgentExecutor, type PiExecutorConfig } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor, type PiExecutorConfig } from "../src/agent/core/pi-executor.js";
 
 function fixture(config: Partial<PiExecutorConfig> = {}, fauxOptions?: Parameters<typeof fauxProvider>[0]) {
   const root = mkdtempSync(join(tmpdir(), "looi-pi-sdk-"));

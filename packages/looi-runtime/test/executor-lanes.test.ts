@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { obj } from "@earendil-works/pi-schema";
 import { AgentExecutionError } from "../src/agent/executor.js";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 
 test("executor supports 3 concurrent lanes (foreground, plugin, schedule) and enforces per-lane limit 1 and capacity limit", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-lanes-"));

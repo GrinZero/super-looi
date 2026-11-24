@@ -18,7 +18,7 @@ import { extractPluginFailure, PluginKernelError } from "../../../runtime/plugin
 import { cliArchive, downloadCliArchive, latestCliVersion, versionIsNewer } from "./cli-update.js";
 import { readCloudDirectory } from "./cloud-directory.js";
 import { createCodexRunner, type CliHandle, type CliRunner } from "./process.js";
-import type { LangfuseTracer, TraceContext } from "../../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import type { LangfuseTracer, TraceContext } from "@super-looi/runtime/telemetry";
 
 const SKILL = `---
 name: codex

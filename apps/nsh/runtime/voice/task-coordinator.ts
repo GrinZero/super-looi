@@ -1,8 +1,8 @@
 import {
   replyTextLanguage,
   type ConversationLanguage,
-} from "../../../../packages/looi-runtime/src/agent/conversation-language.js";
-import type { TraceContext } from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+} from "@super-looi/runtime/agent/language";
+import type { TraceContext } from "@super-looi/runtime/telemetry";
 import type {
   VoiceProactiveNotice,
   VoiceTaskBridge,

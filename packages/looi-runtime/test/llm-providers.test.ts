@@ -19,7 +19,7 @@ import {
   type BackingVault,
   type ModelVaultEnvelope,
 } from "../src/agent/llm-providers.js";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 
 test("1. LLM Provider Catalog integrity and Zhipu/Z.AI endpoint distinction", () => {
   const brandIds = LLM_PROVIDER_CATALOG.map((b) => b.brandId);
@@ -421,24 +421,19 @@ test("5. PiAgentExecutor execution with modelsRegistry and providerId", async ()
 
   // Test validation error: missing model
   const executorNoModel = new PiAgentExecutor({
+    stateDirectory: join(root, "state-no-model"),
+    workspaceRoot: join(root, "work-no-model"),
     modelsRegistry: models,
     providerId: "faux",
   });
-  await assert.rejects(
-    () => executorNoModel.run("Hi", { sessionId: "s1" }),
-    /requires a model when using modelsRegistry/,
-  );
-
   // Test validation error: model not found
   const executorBadModel = new PiAgentExecutor({
+    stateDirectory: join(root, "state-bad-model"),
+    workspaceRoot: join(root, "work-bad-model"),
     modelsRegistry: models,
     providerId: "faux",
     model: "non-existent-model",
   });
-  await assert.rejects(
-    () => executorBadModel.run("Hi", { sessionId: "s1" }),
-    /Model non-existent-model not found in provider faux/,
-  );
 
   // Test successful execution with modelsRegistry
   const executor = new PiAgentExecutor({
@@ -450,11 +445,21 @@ test("5. PiAgentExecutor execution with modelsRegistry and providerId", async ()
   });
 
   try {
+    await assert.rejects(
+      () => executorNoModel.run("Hi", { sessionId: "s1" }),
+      /requires a model when using modelsRegistry/,
+    );
+    await assert.rejects(
+      () => executorBadModel.run("Hi", { sessionId: "s1" }),
+      /Model non-existent-model not found in provider faux/,
+    );
     const result = await executor.run("Greet me", { sessionId: "reg_session" });
     assert.ok(result.taskId);
     assert.equal(result.finishReason, "completed");
     assert.ok(result.answer.includes("Hello from registry executor!"));
   } finally {
+    await executorNoModel.close();
+    await executorBadModel.close();
     await executor.close();
     rmSync(root, { recursive: true, force: true });
   }

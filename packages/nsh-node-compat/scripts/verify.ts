@@ -1,13 +1,42 @@
 import { nshPiSdkPlugin } from "../src/pi-sdk-bundler.js";
 import { nshCodemodePlugin } from "../src/codemode-bundler.js";
-import { build } from "esbuild";
+import { build, type Plugin } from "esbuild";
 import { spawn, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { nshPiCodingToolsPlugin } from "../src/pi-coding-bundler.js";
 import { nshNodeCompatPlugin } from "../src/bundler.js";
 const root = resolve(import.meta.dirname, "..");
+const looiRuntimeRoot = resolve(root, "../looi-runtime");
+const looiRuntimeExports = JSON.parse(
+  readFileSync(resolve(looiRuntimeRoot, "package.json"), "utf8"),
+).exports as Record<string, { import?: string }>;
+function looiRuntimeSourcePlugin(): Plugin {
+  return {
+    name: "looi-runtime-source",
+    setup(builder) {
+      builder.onResolve({ filter: /^@super-looi\/runtime(\/.*)?$/ }, (args) => {
+        const subpath =
+          args.path === "@super-looi/runtime"
+            ? "."
+            : `./${args.path.slice("@super-looi/runtime/".length)}`;
+        const target = looiRuntimeExports[subpath]?.import;
+        if (!target) {
+          throw new Error(`Unexported @super-looi/runtime subpath: ${args.path}`);
+        }
+        return {
+          path: resolve(
+            looiRuntimeRoot,
+            "src",
+            target.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
+          ),
+        };
+      });
+    },
+  };
+}
 const cargo = spawnSync(
   "cargo",
   [
@@ -92,8 +121,11 @@ for (const name of cases) {
       conditions: ["browser", "import"],
       target: "es2022",
       define: { "import.meta.url": JSON.stringify("file:///app/main.mjs") },
-      plugins:
-        name === "pi-coding-agent"
+      plugins: [
+        ...(["looi-runtime", "looi-ecosystem", "mobile-runtime", "home-runtime", "voice-runtime"].includes(name)
+          ? [looiRuntimeSourcePlugin()]
+          : []),
+        ...(name === "pi-coding-agent"
           ? [nshCodemodePlugin(), nshPiCodingToolsPlugin(), plugin]
           : ["pi-sdk", "pi-sdk-live", "looi-runtime", "looi-ecosystem", "mobile-runtime"].includes(name)
             ? [
@@ -102,7 +134,8 @@ for (const name of cases) {
                 nshPiCodingToolsPlugin(),
                 plugin,
               ]
-            : [nshCodemodePlugin(), plugin],
+            : [nshCodemodePlugin(), plugin]),
+      ],
       write: false,
       metafile: true,
     });

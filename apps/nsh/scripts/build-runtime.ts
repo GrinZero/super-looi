@@ -1,4 +1,5 @@
-import { build, context, type BuildOptions } from "esbuild";
+import { build, context, type BuildOptions, type Plugin } from "esbuild";
+import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { nshNodeCompatPlugin } from "../../../packages/nsh-node-compat/src/bundler.js";
@@ -8,9 +9,39 @@ import { nshPiSdkPlugin } from "../../../packages/nsh-node-compat/src/pi-sdk-bun
 import { loadRuntimeVariables } from "./build-env.mjs";
 import { writeGenerated } from "./write-generated.mjs";
 
+/** Resolves `@super-looi/runtime` and its explicit subpaths directly to TypeScript sources. */
+export function createLooiRuntimeSourcePlugin(runtimePackageRoot: string): Plugin {
+  const runtimeExports = JSON.parse(
+    readFileSync(resolve(runtimePackageRoot, "package.json"), "utf8"),
+  ).exports as Record<string, { import?: string }>;
+  return {
+    name: "looi-runtime-source",
+    setup(builder) {
+      builder.onResolve({ filter: /^@super-looi\/runtime(\/.*)?$/ }, (args) => {
+        const subpath =
+          args.path === "@super-looi/runtime"
+            ? "."
+            : `./${args.path.slice("@super-looi/runtime/".length)}`;
+        const target = runtimeExports[subpath]?.import;
+        if (!target) {
+          throw new Error(`Unexported @super-looi/runtime subpath: ${args.path}`);
+        }
+        return {
+          path: resolve(
+            runtimePackageRoot,
+            "src",
+            target.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
+          ),
+        };
+      });
+    },
+  };
+}
+
 /** Separate from the test probe: no faux provider or acceptance fixtures ship. */
 export async function buildRuntime(options: { release?: boolean; debugTelemetry?: boolean; development?: boolean; simulator?: boolean } = {}) {
   const root = resolve(import.meta.dirname, "..");
+  const runtimePackageRoot = resolve(root, "../../packages/looi-runtime");
   const variables = loadRuntimeVariables(options);
   await mkdir(resolve(root, "generated"), { recursive: true });
   const settings: BuildOptions = {
@@ -19,13 +50,13 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
       resolveDir: root,
       contents: `
     import {installNshNativeCompat} from "../../packages/nsh-node-compat/src/native-host.ts";
-    export {utf8Tail} from "../../packages/looi-runtime/src/agent/shell-output.ts";
+    export {utf8Tail} from "@super-looi/runtime/agent/shell-output";
     export {VoiceRuntime, VoiceTaskCoordinator} from "./runtime/voice.ts";
     export {MiotLoginFlow} from "./runtime/miot-login.ts";
     export {resolveApplianceCardView, packBentoTiles} from "@super-looi/home-devices";
-    export {RobotFaceController, FACE_EXPRESSION_IDS, FACE_PRIORITY, isFaceExpression, getFaceExpressionBehavior} from "../../packages/looi-runtime/src/ui/robot-face-controller.ts";
+    export {RobotFaceController, FACE_EXPRESSION_IDS, FACE_PRIORITY, isFaceExpression, getFaceExpressionBehavior} from "@super-looi/runtime/face";
     export {verifyEd25519Signature, verifyNshPackage} from "./runtime/plugins/package-loader.ts";
-    export {parseCron, previewCronOccurrences, isWithinQuietHours} from "../../packages/looi-runtime/src/schedule.ts";
+    export {parseCron, previewCronOccurrences, isWithinQuietHours} from "@super-looi/runtime/schedule";
     export async function openRuntime(host,vault) {
       const release=installNshNativeCompat(host);
       try {const {MobileRuntime}=await import("./runtime/application.ts");return new MobileRuntime(vault,release);}
@@ -46,16 +77,10 @@ export async function buildRuntime(options: { release?: boolean; debugTelemetry?
       ...Object.fromEntries(Object.entries(variables).map(([key, value]) => [`process.env.${key}`, JSON.stringify(value)])),
     },
     plugins: [
+      createLooiRuntimeSourcePlugin(runtimePackageRoot),
       {
         name: "looi-portable-source",
         setup(builder) {
-          builder.onResolve({ filter: /^@super-looi\/runtime\// }, (args) => ({
-            path: resolve(
-              root,
-              "../../packages/looi-runtime/src",
-              args.path.slice("@super-looi/runtime/".length) + ".ts",
-            ),
-          }));
           builder.onResolve({ filter: /^@super-looi\/looi-driver$/ }, () => ({
             path: resolve(root, "../../packages/looi-driver/src/index.ts"),
           }));

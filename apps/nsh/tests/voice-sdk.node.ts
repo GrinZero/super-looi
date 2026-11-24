@@ -12,7 +12,7 @@ import {
 import {
   createLangfuseTracer,
   type TraceObservation,
-} from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
+} from "@super-looi/runtime/telemetry";
 
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 async function fixture(

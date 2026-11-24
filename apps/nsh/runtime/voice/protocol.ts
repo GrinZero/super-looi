@@ -4,7 +4,7 @@ import {
   createMossLiveProtocol,
   createOpenAiRealtimeProtocol,
   resolveRealtimeProtocol,
-} from "../../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+} from "@super-looi/runtime/voice";
 export {
   createDoubaoDuplexV3Protocol,
   createMossLiveProtocol,
@@ -14,7 +14,7 @@ export type {
   RealtimeProviderId,
   RealtimeProtocolAdapter,
   NormalizedRealtimeEvent,
-} from "../../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+} from "@super-looi/runtime/voice";
 
 export function createVoiceProtocol(
   config: { providerId?: string; baseUrl?: string; model?: string } = {},

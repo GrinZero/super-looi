@@ -3,8 +3,8 @@ import { test, type TestContext } from "node:test";
 import { VoiceCredentialStore } from "../runtime/voice/credentials.js";
 import { LiveVoiceSession } from "../runtime/voice/live-session.js";
 import type { VoiceAudioPort, VoiceSocket } from "../runtime/voice/types.js";
-import { createMossLiveProtocol, createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
-import { createLangfuseTracer, type TraceObservation } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import { createMossLiveProtocol, createOpenAiRealtimeProtocol } from "@super-looi/runtime/voice";
+import { createLangfuseTracer, type TraceObservation } from "@super-looi/runtime/telemetry";
 
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const apiKey = "test-voice-secret";

@@ -7,12 +7,13 @@ import type {
   RealtimeTransportLayer,
   RealtimeTransportEventTypes,
 } from "@openai/agents-realtime";
-import { observeVoiceSocket, type ObservedVoiceSocket } from "../../../../packages/looi-runtime/src/telemetry/realtime-observer.js";
 import {
   NOOP_TRACER,
+  observeVoiceSocket,
   type LangfuseTracer,
+  type ObservedVoiceSocket,
   type TraceContext,
-} from "../../../../packages/looi-runtime/src/telemetry/langfuse.js";
+} from "@super-looi/runtime/telemetry";
 import type {
   NormalizedRealtimeEvent,
   RealtimeProtocolAdapter,

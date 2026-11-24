@@ -1,4 +1,4 @@
-import type { TraceObservation } from "../../../packages/looi-runtime/src/telemetry/observation.js";
+import type { TraceObservation } from "@super-looi/runtime/telemetry";
 
 export const voiceToolTaskPrefix = "voice_tool_";
 

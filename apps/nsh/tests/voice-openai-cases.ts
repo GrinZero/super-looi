@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
 import { HomeRuntime } from "../runtime/home.js";
 import { VoiceRuntime, type VoiceAudioPort, type VoiceSocket } from "../runtime/voice.js";
-import { createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
-import { createLangfuseTracer } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import { createOpenAiRealtimeProtocol } from "@super-looi/runtime/voice";
+import { createLangfuseTracer } from "@super-looi/runtime/telemetry";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 function check(condition: unknown, message: string): asserts condition {

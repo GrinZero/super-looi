@@ -8,8 +8,8 @@ import {
   type VoiceSocket,
   type VoiceTaskRunHooks,
 } from "../runtime/voice.js";
-import { createDoubaoDuplexV3Protocol, createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
-import { createLangfuseTracer, type TraceObservation } from "../../../packages/looi-runtime/src/telemetry/langfuse.js";
+import { createDoubaoDuplexV3Protocol, createOpenAiRealtimeProtocol } from "@super-looi/runtime/voice";
+import { createLangfuseTracer, type TraceObservation } from "@super-looi/runtime/telemetry";
 
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);

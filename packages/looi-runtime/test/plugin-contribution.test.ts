@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels, fauxAssistantMessage, fauxProvider, getCurrentTools, resolveTranscript } from "@earendil-works/pi-ai";
 import { obj } from "@earendil-works/pi-schema";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 
 test("each task receives current plugin tools and standard Skill resources without rebuilding the executor", async () => {
   const root = mkdtempSync(join(tmpdir(), "looi-plugin-contribution-"));

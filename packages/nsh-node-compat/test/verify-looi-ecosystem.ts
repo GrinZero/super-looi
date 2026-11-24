@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, resolveTranscript } from "@earendil-works/pi-ai";
 import { SessionManager, defineTool, isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { PiAgentExecutor } from "../../looi-runtime/src/agent/pi-executor.js";
+import { PiAgentExecutor } from "@super-looi/runtime/agent";
 import { registerPrecompiledModule } from "../src/shims/precompiled-jiti.js";
 import { assert, equal } from "./assert.js";
 import { installFixtureHttp, FixtureResponse } from "./http-fixture.js";

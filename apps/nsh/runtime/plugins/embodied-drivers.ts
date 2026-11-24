@@ -7,7 +7,7 @@ import {
   type FacePriorityLevel,
   type PluginFaceExpressionId,
   type RobotFaceController,
-} from "../../../../packages/looi-runtime/src/ui/robot-face-controller.js";
+} from "@super-looi/runtime/face";
 import type { BodyRuntime } from "../body.js";
 import type { MotionBroker } from "../device-motion.js";
 import type { VisionBroker } from "../device-camera.js";

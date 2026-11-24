@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createDoubaoDuplexV3Protocol, createOpenAiRealtimeProtocol } from "../../../packages/looi-runtime/src/voice/realtime-protocol.js";
+import { createDoubaoDuplexV3Protocol, createOpenAiRealtimeProtocol } from "@super-looi/runtime/voice";
 import { visionPersonTrackerDefinition } from "../plugins/vision-person-tracker/runtime/index.js";
 import {
   WEREWOLF_PLUGIN_ID,

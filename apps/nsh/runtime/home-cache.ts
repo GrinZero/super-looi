@@ -1,4 +1,4 @@
-import type { RuntimeDatabase } from "@super-looi/runtime/storage/sqlite";
+import type { RuntimeDatabase } from "@super-looi/runtime/storage";
 
 /** Disposable home data; credentials remain in the native vault. */
 export interface HomeCache {

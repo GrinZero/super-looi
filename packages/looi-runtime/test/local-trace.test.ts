@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { SqliteRuntimeStore } from "../src/storage/sqlite.js";
 import { createLangfuseTracer, type TraceObservation } from "../src/telemetry/langfuse.js";
-import { PiAgentExecutor } from "../src/agent/pi-executor.js";
+import { PiAgentExecutor } from "../src/agent/core/pi-executor.js";
 import { observeVoiceSocket } from "../src/telemetry/realtime-observer.js";
 import { createOpenAiRealtimeProtocol } from "../src/voice/realtime-protocol.js";
 
