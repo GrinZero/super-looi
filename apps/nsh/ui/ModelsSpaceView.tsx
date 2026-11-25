@@ -539,7 +539,7 @@ export function ModelsSpaceView(props: {
                       testID="oauth-callback-input"
                       value={oauthCallbackUrl()}
                       onChange={(v) => oauthCallbackUrl.set(v)}
-                      placeholder="http://127.0.0.1:1455/auth/callback?code=..."
+                      placeholder="http://localhost:1455/auth/callback?code=..."
                     />
                     <If when={!oauthCallbackUrl() && props.store.oauth().error}>
                       <Text role="alert" class="text-destructive text-xs">
@@ -557,6 +557,19 @@ export function ModelsSpaceView(props: {
                             oauthCallbackUrl().trim(),
                           );
                           oauthCallbackUrl.set("");
+                        }}
+                      />
+                      <ActionButton
+                        label={t("pasteFromSafari")}
+                        compact={true}
+                        onPress={async () => {
+                          try {
+                            const callback = (await Clipboard.readText())?.trim();
+                            if (callback) props.store.submitProviderOAuthCallback(callback);
+                            else props.store.notify(t("callbackClipboardEmpty"));
+                          } catch {
+                            props.store.notify(t("callbackClipboardEmpty"));
+                          }
                         }}
                       />
                       <ActionButton

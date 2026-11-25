@@ -643,7 +643,7 @@ try {
     );
     for (const [callback, expectedError] of [
       ["copied the wrong text", "@looi:runtimePasteFullChatgptCallbackUrl"],
-      ["http://127.0.0.1:1455/auth/callback?code=wrong&client_id=issued&state=other", "@looi:runtimeChatgptCallbackDoesNotMatchSignin"],
+      ["http://localhost:1455/auth/callback?code=wrong&state=other", "@looi:runtimeChatgptCallbackDoesNotMatchSignin"],
     ]) {
       let callbackError = "";
       try {

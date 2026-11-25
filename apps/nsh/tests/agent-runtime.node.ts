@@ -320,7 +320,7 @@ test("AgentRuntime standalone: refreshModels version race protection and OAuth P
   assert.throws(
     () =>
       agent.models.submitOAuthCallback(
-        "http://127.0.0.1:1455/auth/callback?code=c&client_id=cid&state=wrong",
+        "http://localhost:1455/auth/callback?code=c&state=wrong",
       ),
     /@looi:runtimeChatgptCallbackDoesNotMatchSignin/,
   );

@@ -119,29 +119,35 @@ export class LlmOAuthFlow {
   submitCallback(callbackUrl: string): void {
     const prompt = this.manualPrompt;
     if (!prompt) throw new Error("@looi:runtimeNoSigninIsAwaitingACallback");
+    let value = callbackUrl.trim();
     if (prompt.providerId === "openai") {
+      if (/^(localhost|127\.0\.0\.1):1455\//i.test(value)) value = `http://${value}`;
       let callback: URL;
       try {
-        callback = new URL(callbackUrl.trim());
+        callback = new URL(value);
       } catch {
         throw new Error("@looi:runtimePasteFullChatgptCallbackUrl");
       }
       const authorization = new URL(prompt.authorizationUrl);
+
       if (
-        callback.origin !== "http://127.0.0.1:1455" ||
-        callback.pathname !== "/auth/callback" ||
-        callback.searchParams.has("error") ||
-        !callback.searchParams.get("code") ||
-        !callback.searchParams.get("client_id")
+        !["http://localhost:1455", "http://127.0.0.1:1455"].includes(callback.origin) ||
+        callback.pathname !== "/auth/callback"
       ) {
         throw new Error("@looi:runtimePasteFullChatgptCallbackUrl");
+      }
+      if (callback.searchParams.has("error")) {
+        throw new Error("@looi:runtimeChatgptAuthorizationRejected");
+      }
+      if (!callback.searchParams.get("code")) {
+        throw new Error("@looi:runtimeChatgptCallbackMissingCode");
       }
       if (callback.searchParams.get("state") !== authorization.searchParams.get("state")) {
         throw new Error("@looi:runtimeChatgptCallbackDoesNotMatchSignin");
       }
     }
     this.manualPrompt = undefined;
-    prompt.resolve(callbackUrl.trim());
+    prompt.resolve(value);
   }
 
   cancel(): void {
